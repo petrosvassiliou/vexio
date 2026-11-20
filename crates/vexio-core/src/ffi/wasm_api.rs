@@ -11,7 +11,13 @@
 
 #![cfg(target_arch = "wasm32")]
 
+use crate::boolean_ops::{
+    BooleanOpKind, ControlHandleInfo, apply_boolean_operation, draw_freeform_curve,
+    ensure_default_control_handle, list_control_handles, list_shape_vertices, move_control_handle,
+    move_shape_vertex,
+};
 use crate::containers::{attach_callout, build_cross_functional_swimlanes, create_container};
+use crate::crdt::CrdtDocumentState;
 use crate::data_link::{
     DataGraphicItem, DataGraphicSpec, DataRecordset, apply_data_graphics, bind_recordset_to_page,
     generate_bom_shape_report, insert_page_legend,
@@ -22,15 +28,29 @@ use crate::domains::{
     forward_engineer_sql_ddl, instantiate_starter_template, mount_rack_equipment,
     reverse_engineer_sql_ddl,
 };
+use crate::enterprise_plan2::{
+    add_shape_hyperlink, apply_iso_title_block_background, compare_documents,
+    create_or_link_subprocess_page, set_shape_screentip,
+};
 use crate::export_print::export_page_svg;
 use crate::journal::{CommandJournal, DocCommand};
+use crate::plan2_connectors::{
+    export_data_visualizer_xlsx, import_cloud_discovery_json, import_data_visualizer_csv_or_xlsx,
+    import_entra_or_ldif_org_chart,
+};
 use crate::routing::route_page_connectors;
+use crate::sqlite_reader::{list_sqlite_tables, read_sqlite_table_to_recordset};
+use crate::themes_styles::{
+    BevelExtrusionSpec, DropShadowSpec, GradientDirection, GradientFillSpec, HatchFillSpec,
+    HatchPatternKind, ShapeVisualStyleSpec, SketchOutlineSpec, apply_document_theme_variant,
+    apply_visual_effects_to_shape,
+};
 use crate::workspace::DocumentSession;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use vexio_shapesheet::{
-    CommentAnnotation, MarkupInkPoint, MarkupInkStroke, ReactiveEngine, RgbaColor, ShapeKind, Unit,
-    VisioShape, format_clean_f64,
+    CommentAnnotation, ForeignMediaData, MarkupInkPoint, MarkupInkStroke, ReactiveEngine,
+    RgbaColor, ShapeKind, Unit, VisioDocument, VisioShape, format_clean_f64,
 };
 use wasm_bindgen::prelude::*;
 
@@ -38,6 +58,8 @@ use wasm_bindgen::prelude::*;
 pub struct WasmVexioSession {
     inner: DocumentSession,
     wgpu_renderer: Option<vexio_render::WgpuCanvasRenderer>,
+    crdt_state: CrdtDocumentState,
+    crdt_prev_doc: VisioDocument,
 }
 
 #[derive(Serialize)]
@@ -60,6 +82,9 @@ struct WasmShapeInfo {
     width: f64,
     height: f64,
     angle_deg: f64,
+    subprocess_page: Option<String>,
+    screentip: Option<String>,
+    control_handles: Vec<ControlHandleInfo>,
     cells: Vec<WasmCellInfo>,
 }
 
@@ -155,9 +180,13 @@ struct InkPointDto {
 impl WasmVexioSession {
     #[wasm_bindgen(constructor)]
     pub fn new(title: &str) -> Self {
+        let inner = DocumentSession::new_blank(title);
+        let crdt_prev_doc = inner.doc.clone();
         Self {
-            inner: DocumentSession::new_blank(title),
+            inner,
             wgpu_renderer: None,
+            crdt_state: CrdtDocumentState::new("wasm-peer"),
+            crdt_prev_doc,
         }
     }
 
@@ -231,12 +260,15 @@ impl WasmVexioSession {
     pub fn load_starter_template(&mut self, template_id: &str) {
         self.inner.doc = instantiate_starter_template(template_id);
         self.inner.journal = CommandJournal::new();
+        self.crdt_prev_doc = self.inner.doc.clone();
     }
 
     pub fn open_bytes(&mut self, bytes: &[u8], ext: &str) -> Result<(), JsValue> {
         self.inner
             .open_bytes(bytes, ext)
-            .map_err(|e| JsValue::from_str(&e.to_string()))
+            .map_err(|e| JsValue::from_str(&e.to_string()))?;
+        self.crdt_prev_doc = self.inner.doc.clone();
+        Ok(())
     }
 
     pub fn save_format(&self, ext: &str) -> Result<Vec<u8>, JsValue> {
@@ -1341,6 +1373,18 @@ impl WasmVexioSession {
                                 guarded: c.is_guarded(),
                             })
                             .collect();
+                        let subprocess_page = s
+                            .sheet
+                            .hyperlinks
+                            .iter()
+                            .find(|h| !h.sub_address.is_empty())
+                            .map(|h| h.sub_address.clone());
+                        let screentip = s
+                            .sheet
+                            .get_cell("Comment")
+                            .and_then(|c| c.value.as_str_coerced().ok())
+                            .filter(|v| !v.trim().is_empty());
+                        let control_handles = list_control_handles(&self.inner.doc, pid, s.id);
                         WasmShapeInfo {
                             id: s.id,
                             name: s.name.clone(),
@@ -1351,6 +1395,9 @@ impl WasmVexioSession {
                             width: s.sheet.get_f64("Width").unwrap_or(1.0),
                             height: s.sheet.get_f64("Height").unwrap_or(1.0),
                             angle_deg: s.sheet.get_f64("Angle").unwrap_or(0.0).to_degrees(),
+                            subprocess_page,
+                            screentip,
+                            control_handles,
                             cells,
                         }
                     })
@@ -1373,5 +1420,356 @@ impl WasmVexioSession {
             wgpu_surface_active: self.wgpu_renderer.is_some(),
         };
         serde_json::to_string(&state).unwrap_or_else(|_| "{}".into())
+    }
+
+    // --- Phase 7: Per-Cell HLC CRDT Co-Editing Sync ---
+
+    pub fn set_replica_id(&mut self, replica_id: &str) {
+        self.crdt_state = CrdtDocumentState::new(replica_id);
+        self.crdt_prev_doc = self.inner.doc.clone();
+    }
+
+    pub fn flush_crdt_ops_json(&mut self, now_ms: f64) -> String {
+        let ops = self
+            .crdt_state
+            .diff_to_ops(&self.crdt_prev_doc, &self.inner.doc, now_ms.max(1.0) as u64);
+        self.crdt_prev_doc = self.inner.doc.clone();
+        serde_json::to_string(&ops).unwrap_or_else(|_| "[]".into())
+    }
+
+    pub fn apply_remote_crdt_ops_json(&mut self, ops_json: &str) -> Result<usize, JsValue> {
+        let applied = self
+            .crdt_state
+            .apply_batch_json(&mut self.inner.doc, ops_json)
+            .map_err(|e| JsValue::from_str(&e.to_string()))?;
+        self.crdt_prev_doc = self.inner.doc.clone();
+        Ok(applied)
+    }
+
+    // --- Phase 7: 2D Boolean Shape Operations, Vertex/NURBS Editing & Yellow Control Handles ---
+
+    pub fn apply_boolean_op(
+        &mut self,
+        page_id: u32,
+        shape_ids: &[u32],
+        op: &str,
+        offset_in: f64,
+    ) -> Vec<u32> {
+        let ids64: Vec<u64> = shape_ids.iter().map(|&i| i as u64).collect();
+        let kind = match op.to_ascii_lowercase().as_str() {
+            "union" => BooleanOpKind::Union,
+            "combine" => BooleanOpKind::Combine,
+            "fragment" => BooleanOpKind::Fragment,
+            "intersect" => BooleanOpKind::Intersect,
+            "subtract" => BooleanOpKind::Subtract,
+            "trim" => BooleanOpKind::Trim,
+            "join" => BooleanOpKind::Join,
+            "offset" => BooleanOpKind::Offset(offset_in),
+            _ => return Vec::new(),
+        };
+        apply_boolean_operation(&mut self.inner.doc, page_id, &ids64, kind)
+            .into_iter()
+            .map(|id| id as u32)
+            .collect()
+    }
+
+    pub fn list_shape_vertices_json(&self, page_id: u32, shape_id: u32) -> String {
+        let verts = list_shape_vertices(&self.inner.doc, page_id, shape_id as u64);
+        serde_json::to_string(&verts).unwrap_or_else(|_| "[]".into())
+    }
+
+    pub fn move_shape_vertex(
+        &mut self,
+        page_id: u32,
+        shape_id: u32,
+        geom_index: u32,
+        row_ix: u32,
+        x_in: f64,
+        y_in: f64,
+    ) -> bool {
+        move_shape_vertex(
+            &mut self.inner.doc,
+            page_id,
+            shape_id as u64,
+            geom_index,
+            row_ix,
+            x_in,
+            y_in,
+        )
+    }
+
+    pub fn draw_freeform_curve(
+        &mut self,
+        page_id: u32,
+        points_json: &str,
+        closed: bool,
+    ) -> Result<u32, JsValue> {
+        let pts: Vec<[f64; 2]> =
+            serde_json::from_str(points_json).map_err(|e| JsValue::from_str(&e.to_string()))?;
+        Ok(draw_freeform_curve(&mut self.inner.doc, page_id, &pts, closed).unwrap_or(0) as u32)
+    }
+
+    pub fn ensure_control_handle(&mut self, page_id: u32, shape_id: u32) -> bool {
+        ensure_default_control_handle(&mut self.inner.doc, page_id, shape_id as u64)
+    }
+
+    pub fn move_control_handle(
+        &mut self,
+        page_id: u32,
+        shape_id: u32,
+        row_name: &str,
+        x_in: f64,
+        y_in: f64,
+    ) -> bool {
+        move_control_handle(&mut self.inner.doc, page_id, shape_id as u64, row_name, x_in, y_in)
+    }
+
+    // --- Phase 7: 6 Themes × 4 Variants, Gradients/Hatches/Shadows/3D Bevels/Sketchy & Cropped Images ---
+
+    pub fn apply_theme_variant(&mut self, theme_slug: &str, variant_index: u8) -> usize {
+        apply_document_theme_variant(&mut self.inner.doc, theme_slug, variant_index)
+    }
+
+    pub fn apply_shape_visual_preset(&mut self, page_id: u32, shape_id: u32, preset: &str) -> bool {
+        let sid = shape_id as u64;
+        let spec = match preset {
+            "grad_linear" => ShapeVisualStyleSpec {
+                gradient: Some(GradientFillSpec {
+                    direction: GradientDirection::LinearDiagonal,
+                    foregnd: RgbaColor { r: 191, g: 219, b: 254, a: 255 },
+                    bkgnd: RgbaColor { r: 239, g: 246, b: 255, a: 255 },
+                    angle_deg: 45.0,
+                }),
+                ..Default::default()
+            },
+            "grad_radial" => ShapeVisualStyleSpec {
+                gradient: Some(GradientFillSpec {
+                    direction: GradientDirection::RadialCenter,
+                    foregnd: RgbaColor { r: 167, g: 243, b: 208, a: 255 },
+                    bkgnd: RgbaColor { r: 240, g: 253, b: 244, a: 255 },
+                    angle_deg: 0.0,
+                }),
+                ..Default::default()
+            },
+            "hatch_diag" => ShapeVisualStyleSpec {
+                hatch: Some(HatchFillSpec {
+                    kind: HatchPatternKind::UpwardDiagonal,
+                    foregnd: RgbaColor { r: 59, g: 130, b: 246, a: 255 },
+                    bkgnd: RgbaColor { r: 248, g: 250, b: 252, a: 255 },
+                }),
+                ..Default::default()
+            },
+            "hatch_cross" => ShapeVisualStyleSpec {
+                hatch: Some(HatchFillSpec {
+                    kind: HatchPatternKind::Crosshatch,
+                    foregnd: RgbaColor { r: 100, g: 116, b: 139, a: 255 },
+                    bkgnd: RgbaColor { r: 255, g: 255, b: 255, a: 255 },
+                }),
+                ..Default::default()
+            },
+            "shadow_soft" => ShapeVisualStyleSpec {
+                shadow: Some(DropShadowSpec {
+                    enabled: true,
+                    foregnd: RgbaColor { r: 15, g: 23, b: 42, a: 255 },
+                    offset_x_in: 0.06,
+                    offset_y_in: -0.06,
+                    blur_pt: 4.5,
+                }),
+                ..Default::default()
+            },
+            "bevel_3d" => ShapeVisualStyleSpec {
+                bevel: Some(BevelExtrusionSpec {
+                    bevel_top_type: 1,
+                    extrusion_depth_in: 0.14,
+                    extrusion_angle_deg: 35.0,
+                }),
+                ..Default::default()
+            },
+            "sketchy" => ShapeVisualStyleSpec {
+                sketch: Some(SketchOutlineSpec {
+                    enabled: true,
+                    seed: shape_id.max(1),
+                    amount: 1.0,
+                }),
+                ..Default::default()
+            },
+            _ => ShapeVisualStyleSpec {
+                shadow: Some(DropShadowSpec {
+                    enabled: false,
+                    foregnd: RgbaColor::BLACK,
+                    offset_x_in: 0.0,
+                    offset_y_in: 0.0,
+                    blur_pt: 0.0,
+                }),
+                bevel: Some(BevelExtrusionSpec {
+                    bevel_top_type: 0,
+                    extrusion_depth_in: 0.0,
+                    extrusion_angle_deg: 0.0,
+                }),
+                sketch: Some(SketchOutlineSpec {
+                    enabled: false,
+                    seed: 0,
+                    amount: 0.0,
+                }),
+                ..Default::default()
+            },
+        };
+        apply_visual_effects_to_shape(&mut self.inner.doc, page_id, sid, &spec)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn insert_cropped_image(
+        &mut self,
+        page_id: u32,
+        media_type: &str,
+        image_bytes: &[u8],
+        x_in: f64,
+        y_in: f64,
+        crop_in: f64,
+        brightness: f64,
+        contrast: f64,
+    ) -> u32 {
+        let Some(page) = self.inner.doc.page_mut(page_id) else {
+            return 0;
+        };
+        let sid = page.next_shape_id();
+        let mut sh = VisioShape::new_rect(sid, format!("Picture.{sid}"), x_in, y_in, 2.4, 1.8);
+        sh.kind = ShapeKind::ForeignObject;
+        sh.foreign_data = Some(ForeignMediaData {
+            media_type: media_type.to_ascii_uppercase(),
+            rel_id: None,
+            data: image_bytes.to_vec(),
+        });
+        let c = format_clean_f64(crop_in.max(0.0));
+        sh.sheet.set_formula("CropLeft", format!("{c} in"), Some(Unit::Inch));
+        sh.sheet.set_formula("CropRight", format!("{c} in"), Some(Unit::Inch));
+        sh.sheet.set_formula("CropTop", format!("{c} in"), Some(Unit::Inch));
+        sh.sheet.set_formula("CropBottom", format!("{c} in"), Some(Unit::Inch));
+        sh.sheet
+            .set_formula("Brightness", format_clean_f64(brightness), Some(Unit::Number));
+        sh.sheet
+            .set_formula("Contrast", format_clean_f64(contrast), Some(Unit::Number));
+        page.shapes.push(sh);
+        ReactiveEngine::recalculate_document(&mut self.inner.doc);
+        sid as u32
+    }
+
+    // --- Phase 7: Subprocess Drill-Down, Hyperlinks/ScreenTips, Title Block, Compare & Plan 2 Connectors ---
+
+    pub fn create_subprocess_drilldown(
+        &mut self,
+        page_id: u32,
+        shape_id: u32,
+        sub_name: &str,
+    ) -> u32 {
+        create_or_link_subprocess_page(&mut self.inner.doc, page_id, shape_id as u64, sub_name)
+            .unwrap_or(0)
+    }
+
+    pub fn set_hyperlink_and_screentip(
+        &mut self,
+        page_id: u32,
+        shape_id: u32,
+        description: &str,
+        address: &str,
+        sub_address: &str,
+        screentip: &str,
+    ) -> bool {
+        let mut ok = false;
+        if !address.trim().is_empty() || !sub_address.trim().is_empty() {
+            ok |= add_shape_hyperlink(
+                &mut self.inner.doc,
+                page_id,
+                shape_id as u64,
+                description,
+                address,
+                sub_address,
+                true,
+            );
+        }
+        if !screentip.trim().is_empty() {
+            ok |= set_shape_screentip(&mut self.inner.doc, page_id, shape_id as u64, screentip);
+        }
+        ok
+    }
+
+    pub fn apply_title_block_border(
+        &mut self,
+        page_id: u32,
+        project_code: &str,
+        author: &str,
+        revision: &str,
+    ) -> u32 {
+        apply_iso_title_block_background(&mut self.inner.doc, page_id, project_code, author, revision)
+            .unwrap_or(0)
+    }
+
+    pub fn compare_with_vsdx_bytes(&self, baseline_vsdx: &[u8]) -> Result<String, JsValue> {
+        let (base_doc, _) =
+            vexio_vsdx::read_vsdx(baseline_vsdx).map_err(|e| JsValue::from_str(&e.to_string()))?;
+        let report = compare_documents(&base_doc, &self.inner.doc);
+        serde_json::to_string(&report).map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
+    pub fn import_data_visualizer(&mut self, page_id: u32, bytes: &[u8]) -> Result<usize, JsValue> {
+        import_data_visualizer_csv_or_xlsx(&mut self.inner.doc, page_id, bytes)
+            .map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
+    pub fn export_data_visualizer_workbook(&self, page_id: u32) -> Result<Vec<u8>, JsValue> {
+        export_data_visualizer_xlsx(&self.inner.doc, page_id)
+            .map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
+    pub fn import_cloud_discovery(
+        &mut self,
+        page_id: u32,
+        discovery_json: &str,
+    ) -> Result<usize, JsValue> {
+        import_cloud_discovery_json(&mut self.inner.doc, page_id, discovery_json)
+            .map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
+    pub fn import_entra_or_ldif(&mut self, page_id: u32, text: &str) -> Result<usize, JsValue> {
+        import_entra_or_ldif_org_chart(&mut self.inner.doc, page_id, text)
+            .map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
+    pub fn import_sqlite_recordset(
+        &mut self,
+        page_id: u32,
+        sqlite_bytes: &[u8],
+        table_name: &str,
+        key_col: &str,
+    ) -> Result<usize, JsValue> {
+        let tbl = if table_name.trim().is_empty() {
+            list_sqlite_tables(sqlite_bytes)
+                .map_err(|e| JsValue::from_str(&e))?
+                .into_iter()
+                .next()
+                .ok_or_else(|| JsValue::from_str("SQLite database contains no user tables"))?
+        } else {
+            table_name.to_string()
+        };
+        let rs = read_sqlite_table_to_recordset(77, sqlite_bytes, &tbl, key_col)
+            .map_err(|e| JsValue::from_str(&e))?;
+        Ok(bind_recordset_to_page(&mut self.inner.doc, page_id, &rs, None))
+    }
+
+    pub fn run_vba_macro_with_selection(
+        &mut self,
+        script: &str,
+        selected_ids: &[u32],
+    ) -> Result<String, JsValue> {
+        let ids64: Vec<u64> = selected_ids.iter().map(|&i| i as u64).collect();
+        let rep = crate::automation::execute_vba_macro_with_selection(
+            &mut self.inner.doc,
+            script,
+            &ids64,
+            None,
+            crate::automation::SandboxLimits::default(),
+        )
+        .map_err(|e| JsValue::from_str(&e.to_string()))?;
+        serde_json::to_string(&rep).map_err(|e| JsValue::from_str(&e.to_string()))
     }
 }

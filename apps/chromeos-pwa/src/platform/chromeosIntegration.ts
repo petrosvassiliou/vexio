@@ -48,7 +48,7 @@ declare global {
 
 const VISIO_FILE_PICKER_TYPES = [
   {
-    description: 'Microsoft Visio & CAD Drawings (.vsdx, .vsd, .vssx, .vstx, .vsdm, .dwg, .dxf)',
+    description: 'Microsoft Visio, Metafile & CAD Drawings (.vsdx, .vsd, .vssx, .vstx, .vsdm, .dwg, .dxf, .emf, .wmf, .ldif)',
     accept: {
       'application/vnd.ms-visio.drawing.main+xml': ['.vsdx'],
       'application/vnd.ms-visio.drawing.macroEnabled.main+xml': ['.vsdm'],
@@ -57,6 +57,9 @@ const VISIO_FILE_PICKER_TYPES = [
       'application/vnd.visio': ['.vsd', '.vss', '.vst', '.vdx', '.vdw'],
       'application/acad': ['.dwg'],
       'image/vnd.dxf': ['.dxf'],
+      'image/x-emf': ['.emf'],
+      'image/x-wmf': ['.wmf'],
+      'text/x-ldif': ['.ldif'],
     },
   },
 ];
@@ -115,7 +118,32 @@ export async function openLocalDiagramFile(): Promise<OpenedLocalFile | null> {
   return new Promise((resolve) => {
     const input = document.createElement('input');
     input.type = 'file';
-    input.accept = '.vsdx,.vsdm,.vssx,.vssm,.vstx,.vstm,.vsd,.vss,.vst,.vdx,.vdw,.dwg,.dxf';
+    input.accept = '.vsdx,.vsdm,.vssx,.vssm,.vstx,.vstm,.vsd,.vss,.vst,.vdx,.vdw,.dwg,.dxf,.emf,.wmf,.ldif';
+    input.onchange = async () => {
+      const file = input.files?.[0];
+      if (!file) {
+        resolve(null);
+        return;
+      }
+      resolve({
+        name: file.name,
+        ext: extractExtension(file.name),
+        bytes: new Uint8Array(await file.arrayBuffer()),
+        handle: null,
+      });
+    };
+    input.click();
+  });
+}
+
+/**
+ * Pick an arbitrary local binary file (e.g. PNG/JPEG image or `.sqlite`/`.db`/`.xlsx`/`.csv`) for embedding or binding.
+ */
+export async function pickLocalBinaryFile(accept: string): Promise<OpenedLocalFile | null> {
+  return new Promise((resolve) => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = accept;
     input.onchange = async () => {
       const file = input.files?.[0];
       if (!file) {

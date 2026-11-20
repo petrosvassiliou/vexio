@@ -2,13 +2,19 @@
 
 pub mod autolayout;
 pub mod automation;
+pub mod boolean_ops;
 pub mod containers;
+pub mod crdt;
 pub mod data_link;
 pub mod domains;
+pub mod enterprise_plan2;
 pub mod export_print;
 pub mod ffi;
 pub mod journal;
+pub mod plan2_connectors;
 pub mod routing;
+pub mod sqlite_reader;
+pub mod themes_styles;
 pub mod validation;
 pub mod workspace;
 
@@ -417,5 +423,101 @@ mod tests {
             assert_eq!(kind, vexio_vsdx::VsdxPackageKind::Drawing);
             assert_eq!(reopened.pages.len(), tdoc.pages.len());
         }
+    }
+
+    #[test]
+    fn vba_userforms_events_selection_and_cropped_foreign_image_svg_roundtrip() {
+        use crate::automation::{
+            VbaDocumentEvent, execute_vba_macro_with_selection, fire_vba_document_event,
+        };
+
+        let mut doc = VisioDocument::new_blank("VBA Advanced & Foreign Image");
+        {
+            let p = doc.page_mut(1).unwrap();
+            let mut s1 = VisioShape::new_rect(1, "ServerA", 3.0, 4.0, 2.0, 1.2);
+            s1.text = "Alpha".into();
+            let mut s2 = VisioShape::new_rect(2, "ServerB", 6.0, 4.0, 2.0, 1.2);
+            s2.text = "Beta".into();
+            s2.foreign_data = Some(ForeignMediaData {
+                media_type: "PNG".into(),
+                rel_id: None,
+                data: encode_rgba_to_png(2, 2, &[255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 0, 255], 96),
+            });
+            s2.sheet.set_formula("CropLeft", "0.1 in", Some(Unit::Inch));
+            s2.sheet.set_formula("Brightness", "1.15", Some(Unit::Number));
+            s2.sheet.set_formula("Contrast", "1.10", Some(Unit::Number));
+            s2.sheet.set_formula("FillPattern", "28", Some(Unit::Number)); // Linear vertical gradient
+            s2.sheet.set_formula("ShdwPattern", "1", Some(Unit::Number)); // Soft drop shadow
+            s2.sheet.set_formula("ExtrusionDepth", "0.12 in", Some(Unit::Inch)); // 3D extrusion bevel
+            s2.sheet.set_formula("LineSketchEnabled", "TRUE", Some(Unit::Boolean));
+            s2.text = "**Beta** *Node*\n- __Primary__".into();
+            p.shapes.extend([s1, s2]);
+        }
+        ReactiveEngine::recalculate_document(&mut doc);
+
+        let vba_module = r#"
+            Begin UserForm frmConfig
+                Caption = "Cluster Deployment"
+                Control TextBox txtEnv = "Production"
+                Control CheckBox chkHA = "TRUE"
+            End
+
+            Sub ApplySelectionConfig()
+                frmConfig.Show
+                ActiveWindow.Zoom = 1.25
+                For Each shp In ActiveWindow.Selection
+                    If shp.Name = "ServerA" Then
+                        shp.Text = frmConfig.txtEnv.Text & " Primary"
+                    Else
+                        shp.Text = "Standby"
+                    End If
+                Next shp
+            End Sub
+
+            Private Sub Document_ShapeAdded(ByVal Shape As IVShape)
+                Shape.Cells("FillForegnd").FormulaU = "RGB(220,252,231)"
+                Debug.Print "Added:" & Shape.Name
+            End Sub
+        "#;
+
+        let rep = execute_vba_macro_with_selection(
+            &mut doc,
+            vba_module,
+            &[1],
+            None,
+            SandboxLimits::default(),
+        )
+        .unwrap();
+        assert_eq!(rep.user_forms.len(), 1);
+        assert!(rep.user_forms[0].shown);
+        assert_eq!(rep.window_zoom, Some(1.25));
+        assert_eq!(doc.page(1).unwrap().find_shape(1).unwrap().text, "Production Primary");
+
+        // Fire Document_ShapeAdded event sink on shape 2
+        let ev_rep = fire_vba_document_event(
+            &mut doc,
+            vba_module,
+            VbaDocumentEvent::ShapeAdded {
+                page_id: 1,
+                shape_id: 2,
+            },
+            SandboxLimits::default(),
+        )
+        .unwrap();
+        assert_eq!(ev_rep.log_output, vec!["Added:ServerB"]);
+
+        // Verify SVG renders gradient, shadow filter, 3D extrusion polygon, cropped <image>, and bold/italic/underline <tspan>
+        let svg = export_page_svg(&doc, 1);
+        assert!(svg.contains("<linearGradient"));
+        assert!(svg.contains("<feDropShadow"));
+        assert!(svg.contains("clip-path=\"url(#vexio-imgclip-fg-2)\""));
+        assert!(svg.contains("font-weight=\"bold\""));
+        assert!(svg.contains("font-style=\"italic\""));
+        assert!(svg.contains("text-decoration=\"underline\""));
+
+        // Verify ForeignMediaData round-trips losslessly through .vsdx
+        let vsdx_bytes = vexio_vsdx::write_vsdx(&doc, vexio_vsdx::VsdxPackageKind::Drawing).unwrap();
+        let (rt_doc, _) = vexio_vsdx::read_vsdx(&vsdx_bytes).unwrap();
+        assert!(rt_doc.page(1).unwrap().find_shape(2).unwrap().foreign_data.is_some());
     }
 }

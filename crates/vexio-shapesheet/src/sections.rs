@@ -38,6 +38,28 @@ impl Cell {
             }
             Some(Expr::Bool(b)) => CellValue::Bool(*b),
             Some(Expr::Str(s)) => CellValue::Str(s.clone()),
+            Some(Expr::Call { name: fn_name, args })
+                if fn_name.eq_ignore_ascii_case("RGB") && args.len() == 3 =>
+            {
+                if let (
+                    Expr::Number { value: r, .. },
+                    Expr::Number { value: g, .. },
+                    Expr::Number { value: b, .. },
+                ) = (&args[0], &args[1], &args[2])
+                {
+                    CellValue::Color(RgbaColor {
+                        r: r.round().clamp(0.0, 255.0) as u8,
+                        g: g.round().clamp(0.0, 255.0) as u8,
+                        b: b.round().clamp(0.0, 255.0) as u8,
+                        a: 255,
+                    })
+                } else {
+                    CellValue::Num {
+                        internal: 0.0,
+                        unit: unit_hint.unwrap_or(Unit::Number),
+                    }
+                }
+            }
             None if !formula.starts_with('=') => CellValue::Str(formula.clone()),
             None => CellValue::Err(CellError::Name),
             _ => CellValue::Num {

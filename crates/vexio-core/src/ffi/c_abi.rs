@@ -5,7 +5,7 @@ use crate::journal::JournalError;
 use crate::workspace::{CoreError, DocumentSession};
 use std::ffi::CStr;
 use std::os::raw::c_char;
-use std::panic::catch_unwind;
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::ptr;
 
 #[repr(C)]
@@ -456,4 +456,142 @@ pub unsafe extern "C" fn vexio_doc_redo(doc: *mut VexioDoc) -> VexioStatus {
         Ok(_) => VexioStatus::Ok,
         Err(_) => VexioStatus::ErrInvalidArg,
     }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_doc_boolean_op(
+    doc: *mut VexioDoc,
+    page_id: u32,
+    shape_ids_ptr: *const u64,
+    shape_ids_len: usize,
+    op_utf8: *const c_char,
+    offset_in: f64,
+) -> VexioStatus {
+    let res = catch_unwind(AssertUnwindSafe(|| {
+        if doc.is_null() || shape_ids_ptr.is_null() || shape_ids_len == 0 || op_utf8.is_null() {
+            return VexioStatus::ErrInvalidArg;
+        }
+        // SAFETY: Caller guarantees `doc`, `shape_ids_ptr[..shape_ids_len]`, and `op_utf8` are valid.
+        let d = unsafe { &mut *doc };
+        let ids = unsafe { std::slice::from_raw_parts(shape_ids_ptr, shape_ids_len) };
+        let Ok(op_str) = unsafe { CStr::from_ptr(op_utf8) }.to_str() else {
+            return VexioStatus::ErrInvalidArg;
+        };
+        let kind = match op_str.to_ascii_lowercase().as_str() {
+            "union" => crate::boolean_ops::BooleanOpKind::Union,
+            "combine" => crate::boolean_ops::BooleanOpKind::Combine,
+            "fragment" => crate::boolean_ops::BooleanOpKind::Fragment,
+            "intersect" => crate::boolean_ops::BooleanOpKind::Intersect,
+            "subtract" => crate::boolean_ops::BooleanOpKind::Subtract,
+            "trim" => crate::boolean_ops::BooleanOpKind::Trim,
+            "join" => crate::boolean_ops::BooleanOpKind::Join,
+            "offset" => crate::boolean_ops::BooleanOpKind::Offset(offset_in),
+            _ => return VexioStatus::ErrInvalidArg,
+        };
+        crate::boolean_ops::apply_boolean_operation(&mut d.session.doc, page_id, ids, kind);
+        VexioStatus::Ok
+    }));
+    res.unwrap_or(VexioStatus::ErrInternalPanic)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_doc_apply_theme(
+    doc: *mut VexioDoc,
+    theme_slug_utf8: *const c_char,
+    variant_index: u8,
+) -> VexioStatus {
+    let res = catch_unwind(AssertUnwindSafe(|| {
+        if doc.is_null() || theme_slug_utf8.is_null() {
+            return VexioStatus::ErrInvalidArg;
+        }
+        // SAFETY: Pointers verified non-null.
+        let d = unsafe { &mut *doc };
+        let Ok(slug) = unsafe { CStr::from_ptr(theme_slug_utf8) }.to_str() else {
+            return VexioStatus::ErrInvalidArg;
+        };
+        crate::themes_styles::apply_document_theme_variant(&mut d.session.doc, slug, variant_index);
+        VexioStatus::Ok
+    }));
+    res.unwrap_or(VexioStatus::ErrInternalPanic)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_doc_create_subprocess(
+    doc: *mut VexioDoc,
+    page_id: u32,
+    shape_id: u64,
+    sub_name_utf8: *const c_char,
+    out_sub_page_id: *mut u32,
+) -> VexioStatus {
+    let res = catch_unwind(AssertUnwindSafe(|| {
+        if doc.is_null() || sub_name_utf8.is_null() || out_sub_page_id.is_null() {
+            return VexioStatus::ErrInvalidArg;
+        }
+        // SAFETY: Pointers verified non-null.
+        let d = unsafe { &mut *doc };
+        let Ok(name) = unsafe { CStr::from_ptr(sub_name_utf8) }.to_str() else {
+            return VexioStatus::ErrInvalidArg;
+        };
+        let Some(pid) = crate::enterprise_plan2::create_or_link_subprocess_page(
+            &mut d.session.doc,
+            page_id,
+            shape_id,
+            name,
+        ) else {
+            return VexioStatus::ErrInvalidArg;
+        };
+        // SAFETY: `out_sub_page_id` verified non-null.
+        unsafe { *out_sub_page_id = pid };
+        VexioStatus::Ok
+    }));
+    res.unwrap_or(VexioStatus::ErrInternalPanic)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_doc_compare(
+    base_doc: *const VexioDoc,
+    rev_doc: *const VexioDoc,
+    out_json: *mut VexioOwnedBuffer,
+) -> VexioStatus {
+    let res = catch_unwind(|| {
+        if base_doc.is_null() || rev_doc.is_null() || out_json.is_null() {
+            return VexioStatus::ErrInvalidArg;
+        }
+        // SAFETY: Pointers verified non-null.
+        let b = unsafe { &*base_doc };
+        let r = unsafe { &*rev_doc };
+        let report = crate::enterprise_plan2::compare_documents(&b.session.doc, &r.session.doc);
+        let json_bytes = serde_json::to_vec(&report).unwrap_or_default();
+        // SAFETY: `out_json` verified non-null.
+        unsafe { *out_json = VexioOwnedBuffer::from_vec(json_bytes) };
+        VexioStatus::Ok
+    });
+    res.unwrap_or(VexioStatus::ErrInternalPanic)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_doc_apply_crdt_json(
+    doc: *mut VexioDoc,
+    replica_id_utf8: *const c_char,
+    ops_json_utf8: *const c_char,
+) -> VexioStatus {
+    let res = catch_unwind(AssertUnwindSafe(|| {
+        if doc.is_null() || replica_id_utf8.is_null() || ops_json_utf8.is_null() {
+            return VexioStatus::ErrInvalidArg;
+        }
+        // SAFETY: Pointers verified non-null.
+        let d = unsafe { &mut *doc };
+        let Ok(rep_id) = unsafe { CStr::from_ptr(replica_id_utf8) }.to_str() else {
+            return VexioStatus::ErrInvalidArg;
+        };
+        let Ok(ops_json) = unsafe { CStr::from_ptr(ops_json_utf8) }.to_str() else {
+            return VexioStatus::ErrInvalidArg;
+        };
+        let mut crdt = crate::crdt::CrdtDocumentState::new(rep_id);
+        match crdt.apply_batch_json(&mut d.session.doc, ops_json) {
+            Ok(_) => VexioStatus::Ok,
+            Err(_) => VexioStatus::ErrInvalidArg,
+        }
+    }));
+    res.unwrap_or(VexioStatus::ErrInternalPanic)
 }

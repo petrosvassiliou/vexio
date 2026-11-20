@@ -399,20 +399,47 @@ pub fn tessellate_shape_full(
         }
     }
 
-    // Crisp vector stroke text for shape labels so diagrams display readable titles at any zoom.
-    if !visual.text.trim().is_empty() {
-        tessellate_vector_label(
-            visual,
-            tol,
-            &mut stroke_tess,
-            &mut lyon_buf,
-        );
-    }
-
-    TessellatedMesh {
+    // Crisp vector stroke text for shape labels (routing multi-run rich text, multi-line,
+    // bullets, RTL Bidi, and vertical CJK blocks through `crate::typography`).
+    let mut out_mesh = TessellatedMesh {
         vertices: lyon_buf.vertices,
         indices: lyon_buf.indices,
+    };
+    let trimmed_txt = visual.text.trim();
+    if !trimmed_txt.is_empty() {
+        let needs_rich = !trimmed_txt.is_ascii()
+            || trimmed_txt.contains('\n')
+            || trimmed_txt.contains('*')
+            || trimmed_txt.contains("__")
+            || trimmed_txt.contains("~~")
+            || trimmed_txt.contains('[')
+            || trimmed_txt.starts_with("- ");
+        if needs_rich {
+            let block = crate::typography::parse_inline_rich_text(
+                trimmed_txt,
+                visual.font_size_pt,
+                visual.text_color,
+            );
+            let rich_mesh = crate::typography::tessellate_rich_text_in_box(
+                &block,
+                visual.transform.pin_x,
+                visual.transform.pin_y,
+                visual.transform.width.max(0.8),
+                visual.transform.height.max(0.5),
+                visual.transform.angle_rad,
+            );
+            out_mesh.append(&rich_mesh);
+        } else {
+            let mut txt_buf: VertexBuffers<GpuVertex, u32> = VertexBuffers::new();
+            tessellate_vector_label(visual, tol, &mut stroke_tess, &mut txt_buf);
+            out_mesh.append(&TessellatedMesh {
+                vertices: txt_buf.vertices,
+                indices: txt_buf.indices,
+            });
+        }
     }
+
+    out_mesh
 }
 
 #[allow(clippy::too_many_arguments)]

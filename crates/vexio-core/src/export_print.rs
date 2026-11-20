@@ -1,19 +1,23 @@
 //! Vector-Accurate Export & Multi-Page Tiled Print Engine:
-//! - SVG 1.1 (`export_page_svg`)
+//! - SVG 1.1 (`export_page_svg`) with Background Pages, Header/Footer, Gradients, Hatches,
+//!   Drop Shadows, 3D Extrusion Bevels, Sketchy Hand-Drawn Lines, Cropped `ForeignData` Images,
+//!   Multi-Run Rich Text (Bold/Italic/Underline/Strike/Bullets/RTL/Vertical), Subprocess Badges & ScreenTips
 //! - PDF/A-1b / PDF 1.7 (`export_document_pdf`)
 //! - Encapsulated PostScript EPS (`export_page_eps`)
 //! - High-DPI PNG (`encode_rgba_to_png`)
 //! - Interactive Offline HTML Workspace Report (`export_document_html_report`)
 //! - Multi-Page Tiled Print Layout with Crop & Registration Marks (`plan_tiled_print`).
 
+use base64::Engine as _;
 use serde::{Deserialize, Serialize};
 use std::fmt::Write as _;
 use vexio_shapesheet::{
-    EvaluatedPathVerb, ReactiveEngine, VisioDocument, format_clean_f64,
+    EvaluatedPathVerb, EvaluatedShapeVisual, ReactiveEngine, RgbaColor, VisioDocument, VisioPage,
+    format_clean_f64,
 };
 
 // ============================================================================
-// 1. Vector SVG 1.1 Export
+// 1. Vector SVG 1.1 Export (Full Visual Effects, Rich Text & Background Pages)
 // ============================================================================
 
 pub fn export_page_svg(doc: &VisioDocument, page_id: u32) -> String {
@@ -26,140 +30,106 @@ pub fn export_page_svg(doc: &VisioDocument, page_id: u32) -> String {
     let w_px = w_in * ppi;
     let h_px = h_in * ppi;
 
-    let visuals = ReactiveEngine::evaluate_page_visuals(doc, page_id);
-    let mut svg = String::new();
-    let _ = writeln!(
-        svg,
-        "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{:.2}\" height=\"{:.2}\" viewBox=\"0 0 {:.2} {:.2}\">",
-        w_px, h_px, w_px, h_px
+    let page_bg_hex = page
+        .page_sheet
+        .get_color("PageColor")
+        .map(|c| c.to_hex_rgb())
+        .unwrap_or_else(|| "#FFFFFF".into());
+
+    let mut defs = String::from(
+        "<marker id=\"vexio-arrow\" viewBox=\"0 0 10 10\" refX=\"9\" refY=\"5\" markerWidth=\"6\" markerHeight=\"6\" orient=\"auto-start-reverse\"><path d=\"M 0 1 L 10 5 L 0 9 z\" fill=\"context-stroke\"/></marker>\n",
     );
-    svg.push_str("<defs><marker id=\"vexio-arrow\" viewBox=\"0 0 10 10\" refX=\"9\" refY=\"5\" markerWidth=\"6\" markerHeight=\"6\" orient=\"auto-start-reverse\"><path d=\"M 0 1 L 10 5 L 0 9 z\" fill=\"context-stroke\"/></marker></defs>\n");
+    let mut body = String::new();
+
     let _ = writeln!(
-        svg,
-        "<rect width=\"{:.2}\" height=\"{:.2}\" fill=\"#FFFFFF\"/>",
-        w_px, h_px
+        body,
+        "<rect width=\"{:.2}\" height=\"{:.2}\" fill=\"{}\"/>",
+        w_px, h_px, page_bg_hex
     );
 
-    // Note: Visio Y-origin is bottom-left (`0` at bottom, `PageHeight` at top); SVG Y-origin is top-left!
-    let to_svg_y = |y_in: f64| (h_in - y_in) * ppi;
-    let to_svg_x = |x_in: f64| x_in * ppi;
-
-    for vis in &visuals {
-        let fill = vis
-            .fill_color
-            .filter(|_| !vis.paths.iter().all(|p| p.no_fill))
-            .map(|c| c.to_hex_rgb())
-            .unwrap_or_else(|| "none".into());
-        let stroke = vis
-            .stroke_color
-            .map(|c| c.to_hex_rgb())
-            .unwrap_or_else(|| "none".into());
-        let sw_px = (vis.stroke_weight_in * ppi).max(0.75);
-        let marker_end = if vis.end_arrow > 0 {
-            " marker-end=\"url(#vexio-arrow)\""
-        } else {
-            ""
-        };
-
-        for path in &vis.paths {
-            if path.no_show || path.verbs_page_space.is_empty() {
-                continue;
-            }
-            let p_fill = if path.no_fill { "none" } else { &fill };
-            let p_stroke = if path.no_line { "none" } else { &stroke };
-
-            let mut d = String::new();
-            let mut last_pt = [0.0, 0.0];
-            for verb in &path.verbs_page_space {
-                match verb {
-                    EvaluatedPathVerb::MoveTo(p) => {
-                        let _ = write!(d, "M {:.2} {:.2} ", to_svg_x(p[0]), to_svg_y(p[1]));
-                        last_pt = *p;
-                    }
-                    EvaluatedPathVerb::LineTo(p) => {
-                        let _ = write!(d, "L {:.2} {:.2} ", to_svg_x(p[0]), to_svg_y(p[1]));
-                        last_pt = *p;
-                    }
-                    EvaluatedPathVerb::QuadTo { ctrl, to } => {
-                        let _ = write!(
-                            d,
-                            "Q {:.2} {:.2} {:.2} {:.2} ",
-                            to_svg_x(ctrl[0]),
-                            to_svg_y(ctrl[1]),
-                            to_svg_x(to[0]),
-                            to_svg_y(to[1])
-                        );
-                        last_pt = *to;
-                    }
-                    EvaluatedPathVerb::CubicTo { ctrl1, ctrl2, to } => {
-                        let _ = write!(
-                            d,
-                            "C {:.2} {:.2} {:.2} {:.2} {:.2} {:.2} ",
-                            to_svg_x(ctrl1[0]),
-                            to_svg_y(ctrl1[1]),
-                            to_svg_x(ctrl2[0]),
-                            to_svg_y(ctrl2[1]),
-                            to_svg_x(to[0]),
-                            to_svg_y(to[1])
-                        );
-                        last_pt = *to;
-                    }
-                    EvaluatedPathVerb::ArcTo { to, bow } => {
-                        let chord = ((to[0] - last_pt[0]).powi(2) + (to[1] - last_pt[1]).powi(2)).sqrt();
-                        if bow.abs() < 1e-6 || chord < 1e-6 {
-                            let _ = write!(d, "L {:.2} {:.2} ", to_svg_x(to[0]), to_svg_y(to[1]));
-                        } else {
-                            let r_in = (chord * chord) / (8.0 * bow.abs()) + bow.abs() * 0.5;
-                            let r_px = r_in * ppi;
-                            let sweep = if *bow > 0.0 { 0 } else { 1 };
-                            let _ = write!(
-                                d,
-                                "A {:.2} {:.2} 0 0 {sweep} {:.2} {:.2} ",
-                                r_px,
-                                r_px,
-                                to_svg_x(to[0]),
-                                to_svg_y(to[1])
-                            );
-                        }
-                        last_pt = *to;
-                    }
-                    EvaluatedPathVerb::Ellipse { center, rx, ry, .. } => {
-                        let cx = to_svg_x(center[0]);
-                        let cy = to_svg_y(center[1]);
-                        let rx_px = rx * ppi;
-                        let ry_px = ry * ppi;
-                        let _ = writeln!(
-                            svg,
-                            "<ellipse cx=\"{cx:.2}\" cy=\"{cy:.2}\" rx=\"{rx_px:.2}\" ry=\"{ry_px:.2}\" fill=\"{p_fill}\" stroke=\"{p_stroke}\" stroke-width=\"{sw_px:.2}\"/>"
-                        );
-                    }
-                    EvaluatedPathVerb::Close => d.push_str("Z "),
+    // 1. Render linked Background Page first (`Title Block`, borders, watermarks) if present
+    if let Some(bg_id) = page.back_page_id {
+        if bg_id != page_id {
+            if let Some(bg_page) = doc.page(bg_id) {
+                let bg_visuals = ReactiveEngine::evaluate_page_visuals(doc, bg_id);
+                body.push_str("<g class=\"vexio-background-page\" opacity=\"0.92\">\n");
+                for vis in &bg_visuals {
+                    render_single_shape_svg(
+                        bg_page,
+                        vis,
+                        h_in,
+                        ppi,
+                        &mut defs,
+                        &mut body,
+                        "bg",
+                    );
                 }
+                body.push_str("</g>\n");
             }
-            if !d.is_empty() {
-                let _ = writeln!(
-                    svg,
-                    "<path d=\"{}\" fill=\"{p_fill}\" stroke=\"{p_stroke}\" stroke-width=\"{sw_px:.2}\"{marker_end}/>",
-                    d.trim()
-                );
-            }
-        }
-
-        if !vis.text.is_empty() {
-            let tx = to_svg_x(vis.transform.pin_x);
-            let ty = to_svg_y(vis.transform.pin_y);
-            let fsize = (vis.font_size_pt * (96.0 / 72.0)).max(8.0);
-            let tcol = vis.text_color.to_hex_rgb();
-            let first_line = vis.text.lines().next().unwrap_or("");
-            let _ = writeln!(
-                svg,
-                "<text x=\"{tx:.2}\" y=\"{ty:.2}\" font-family=\"Segoe UI, Roboto, sans-serif\" font-size=\"{fsize:.1}\" fill=\"{tcol}\" text-anchor=\"middle\" dominant-baseline=\"middle\">{}</text>",
-                vexio_vsdx::opc::xml_escape(first_line)
-            );
         }
     }
 
-    // Markup Ink Strokes
+    // 2. Render Foreground Page Shapes
+    let visuals = ReactiveEngine::evaluate_page_visuals(doc, page_id);
+    for vis in &visuals {
+        render_single_shape_svg(page, vis, h_in, ppi, &mut defs, &mut body, "fg");
+    }
+
+    // 3. Render Header & Footer (`doc.header_footer`)
+    let hf = &doc.header_footer;
+    let hf_size = (hf.font_size_pt.max(8.0)) * (96.0 / 72.0);
+    let hdr_y = (hf.header_margin_in.max(0.2)) * ppi;
+    let ftr_y = h_px - (hf.footer_margin_in.max(0.2)) * ppi;
+    if !hf.header_left.is_empty() {
+        let _ = writeln!(
+            body,
+            "<text x=\"24\" y=\"{hdr_y:.1}\" font-size=\"{hf_size:.1}\" fill=\"#64748b\">{}</text>",
+            vexio_vsdx::opc::xml_escape(&hf.header_left)
+        );
+    }
+    if !hf.header_center.is_empty() {
+        let _ = writeln!(
+            body,
+            "<text x=\"{:.1}\" y=\"{hdr_y:.1}\" font-size=\"{hf_size:.1}\" fill=\"#64748b\" text-anchor=\"middle\">{}</text>",
+            w_px * 0.5,
+            vexio_vsdx::opc::xml_escape(&hf.header_center)
+        );
+    }
+    if !hf.header_right.is_empty() {
+        let _ = writeln!(
+            body,
+            "<text x=\"{:.1}\" y=\"{hdr_y:.1}\" font-size=\"{hf_size:.1}\" fill=\"#64748b\" text-anchor=\"end\">{}</text>",
+            w_px - 24.0,
+            vexio_vsdx::opc::xml_escape(&hf.header_right)
+        );
+    }
+    if !hf.footer_left.is_empty() {
+        let _ = writeln!(
+            body,
+            "<text x=\"24\" y=\"{ftr_y:.1}\" font-size=\"{hf_size:.1}\" fill=\"#64748b\">{}</text>",
+            vexio_vsdx::opc::xml_escape(&hf.footer_left)
+        );
+    }
+    if !hf.footer_center.is_empty() {
+        let _ = writeln!(
+            body,
+            "<text x=\"{:.1}\" y=\"{ftr_y:.1}\" font-size=\"{hf_size:.1}\" fill=\"#64748b\" text-anchor=\"middle\">{}</text>",
+            w_px * 0.5,
+            vexio_vsdx::opc::xml_escape(&hf.footer_center)
+        );
+    }
+    if !hf.footer_right.is_empty() {
+        let _ = writeln!(
+            body,
+            "<text x=\"{:.1}\" y=\"{ftr_y:.1}\" font-size=\"{hf_size:.1}\" fill=\"#64748b\" text-anchor=\"end\">{}</text>",
+            w_px - 24.0,
+            vexio_vsdx::opc::xml_escape(&hf.footer_right)
+        );
+    }
+
+    // 4. Render Pressure-Sensitive USI Stylus Markup Ink Strokes
+    let to_svg_y = |y_in: f64| (h_in - y_in) * ppi;
+    let to_svg_x = |x_in: f64| x_in * ppi;
     for ink in &page.ink_strokes {
         if ink.points.len() >= 2 {
             let pts_s: Vec<String> = ink
@@ -169,7 +139,7 @@ pub fn export_page_svg(doc: &VisioDocument, page_id: u32) -> String {
                 .collect();
             let op = if ink.highlighter { "0.45" } else { "1.0" };
             let _ = writeln!(
-                svg,
+                body,
                 "<polyline points=\"{}\" fill=\"none\" stroke=\"{}\" stroke-width=\"{:.2}\" stroke-opacity=\"{op}\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>",
                 pts_s.join(" "),
                 ink.color.to_hex_rgb(),
@@ -178,8 +148,506 @@ pub fn export_page_svg(doc: &VisioDocument, page_id: u32) -> String {
         }
     }
 
+    let mut svg = String::with_capacity(defs.len() + body.len() + 256);
+    let _ = writeln!(
+        svg,
+        "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{:.2}\" height=\"{:.2}\" viewBox=\"0 0 {:.2} {:.2}\">",
+        w_px, h_px, w_px, h_px
+    );
+    let _ = writeln!(svg, "<defs>\n{defs}</defs>");
+    svg.push_str(&body);
     svg.push_str("</svg>");
     svg
+}
+
+fn render_single_shape_svg(
+    page: &VisioPage,
+    vis: &EvaluatedShapeVisual,
+    h_in: f64,
+    ppi: f64,
+    defs: &mut String,
+    body: &mut String,
+    ns_prefix: &str,
+) {
+    let to_svg_y = |y_in: f64| (h_in - y_in) * ppi;
+    let to_svg_x = |x_in: f64| x_in * ppi;
+
+    let shape_opt = page.find_shape(vis.shape_id);
+    let fill_pattern = shape_opt
+        .and_then(|s| s.sheet.get_f64("FillPattern"))
+        .unwrap_or(1.0)
+        .round() as i32;
+    let fill_bkgnd = shape_opt
+        .and_then(|s| s.sheet.get_color("FillBkgnd"))
+        .unwrap_or(RgbaColor {
+            r: 241,
+            g: 245,
+            b: 249,
+            a: 255,
+        });
+    let grad_angle_deg = shape_opt
+        .and_then(|s| s.sheet.get_f64("FillGradientAngle"))
+        .map(|r| r.to_degrees())
+        .unwrap_or(45.0);
+
+    let shdw_pattern = shape_opt
+        .and_then(|s| s.sheet.get_f64("ShdwPattern"))
+        .unwrap_or(0.0)
+        .round() as i32;
+    let bevel_type = shape_opt
+        .and_then(|s| s.sheet.get_f64("BevelTopType"))
+        .unwrap_or(0.0)
+        .round() as i32;
+    let extrusion_in = shape_opt
+        .and_then(|s| s.sheet.get_f64("ExtrusionDepth"))
+        .unwrap_or(0.0);
+    let sketchy = shape_opt
+        .and_then(|s| s.sheet.get_bool("LineSketchEnabled"))
+        .unwrap_or(false);
+
+    // Resolve Fill (`none`, solid hex, `<linearGradient>`, `<radialGradient>`, or `<pattern>` hatch)
+    let fill_paint = if fill_pattern == 0 || vis.paths.iter().all(|p| p.no_fill) {
+        String::from("none")
+    } else if let Some(fg) = vis.fill_color {
+        let fg_hex = fg.to_hex_rgb();
+        let bg_hex = fill_bkgnd.to_hex_rgb();
+        if (25..=35).contains(&fill_pattern) {
+            let gid = format!("vexio-lgrad-{ns_prefix}-{}", vis.shape_id);
+            let rad = grad_angle_deg.to_radians();
+            let x2 = (50.0 + 50.0 * rad.cos()).clamp(0.0, 100.0);
+            let y2 = (50.0 + 50.0 * rad.sin()).clamp(0.0, 100.0);
+            let _ = writeln!(
+                defs,
+                "<linearGradient id=\"{gid}\" x1=\"0%\" y1=\"0%\" x2=\"{x2:.1}%\" y2=\"{y2:.1}%\"><stop offset=\"0%\" stop-color=\"{fg_hex}\"/><stop offset=\"100%\" stop-color=\"{bg_hex}\"/></linearGradient>"
+            );
+            format!("url(#{gid})")
+        } else if (36..=40).contains(&fill_pattern) {
+            let gid = format!("vexio-rgrad-{ns_prefix}-{}", vis.shape_id);
+            let _ = writeln!(
+                defs,
+                "<radialGradient id=\"{gid}\" cx=\"50%\" cy=\"50%\" r=\"65%\"><stop offset=\"0%\" stop-color=\"{bg_hex}\"/><stop offset=\"100%\" stop-color=\"{fg_hex}\"/></radialGradient>"
+            );
+            format!("url(#{gid})")
+        } else if (2..=12).contains(&fill_pattern) {
+            let pid = format!("vexio-hatch-{ns_prefix}-{}", vis.shape_id);
+            let hatch_geom = match fill_pattern {
+                2 => format!("<line x1=\"0\" y1=\"4\" x2=\"8\" y2=\"4\" stroke=\"{fg_hex}\" stroke-width=\"1.2\"/>"),
+                3 => format!("<line x1=\"4\" y1=\"0\" x2=\"4\" y2=\"8\" stroke=\"{fg_hex}\" stroke-width=\"1.2\"/>"),
+                4 => format!("<path d=\"M-2,2 l4,-4 M0,8 l8,-8 M6,10 l4,-4\" stroke=\"{fg_hex}\" stroke-width=\"1.1\"/>"),
+                5 => format!("<path d=\"M-2,6 l4,4 M0,0 l8,8 M6,-2 l4,4\" stroke=\"{fg_hex}\" stroke-width=\"1.1\"/>"),
+                6 => format!("<path d=\"M4,0 v8 M0,4 h8\" stroke=\"{fg_hex}\" stroke-width=\"1.0\"/>"),
+                _ => format!("<circle cx=\"4\" cy=\"4\" r=\"1.3\" fill=\"{fg_hex}\"/>"),
+            };
+            let _ = writeln!(
+                defs,
+                "<pattern id=\"{pid}\" width=\"8\" height=\"8\" patternUnits=\"userSpaceOnUse\"><rect width=\"8\" height=\"8\" fill=\"{bg_hex}\"/>{hatch_geom}</pattern>"
+            );
+            format!("url(#{pid})")
+        } else {
+            fg_hex
+        }
+    } else {
+        String::from("none")
+    };
+
+    // Optional Soft Drop Shadow Filter
+    let filter_attr = if shdw_pattern > 0 {
+        let fid = format!("vexio-shdw-{ns_prefix}-{}", vis.shape_id);
+        let dx_px = shape_opt
+            .and_then(|s| s.sheet.get_f64("ShdwOffsetX"))
+            .unwrap_or(0.05)
+            * ppi;
+        let dy_px = -shape_opt
+            .and_then(|s| s.sheet.get_f64("ShdwOffsetY"))
+            .unwrap_or(-0.05)
+            * ppi;
+        let blur_px = shape_opt
+            .and_then(|s| s.sheet.get_f64("ShdwBlur"))
+            .unwrap_or(0.04)
+            * ppi;
+        let shdw_col = shape_opt
+            .and_then(|s| s.sheet.get_color("ShdwForegnd"))
+            .map(|c| c.to_hex_rgb())
+            .unwrap_or_else(|| "#0f172a".into());
+        let _ = writeln!(
+            defs,
+            "<filter id=\"{fid}\" x=\"-20%\" y=\"-20%\" width=\"150%\" height=\"150%\"><feDropShadow dx=\"{dx_px:.1}\" dy=\"{dy_px:.1}\" stdDeviation=\"{blur_px:.1}\" flood-color=\"{shdw_col}\" flood-opacity=\"0.28\"/></filter>"
+        );
+        format!(" filter=\"url(#{fid})\"")
+    } else {
+        String::new()
+    };
+
+    // ScreenTip / Hyperlink metadata on shape group
+    let screentip = shape_opt
+        .and_then(|s| s.sheet.get_cell("Comment"))
+        .and_then(|c| c.value.as_str_coerced().ok())
+        .filter(|s| !s.trim().is_empty());
+    let default_hl = shape_opt.and_then(|s| {
+        s.sheet
+            .hyperlinks
+            .iter()
+            .find(|h| h.default)
+            .or_else(|| s.sheet.hyperlinks.first())
+    });
+    let subproc_attr = default_hl
+        .filter(|h| !h.sub_address.is_empty())
+        .map(|h| format!(" data-subprocess=\"{}\"", vexio_vsdx::opc::xml_escape(&h.sub_address)))
+        .unwrap_or_default();
+
+    let _ = writeln!(
+        body,
+        "<g data-shape-id=\"{}\"{filter_attr}{subproc_attr}>",
+        vis.shape_id
+    );
+    if screentip.is_some() || default_hl.is_some() {
+        let mut tip_parts = Vec::new();
+        if let Some(st) = &screentip {
+            tip_parts.push(st.clone());
+        }
+        if let Some(hl) = default_hl {
+            let target = if !hl.sub_address.is_empty() {
+                format!("Page: {}", hl.sub_address)
+            } else {
+                hl.address.clone()
+            };
+            tip_parts.push(format!("Link → {} ({target})", hl.description));
+        }
+        let _ = writeln!(
+            body,
+            "<title>{}</title>",
+            vexio_vsdx::opc::xml_escape(&tip_parts.join(" | "))
+        );
+    }
+
+    // 3D Extrusion / Bevel Back-Depth Facet
+    if bevel_type > 0 || extrusion_in > 0.005 {
+        let depth_px = (extrusion_in.max(0.08)) * ppi;
+        let left_px = to_svg_x(vis.aabb_min[0]);
+        let top_px = to_svg_y(vis.aabb_max[1]);
+        let w_b = ((vis.aabb_max[0] - vis.aabb_min[0]) * ppi).max(4.0);
+        let h_b = ((vis.aabb_max[1] - vis.aabb_min[1]) * ppi).max(4.0);
+        let dx = depth_px * 0.72;
+        let dy = -depth_px * 0.65;
+        // Top & Right 3D extruded bevel faces
+        let _ = writeln!(
+            body,
+            "<polygon points=\"{:.1},{:.1} {:.1},{:.1} {:.1},{:.1} {:.1},{:.1}\" fill=\"#cbd5e1\" stroke=\"#475569\" stroke-width=\"0.9\"/>",
+            left_px,
+            top_px,
+            left_px + dx,
+            top_px + dy,
+            left_px + w_b + dx,
+            top_px + dy,
+            left_px + w_b,
+            top_px
+        );
+        let _ = writeln!(
+            body,
+            "<polygon points=\"{:.1},{:.1} {:.1},{:.1} {:.1},{:.1} {:.1},{:.1}\" fill=\"#94a3b8\" stroke=\"#475569\" stroke-width=\"0.9\"/>",
+            left_px + w_b,
+            top_px,
+            left_px + w_b + dx,
+            top_px + dy,
+            left_px + w_b + dx,
+            top_px + h_b + dy,
+            left_px + w_b,
+            top_px + h_b
+        );
+    }
+
+    let stroke = vis
+        .stroke_color
+        .map(|c| c.to_hex_rgb())
+        .unwrap_or_else(|| "none".into());
+    let sw_px = (vis.stroke_weight_in * ppi).max(0.75);
+    let marker_end = if vis.end_arrow > 0 {
+        " marker-end=\"url(#vexio-arrow)\""
+    } else {
+        ""
+    };
+
+    for path in &vis.paths {
+        if path.no_show || path.verbs_page_space.is_empty() {
+            continue;
+        }
+        let p_fill = if path.no_fill { "none" } else { &fill_paint };
+        let p_stroke = if path.no_line { "none" } else { &stroke };
+
+        let mut d = String::new();
+        let mut sketch_d = String::new();
+        let mut last_pt = [0.0, 0.0];
+        let mut seg_idx = 0u32;
+
+        for verb in &path.verbs_page_space {
+            match verb {
+                EvaluatedPathVerb::MoveTo(p) => {
+                    let _ = write!(d, "M {:.2} {:.2} ", to_svg_x(p[0]), to_svg_y(p[1]));
+                    if sketchy {
+                        let _ = write!(sketch_d, "M {:.2} {:.2} ", to_svg_x(p[0]) + 1.1, to_svg_y(p[1]) - 0.9);
+                    }
+                    last_pt = *p;
+                }
+                EvaluatedPathVerb::LineTo(p) => {
+                    let sx = to_svg_x(p[0]);
+                    let sy = to_svg_y(p[1]);
+                    if sketchy {
+                        let mx = (to_svg_x(last_pt[0]) + sx) * 0.5;
+                        let my = (to_svg_y(last_pt[1]) + sy) * 0.5;
+                        let jitter = if (vis.shape_id as u32 + seg_idx) % 2 == 0 { 2.2 } else { -2.2 };
+                        let _ = write!(d, "Q {:.2} {:.2} {:.2} {:.2} ", mx + jitter, my - jitter, sx, sy);
+                        let _ = write!(
+                            sketch_d,
+                            "Q {:.2} {:.2} {:.2} {:.2} ",
+                            mx - jitter * 0.7,
+                            my + jitter * 0.7,
+                            sx - 0.8,
+                            sy + 0.8
+                        );
+                    } else {
+                        let _ = write!(d, "L {:.2} {:.2} ", sx, sy);
+                    }
+                    last_pt = *p;
+                    seg_idx += 1;
+                }
+                EvaluatedPathVerb::QuadTo { ctrl, to } => {
+                    let _ = write!(
+                        d,
+                        "Q {:.2} {:.2} {:.2} {:.2} ",
+                        to_svg_x(ctrl[0]),
+                        to_svg_y(ctrl[1]),
+                        to_svg_x(to[0]),
+                        to_svg_y(to[1])
+                    );
+                    last_pt = *to;
+                }
+                EvaluatedPathVerb::CubicTo { ctrl1, ctrl2, to } => {
+                    let _ = write!(
+                        d,
+                        "C {:.2} {:.2} {:.2} {:.2} {:.2} {:.2} ",
+                        to_svg_x(ctrl1[0]),
+                        to_svg_y(ctrl1[1]),
+                        to_svg_x(ctrl2[0]),
+                        to_svg_y(ctrl2[1]),
+                        to_svg_x(to[0]),
+                        to_svg_y(to[1])
+                    );
+                    last_pt = *to;
+                }
+                EvaluatedPathVerb::ArcTo { to, bow } => {
+                    let chord = ((to[0] - last_pt[0]).powi(2) + (to[1] - last_pt[1]).powi(2)).sqrt();
+                    if bow.abs() < 1e-6 || chord < 1e-6 {
+                        let _ = write!(d, "L {:.2} {:.2} ", to_svg_x(to[0]), to_svg_y(to[1]));
+                    } else {
+                        let r_in = (chord * chord) / (8.0 * bow.abs()) + bow.abs() * 0.5;
+                        let r_px = r_in * ppi;
+                        let sweep = if *bow > 0.0 { 0 } else { 1 };
+                        let _ = write!(
+                            d,
+                            "A {:.2} {:.2} 0 0 {sweep} {:.2} {:.2} ",
+                            r_px,
+                            r_px,
+                            to_svg_x(to[0]),
+                            to_svg_y(to[1])
+                        );
+                    }
+                    last_pt = *to;
+                }
+                EvaluatedPathVerb::Ellipse { center, rx, ry, .. } => {
+                    let cx = to_svg_x(center[0]);
+                    let cy = to_svg_y(center[1]);
+                    let rx_px = rx * ppi;
+                    let ry_px = ry * ppi;
+                    let _ = writeln!(
+                        body,
+                        "<ellipse cx=\"{cx:.2}\" cy=\"{cy:.2}\" rx=\"{rx_px:.2}\" ry=\"{ry_px:.2}\" fill=\"{p_fill}\" stroke=\"{p_stroke}\" stroke-width=\"{sw_px:.2}\"/>"
+                    );
+                }
+                EvaluatedPathVerb::Close => d.push_str("Z "),
+            }
+        }
+        if !d.is_empty() {
+            let _ = writeln!(
+                body,
+                "<path d=\"{}\" fill=\"{p_fill}\" stroke=\"{p_stroke}\" stroke-width=\"{sw_px:.2}\"{marker_end}/>",
+                d.trim()
+            );
+            if sketchy && !sketch_d.is_empty() && p_stroke != "none" {
+                let _ = writeln!(
+                    body,
+                    "<path d=\"{}\" fill=\"none\" stroke=\"{p_stroke}\" stroke-width=\"{:.2}\" stroke-opacity=\"0.55\"/>",
+                    sketch_d.trim(),
+                    (sw_px * 0.7).max(0.6)
+                );
+            }
+        }
+    }
+
+    // Embedded `ForeignMediaData` Cropped & Tone-Adjusted Raster Image
+    if let Some(sh) = shape_opt {
+        if let Some(fd) = &sh.foreign_data {
+            if !fd.data.is_empty() {
+                let mime = match fd.media_type.to_ascii_uppercase().as_str() {
+                    "JPG" | "JPEG" => "image/jpeg",
+                    "SVG" => "image/svg+xml",
+                    _ => "image/png",
+                };
+                let b64 = base64::engine::general_purpose::STANDARD.encode(&fd.data);
+                let box_left = to_svg_x(vis.transform.pin_x - vis.transform.width * 0.5);
+                let box_top = to_svg_y(vis.transform.pin_y + vis.transform.height * 0.5);
+                let box_w = (vis.transform.width * ppi).max(4.0);
+                let box_h = (vis.transform.height * ppi).max(4.0);
+
+                let crop_l = sh.sheet.get_f64("CropLeft").unwrap_or(0.0) * ppi;
+                let crop_r = sh.sheet.get_f64("CropRight").unwrap_or(0.0) * ppi;
+                let crop_t = sh.sheet.get_f64("CropTop").unwrap_or(0.0) * ppi;
+                let crop_b = sh.sheet.get_f64("CropBottom").unwrap_or(0.0) * ppi;
+                let brightness = sh.sheet.get_f64("Brightness").unwrap_or(1.0).clamp(0.1, 3.0);
+                let contrast = sh.sheet.get_f64("Contrast").unwrap_or(1.0).clamp(0.1, 3.0);
+
+                let clip_id = format!("vexio-imgclip-{ns_prefix}-{}", vis.shape_id);
+                let _ = writeln!(
+                    defs,
+                    "<clipPath id=\"{clip_id}\"><rect x=\"{:.1}\" y=\"{:.1}\" width=\"{:.1}\" height=\"{:.1}\"/></clipPath>",
+                    box_left + crop_l,
+                    box_top + crop_t,
+                    (box_w - crop_l - crop_r).max(2.0),
+                    (box_h - crop_t - crop_b).max(2.0)
+                );
+                let _ = writeln!(
+                    body,
+                    "<image href=\"data:{mime};base64,{b64}\" x=\"{box_left:.1}\" y=\"{box_top:.1}\" width=\"{box_w:.1}\" height=\"{box_h:.1}\" preserveAspectRatio=\"none\" clip-path=\"url(#{clip_id})\" style=\"filter:brightness({brightness:.2}) contrast({contrast:.2})\"/>"
+                );
+            }
+        }
+    }
+
+    // Multi-Line & Inline Rich-Text Rendering (`**bold**`, `*italic*`, `__underline__`, `~~strike~~`, bullets, RTL, `[vert]`)
+    if !vis.text.is_empty() {
+        render_rich_svg_text(body, vis, to_svg_x(vis.transform.pin_x), to_svg_y(vis.transform.pin_y));
+    }
+
+    // Subprocess `[+]` Visio Drill-Down Badge if shape links to a subprocess page
+    let is_subproc = shape_opt
+        .and_then(|s| s.sheet.get_bool("User.IsSubprocess"))
+        .unwrap_or(false)
+        || default_hl.map(|h| !h.sub_address.is_empty()).unwrap_or(false);
+    if is_subproc {
+        let bx = to_svg_x(vis.transform.pin_x) - 6.0;
+        let by = to_svg_y(vis.transform.pin_y - vis.transform.height * 0.5) - 14.0;
+        let _ = writeln!(
+            body,
+            "<g class=\"vexio-subprocess-badge\"><rect x=\"{bx:.1}\" y=\"{by:.1}\" width=\"12\" height=\"12\" rx=\"2\" fill=\"#eff6ff\" stroke=\"#1d4ed8\" stroke-width=\"1.2\"/><path d=\"M {:.1} {:.1} h 6 M {:.1} {:.1} v 6\" stroke=\"#1d4ed8\" stroke-width=\"1.2\"/></g>",
+            bx + 3.0,
+            by + 6.0,
+            bx + 6.0,
+            by + 3.0
+        );
+    }
+
+    body.push_str("</g>\n");
+}
+
+fn render_rich_svg_text(body: &mut String, vis: &EvaluatedShapeVisual, tx: f64, ty: f64) {
+    let raw = vis.text.trim();
+    let is_vertical = raw.starts_with("[vert]");
+    let cleaned_raw = raw.strip_prefix("[vert]").unwrap_or(raw).trim();
+    let has_rtl = cleaned_raw
+        .chars()
+        .any(|c| ('\u{0590}'..='\u{08FF}').contains(&c));
+
+    let fsize = (vis.font_size_pt * (96.0 / 72.0)).max(8.5);
+    let line_h = fsize * 1.25;
+    let tcol = vis.text_color.to_hex_rgb();
+    let lines: Vec<&str> = cleaned_raw.lines().collect();
+    let start_y = ty - ((lines.len().saturating_sub(1) as f64) * line_h * 0.5);
+
+    let writing_attr = if is_vertical {
+        " writing-mode=\"vertical-rl\""
+    } else if has_rtl {
+        " direction=\"rtl\""
+    } else {
+        ""
+    };
+
+    let _ = write!(
+        body,
+        "<text x=\"{tx:.2}\" y=\"{start_y:.2}\" font-family=\"Segoe UI, Roboto, sans-serif\" font-size=\"{fsize:.1}\" fill=\"{tcol}\" text-anchor=\"middle\" dominant-baseline=\"middle\"{writing_attr}>"
+    );
+
+    for (idx, line) in lines.iter().enumerate() {
+        let dy = if idx == 0 { 0.0 } else { line_h };
+        let trimmed = line.trim();
+        let bullet_normalized = if let Some(rest) = trimmed.strip_prefix("- ") {
+            format!("• {rest}")
+        } else {
+            trimmed.to_string()
+        };
+        let _ = write!(body, "<tspan x=\"{tx:.2}\" dy=\"{dy:.1}\">");
+        emit_inline_styled_tspans(body, &bullet_normalized);
+        body.push_str("</tspan>");
+    }
+    body.push_str("</text>\n");
+}
+
+fn emit_inline_styled_tspans(out: &mut String, mut rest: &str) {
+    while !rest.is_empty() {
+        if let Some(after_open) = rest.strip_prefix("**") {
+            if let Some(end) = after_open.find("**") {
+                let _ = write!(
+                    out,
+                    "<tspan font-weight=\"bold\">{}</tspan>",
+                    vexio_vsdx::opc::xml_escape(&after_open[..end])
+                );
+                rest = &after_open[end + 2..];
+                continue;
+            }
+        }
+        if let Some(after_open) = rest.strip_prefix("__") {
+            if let Some(end) = after_open.find("__") {
+                let _ = write!(
+                    out,
+                    "<tspan text-decoration=\"underline\">{}</tspan>",
+                    vexio_vsdx::opc::xml_escape(&after_open[..end])
+                );
+                rest = &after_open[end + 2..];
+                continue;
+            }
+        }
+        if let Some(after_open) = rest.strip_prefix("~~") {
+            if let Some(end) = after_open.find("~~") {
+                let _ = write!(
+                    out,
+                    "<tspan text-decoration=\"line-through\">{}</tspan>",
+                    vexio_vsdx::opc::xml_escape(&after_open[..end])
+                );
+                rest = &after_open[end + 2..];
+                continue;
+            }
+        }
+        if let Some(after_open) = rest.strip_prefix('*') {
+            if let Some(end) = after_open.find('*') {
+                if end > 0 {
+                    let _ = write!(
+                        out,
+                        "<tspan font-style=\"italic\">{}</tspan>",
+                        vexio_vsdx::opc::xml_escape(&after_open[..end])
+                    );
+                    rest = &after_open[end + 1..];
+                    continue;
+                }
+            }
+        }
+        // Emit plain text up to the next potential marker (stepping past the first full UTF-8 codepoint)
+        let first_len = rest.chars().next().map_or(rest.len(), char::len_utf8);
+        let next_marker = ['*', '_', '~']
+            .iter()
+            .filter_map(|&m| rest[first_len..].find(m).map(|p| p + first_len))
+            .min()
+            .unwrap_or(rest.len());
+        out.push_str(&vexio_vsdx::opc::xml_escape(&rest[..next_marker]));
+        rest = &rest[next_marker..];
+    }
 }
 
 // ============================================================================
@@ -199,9 +667,8 @@ pub fn export_document_pdf(doc: &VisioDocument) -> Vec<u8> {
         id
     };
 
-    // Reserve Obj 1 = Catalog, Obj 2 = Pages, Obj 3 = Helvetica Font
-    offsets.push(0); // placeholder 1
-    offsets.push(0); // placeholder 2
+    offsets.push(0); // placeholder 1 = Catalog
+    offsets.push(0); // placeholder 2 = Pages
     let font_obj = {
         let id = offsets.len();
         offsets.push(out.len());
@@ -281,7 +748,10 @@ pub fn export_document_pdf(doc: &VisioDocument) -> Vec<u8> {
                         EvaluatedPathVerb::Close => stream.push_str("h\n"),
                     }
                 }
-                let paint_op = match (!path.no_fill && vis.fill_color.is_some(), !path.no_line && vis.stroke_color.is_some()) {
+                let paint_op = match (
+                    !path.no_fill && vis.fill_color.is_some(),
+                    !path.no_line && vis.stroke_color.is_some(),
+                ) {
                     (true, true) => "B",
                     (true, false) => "f",
                     (false, true) => "S",
@@ -291,7 +761,13 @@ pub fn export_document_pdf(doc: &VisioDocument) -> Vec<u8> {
             }
 
             if !vis.text.is_empty() {
-                let first = vis.text.lines().next().unwrap_or("").replace('(', "\\(").replace(')', "\\)");
+                let first = vis
+                    .text
+                    .lines()
+                    .next()
+                    .unwrap_or("")
+                    .replace('(', "\\(")
+                    .replace(')', "\\)");
                 let tx = vis.transform.pin_x * 72.0 - (first.len() as f64 * vis.font_size_pt * 0.25);
                 let ty = vis.transform.pin_y * 72.0 - vis.font_size_pt * 0.35;
                 let _ = writeln!(
@@ -318,7 +794,6 @@ pub fn export_document_pdf(doc: &VisioDocument) -> Vec<u8> {
         page_obj_ids.push(page_obj);
     }
 
-    // Emit Obj 2 (Pages) and Obj 1 (Catalog with PDF/A metadata dict)
     let kids_str: Vec<String> = page_obj_ids.iter().map(|id| format!("{id} 0 R")).collect();
     offsets[2] = out.len();
     out.extend_from_slice(
@@ -336,7 +811,7 @@ pub fn export_document_pdf(doc: &VisioDocument) -> Vec<u8> {
     );
 
     let xref_offset = out.len();
-    let _ = write_pdf_xref(&mut out, &offsets, xref_offset);
+    write_pdf_xref(&mut out, &offsets, xref_offset);
     out
 }
 
@@ -401,16 +876,14 @@ pub fn export_page_eps(doc: &VisioDocument, page_id: u32) -> String {
 
 pub fn encode_rgba_to_png(width: u32, height: u32, rgba: &[u8], dpi: u32) -> Vec<u8> {
     let mut png = Vec::new();
-    png.extend_from_slice(&[137, 80, 78, 71, 13, 10, 26, 10]); // PNG signature
+    png.extend_from_slice(&[137, 80, 78, 71, 13, 10, 26, 10]);
 
-    // IHDR
     let mut ihdr = Vec::with_capacity(13);
     ihdr.extend_from_slice(&width.to_be_bytes());
     ihdr.extend_from_slice(&height.to_be_bytes());
-    ihdr.extend_from_slice(&[8, 6, 0, 0, 0]); // 8-bit RGBA
+    ihdr.extend_from_slice(&[8, 6, 0, 0, 0]);
     write_png_chunk(&mut png, b"IHDR", &ihdr);
 
-    // pHYs (Pixels per meter for exact high-DPI Visio export!)
     let ppm = ((dpi as f64) / 0.0254).round() as u32;
     let mut phys = Vec::with_capacity(9);
     phys.extend_from_slice(&ppm.to_be_bytes());
@@ -418,7 +891,6 @@ pub fn encode_rgba_to_png(width: u32, height: u32, rgba: &[u8], dpi: u32) -> Vec
     phys.push(1);
     write_png_chunk(&mut png, b"pHYs", &phys);
 
-    // Raw scanlines (filter byte 0 = None per row) compressed inside valid zlib uncompressed blocks
     let row_bytes = (width as usize) * 4;
     let mut raw_scanlines = Vec::with_capacity(height as usize * (row_bytes + 1));
     for y in 0..height as usize {
@@ -442,7 +914,7 @@ fn write_png_chunk(out: &mut Vec<u8>, tag: &[u8; 4], data: &[u8]) {
 }
 
 fn encode_zlib_stored(raw: &[u8]) -> Vec<u8> {
-    let mut z = vec![0x78, 0x01]; // Zlib CMF/FLG header
+    let mut z = vec![0x78, 0x01];
     let chunks: Vec<&[u8]> = if raw.is_empty() {
         vec![&[]]
     } else {
@@ -457,7 +929,6 @@ fn encode_zlib_stored(raw: &[u8]) -> Vec<u8> {
         z.extend_from_slice(&nlen.to_le_bytes());
         z.extend_from_slice(ch);
     }
-    // Adler-32 checksum
     let mut s1: u32 = 1;
     let mut s2: u32 = 0;
     for &b in raw {
@@ -505,7 +976,6 @@ pub struct TiledPrintSheet {
     pub col: usize,
     pub clip_min_in: [f64; 2],
     pub clip_max_in: [f64; 2],
-    /// Four corner registration crosshairs in sheet coordinates `(x_in, y_in)`.
     pub registration_marks_in: [[f64; 2]; 4],
 }
 

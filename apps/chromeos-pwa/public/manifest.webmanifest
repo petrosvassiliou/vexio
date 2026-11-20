@@ -39,7 +39,10 @@
         "application/vnd.ms-visio.template.macroEnabled.main+xml": [".vstm"],
         "application/vnd.visio": [".vsd", ".vss", ".vst", ".vdx", ".vdw"],
         "application/acad": [".dwg"],
-        "image/vnd.dxf": [".dxf"]
+        "image/vnd.dxf": [".dxf"],
+        "image/x-emf": [".emf"],
+        "image/x-wmf": [".wmf"],
+        "text/x-ldif": [".ldif"]
       },
       "launch_type": "multiple-clients"
     }

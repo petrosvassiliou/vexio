@@ -82,9 +82,12 @@ fn parse_visio_document_stream(buf: &[u8]) -> Result<VisioDocument, LegacyVisioE
         ));
     }
     let version = buf[0x1A];
+    if version == 5 {
+        return crate::formula_emf::parse_visio_v5_stream(buf);
+    }
     if version < 6 {
         return Err(LegacyVisioError::InvalidHeader(format!(
-            "Unsupported pre-v6 Visio version {version}"
+            "Unsupported pre-v5 Visio version {version}"
         )));
     }
     // Trailer pointer resides at 0x24: [type_id: u16, format: u16, offset: u32, length: u32]

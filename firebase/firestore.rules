@@ -53,8 +53,15 @@ service cloud.firestore {
       allow create, update: if request.auth != null
         && request.resource.data.uid == request.auth.uid
         && request.resource.data.senderPeerId is string
-        && request.resource.data.vsdxBase64 is string
-        && request.resource.data.vsdxBase64.size() <= 750000
+        && (
+          (request.resource.data.keys().hasAny(['crdtOpsJson'])
+            && request.resource.data.crdtOpsJson is string
+            && request.resource.data.crdtOpsJson.size() <= 750000)
+          ||
+          (request.resource.data.keys().hasAny(['vsdxBase64'])
+            && request.resource.data.vsdxBase64 is string
+            && request.resource.data.vsdxBase64.size() <= 750000)
+        )
         && request.resource.data.updatedAt is string;
     }
   }

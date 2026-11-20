@@ -5,6 +5,7 @@
 pub mod pipeline;
 pub mod spatial;
 pub mod tessellate;
+pub mod typography;
 
 pub use pipeline::{
     build_page_scene_mesh, prepare_visible_shape_batch, render_page_rgba_auto,
@@ -17,6 +18,10 @@ pub use tessellate::{
     tessellate_ruler_and_grid_ticks, tessellate_selection_handles, tessellate_shape,
     tessellate_shape_full, GpuVertex, MeshCache, TessellatedMesh, PRIM_FLAG_MARKUP_INK,
     PRIM_FLAG_OVERLAY_UI, PRIM_FLAG_PAGE_GRID, PRIM_FLAG_SHAPE, PRIM_FLAG_TEXT_GLYPH,
+};
+pub use typography::{
+    BulletStyle, RichTextBlock, RichTextRun, TextDirection, parse_inline_rich_text,
+    reorder_bidi_visual_line, tessellate_rich_text_in_box,
 };
 pub use vexio_shapesheet::VisioDocument;
 

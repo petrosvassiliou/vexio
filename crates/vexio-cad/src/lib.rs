@@ -3,6 +3,7 @@
 //! Provides deterministic, zero-UI-dependency CAD import, export, layer mapping,
 //! architectural/metric scale locking, and CAD-to-ShapeSheet editable shape conversion.
 
+pub mod dwg_modern;
 pub mod dwg_reader;
 pub mod dxf_codec;
 pub mod layers_scale;
@@ -26,6 +27,13 @@ pub enum CadError {
     LayerNotFound(String),
 }
 
+pub use dwg_modern::{
+    CadHatchLoop, build_cad_hatch_shape, build_cad_linear_dimension_shape,
+    build_cad_viewport_shape, compress_dwg_r2004_lz77, decode_dwg_modern_container,
+    decompress_dwg_r2004_lz77, decrypt_r2004_header_block, deinterleave_reed_solomon_blocks,
+    encode_dwg_modern_container, encrypt_r2004_header_block, interleave_reed_solomon_blocks,
+    parse_dxf_extended_entities, read_tu_utf16_string,
+};
 pub use dwg_reader::{
     DwgBitReader, DwgBitWriter, DwgEntitySpec, DwgLayerSpec, DwgMinimalScene, DwgVersion,
     encode_dwg_r2000_from_page, encode_minimal_dwg_r2000, import_dwg_to_page,

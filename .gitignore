@@ -106,6 +106,7 @@ service-account*.json
 /.java/
 /.gradle/
 /.android/
+/petrosvassiliou/
 
 # ------------------------------------------------------------------------------
 # 6. Explicitly Tracked Artifacts, Lockfiles & Workspace Rules

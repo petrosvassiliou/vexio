@@ -6,6 +6,8 @@
  *    multi-tab co-editing on ChromeOS (multiple Vexio windows side-by-side).
  * 2. Cloud Firestore `onSnapshot` (`/collabRooms/{roomId}/presence` & `/collabRooms/{roomId}/ops`)
  *    whenever signed in via Firebase Auth for real-time cross-device team presence & sync.
+ * 3. Fine-grained Hybrid Logical Clock (HLC) Per-Cell CRDT delta packets (`crdtOps`) so
+ *    simultaneous edits to distinct cells/text on the *same* shape merge with zero lost updates!
  */
 
 import {
@@ -33,6 +35,13 @@ type BroadcastPacket =
       kind: 'presence';
       roomId: string;
       peer: PeerPresence;
+    }
+  | {
+      kind: 'crdtOps';
+      roomId: string;
+      senderPeerId: string;
+      opBatchId: string;
+      crdtOpsJson: string;
     }
   | {
       kind: 'docSync';
@@ -73,16 +82,19 @@ export class VexioCollabSession {
   private channel: BroadcastChannel | null = null;
   private peers = new Map<string, PeerPresence>();
   private firestoreUnsubs: Unsubscribe[] = [];
+  private seenBatchIds = new Set<string>();
   private lastFirestoreCursorSentMs = 0;
   private lastAppliedRemoteOpIso = '';
 
   private onPeersChanged: (peers: PeerPresence[]) => void;
+  private onRemoteCrdtOps: (crdtOpsJson: string, senderPeerId: string) => void;
   private onRemoteDocSync: (vsdxBytes: Uint8Array, senderPeerId: string) => void;
 
   constructor(opts: {
     roomId: string;
     firebaseSync: VexioFirebaseSync;
     onPeersChanged: (peers: PeerPresence[]) => void;
+    onRemoteCrdtOps: (crdtOpsJson: string, senderPeerId: string) => void;
     onRemoteDocSync: (vsdxBytes: Uint8Array, senderPeerId: string) => void;
   }) {
     const rand = Math.floor(Math.random() * 900 + 100);
@@ -92,6 +104,7 @@ export class VexioCollabSession {
     this.roomId = opts.roomId;
     this.firebaseSync = opts.firebaseSync;
     this.onPeersChanged = opts.onPeersChanged;
+    this.onRemoteCrdtOps = opts.onRemoteCrdtOps;
     this.onRemoteDocSync = opts.onRemoteDocSync;
 
     if (typeof BroadcastChannel !== 'undefined') {
@@ -102,6 +115,11 @@ export class VexioCollabSession {
         if (pkt.kind === 'presence' && pkt.peer.peerId !== this.peerId) {
           this.peers.set(pkt.peer.peerId, { ...pkt.peer, updatedAtMs: Date.now() });
           this.pruneAndNotify();
+        } else if (pkt.kind === 'crdtOps' && pkt.senderPeerId !== this.peerId) {
+          if (!this.seenBatchIds.has(pkt.opBatchId)) {
+            this.seenBatchIds.add(pkt.opBatchId);
+            this.onRemoteCrdtOps(pkt.crdtOpsJson, pkt.senderPeerId);
+          }
         } else if (pkt.kind === 'docSync' && pkt.senderPeerId !== this.peerId) {
           if (pkt.updatedAtIso > this.lastAppliedRemoteOpIso) {
             this.lastAppliedRemoteOpIso = pkt.updatedAtIso;
@@ -162,23 +180,27 @@ export class VexioCollabSession {
         () => {}
       );
 
-      const latestOpRef = doc(db, 'collabRooms', this.roomId, 'ops', 'latest');
+      const opsCol = collection(db, 'collabRooms', this.roomId, 'ops');
       const unsubOps = onSnapshot(
-        latestOpRef,
-        (snap) => {
-          if (!snap.exists()) return;
-          const d = snap.data();
-          const senderPeerId = String(d.senderPeerId ?? '');
-          const updatedAt = String(d.updatedAt ?? '');
-          if (
-            senderPeerId &&
-            senderPeerId !== this.peerId &&
-            updatedAt > this.lastAppliedRemoteOpIso &&
-            typeof d.vsdxBase64 === 'string'
-          ) {
-            this.lastAppliedRemoteOpIso = updatedAt;
-            this.onRemoteDocSync(base64ToUint8(d.vsdxBase64), senderPeerId);
-          }
+        opsCol,
+        (qs) => {
+          qs.docChanges().forEach((chg) => {
+            if (chg.type === 'removed') return;
+            const d = chg.doc.data();
+            const senderPeerId = String(d.senderPeerId ?? '');
+            if (!senderPeerId || senderPeerId === this.peerId) return;
+
+            if (typeof d.crdtOpsJson === 'string' && !this.seenBatchIds.has(chg.doc.id)) {
+              this.seenBatchIds.add(chg.doc.id);
+              this.onRemoteCrdtOps(d.crdtOpsJson, senderPeerId);
+            } else if (
+              typeof d.vsdxBase64 === 'string' &&
+              String(d.updatedAt ?? '') > this.lastAppliedRemoteOpIso
+            ) {
+              this.lastAppliedRemoteOpIso = String(d.updatedAt ?? '');
+              this.onRemoteDocSync(base64ToUint8(d.vsdxBase64), senderPeerId);
+            }
+          });
         },
         () => {}
       );
@@ -221,6 +243,31 @@ export class VexioCollabSession {
         pageId,
         selectedShapeIds,
         updatedAt: new Date(now).toISOString(),
+      }).catch(() => {});
+    }
+  }
+
+  public broadcastCrdtOps(crdtOpsJson: string): void {
+    if (!crdtOpsJson || crdtOpsJson === '[]') return;
+    const opBatchId = `${this.peerId}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+    this.seenBatchIds.add(opBatchId);
+
+    this.channel?.postMessage({
+      kind: 'crdtOps',
+      roomId: this.roomId,
+      senderPeerId: this.peerId,
+      opBatchId,
+      crdtOpsJson,
+    } satisfies BroadcastPacket);
+
+    const db = this.firebaseSync.getFirestoreInstance();
+    const user = this.firebaseSync.getCurrentUser();
+    if (db && user && crdtOpsJson.length < 600_000) {
+      setDoc(doc(db, 'collabRooms', this.roomId, 'ops', opBatchId), {
+        uid: user.uid,
+        senderPeerId: this.peerId,
+        crdtOpsJson,
+        updatedAt: new Date().toISOString(),
       }).catch(() => {});
     }
   }

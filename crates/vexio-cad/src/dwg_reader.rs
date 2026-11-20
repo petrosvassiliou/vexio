@@ -1285,6 +1285,33 @@ pub fn import_dwg_to_page(
     dwg_bytes: &[u8],
 ) -> Result<(DwgVersion, Vec<u64>), CadError> {
     let version = DwgVersion::from_magic_bytes(dwg_bytes)?;
+    if matches!(
+        version,
+        DwgVersion::R2004
+            | DwgVersion::R2007
+            | DwgVersion::R2010
+            | DwgVersion::R2013
+            | DwgVersion::R2018
+    ) {
+        if let Ok(decoded_doc) = crate::dwg_modern::decode_dwg_modern_container(dwg_bytes) {
+            if let Some(src_page) = decoded_doc.pages.first() {
+                page.layers = src_page.layers.clone();
+                let mut ids = Vec::new();
+                for mut sh in src_page.shapes.clone() {
+                    let nid = page.next_shape_id();
+                    sh.id = nid;
+                    ids.push(nid);
+                    page.shapes.push(sh);
+                }
+                page.page_sheet.set_user_cell(
+                    "CadDwgVersion",
+                    format!("\"{}\"", version.magic_str()),
+                    "DWG Version Magic",
+                );
+                return Ok((version, ids));
+            }
+        }
+    }
     if dwg_bytes.len() < 0x19 {
         return Err(CadError::CorruptDwgStream(
             "DWG file truncated before Section Locator Table at 0x15".into(),

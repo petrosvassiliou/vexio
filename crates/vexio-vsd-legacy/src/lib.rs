@@ -3,19 +3,47 @@
 //! Supports `.vsd`, `.vss`, `.vst` (OLE2 Compound File Binary MS-VSD streams),
 //! `.vdx` (DatadiagramML XML), and `.vdw` (Visio Web Drawing packages).
 
+pub mod formula_emf;
 pub mod lz_visio;
 pub mod vdx_xml;
 pub mod vsd_cfb;
 
+pub use formula_emf::{
+    compile_formula_to_vsd_bytecode, decompile_vsd_bytecode_to_formula, encode_shape_to_emf,
+    encode_visio_v5_stream, parse_emf_to_shape, parse_visio_v5_stream, parse_wmf_to_shape,
+};
 pub use vdx_xml::{read_vdw, read_vdx_xml, write_vdx_xml};
 pub use vsd_cfb::{LegacyVisioError, read_vsd_cfb, write_vsd_cfb};
 
-/// Auto-detect and parse any legacy Visio format (`.vsd`, `.vss`, `.vst`, `.vdx`, `.vdw`).
+/// Auto-detect and parse any legacy Visio or Metafile format (`.vsd` v5/v6/v11, `.vss`, `.vst`, `.vdx`, `.vdw`, `.emf`, `.wmf`).
 pub fn read_legacy_auto(bytes: &[u8], ext_hint: &str) -> Result<vexio_shapesheet::VisioDocument, LegacyVisioError> {
     if bytes.starts_with(b"\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1") {
         return read_vsd_cfb(bytes);
     }
+    if bytes.starts_with(b"Visio (TM) Drawing") && bytes.len() > 0x1A && bytes[0x1A] == 5 {
+        return parse_visio_v5_stream(bytes);
+    }
     let ext = ext_hint.trim().trim_start_matches('.').to_ascii_lowercase();
+    if ext == "emf" || (bytes.len() >= 44 && &bytes[40..44] == b" EMF") {
+        let mut doc = vexio_shapesheet::VisioDocument::new_blank("Imported EMF Drawing");
+        let sh = parse_emf_to_shape(1, "Metafile.1", bytes, 5.5, 4.25)
+            .map_err(LegacyVisioError::InvalidHeader)?;
+        if let Some(p) = doc.page_mut(1) {
+            p.shapes.push(sh);
+        }
+        vexio_shapesheet::ReactiveEngine::recalculate_document(&mut doc);
+        return Ok(doc);
+    }
+    if ext == "wmf" || bytes.starts_with(&[0xD7, 0xCD, 0xC6, 0x9A]) {
+        let mut doc = vexio_shapesheet::VisioDocument::new_blank("Imported WMF Drawing");
+        let sh = parse_wmf_to_shape(1, "Metafile.1", bytes, 5.5, 4.25)
+            .map_err(LegacyVisioError::InvalidHeader)?;
+        if let Some(p) = doc.page_mut(1) {
+            p.shapes.push(sh);
+        }
+        vexio_shapesheet::ReactiveEngine::recalculate_document(&mut doc);
+        return Ok(doc);
+    }
     if ext == "vdw" || bytes.starts_with(b"PK\x03\x04") {
         return read_vdw(bytes);
     }

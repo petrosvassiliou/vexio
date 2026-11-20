@@ -68,7 +68,7 @@ async function main() {
   const manifest = await manifestRes.json();
   assert.deepEqual(manifest.display_override, ['window-controls-overlay', 'standalone']);
   const acceptedExts = Object.values(manifest.file_handlers[0].accept).flat();
-  for (const reqExt of ['.vsdx', '.vsdm', '.vssx', '.vstx', '.vsd', '.dwg', '.dxf']) {
+  for (const reqExt of ['.vsdx', '.vsdm', '.vssx', '.vstx', '.vsd', '.dwg', '.dxf', '.emf', '.wmf', '.ldif']) {
     assert(acceptedExts.includes(reqExt), `manifest file_handlers missing ${reqExt}`);
   }
 
@@ -93,9 +93,9 @@ async function main() {
   ]) {
     assert(swText.includes(`/stencils/${stFile}`), `sw.js missing precached stencil ${stFile}`);
   }
-  console.log('  ✓ ChromeOS WCO, File Handlers, and all 12 precached .vssx Stencil Packs verified.');
+  console.log('  ✓ ChromeOS WCO, File Handlers (.vsdx/.vsd/.dwg/.dxf/.emf/.wmf/.ldif), and all 12 precached .vssx Stencil Packs verified.');
 
-  console.log('=== [4/5] Verifying 100% Unauthenticated Offline Rust WASM SIMD Engine & Phase 6 Tools ===');
+  console.log('=== [4/6] Verifying 100% Unauthenticated Offline Rust WASM SIMD Engine & Core Tools ===');
   const distWasmJs = pathToFileURL(
     resolve('/home/antigravity/apps/chromeos-pwa/dist/wasm/vexio_core.js')
   ).href;
@@ -143,16 +143,24 @@ async function main() {
   const issues = JSON.parse(session.validate_diagram('bpmn'));
   assert.equal(issues.length, 0, `Valid BPMN flow must report 0 issues, got: ${JSON.stringify(issues)}`);
 
-  // Save .vsdx, .vsd, .dxf, .pdf, and OPFS WAL journal 100% offline in WASM!
+  // Save .vsdx, .vsd, .dxf, .pdf, .pptx, .docx, .flow.json, .pbi.json, and OPFS WAL journal 100% offline in WASM!
   const vsdxOut = session.save_format('vsdx');
   const vsdOut = session.save_format('vsd');
   const dxfOut = session.save_format('dxf');
   const pdfOut = session.save_format('pdf');
+  const pptxOut = session.save_format('pptx');
+  const docxOut = session.save_format('docx');
+  const flowOut = session.save_format('powerautomate');
+  const pbiOut = session.save_format('powerbi');
   const walOut = session.export_wal();
   assert(vsdxOut.byteLength > 500, 'WASM .vsdx output empty');
   assert(vsdOut[0] === 0xd0 && vsdOut[1] === 0xcf, 'WASM .vsd must have OLE2 header');
   assert(new TextDecoder().decode(dxfOut).includes('ENTITIES'), 'WASM .dxf must contain ENTITIES');
   assert(new TextDecoder().decode(pdfOut.slice(0, 8)).startsWith('%PDF-1.7'), 'WASM .pdf must start with %PDF-1.7');
+  assert(pptxOut[0] === 0x50 && pptxOut[1] === 0x4b, 'WASM .pptx must be valid OpenXML ZIP');
+  assert(docxOut[0] === 0x50 && docxOut[1] === 0x4b, 'WASM .docx must be valid OpenXML ZIP');
+  assert(JSON.parse(new TextDecoder().decode(flowOut)).actions, 'Power Automate JSON must contain workflow actions');
+  assert(Array.isArray(JSON.parse(new TextDecoder().decode(pbiOut)).shapes), 'Power BI JSON must contain shapes array');
   assert(walOut.byteLength > 20, 'OPFS WAL journal bytes must be non-empty');
 
   const reloaded = new wasmMod.WasmVexioSession('Reloaded');
@@ -197,10 +205,126 @@ async function main() {
     2
   );
   assert(reloaded.forward_engineer_sql(erdPageId).includes('FOREIGN KEY (team_id) REFERENCES teams(id)'));
+  console.log('  ✓ Core WASM SIMD + PPTX/DOCX/PowerAutomate/PowerBI + Templates + ERD + BOM verified.');
 
-  console.log('  ✓ 100% Unauthenticated Offline WASM SIMD + Lasso + Smart Guides + 8-Handle Transform + 8 Templates + Org/Gantt/Timeline verified.');
+  console.log('=== [5/6] Verifying Phase 7 Plan 2 Features (Boolean Ops, Themes, Subprocess, Diff, DataViz, Cloud, CRDT) ===');
+  const p7 = new wasmMod.WasmVexioSession('Phase 7 Plan 2 Verification');
+  const rA = p7.draw_rectangle(1, 2.0, 3.0, 4.2, 4.8);
+  const rB = p7.draw_rectangle(1, 3.2, 3.4, 5.4, 5.2);
+  const rC = p7.draw_rectangle(1, 7.0, 2.0, 8.5, 3.0);
+  const baselineVsdx = p7.save_format('vsdx');
+  assert.equal(p7.delete_shape(1, rC), true);
 
-  console.log('=== [5/5] Verifying Firebase Auth, Version History & Collab Room Security Rules ===');
+  // Boolean Union + Offset + Freeform Curve + Draggable Yellow Control Handle + Vertex Edit
+  const unionIds = Array.from(p7.apply_boolean_op(1, new Uint32Array([rA, rB]), 'union', 0.0));
+  assert.equal(unionIds.length, 1, 'Boolean union of overlapping rectangles must yield 1 merged shape');
+  const mergedId = unionIds[0];
+  const verticesBefore = JSON.parse(p7.list_shape_vertices_json(1, mergedId));
+  assert(verticesBefore.length >= 6, 'L-shaped boolean union polygon must expose editable vertices');
+  assert.equal(
+    p7.move_shape_vertex(1, mergedId, verticesBefore[1].geom_index, verticesBefore[1].row_ix, 4.5, 5.1),
+    true
+  );
+  assert.equal(p7.ensure_control_handle(1, mergedId), true);
+  assert.equal(p7.move_control_handle(1, mergedId, 'Row_1', 3.8, 4.4), true);
+
+  const curveId = p7.draw_freeform_curve(
+    1,
+    JSON.stringify([[1.2, 1.5], [2.0, 2.4], [3.1, 1.8], [4.2, 2.6]]),
+    false
+  );
+  assert(curveId > 0, 'draw_freeform_curve must create smooth cubic Bezier shape');
+
+  // 6 Themes × 4 Variants + Structured Visual Effects + ISO Title Block + Subprocess + Hyperlink/ScreenTip
+  assert(p7.apply_theme_variant('blueprint', 2) >= 2, 'Blueprint theme variant must harmonize shapes');
+  assert.equal(p7.apply_shape_visual_preset(1, mergedId, 'grad_linear'), true);
+  assert.equal(p7.apply_shape_visual_preset(1, mergedId, 'shadow_soft'), true);
+  assert.equal(p7.apply_shape_visual_preset(1, mergedId, 'bevel_3d'), true);
+  p7.set_hyperlink_and_screentip(1, mergedId, 'Runbook', 'https://vexio.dev/ops', '', 'Primary Architecture Node');
+  const bgId = p7.apply_title_block_border(1, 'VEX-700', 'Lead Architect', 'Rev 7');
+  assert(bgId > 1, 'ISO Title Block must attach background page');
+  const subPageId = p7.create_subprocess_drilldown(1, mergedId, 'Merged-Subprocess');
+  assert(subPageId > 1, 'Subprocess drill-down must create and link target page');
+
+  const richSvg = new TextDecoder().decode(p7.save_format('svg'));
+  assert(richSvg.includes('<linearGradient'), 'SVG export must emit <linearGradient> defs');
+  assert(richSvg.includes('<feDropShadow'), 'SVG export must emit <feDropShadow> filter');
+  assert(richSvg.includes('VEX-700'), 'SVG export must composite linked ISO Title Block background page');
+  assert(richSvg.includes('Primary Architecture Node'), 'SVG export must emit ScreenTip <title>');
+
+  // Visual Diagram Compare against baselineVsdx
+  const diffReport = JSON.parse(p7.compare_with_vsdx_bytes(baselineVsdx));
+  assert(
+    diffReport.added_count >= 1 && diffReport.removed_count >= 1 && diffReport.modified_count >= 1,
+    'Diagram compare must detect added, removed, and modified diffs'
+  );
+  assert(diffReport.diff_overlay_svg.includes('<svg'), 'Diagram compare must generate visual diff_overlay_svg');
+
+  // Two-Way Data Visualizer (CSV -> Swimlanes -> XLSX -> Swimlanes), Cloud Discovery & LDIF Org Chart
+  const dvPage = p7.add_page('DataViz');
+  const dvCsv = new TextEncoder().encode(
+    'Process Step ID,Process Step Description,Next Step ID,Connector Label,Shape Type,Function,Owner\nP1,Start Order,P2,,Start,Sales,AE\nP2,Approve Credit,,,End,Finance,CFO'
+  );
+  assert.equal(p7.import_data_visualizer(dvPage, dvCsv), 2, 'Data Visualizer must build process steps + swimlanes');
+  const dvXlsx = p7.export_data_visualizer_workbook(dvPage);
+  assert(dvXlsx[0] === 0x50 && dvXlsx[1] === 0x4b, 'Data Visualizer .xlsx export must be valid OpenXML workbook');
+
+  const cloudPage = p7.add_page('Cloud');
+  assert.equal(
+    p7.import_cloud_discovery(
+      cloudPage,
+      JSON.stringify({
+        provider: 'aws',
+        vpcs: [{ id: 'v1', name: 'Prod VPC', cidr: '10.0.0.0/16' }],
+        resources: [
+          { id: 'n1', name: 'ALB', kind: 'cdn', vpc: 'v1' },
+          { id: 'n2', name: 'ECS', kind: 'compute', vpc: 'v1' },
+        ],
+        edges: [{ from: 'n1', to: 'n2', label: 'HTTPS' }],
+      })
+    ),
+    2
+  );
+
+  const ldifPage = p7.add_page('LDIF');
+  assert.equal(
+    p7.import_entra_or_ldif(
+      ldifPage,
+      'dn: cn=Jane Doe,ou=Exec,dc=vexio,dc=dev\ncn: Jane Doe\ntitle: CEO\ndepartment: Exec\n\ndn: cn=Alex Kim,ou=Eng,dc=vexio,dc=dev\ncn: Alex Kim\ntitle: Principal Eng\nmanager: cn=Jane Doe,ou=Exec,dc=vexio,dc=dev\ndepartment: Eng\n'
+    ),
+    2
+  );
+
+  // Per-Cell HLC CRDT Convergence across two concurrent offline WASM sessions!
+  const peerA = new wasmMod.WasmVexioSession('Peer A');
+  peerA.set_replica_id('peer-a');
+  const sharedCard = peerA.draw_rectangle(1, 2.0, 2.0, 4.0, 3.2);
+  const seedVsdx = peerA.save_format('vsdx');
+  peerA.flush_crdt_ops_json(1000); // baseline
+
+  const peerB = new wasmMod.WasmVexioSession('Peer B');
+  peerB.open_bytes(seedVsdx, 'vsdx');
+  peerB.set_replica_id('peer-b');
+
+  // Peer A moves PinX while offline; Peer B changes FillForegnd & Text on the SAME shape while offline!
+  peerA.move_shape(1, sharedCard, 6.5, 4.0);
+  const opsFromA = peerA.flush_crdt_ops_json(1010);
+
+  peerB.set_shape_text(1, sharedCard, 'Converged CRDT Node');
+  peerB.set_cell_formula(1, sharedCard, 'FillForegnd', '=RGB(220,252,231)', false);
+  const opsFromB = peerB.flush_crdt_ops_json(1020);
+
+  assert(peerA.apply_remote_crdt_ops_json(opsFromB) >= 1, 'Peer A must apply Peer B cell ops');
+  assert(peerB.apply_remote_crdt_ops_json(opsFromA) >= 1, 'Peer B must apply Peer A PinX/PinY ops');
+
+  const stateA = JSON.parse(peerA.get_state_json(1)).shapes.find((s) => s.id === sharedCard);
+  const stateB = JSON.parse(peerB.get_state_json(1)).shapes.find((s) => s.id === sharedCard);
+  assert.equal(stateA.text, 'Converged CRDT Node');
+  assert.equal(stateB.text, 'Converged CRDT Node');
+  assert(Math.abs(stateA.pinX - 6.5) < 1e-4 && Math.abs(stateB.pinX - 6.5) < 1e-4, 'Both peers must converge on PinX=6.5 without clobbering Text!');
+  console.log('  ✓ Phase 7 Boolean Ops, Freeform, Control/Vertex Grips, 6×4 Themes, Subprocess, Diff, DataViz, Cloud, LDIF & HLC CRDT verified.');
+
+  console.log('=== [6/6] Verifying Firebase Auth, Version History & Collab CRDT Security Rules ===');
   const unauthRes = await fetch(
     `${FIRESTORE_ORIGIN}/v1/projects/${PROJECT_ID}/databases/(default)/documents/users/intruder/settings/workstation`
   );
@@ -261,6 +385,27 @@ async function main() {
   );
   assert.equal(versionWriteRes.status, 200, 'Authenticated owner write to versions collection must succeed');
 
+  // Collab Room CRDT Op write with crdtOpsJson
+  const crdtOpWriteRes = await fetch(
+    `${FIRESTORE_ORIGIN}/v1/projects/${PROJECT_ID}/databases/(default)/documents/collabRooms/room-1/ops/op-crdt-1`,
+    {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bearer ${idToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        fields: {
+          uid: { stringValue: localId },
+          senderPeerId: { stringValue: 'peer-101' },
+          crdtOpsJson: { stringValue: opsFromA },
+          updatedAt: { stringValue: new Date().toISOString() },
+        },
+      }),
+    }
+  );
+  assert.equal(crdtOpWriteRes.status, 200, 'Authenticated peer CRDT delta op write to collabRooms/ops must succeed');
+
   // Collab Room Presence write (own uid allowed, spoofed uid denied!)
   const presenceOkRes = await fetch(
     `${FIRESTORE_ORIGIN}/v1/projects/${PROJECT_ID}/databases/(default)/documents/collabRooms/room-1/presence/peer-101`,
@@ -313,7 +458,7 @@ async function main() {
     }
   );
   assert.equal(crossTenantRes.status, 403, 'Cross-tenant Firestore read MUST be denied (403)');
-  console.log('  ✓ Firebase Auth, Version History, and Collab Room security rules verified.');
+  console.log('  ✓ Firebase Auth, Version History, CRDT Ops, and Collab Room security rules verified.');
 
   console.log('\nALL VEXIO END-TO-END VERIFICATION GATES PASSED 100%!');
 }

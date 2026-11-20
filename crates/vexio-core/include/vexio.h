@@ -72,6 +72,13 @@ VexioStatus vexio_render_preview_rgba(const VexioDoc* doc, uint32_t page_id, uin
 VexioStatus vexio_doc_undo(VexioDoc* doc);
 VexioStatus vexio_doc_redo(VexioDoc* doc);
 
+/* Phase 7: Boolean Shape Ops, Themes/Variants, Subprocess Drill-Down, Diagram Compare & CRDT */
+VexioStatus vexio_doc_boolean_op(VexioDoc* doc, uint32_t page_id, const uint64_t* shape_ids_ptr, size_t shape_ids_len, const char* op_utf8, double offset_in);
+VexioStatus vexio_doc_apply_theme(VexioDoc* doc, const char* theme_slug_utf8, uint8_t variant_index);
+VexioStatus vexio_doc_create_subprocess(VexioDoc* doc, uint32_t page_id, uint64_t shape_id, const char* sub_name_utf8, uint32_t* out_sub_page_id);
+VexioStatus vexio_doc_compare(const VexioDoc* base_doc, const VexioDoc* rev_doc, VexioOwnedBuffer* out_json);
+VexioStatus vexio_doc_apply_crdt_json(VexioDoc* doc, const char* replica_id_utf8, const char* ops_json_utf8);
+
 #ifdef __cplusplus
 }
 #endif

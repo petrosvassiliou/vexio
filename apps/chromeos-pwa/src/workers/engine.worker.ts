@@ -4,6 +4,22 @@
 
 /// <reference lib="webworker" />
 
+export interface ControlHandleDto {
+  name: string;
+  page_x_in: number;
+  page_y_in: number;
+  prompt: string;
+  can_glue: boolean;
+}
+
+export interface EditableVertexDto {
+  geom_index: number;
+  row_ix: number;
+  kind: string;
+  page_x_in: number;
+  page_y_in: number;
+}
+
 export interface EngineShapeSummary {
   id: number;
   name: string;
@@ -14,6 +30,9 @@ export interface EngineShapeSummary {
   width: number;
   height: number;
   angleDeg: number;
+  subprocessPage: string | null;
+  screentip: string | null;
+  controlHandles: ControlHandleDto[];
   cells: Array<{ name: string; formula: string; value: string; guarded: boolean }>;
 }
 
@@ -171,12 +190,59 @@ interface WasmSessionInstance {
   apply_auto_layout(page_id: number, algo: string): void;
   validate_diagram(ruleset: string): string;
   run_vba_macro(script: string): string;
+  run_vba_macro_with_selection(script: string, selected_ids: Uint32Array): string;
   add_page(name: string): number;
   undo(): boolean;
   redo(): boolean;
   export_wal(): Uint8Array;
   replay_wal(bytes: Uint8Array): void;
   get_state_json(active_page_id: number): string;
+
+  // Phase 7 Complete Parity Endpoints
+  set_replica_id(replica_id: string): void;
+  flush_crdt_ops_json(now_ms: number): string;
+  apply_remote_crdt_ops_json(ops_json: string): number;
+  apply_boolean_op(page_id: number, shape_ids: Uint32Array, op: string, offset_in: number): Uint32Array;
+  list_shape_vertices_json(page_id: number, shape_id: number): string;
+  move_shape_vertex(
+    page_id: number,
+    shape_id: number,
+    geom_index: number,
+    row_ix: number,
+    x_in: number,
+    y_in: number
+  ): boolean;
+  draw_freeform_curve(page_id: number, points_json: string, closed: boolean): number;
+  ensure_control_handle(page_id: number, shape_id: number): boolean;
+  move_control_handle(page_id: number, shape_id: number, row_name: string, x_in: number, y_in: number): boolean;
+  apply_theme_variant(theme_slug: string, variant_index: number): number;
+  apply_shape_visual_preset(page_id: number, shape_id: number, preset: string): boolean;
+  insert_cropped_image(
+    page_id: number,
+    media_type: string,
+    image_bytes: Uint8Array,
+    x_in: number,
+    y_in: number,
+    crop_in: number,
+    brightness: number,
+    contrast: number
+  ): number;
+  create_subprocess_drilldown(page_id: number, shape_id: number, sub_name: string): number;
+  set_hyperlink_and_screentip(
+    page_id: number,
+    shape_id: number,
+    description: string,
+    address: string,
+    sub_address: string,
+    screentip: string
+  ): boolean;
+  apply_title_block_border(page_id: number, project_code: string, author: string, revision: string): number;
+  compare_with_vsdx_bytes(baseline_vsdx: Uint8Array): string;
+  import_data_visualizer(page_id: number, bytes: Uint8Array): number;
+  export_data_visualizer_workbook(page_id: number): Uint8Array;
+  import_cloud_discovery(page_id: number, discovery_json: string): number;
+  import_entra_or_ldif(page_id: number, text: string): number;
+  import_sqlite_recordset(page_id: number, sqlite_bytes: Uint8Array, table_name: string, key_col: string): number;
 }
 
 let wasmSession: WasmSessionInstance | null = null;
@@ -230,10 +296,14 @@ self.onmessage = async (ev: MessageEvent) => {
           sharedInputRing = new Int32Array(payload.sharedBuffer);
           Atomics.store(sharedInputRing, 0, 1);
         }
+        if (payload?.replicaId) {
+          session.set_replica_id(String(payload.replicaId));
+        }
         if (payload?.seedDemo) {
           const s1 = session.drop_builtin_shape_on_page(1, 'BPMN 2.0', 'Start Event', 2.0, 5.5);
           const s2 = session.drop_builtin_shape_on_page(1, 'BPMN 2.0', 'Task', 4.6, 5.5);
           session.set_shape_text(1, s2, 'Validate Order & Inventory');
+          session.ensure_control_handle(1, s2);
           const s3 = session.drop_builtin_shape_on_page(1, 'BPMN 2.0', 'Exclusive Gateway', 7.4, 5.5);
           session.set_shape_text(1, s3, 'In Stock?');
           const s4 = session.drop_builtin_shape_on_page(1, 'BPMN 2.0', 'End Event', 9.6, 5.5);
@@ -241,9 +311,20 @@ self.onmessage = async (ev: MessageEvent) => {
           session.connect_shapes(1, s2, s3);
           const c3 = session.connect_shapes(1, s3, s4);
           session.set_shape_text(1, c3, 'Approved');
+          session.flush_crdt_ops_json(Date.now());
         }
         const stencils = JSON.parse(session.list_builtin_stencils_json());
         self.postMessage({ id, ok: true, stencils, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'flushCrdtOps': {
+        const crdtOpsJson = session.flush_crdt_ops_json(Date.now());
+        self.postMessage({ id, ok: true, crdtOpsJson });
+        break;
+      }
+      case 'applyRemoteCrdtOps': {
+        const applied = session.apply_remote_crdt_ops_json(String(payload.crdtOpsJson ?? '[]'));
+        self.postMessage({ id, ok: true, applied, snapshot: buildSnapshot(session) });
         break;
       }
       case 'attachOffscreenCanvas': {
@@ -369,6 +450,166 @@ self.onmessage = async (ev: MessageEvent) => {
         );
         const wal = session.export_wal();
         self.postMessage({ id, ok: true, alignedCount, wal, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'applyBooleanOp': {
+        const createdIds = Array.from(
+          session.apply_boolean_op(
+            activePageId,
+            new Uint32Array(payload.shapeIds ?? []),
+            String(payload.op ?? 'union'),
+            Number(payload.offsetIn ?? 0.2)
+          )
+        );
+        selectedShapeIds = createdIds;
+        self.postMessage({ id, ok: true, createdIds, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'listShapeVertices': {
+        const vertices: EditableVertexDto[] = JSON.parse(
+          session.list_shape_vertices_json(activePageId, Number(payload.shapeId))
+        );
+        self.postMessage({ id, ok: true, vertices });
+        break;
+      }
+      case 'moveShapeVertex': {
+        const moved = session.move_shape_vertex(
+          activePageId,
+          Number(payload.shapeId),
+          Number(payload.geomIndex),
+          Number(payload.rowIx),
+          Number(payload.xIn),
+          Number(payload.yIn)
+        );
+        const vertices: EditableVertexDto[] = JSON.parse(
+          session.list_shape_vertices_json(activePageId, Number(payload.shapeId))
+        );
+        self.postMessage({ id, ok: true, moved, vertices, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'drawFreeformCurve': {
+        const shapeId = session.draw_freeform_curve(
+          activePageId,
+          JSON.stringify(payload.points ?? []),
+          Boolean(payload.closed)
+        );
+        self.postMessage({ id, ok: true, shapeId, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'ensureControlHandle': {
+        const okHandle = session.ensure_control_handle(activePageId, Number(payload.shapeId));
+        self.postMessage({ id, ok: true, okHandle, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'moveControlHandle': {
+        const moved = session.move_control_handle(
+          activePageId,
+          Number(payload.shapeId),
+          String(payload.rowName ?? 'Row_1'),
+          Number(payload.xIn),
+          Number(payload.yIn)
+        );
+        self.postMessage({ id, ok: true, moved, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'applyThemeVariant': {
+        const count = session.apply_theme_variant(
+          String(payload.themeSlug ?? 'modern'),
+          Number(payload.variantIndex ?? 0)
+        );
+        self.postMessage({ id, ok: true, count, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'applyShapeVisualPreset': {
+        for (const sid of payload.shapeIds ?? [payload.shapeId]) {
+          if (sid) {
+            session.apply_shape_visual_preset(activePageId, Number(sid), String(payload.preset));
+          }
+        }
+        self.postMessage({ id, ok: true, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'insertCroppedImage': {
+        const shapeId = session.insert_cropped_image(
+          activePageId,
+          String(payload.mediaType ?? 'PNG'),
+          payload.bytes as Uint8Array,
+          Number(payload.xIn ?? 5.5),
+          Number(payload.yIn ?? 4.25),
+          Number(payload.cropIn ?? 0.08),
+          Number(payload.brightness ?? 1.05),
+          Number(payload.contrast ?? 1.08)
+        );
+        self.postMessage({ id, ok: true, shapeId, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'createSubprocess': {
+        const subPageId = session.create_subprocess_drilldown(
+          activePageId,
+          Number(payload.shapeId),
+          String(payload.subName ?? '')
+        );
+        if (subPageId > 0 && payload.navigate) {
+          activePageId = subPageId;
+        }
+        self.postMessage({ id, ok: true, subPageId, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'setHyperlinkAndScreentip': {
+        session.set_hyperlink_and_screentip(
+          activePageId,
+          Number(payload.shapeId),
+          String(payload.description ?? 'Link'),
+          String(payload.address ?? ''),
+          String(payload.subAddress ?? ''),
+          String(payload.screentip ?? '')
+        );
+        self.postMessage({ id, ok: true, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'applyTitleBlockBorder': {
+        const bgPageId = session.apply_title_block_border(
+          activePageId,
+          String(payload.projectCode ?? 'VEX-2026'),
+          String(payload.author ?? 'Principal Architect'),
+          String(payload.revision ?? 'Rev A')
+        );
+        self.postMessage({ id, ok: true, bgPageId, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'compareWithVsdx': {
+        const report = JSON.parse(session.compare_with_vsdx_bytes(payload.bytes as Uint8Array));
+        self.postMessage({ id, ok: true, report });
+        break;
+      }
+      case 'importDataVisualizer': {
+        const count = session.import_data_visualizer(activePageId, payload.bytes as Uint8Array);
+        self.postMessage({ id, ok: true, count, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'exportDataVisualizer': {
+        const bytes = session.export_data_visualizer_workbook(activePageId);
+        self.postMessage({ id, ok: true, bytes }, { transfer: [bytes.buffer] });
+        break;
+      }
+      case 'importCloudDiscovery': {
+        const count = session.import_cloud_discovery(activePageId, String(payload.json ?? ''));
+        self.postMessage({ id, ok: true, count, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'importEntraOrLdif': {
+        const count = session.import_entra_or_ldif(activePageId, String(payload.text ?? ''));
+        self.postMessage({ id, ok: true, count, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'importSqliteRecordset': {
+        const count = session.import_sqlite_recordset(
+          activePageId,
+          payload.bytes as Uint8Array,
+          String(payload.tableName ?? ''),
+          String(payload.keyCol ?? 'Label')
+        );
+        self.postMessage({ id, ok: true, count, snapshot: buildSnapshot(session) });
         break;
       }
       case 'drawRect': {
@@ -555,12 +796,26 @@ self.onmessage = async (ev: MessageEvent) => {
         break;
       }
       case 'runMacro': {
-        const macroReport = JSON.parse(session.run_vba_macro(payload.script));
+        const macroReport = JSON.parse(
+          session.run_vba_macro_with_selection(
+            payload.script,
+            new Uint32Array(payload.selectedIds ?? selectedShapeIds)
+          )
+        );
         self.postMessage({ id, ok: true, macroReport, snapshot: buildSnapshot(session) });
         break;
       }
       case 'selectPage': {
-        activePageId = payload.pageId;
+        if (payload.pageName) {
+          const snap = JSON.parse(session.get_state_json(activePageId));
+          const found = snap.pages.find(
+            (p: { id: number; name: string }) =>
+              p.name.toLowerCase() === String(payload.pageName).toLowerCase()
+          );
+          if (found) activePageId = found.id;
+        } else {
+          activePageId = payload.pageId;
+        }
         self.postMessage({ id, ok: true, snapshot: buildSnapshot(session) });
         break;
       }

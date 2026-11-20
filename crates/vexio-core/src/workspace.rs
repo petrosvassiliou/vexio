@@ -58,13 +58,23 @@ impl DocumentSession {
                 let (doc, _) = read_vsdx(bytes)?;
                 self.doc = doc;
             }
-            "vsd" | "vss" | "vst" | "vdx" | "vdw" => {
+            "vsd" | "vss" | "vst" | "vdx" | "vdw" | "emf" | "wmf" => {
                 self.doc = vexio_vsd_legacy::read_legacy_auto(bytes, &clean_ext)?;
+            }
+            "ldif" => {
+                let mut doc = VisioDocument::new_blank("Imported Directory Org Chart");
+                let text = String::from_utf8_lossy(bytes);
+                crate::plan2_connectors::import_entra_or_ldif_org_chart(&mut doc, 1, &text)
+                    .map_err(|e| CoreError::UnsupportedExtension(e.to_string()))?;
+                self.doc = doc;
             }
             "dxf" => {
                 let mut doc = VisioDocument::new_blank("CAD DXF Drawing");
                 if let Some(page) = doc.page_mut(1) {
                     vexio_cad::import_dxf_to_page(page, bytes)?;
+                }
+                if let Ok(dxf_str) = std::str::from_utf8(bytes) {
+                    let _ = vexio_cad::parse_dxf_extended_entities(dxf_str, &mut doc, 1);
                 }
                 ReactiveEngine::recalculate_document(&mut doc);
                 self.doc = doc;
@@ -99,6 +109,20 @@ impl DocumentSession {
             "svg" => Ok(export_page_svg(&self.doc, first_pid).into_bytes()),
             "eps" => Ok(export_page_eps(&self.doc, first_pid).into_bytes()),
             "html" => Ok(export_document_html_report(&self.doc).into_bytes()),
+            "pptx" => crate::enterprise_plan2::export_presentation_pptx(&self.doc, &[])
+                .map_err(|e| CoreError::UnsupportedExtension(e.to_string())),
+            "docx" => crate::enterprise_plan2::export_word_process_spec_docx(&self.doc)
+                .map_err(|e| CoreError::UnsupportedExtension(e.to_string())),
+            "powerautomate" | "flow.json" => crate::plan2_connectors::export_power_automate_flow_json(
+                &self.doc, first_pid,
+            )
+            .map(String::into_bytes)
+            .map_err(|e| CoreError::UnsupportedExtension(e.to_string())),
+            "powerbi" | "pbi.json" => crate::plan2_connectors::export_power_bi_visual_json(
+                &self.doc, first_pid,
+            )
+            .map(String::into_bytes)
+            .map_err(|e| CoreError::UnsupportedExtension(e.to_string())),
             "png" => {
                 let rgba = vexio_render::render_page_rgba_auto(&self.doc, first_pid, 1056, 816)
                     .unwrap_or_else(|_| vec![255u8; 1056 * 816 * 4]);
