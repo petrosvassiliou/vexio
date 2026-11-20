@@ -1,0 +1,19 @@
+{
+  "name": "vexio-chromeos-pwa",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Vexio — 1:1 Microsoft Visio Parity Offline-First Firebase ChromeOS Workstation PWA",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build && node scripts/inject-precache-manifest.mjs",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "firebase": "^11.1.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2",
+    "vite": "^6.0.5"
+  }
+}

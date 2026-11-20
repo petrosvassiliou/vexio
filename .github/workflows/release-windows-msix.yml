@@ -1,0 +1,128 @@
+name: Release — Windows Native MSIX (WinUI 3 + DirectX 12)
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  WINDOWS_APP_SDK_VERSION: "1.6.241114003"
+  CPPWINRT_VERSION: "2.0.240405.15"
+
+jobs:
+  build-windows-msix:
+    name: Windows MSIX (${{ matrix.arch }})
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            cmake_arch: x64
+            rust_target: x86_64-pc-windows-msvc
+          - arch: arm64
+            cmake_arch: ARM64
+            rust_target: aarch64-pc-windows-msvc
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust stable toolchain (${{ matrix.rust_target }})
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust_target }}
+
+      - name: Cache Cargo registry and target artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: windows-${{ matrix.rust_target }}
+
+      - name: Setup NuGet CLI
+        uses: NuGet/setup-nuget@v2
+
+      - name: Build vexio-core C-ABI shared library (${{ matrix.rust_target }})
+        run: |
+          cargo build --release -p vexio-core --target ${{ matrix.rust_target }}
+        shell: pwsh
+
+      - name: Restore Windows App SDK 1.6 & CppWinRT NuGet packages
+        shell: pwsh
+        run: |
+          $PkgDir = "${{ github.workspace }}/apps/windows/build-${{ matrix.arch }}/packages"
+          New-Item -ItemType Directory -Force -Path $PkgDir | Out-Null
+          nuget install Microsoft.WindowsAppSDK -Version $env:WINDOWS_APP_SDK_VERSION -OutputDirectory $PkgDir -NonInteractive
+          nuget install Microsoft.Windows.CppWinRT -Version $env:CPPWINRT_VERSION -OutputDirectory $PkgDir -NonInteractive
+
+      - name: Configure CMake (WinUI 3 + Windows App SDK 1.6 + DirectX 12)
+        shell: pwsh
+        run: |
+          cmake -S apps/windows `
+            -B "apps/windows/build-${{ matrix.arch }}" `
+            -G "Visual Studio 17 2022" `
+            -A "${{ matrix.cmake_arch }}" `
+            -DVEXIO_AUTO_BUILD_RUST_CORE=OFF `
+            -DVEXIO_RUST_TARGET_DIR="${{ github.workspace }}/target/${{ matrix.rust_target }}" `
+            -DWINDOWS_APP_SDK_VERSION="$env:WINDOWS_APP_SDK_VERSION" `
+            -DCPPWINRT_VERSION="$env:CPPWINRT_VERSION"
+
+      - name: Build Vexio Native Windows Workstation (Release)
+        shell: pwsh
+        run: |
+          cmake --build "apps/windows/build-${{ matrix.arch }}" --config Release --parallel
+
+      - name: Stage & Package MSIX (${{ matrix.arch }})
+        shell: pwsh
+        run: |
+          $StageDir = "${{ github.workspace }}/apps/windows/build-${{ matrix.arch }}/msix-stage"
+          $OutDir   = "${{ github.workspace }}/apps/windows/build-${{ matrix.arch }}/msix-out"
+          $BinDir   = "${{ github.workspace }}/apps/windows/build-${{ matrix.arch }}/Release"
+          New-Item -ItemType Directory -Force -Path "$StageDir/Assets", "$StageDir/Stencils", $OutDir | Out-Null
+
+          Copy-Item "$BinDir/Vexio.exe" "$StageDir/Vexio.exe" -Force
+          Copy-Item "${{ github.workspace }}/target/${{ matrix.rust_target }}/release/vexio_core.dll" "$StageDir/vexio_core.dll" -Force
+          Copy-Item "${{ github.workspace }}/stencils/*.vssx" "$StageDir/Stencils/" -Force
+
+          $ManifestContent = Get-Content "${{ github.workspace }}/apps/windows/Package.appxmanifest" -Raw
+          $ManifestContent = $ManifestContent -replace 'ProcessorArchitecture="[^"]*"', 'ProcessorArchitecture="${{ matrix.arch }}"'
+          Set-Content -Path "$StageDir/AppxManifest.xml" -Value $ManifestContent -Encoding UTF8
+
+          # Generate crisp placeholder visual tile assets if not externally supplied
+          Add-Type -AssemblyName System.Drawing
+          foreach ($Asset in @("StoreLogo.png", "Square44x44Logo.png", "Square150x150Logo.png", "Wide310x150Logo.png", "VisioFileIcon.png")) {
+            $Bmp = New-Object System.Drawing.Bitmap(150, 150)
+            $Gfx = [System.Drawing.Graphics]::FromImage($Bmp)
+            $Gfx.Clear([System.Drawing.Color]::FromArgb(255, 29, 78, 216))
+            $Gfx.Dispose()
+            $Bmp.Save("$StageDir/Assets/$Asset", [System.Drawing.Imaging.ImageFormat]::Png)
+            $Bmp.Dispose()
+          }
+
+          $MakeAppx = Get-ChildItem "C:/Program Files (x86)/Windows Kits/10/bin/*/x64/makeappx.exe" |
+            Sort-Object FullName -Descending |
+            Select-Object -First 1 -ExpandProperty FullName
+          if (-not $MakeAppx) {
+            throw "makeappx.exe not found in Windows 10/11 SDK."
+          }
+
+          $TagSuffix = if ("${{ github.ref_name }}") { "${{ github.ref_name }}" } else { "dev" }
+          $MsixPath = "$OutDir/Vexio-Windows-${TagSuffix}-${{ matrix.arch }}.msix"
+          & $MakeAppx pack /o /v /d "$StageDir" /p "$MsixPath"
+
+      - name: Upload Windows MSIX Artifact (${{ matrix.arch }})
+        uses: actions/upload-artifact@v4
+        with:
+          name: vexio-windows-msix-${{ matrix.arch }}
+          path: apps/windows/build-${{ matrix.arch }}/msix-out/*.msix
+          if-no-files-found: error
+
+      - name: Publish MSIX to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: apps/windows/build-${{ matrix.arch }}/msix-out/*.msix

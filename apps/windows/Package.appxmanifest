@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Package
+  xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:mp="http://schemas.microsoft.com/appx/2014/phone/manifest"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:uap3="http://schemas.microsoft.com/appx/manifest/uap/windows10/3"
+  xmlns:uap5="http://schemas.microsoft.com/appx/manifest/uap/windows10/5"
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  xmlns:desktop6="http://schemas.microsoft.com/appx/manifest/desktop/windows10/6"
+  IgnorableNamespaces="uap uap3 uap5 mp rescap desktop6">
+
+  <Identity
+    Name="VexioSuite.VexioWorkstation"
+    Publisher="CN=Vexio Suite Engineering"
+    Version="1.0.0.0"
+    ProcessorArchitecture="x64" />
+
+  <mp:PhoneIdentity
+    PhoneProductId="8b7152e4-5f3b-42b0-9c9a-19d74c8f1101"
+    PhonePublisherId="00000000-0000-0000-0000-000000000000" />
+
+  <Properties>
+    <DisplayName>Vexio Professional</DisplayName>
+    <PublisherDisplayName>Vexio Suite Engineering</PublisherDisplayName>
+    <Logo>Assets\StoreLogo.png</Logo>
+    <Description>Native WinUI 3 + DirectX 12 enterprise diagramming, ShapeSheet, and CAD workstation with 1:1 Visio Professional parity.</Description>
+    <desktop6:FileSystemWriteVirtualization>disabled</desktop6:FileSystemWriteVirtualization>
+  </Properties>
+
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.19041.0" MaxVersionTested="10.0.26100.0" />
+    <PackageDependency Name="Microsoft.WindowsAppRuntime.1.6" MinVersion="6000.242.101.0" Publisher="CN=Microsoft Corporation, O=Microsoft Corporation, L=Redmond, S=Washington, C=US" />
+  </Dependencies>
+
+  <Resources>
+    <Resource Language="en-US" />
+  </Resources>
+
+  <Applications>
+    <Application Id="VexioWorkstationApp"
+      Executable="Vexio.exe"
+      EntryPoint="VexioWindows.App">
+      <uap:VisualElements
+        DisplayName="Vexio Professional"
+        Description="Enterprise Vector Diagramming, ShapeSheet &amp; CAD Suite"
+        BackgroundColor="transparent"
+        Square150x150Logo="Assets\Square150x150Logo.png"
+        Square44x44Logo="Assets\Square44x44Logo.png">
+        <uap:DefaultTile Wide310x150Logo="Assets\Wide310x150Logo.png" Square310x310Logo="Assets\LargeTile.png" Square71x71Logo="Assets\SmallTile.png" />
+      </uap:VisualElements>
+
+      <Extensions>
+        <!-- OpenXML Visio Drawings, Macro-Enabled Drawings, Stencils, and Templates -->
+        <uap:Extension Category="windows.fileTypeAssociation">
+          <uap3:FileTypeAssociation Name="vexio-openxml-diagram">
+            <uap:DisplayName>Vexio Diagram &amp; Stencil Package</uap:DisplayName>
+            <uap:EditFlags OpenIsSafe="true" />
+            <uap:SupportedFileTypes>
+              <uap:FileType ContentType="application/vnd.ms-visio.drawing.main+xml">.vsdx</uap:FileType>
+              <uap:FileType ContentType="application/vnd.ms-visio.drawing.macroEnabled.main+xml">.vsdm</uap:FileType>
+              <uap:FileType ContentType="application/vnd.ms-visio.stencil.main+xml">.vssx</uap:FileType>
+              <uap:FileType ContentType="application/vnd.ms-visio.stencil.macroEnabled.main+xml">.vssm</uap:FileType>
+              <uap:FileType ContentType="application/vnd.ms-visio.template.main+xml">.vstx</uap:FileType>
+              <uap:FileType ContentType="application/vnd.ms-visio.template.macroEnabled.main+xml">.vstm</uap:FileType>
+            </uap:SupportedFileTypes>
+          </uap3:FileTypeAssociation>
+        </uap:Extension>
+
+        <!-- Legacy Visio OLE2 Binary (.vsd) and DatadiagramML XML (.vdx) -->
+        <uap:Extension Category="windows.fileTypeAssociation">
+          <uap3:FileTypeAssociation Name="vexio-legacy-diagram">
+            <uap:DisplayName>Legacy Visio Drawing</uap:DisplayName>
+            <uap:EditFlags OpenIsSafe="true" />
+            <uap:SupportedFileTypes>
+              <uap:FileType ContentType="application/vnd.visio">.vsd</uap:FileType>
+              <uap:FileType ContentType="application/vnd.visio.xml">.vdx</uap:FileType>
+            </uap:SupportedFileTypes>
+          </uap3:FileTypeAssociation>
+        </uap:Extension>
+
+        <!-- Native Offline CAD Drawings (.dwg, .dxf) -->
+        <uap:Extension Category="windows.fileTypeAssociation">
+          <uap3:FileTypeAssociation Name="vexio-cad-drawing">
+            <uap:DisplayName>CAD Architectural &amp; Engineering Drawing</uap:DisplayName>
+            <uap:EditFlags OpenIsSafe="true" />
+            <uap:SupportedFileTypes>
+              <uap:FileType ContentType="image/vnd.dwg">.dwg</uap:FileType>
+              <uap:FileType ContentType="image/vnd.dxf">.dxf</uap:FileType>
+            </uap:SupportedFileTypes>
+          </uap3:FileTypeAssociation>
+        </uap:Extension>
+
+        <!-- URI Protocol Launch Support -->
+        <uap:Extension Category="windows.protocol">
+          <uap:Protocol Name="vexio">
+            <uap:DisplayName>Vexio Workspace Protocol</uap:DisplayName>
+          </uap:Protocol>
+        </uap:Extension>
+      </Extensions>
+    </Application>
+  </Applications>
+
+  <Capabilities>
+    <rescap:Capability Name="runFullTrust" />
+  </Capabilities>
+</Package>

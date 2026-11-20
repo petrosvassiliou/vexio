@@ -1,0 +1,133 @@
+name: Deploy — Firebase Offline-First ChromeOS PWA
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  checks: write
+
+concurrency:
+  group: deploy-firebase-chromeos-pwa-main
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  FIREBASE_PROJECT_ID: vexio-chromeos-suite
+
+jobs:
+  build-and-deploy-pwa:
+    name: Build WASM SIMD PWA & Deploy Firebase Hosting + Security Rules
+    runs-on: ubuntu-latest
+    env:
+      FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_VEXIO_CHROMEOS_SUITE }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust stable + wasm32-unknown-unknown target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: |
+            apps/chromeos-pwa/package-lock.json
+            firebase/package-lock.json
+
+      - name: Setup JDK 21 (for Firebase Local Emulator verification gate)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Cache Cargo registry and WASM SIMD artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: firebase-deploy-wasm32-simd128
+
+      - name: Install wasm-bindgen-cli matching Cargo.lock
+        run: |
+          WASM_BINDGEN_VER=$(awk '/^name = "wasm-bindgen"$/{getline; gsub(/"/, "", $3); print $3; exit}' Cargo.lock)
+          if ! command -v wasm-bindgen >/dev/null 2>&1 || [ "$(wasm-bindgen --version | awk '{print $2}')" != "${WASM_BINDGEN_VER}" ]; then
+            cargo install wasm-bindgen-cli --version "${WASM_BINDGEN_VER}" --locked
+          fi
+
+      - name: Export built-in .vssx stencils
+        run: |
+          if [ "$PWD" != "/home/antigravity" ] && [ ! -w "/home/antigravity" ]; then
+            sudo mkdir -p /home/antigravity/stencils /home/antigravity/apps/chromeos-pwa/public/stencils
+            sudo chown -R "$(id -u):$(id -g)" /home/antigravity
+          fi
+          cargo run -p vexio-core --example export_builtin_stencils
+          if [ "$PWD" != "/home/antigravity" ]; then
+            mkdir -p stencils apps/chromeos-pwa/public/stencils
+            cp -f /home/antigravity/stencils/*.vssx stencils/
+            cp -f /home/antigravity/apps/chromeos-pwa/public/stencils/*.vssx apps/chromeos-pwa/public/stencils/
+          fi
+
+      - name: Build vexio-core WASM with SIMD128 & run wasm-bindgen
+        env:
+          RUSTFLAGS: "-C target-feature=+simd128"
+        run: |
+          RUSTFLAGS="-C target-feature=+simd128" \
+            cargo build --target wasm32-unknown-unknown --release -p vexio-core
+          mkdir -p apps/chromeos-pwa/public/wasm
+          wasm-bindgen \
+            --target web \
+            --out-dir apps/chromeos-pwa/public/wasm \
+            target/wasm32-unknown-unknown/release/vexio_core.wasm
+
+      - name: Build Vite + Service Worker Precache Bundle (apps/chromeos-pwa/dist)
+        run: |
+          npm --prefix apps/chromeos-pwa ci
+          npm --prefix apps/chromeos-pwa run build
+
+      - name: Verify COOP/COEP Headers, Security Rules & 100% Unauthenticated Offline Load via Firebase Emulator Suite
+        run: |
+          npm --prefix firebase ci
+          npx --prefix firebase firebase emulators:exec \
+            --project demo-vexio-chromeos \
+            --only auth,firestore,hosting \
+            "node ../tests/verify_offline_firebase_pwa.mjs"
+
+      - name: Upload Production PWA Bundle Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vexio-chromeos-pwa-dist
+          path: apps/chromeos-pwa/dist
+          if-no-files-found: error
+
+      - name: Deploy Firestore & Cloud Storage Security Rules (firebase-tools)
+        if: env.FIREBASE_SERVICE_ACCOUNT != ''
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_VEXIO_CHROMEOS_SUITE }}
+        run: |
+          CRED_FILE="$(mktemp)"
+          trap 'rm -f "${CRED_FILE}"' EXIT
+          printf '%s' "${FIREBASE_SERVICE_ACCOUNT}" > "${CRED_FILE}"
+          GOOGLE_APPLICATION_CREDENTIALS="${CRED_FILE}" \
+            npx --prefix firebase firebase deploy \
+              --only firestore:rules,firestore:indexes,storage \
+              --project "${FIREBASE_PROJECT_ID}" \
+              --config firebase/firebase.json \
+              --non-interactive
+
+      - name: Deploy ChromeOS PWA Hosting (COOP/COEP SharedArrayBuffer Headers)
+        if: env.FIREBASE_SERVICE_ACCOUNT != ''
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_VEXIO_CHROMEOS_SUITE }}
+        uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: ${{ secrets.GITHUB_TOKEN }}
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_VEXIO_CHROMEOS_SUITE }}
+          projectId: ${{ env.FIREBASE_PROJECT_ID }}
+          entryPoint: ./firebase
+          channelId: live

@@ -1,0 +1,595 @@
+/**
+ * Dedicated Rust WASM SIMD + SharedArrayBuffer + WebGPU / OffscreenCanvas Engine Worker.
+ */
+
+/// <reference lib="webworker" />
+
+export interface EngineShapeSummary {
+  id: number;
+  name: string;
+  kind: string;
+  text: string;
+  pinX: number;
+  pinY: number;
+  width: number;
+  height: number;
+  angleDeg: number;
+  cells: Array<{ name: string; formula: string; value: string; guarded: boolean }>;
+}
+
+export interface EngineLayerInfo {
+  ix: number;
+  name: string;
+  visible: boolean;
+  print: boolean;
+  lock: boolean;
+  colorOverride: string | null;
+}
+
+export interface EngineCommentInfo {
+  id: number;
+  author: string;
+  text: string;
+  pageId: number;
+  shapeId: number | null;
+  resolved: boolean;
+}
+
+export interface SmartGuideLine {
+  axis: 'x' | 'y';
+  posIn: number;
+  fromIn: number;
+  toIn: number;
+  kind: 'center' | 'edge';
+}
+
+export interface SmartGuidesResult {
+  snappedX: number;
+  snappedY: number;
+  guides: SmartGuideLine[];
+}
+
+export interface EngineSnapshot {
+  title: string;
+  activePageId: number;
+  pageWidthIn: number;
+  pageHeightIn: number;
+  pages: Array<{
+    id: number;
+    name: string;
+    widthIn: number;
+    heightIn: number;
+    shapeCount: number;
+    isBackground: boolean;
+  }>;
+  layers: EngineLayerInfo[];
+  comments: EngineCommentInfo[];
+  shapes: EngineShapeSummary[];
+  svgPreview: string;
+  canUndo: boolean;
+  canRedo: boolean;
+  wgpuSurfaceActive: boolean;
+  validationIssues: Array<{
+    id: number;
+    code: string;
+    severity: string;
+    category: string;
+    description: string;
+    shapeId: number | null;
+  }>;
+  crossOriginIsolated: boolean;
+  webgpuAvailable: boolean;
+}
+
+interface WasmExports {
+  default: (moduleOrPath?: string | URL) => Promise<unknown>;
+  WasmVexioSession: new (title: string) => WasmSessionInstance;
+}
+
+interface WasmSessionInstance {
+  attach_offscreen_canvas(
+    canvas: OffscreenCanvas,
+    width: number,
+    height: number,
+    dpi: number
+  ): Promise<boolean>;
+  resize_offscreen_canvas(width: number, height: number, dpi: number): void;
+  render_offscreen_frame(page_id: number, selected_ids: Uint32Array): boolean;
+  list_builtin_stencils_json(): string;
+  load_starter_template(template_id: string): void;
+  open_bytes(bytes: Uint8Array, ext: string): void;
+  save_format(ext: string): Uint8Array;
+  drop_builtin_shape_on_page(
+    page_id: number,
+    category: string,
+    master_name: string,
+    x_in: number,
+    y_in: number
+  ): number;
+  hit_test_page(page_id: number, x_in: number, y_in: number): number;
+  query_box_shapes(page_id: number, x1: number, y1: number, x2: number, y2: number): Uint32Array;
+  compute_smart_guides(
+    page_id: number,
+    moving_shape_id: number,
+    cand_x: number,
+    cand_y: number,
+    width_in: number,
+    height_in: number
+  ): string;
+  move_shape(page_id: number, shape_id: number, new_x: number, new_y: number): boolean;
+  move_shapes_delta(page_id: number, shape_ids: Uint32Array, dx_in: number, dy_in: number): number;
+  transform_shape(
+    page_id: number,
+    shape_id: number,
+    pin_x: number,
+    pin_y: number,
+    width_in: number,
+    height_in: number,
+    angle_deg: number
+  ): boolean;
+  align_shapes(page_id: number, shape_ids: Uint32Array, mode: string): number;
+  draw_rectangle(page_id: number, x1: number, y1: number, x2: number, y2: number): number;
+  delete_shape(page_id: number, shape_id: number): boolean;
+  add_ink_stroke(
+    page_id: number,
+    color_hex: string,
+    width_pt: number,
+    highlighter: boolean,
+    points_json: string
+  ): number;
+  connect_shapes(page_id: number, from_id: number, to_id: number): number;
+  set_cell_formula(
+    page_id: number,
+    shape_id: number,
+    cell_name: string,
+    formula: string,
+    force_setf: boolean
+  ): boolean;
+  set_shape_text(page_id: number, shape_id: number, text: string): void;
+  set_page_dimensions(page_id: number, width_in: number, height_in: number, jump_style: number): void;
+  insert_container(page_id: number, title: string, member_ids: Uint32Array): number;
+  insert_callout(page_id: number, target_shape_id: number, text: string): number;
+  insert_swimlanes(page_id: number, lanes_semicolon: string): number;
+  insert_architectural_room(page_id: number, room_name: string): number;
+  insert_rack_with_equipment(page_id: number): number;
+  import_org_chart_csv(page_id: number, csv_text: string): number;
+  generate_gantt_demo(page_id: number): number;
+  generate_timeline_demo(page_id: number): number;
+  reverse_engineer_sql(page_id: number, sql_ddl: string): number;
+  forward_engineer_sql(page_id: number): string;
+  generate_pert_demo(page_id: number): number;
+  link_csv_and_apply_data_graphics(page_id: number, csv_text: string, key_col: string): number;
+  export_bom_xlsx(): Uint8Array;
+  update_layer(
+    page_id: number,
+    layer_ix: number,
+    visible: boolean,
+    lock: boolean,
+    color_hex: string
+  ): void;
+  add_comment(page_id: number, shape_id: number, author: string, text: string): number;
+  apply_auto_layout(page_id: number, algo: string): void;
+  validate_diagram(ruleset: string): string;
+  run_vba_macro(script: string): string;
+  add_page(name: string): number;
+  undo(): boolean;
+  redo(): boolean;
+  export_wal(): Uint8Array;
+  replay_wal(bytes: Uint8Array): void;
+  get_state_json(active_page_id: number): string;
+}
+
+let wasmSession: WasmSessionInstance | null = null;
+let activePageId = 1;
+let selectedShapeIds: number[] = [];
+let sharedInputRing: Int32Array | null = null;
+let webgpuSupported = false;
+let latestIssues: EngineSnapshot['validationIssues'] = [];
+
+async function ensureWasmLoaded(): Promise<WasmSessionInstance> {
+  if (wasmSession) return wasmSession;
+
+  if ('gpu' in navigator) {
+    try {
+      // @ts-expect-error WebGPU navigator.gpu in WorkerGlobalScope
+      const adapter = await navigator.gpu.requestAdapter();
+      webgpuSupported = Boolean(adapter);
+    } catch {
+      webgpuSupported = false;
+    }
+  }
+
+  const wasmJsUrl = new URL('/wasm/vexio_core.js', self.location.origin).href;
+  const mod = (await import(/* @vite-ignore */ wasmJsUrl)) as WasmExports;
+  await mod.default('/wasm/vexio_core_bg.wasm');
+  wasmSession = new mod.WasmVexioSession('Untitled Drawing');
+  return wasmSession;
+}
+
+function buildSnapshot(session: WasmSessionInstance): EngineSnapshot {
+  const raw = JSON.parse(session.get_state_json(activePageId));
+  if (raw.wgpuSurfaceActive) {
+    session.render_offscreen_frame(activePageId, new Uint32Array(selectedShapeIds));
+  }
+  return {
+    ...raw,
+    validationIssues: latestIssues,
+    crossOriginIsolated: Boolean(self.crossOriginIsolated),
+    webgpuAvailable: webgpuSupported,
+  };
+}
+
+self.onmessage = async (ev: MessageEvent) => {
+  const { id, cmd, payload } = ev.data;
+  try {
+    const session = await ensureWasmLoaded();
+
+    switch (cmd) {
+      case 'init': {
+        if (payload?.sharedBuffer instanceof SharedArrayBuffer) {
+          sharedInputRing = new Int32Array(payload.sharedBuffer);
+          Atomics.store(sharedInputRing, 0, 1);
+        }
+        if (payload?.seedDemo) {
+          const s1 = session.drop_builtin_shape_on_page(1, 'BPMN 2.0', 'Start Event', 2.0, 5.5);
+          const s2 = session.drop_builtin_shape_on_page(1, 'BPMN 2.0', 'Task', 4.6, 5.5);
+          session.set_shape_text(1, s2, 'Validate Order & Inventory');
+          const s3 = session.drop_builtin_shape_on_page(1, 'BPMN 2.0', 'Exclusive Gateway', 7.4, 5.5);
+          session.set_shape_text(1, s3, 'In Stock?');
+          const s4 = session.drop_builtin_shape_on_page(1, 'BPMN 2.0', 'End Event', 9.6, 5.5);
+          session.connect_shapes(1, s1, s2);
+          session.connect_shapes(1, s2, s3);
+          const c3 = session.connect_shapes(1, s3, s4);
+          session.set_shape_text(1, c3, 'Approved');
+        }
+        const stencils = JSON.parse(session.list_builtin_stencils_json());
+        self.postMessage({ id, ok: true, stencils, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'attachOffscreenCanvas': {
+        const attached = await session.attach_offscreen_canvas(
+          payload.canvas as OffscreenCanvas,
+          Number(payload.width ?? 1056),
+          Number(payload.height ?? 816),
+          Number(payload.dpi ?? 1)
+        );
+        self.postMessage({ id, ok: true, attached, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'resizeOffscreenCanvas': {
+        session.resize_offscreen_canvas(
+          Number(payload.width ?? 1056),
+          Number(payload.height ?? 816),
+          Number(payload.dpi ?? 1)
+        );
+        const rendered = session.render_offscreen_frame(activePageId, new Uint32Array(selectedShapeIds));
+        self.postMessage({ id, ok: true, rendered });
+        break;
+      }
+      case 'renderOffscreenFrame': {
+        if (Array.isArray(payload?.selectedIds)) {
+          selectedShapeIds = payload.selectedIds.map(Number);
+        }
+        const rendered = session.render_offscreen_frame(activePageId, new Uint32Array(selectedShapeIds));
+        self.postMessage({ id, ok: true, rendered });
+        break;
+      }
+      case 'listStencils': {
+        const stencils = JSON.parse(session.list_builtin_stencils_json());
+        self.postMessage({ id, ok: true, stencils });
+        break;
+      }
+      case 'loadStarterTemplate': {
+        session.load_starter_template(String(payload.templateId ?? 'blank'));
+        activePageId = 1;
+        latestIssues = [];
+        selectedShapeIds = [];
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, wal, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'openBytes': {
+        session.open_bytes(payload.bytes, payload.ext);
+        activePageId = 1;
+        latestIssues = [];
+        selectedShapeIds = [];
+        self.postMessage({ id, ok: true, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'saveFormat': {
+        const bytes = session.save_format(payload.ext);
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, bytes, wal }, { transfer: [bytes.buffer, wal.buffer] });
+        break;
+      }
+      case 'hitTest': {
+        const hitId = session.hit_test_page(activePageId, payload.xIn, payload.yIn);
+        self.postMessage({ id, ok: true, hitId });
+        break;
+      }
+      case 'queryBoxShapes': {
+        const ids = Array.from(
+          session.query_box_shapes(activePageId, payload.x1, payload.y1, payload.x2, payload.y2)
+        );
+        selectedShapeIds = ids;
+        session.render_offscreen_frame(activePageId, new Uint32Array(selectedShapeIds));
+        self.postMessage({ id, ok: true, ids });
+        break;
+      }
+      case 'computeSmartGuides': {
+        const guides: SmartGuidesResult = JSON.parse(
+          session.compute_smart_guides(
+            activePageId,
+            Number(payload.shapeId ?? 0),
+            Number(payload.candX ?? 0),
+            Number(payload.candY ?? 0),
+            Number(payload.width ?? 1),
+            Number(payload.height ?? 1)
+          )
+        );
+        self.postMessage({ id, ok: true, ...guides });
+        break;
+      }
+      case 'moveShape': {
+        const moved = session.move_shape(activePageId, payload.shapeId, payload.xIn, payload.yIn);
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, moved, wal, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'moveShapesDelta': {
+        const movedCount = session.move_shapes_delta(
+          activePageId,
+          new Uint32Array(payload.shapeIds ?? []),
+          Number(payload.dxIn ?? 0),
+          Number(payload.dyIn ?? 0)
+        );
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, movedCount, wal, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'transformShape': {
+        const transformed = session.transform_shape(
+          activePageId,
+          Number(payload.shapeId),
+          Number(payload.pinX),
+          Number(payload.pinY),
+          Number(payload.width),
+          Number(payload.height),
+          Number(payload.angleDeg ?? 0)
+        );
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, transformed, wal, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'alignShapes': {
+        const alignedCount = session.align_shapes(
+          activePageId,
+          new Uint32Array(payload.shapeIds ?? []),
+          String(payload.mode ?? 'left')
+        );
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, alignedCount, wal, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'drawRect': {
+        const shapeId = session.draw_rectangle(
+          activePageId,
+          payload.x1,
+          payload.y1,
+          payload.x2,
+          payload.y2
+        );
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, shapeId, wal, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'deleteShape': {
+        const idsToDelete: number[] = Array.isArray(payload.shapeIds)
+          ? payload.shapeIds
+          : [payload.shapeId];
+        let deleted = false;
+        for (const sid of idsToDelete) {
+          if (sid && session.delete_shape(activePageId, sid)) {
+            deleted = true;
+          }
+        }
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, deleted, wal, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'addInkStroke': {
+        const strokeId = session.add_ink_stroke(
+          activePageId,
+          payload.colorHex,
+          payload.widthPt,
+          Boolean(payload.highlighter),
+          JSON.stringify(payload.points)
+        );
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, strokeId, wal, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'dropShape': {
+        const shapeId = session.drop_builtin_shape_on_page(
+          activePageId,
+          payload.category,
+          payload.masterName,
+          payload.xIn,
+          payload.yIn
+        );
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, shapeId, wal, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'connectShapes': {
+        const connId = session.connect_shapes(activePageId, payload.fromId, payload.toId);
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, connId, wal, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'setCellFormula': {
+        const applied = session.set_cell_formula(
+          activePageId,
+          payload.shapeId,
+          payload.cellName,
+          payload.formula,
+          Boolean(payload.forceSetf)
+        );
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, applied, wal, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'setShapeText': {
+        session.set_shape_text(activePageId, payload.shapeId, payload.text);
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, wal, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'setPageDimensions': {
+        session.set_page_dimensions(
+          activePageId,
+          payload.widthIn,
+          payload.heightIn,
+          payload.jumpStyle
+        );
+        self.postMessage({ id, ok: true, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'insertContainer': {
+        const cid = session.insert_container(
+          activePageId,
+          payload.title,
+          new Uint32Array(payload.memberIds ?? [])
+        );
+        self.postMessage({ id, ok: true, containerId: cid, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'insertCallout': {
+        const cid = session.insert_callout(activePageId, payload.targetShapeId, payload.text);
+        self.postMessage({ id, ok: true, calloutId: cid, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'insertSwimlanes': {
+        session.insert_swimlanes(activePageId, payload.lanes);
+        self.postMessage({ id, ok: true, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'insertRoom': {
+        const roomId = session.insert_architectural_room(activePageId, payload.roomName);
+        self.postMessage({ id, ok: true, roomId, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'insertRack': {
+        const rackId = session.insert_rack_with_equipment(activePageId);
+        self.postMessage({ id, ok: true, rackId, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'importOrgChartCsv': {
+        const count = session.import_org_chart_csv(activePageId, String(payload.csv ?? ''));
+        self.postMessage({ id, ok: true, count, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'generateGanttDemo': {
+        const count = session.generate_gantt_demo(activePageId);
+        self.postMessage({ id, ok: true, count, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'generateTimelineDemo': {
+        const count = session.generate_timeline_demo(activePageId);
+        self.postMessage({ id, ok: true, count, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'reverseSql': {
+        const count = session.reverse_engineer_sql(activePageId, payload.sql);
+        self.postMessage({ id, ok: true, count, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'forwardSql': {
+        const sql = session.forward_engineer_sql(activePageId);
+        self.postMessage({ id, ok: true, sql });
+        break;
+      }
+      case 'generatePert': {
+        const count = session.generate_pert_demo(activePageId);
+        self.postMessage({ id, ok: true, count, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'linkCsvDataGraphics': {
+        const linked = session.link_csv_and_apply_data_graphics(
+          activePageId,
+          payload.csv,
+          payload.keyCol
+        );
+        self.postMessage({ id, ok: true, linked, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'exportBomXlsx': {
+        const bytes = session.export_bom_xlsx();
+        self.postMessage({ id, ok: true, bytes }, { transfer: [bytes.buffer] });
+        break;
+      }
+      case 'updateLayer': {
+        session.update_layer(
+          activePageId,
+          payload.ix,
+          Boolean(payload.visible),
+          Boolean(payload.lock),
+          payload.colorHex ?? ''
+        );
+        self.postMessage({ id, ok: true, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'addComment': {
+        session.add_comment(activePageId, payload.shapeId ?? 0, payload.author, payload.text);
+        self.postMessage({ id, ok: true, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'autoLayout': {
+        session.apply_auto_layout(activePageId, payload.algorithm);
+        self.postMessage({ id, ok: true, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'validate': {
+        latestIssues = JSON.parse(session.validate_diagram(payload.ruleset));
+        self.postMessage({ id, ok: true, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'runMacro': {
+        const macroReport = JSON.parse(session.run_vba_macro(payload.script));
+        self.postMessage({ id, ok: true, macroReport, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'selectPage': {
+        activePageId = payload.pageId;
+        self.postMessage({ id, ok: true, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'addPage': {
+        activePageId = session.add_page(payload.name);
+        self.postMessage({ id, ok: true, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'undo': {
+        session.undo();
+        self.postMessage({ id, ok: true, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'redo': {
+        session.redo();
+        self.postMessage({ id, ok: true, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'replayWal': {
+        session.replay_wal(payload.bytes);
+        self.postMessage({ id, ok: true, snapshot: buildSnapshot(session) });
+        break;
+      }
+    }
+  } catch (err) {
+    self.postMessage({
+      id,
+      ok: false,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+};

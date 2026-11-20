@@ -1,0 +1,13 @@
+[package]
+name = "vexio-vsdx"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+vexio-shapesheet.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+quick-xml.workspace = true
+zip.workspace = true
+base64.workspace = true

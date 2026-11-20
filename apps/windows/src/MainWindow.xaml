@@ -1,0 +1,958 @@
+<Window
+    x:Class="VexioWindows.MainWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:local="using:VexioWindows"
+    mc:Ignorable="d"
+    Title="Vexio Professional — Drawing1.vsdx">
+
+    <Grid x:Name="RootWorkstationGrid" Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
+        <Grid.KeyboardAccelerators>
+            <KeyboardAccelerator Key="Number1" Modifiers="Control" Invoked="OnPointerToolAccelerator" />
+            <KeyboardAccelerator Key="Number2" Modifiers="Control" Invoked="OnTextToolAccelerator" />
+            <KeyboardAccelerator Key="Number3" Modifiers="Control" Invoked="OnConnectorToolAccelerator" />
+            <KeyboardAccelerator Key="Z" Modifiers="Control" Invoked="OnUndoAccelerator" />
+            <KeyboardAccelerator Key="Y" Modifiers="Control" Invoked="OnRedoAccelerator" />
+            <KeyboardAccelerator Key="S" Modifiers="Control" Invoked="OnSaveAccelerator" />
+            <KeyboardAccelerator Key="O" Modifiers="Control" Invoked="OnOpenAccelerator" />
+            <KeyboardAccelerator Key="P" Modifiers="Control" Invoked="OnTiledPrintAccelerator" />
+            <KeyboardAccelerator Key="F4" Modifiers="Shift" Invoked="OnPageSetupAccelerator" />
+            <KeyboardAccelerator Key="F5" Modifiers="Shift" Invoked="OnToggleShapeSheetAccelerator" />
+            <KeyboardAccelerator Key="F9" Modifiers="Menu" Invoked="OnMacroEditorAccelerator" />
+        </Grid.KeyboardAccelerators>
+
+        <Grid.RowDefinitions>
+            <!-- Row 0: Quick Access Toolbar & Custom App Title Bar -->
+            <RowDefinition Height="38" />
+            <!-- Row 1: Multi-Tabbed Enterprise Ribbon -->
+            <RowDefinition Height="Auto" />
+            <!-- Row 2: Diagnostic / Guard / Validation InfoBar -->
+            <RowDefinition Height="Auto" />
+            <!-- Row 3: Main Workstation (Left Stencils Dock | Center DX12 SwapChain + Rulers | Right Task Panes) -->
+            <RowDefinition Height="*" MinHeight="220" />
+            <!-- Row 4: ShapeSheet Split-View GridSplitter -->
+            <RowDefinition x:Name="ShapeSheetSplitterRow" Height="0" />
+            <!-- Row 5: Dockable Bottom ShapeSheet Editor Split-View -->
+            <RowDefinition x:Name="ShapeSheetPaneRow" Height="0" />
+            <!-- Row 6: Bottom Page Tabs Strip -->
+            <RowDefinition Height="32" />
+            <!-- Row 7: Enterprise Status Bar -->
+            <RowDefinition Height="28" />
+        </Grid.RowDefinitions>
+
+        <!-- =================================================================== -->
+        <!-- ROW 0: QUICK ACCESS TOOLBAR (QAT) & TITLE BAR                       -->
+        <!-- =================================================================== -->
+        <Grid x:Name="AppTitleBarGrid" Grid.Row="0" Background="{StaticResource VexioBrandDarkHeaderBrush}" Padding="8,0,148,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+
+            <!-- Quick Access Toolbar -->
+            <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">
+                <!-- App Vector Emblem -->
+                <Border Background="#FF3B82F6" CornerRadius="4" Width="24" Height="24" Margin="2,0,8,0" VerticalAlignment="Center">
+                    <PathIcon Foreground="White" Width="14" Height="14"
+                              Data="M 2,3 L 7,13 L 12,3 L 9.5,3 L 7,8.5 L 4.5,3 Z" />
+                </Border>
+
+                <Button x:Name="QatSaveButton" Style="{StaticResource VexioQatButtonStyle}" Click="OnSaveClick"
+                        ToolTipService.ToolTip="Save (Ctrl+S)" AutomationProperties.Name="Save Document">
+                    <PathIcon Width="14" Height="14" Data="M 2,1 L 11,1 L 14,4 L 14,14 L 2,14 Z M 4,2 L 4,6 L 10,6 L 10,2 Z M 4,9 L 4,13 L 12,13 L 12,9 Z" />
+                </Button>
+
+                <Button x:Name="QatOpenButton" Style="{StaticResource VexioQatButtonStyle}" Click="OnOpenClick"
+                        ToolTipService.ToolTip="Open Diagram or CAD Drawing (Ctrl+O)" AutomationProperties.Name="Open File">
+                    <PathIcon Width="14" Height="14" Data="M 1,3 L 6,3 L 8,5 L 15,5 L 15,13 L 1,13 Z" />
+                </Button>
+
+                <Button x:Name="QatUndoButton" Style="{StaticResource VexioQatButtonStyle}" Click="OnUndoClick"
+                        ToolTipService.ToolTip="Undo (Ctrl+Z)" AutomationProperties.Name="Undo">
+                    <PathIcon Width="14" Height="14" Data="M 6,3 L 1,7.5 L 6,12 L 6,9 C 10,9 12.5,10.5 14,13 C 13.5,8.5 10.5,6 6,6 Z" />
+                </Button>
+
+                <Button x:Name="QatRedoButton" Style="{StaticResource VexioQatButtonStyle}" Click="OnRedoClick"
+                        ToolTipService.ToolTip="Redo (Ctrl+Y)" AutomationProperties.Name="Redo">
+                    <PathIcon Width="14" Height="14" Data="M 10,3 L 15,7.5 L 10,12 L 10,9 C 6,9 3.5,10.5 2,13 C 2.5,8.5 5.5,6 10,6 Z" />
+                </Button>
+
+                <Button x:Name="QatTiledPrintButton" Style="{StaticResource VexioQatButtonStyle}" Click="OnTiledPrintClick"
+                        ToolTipService.ToolTip="Multi-Page Tiled Print with Registration Marks (Ctrl+P)" AutomationProperties.Name="Tiled Print">
+                    <PathIcon Width="14" Height="14" Data="M 4,1 L 12,1 L 12,5 L 15,5 L 15,11 L 12,11 L 12,15 L 4,15 L 4,11 L 1,11 L 1,5 L 4,5 Z M 6,9 L 6,13 L 10,13 L 10,9 Z" />
+                </Button>
+
+                <ToggleButton x:Name="QatTouchMouseToggle" Padding="6,4" Background="Transparent" BorderBrush="Transparent"
+                              Foreground="White" Click="OnTouchMouseModeToggle"
+                              ToolTipService.ToolTip="Switch Touch / Mouse Ribbon Density" AutomationProperties.Name="Touch or Mouse Mode">
+                    <StackPanel Orientation="Horizontal" Spacing="4">
+                        <PathIcon Width="13" Height="13" Data="M 7,1 C 8.1,1 9,1.9 9,3 L 9,7 L 12,7 C 13.1,7 14,7.9 14,9 L 13,14 L 5,14 L 3,10 L 4.5,9 L 6,10.5 L 6,3 C 6,1.9 6.5,1 7,1 Z" />
+                        <TextBlock x:Name="TouchModeLabel" Text="Mouse" FontSize="11" VerticalAlignment="Center" />
+                    </StackPanel>
+                </ToggleButton>
+            </StackPanel>
+
+            <!-- Document Title & Format Badge -->
+            <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="8">
+                <TextBlock x:Name="DocumentTitleText" Text="Drawing1.vsdx" Foreground="White" FontSize="12.5" FontWeight="SemiBold" VerticalAlignment="Center" />
+                <Border Background="#33FFFFFF" CornerRadius="3" Padding="6,1" VerticalAlignment="Center">
+                    <TextBlock x:Name="DocumentFormatBadgeText" Text="OpenXML VSDX • Lossless" Foreground="#FFE2E8F0" FontSize="10.5" />
+                </Border>
+            </StackPanel>
+
+            <!-- Quick Command Search & GPU Indicator -->
+            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                <Border Background="#26FFFFFF" CornerRadius="4" Padding="8,2" VerticalAlignment="Center">
+                    <TextBlock x:Name="GpuSwapChainBadgeText" Text="DX12 SwapChain • Ready" Foreground="#FFBAE6FD" FontSize="11" />
+                </Border>
+            </StackPanel>
+        </Grid>
+
+        <!-- =================================================================== -->
+        <!-- ROW 1: MULTI-TABBED VISIO PROFESSIONAL RIBBON                       -->
+        <!-- =================================================================== -->
+        <Border Grid.Row="1" Background="{StaticResource VexioRibbonSurfaceBrush}" BorderBrush="{StaticResource VexioRibbonGroupBorderBrush}" BorderThickness="0,0,0,1">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="34" />
+                    <RowDefinition x:Name="RibbonBodyRow" Height="88" />
+                </Grid.RowDefinitions>
+
+                <!-- Ribbon Tab Header Strip (File Backstage + 8 Core Visio Tabs) -->
+                <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="2" Padding="8,2,8,0">
+                    <!-- FILE BACKSTAGE FLYOUT BUTTON -->
+                    <Button x:Name="FileBackstageButton" Background="{StaticResource VexioBrandPrimaryBrush}" Foreground="White"
+                            FontWeight="SemiBold" Padding="14,4" CornerRadius="4" VerticalAlignment="Center"
+                            AutomationProperties.Name="File Backstage Menu">
+                        <Button.Content>
+                            <TextBlock Text="File" FontSize="12.5" />
+                        </Button.Content>
+                        <Button.Flyout>
+                            <Flyout x:Name="FileBackstageFlyout" Placement="BottomEdgeAlignedLeft">
+                                <StackPanel Width="340" Spacing="8" Padding="4">
+                                    <TextBlock Text="Vexio Backstage" FontSize="16" FontWeight="Bold" />
+                                    <TextBlock Text="Lossless OpenXML (.vsdx/.vsdm/.vssx/.vstx), Legacy (.vsd/.vdx) &amp; Offline CAD (.dwg/.dxf)"
+                                               FontSize="11.5" Opacity="0.75" TextWrapping="Wrap" />
+                                    <MenuFlyoutSeparator />
+                                    <Button HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Click="OnNewBlankDocClick" Content="New Blank Drawing (.vsdx)" />
+                                    <Button HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Click="OnNewBpmnTemplateClick" Content="New BPMN 2.0 Process Diagram" />
+                                    <Button HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Click="OnNewUmlTemplateClick" Content="New UML 2.5 System Architecture" />
+                                    <Button HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Click="OnNewCadFloorPlanClick" Content="New Architectural CAD Floor Plan (1/4&quot; = 1'0&quot;)" />
+                                    <MenuFlyoutSeparator />
+                                    <Button HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Click="OnOpenClick" Content="Open Diagram or CAD File... (Ctrl+O)" />
+                                    <Button HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Click="OnSaveClick" Content="Save Active Document (Ctrl+S)" />
+                                    <Button HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Click="OnSaveAsClick" Content="Save As (.vsdx, .vsdm, .vssx, .vstx, .vsd, .vdx)..." />
+                                    <MenuFlyoutSeparator />
+                                    <TextBlock Text="Vector &amp; Print Exports" FontSize="12" FontWeight="SemiBold" />
+                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                        <Button Click="OnExportPdfClick" Content="Export PDF/A" />
+                                        <Button Click="OnExportSvgClick" Content="Export SVG" />
+                                        <Button Click="OnExportDxfClick" Content="Export CAD DXF" />
+                                    </StackPanel>
+                                    <Button HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Click="OnTiledPrintClick"
+                                            Content="Multi-Page Tiled Print with Registration Marks (Ctrl+P)" />
+                                </StackPanel>
+                            </Flyout>
+                        </Button.Flyout>
+                    </Button>
+
+                    <!-- Ribbon Tabs -->
+                    <RadioButton x:Name="RibbonTabHome" Content="Home" GroupName="RibbonTabs" IsChecked="True" Checked="OnRibbonTabChanged" Tag="Home" MinWidth="62" Padding="8,4" />
+                    <RadioButton x:Name="RibbonTabInsert" Content="Insert" GroupName="RibbonTabs" Checked="OnRibbonTabChanged" Tag="Insert" MinWidth="62" Padding="8,4" />
+                    <RadioButton x:Name="RibbonTabDesign" Content="Design" GroupName="RibbonTabs" Checked="OnRibbonTabChanged" Tag="Design" MinWidth="64" Padding="8,4" />
+                    <RadioButton x:Name="RibbonTabData" Content="Data" GroupName="RibbonTabs" Checked="OnRibbonTabChanged" Tag="Data" MinWidth="58" Padding="8,4" />
+                    <RadioButton x:Name="RibbonTabProcess" Content="Process" GroupName="RibbonTabs" Checked="OnRibbonTabChanged" Tag="Process" MinWidth="70" Padding="8,4" />
+                    <RadioButton x:Name="RibbonTabReview" Content="Review" GroupName="RibbonTabs" Checked="OnRibbonTabChanged" Tag="Review" MinWidth="66" Padding="8,4" />
+                    <RadioButton x:Name="RibbonTabView" Content="View" GroupName="RibbonTabs" Checked="OnRibbonTabChanged" Tag="View" MinWidth="58" Padding="8,4" />
+                    <RadioButton x:Name="RibbonTabDeveloper" Content="Developer" GroupName="RibbonTabs" Checked="OnRibbonTabChanged" Tag="Developer" MinWidth="84" Padding="8,4" />
+                </StackPanel>
+
+                <!-- RIBBON BODY PANELS -->
+                <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled" Padding="10,4">
+                    <Grid>
+                        <!-- 1. HOME RIBBON PANEL -->
+                        <StackPanel x:Name="RibbonPanelHome" Orientation="Horizontal" Spacing="12" Visibility="Visible">
+                            <!-- Clipboard Group -->
+                            <StackPanel>
+                                <StackPanel Orientation="Horizontal" Spacing="4" Height="56">
+                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnPasteShapeClick" ToolTipService.ToolTip="Duplicate / Paste Shape">
+                                        <StackPanel Spacing="3">
+                                            <PathIcon Width="16" Height="16" Data="M 5,1 L 11,1 L 11,3 L 14,3 L 14,15 L 2,15 L 2,3 L 5,3 Z" />
+                                            <TextBlock Text="Paste" FontSize="11" />
+                                        </StackPanel>
+                                    </Button>
+                                    <StackPanel Spacing="2" VerticalAlignment="Center">
+                                        <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnCutShapeClick" Content="Cut" Padding="6,2" />
+                                        <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnCopyShapeClick" Content="Copy" Padding="6,2" />
+                                    </StackPanel>
+                                </StackPanel>
+                                <TextBlock Text="Clipboard" Style="{StaticResource VexioRibbonGroupLabelStyle}" />
+                            </StackPanel>
+                            <AppBarSeparator />
+
+                            <!-- Tools Group (Ctrl+1 Pointer, Ctrl+2 Text, Ctrl+3 Connector) -->
+                            <StackPanel>
+                                <StackPanel Orientation="Horizontal" Spacing="4" Height="56">
+                                    <ToggleButton x:Name="PointerToolToggle" Style="{StaticResource VexioRibbonToggleButtonStyle}" IsChecked="True"
+                                                  Click="OnPointerToolClick" ToolTipService.ToolTip="Pointer Tool (Ctrl+1)">
+                                        <StackPanel Spacing="3">
+                                            <PathIcon Width="16" Height="16" Data="M 3,1 L 3,13 L 6.5,9.8 L 9,15 L 11,14 L 8.5,9 L 13,9 Z" />
+                                            <TextBlock Text="Pointer" FontSize="11" />
+                                        </StackPanel>
+                                    </ToggleButton>
+                                    <ToggleButton x:Name="TextToolToggle" Style="{StaticResource VexioRibbonToggleButtonStyle}"
+                                                  Click="OnTextToolClick" ToolTipService.ToolTip="Text Block / Rich Text Tool (Ctrl+2)">
+                                        <StackPanel Spacing="3">
+                                            <PathIcon Width="16" Height="16" Data="M 2,2 L 14,2 L 14,5 L 12,5 L 12,4 L 9,4 L 9,13 L 11,13 L 11,15 L 5,15 L 5,13 L 7,13 L 7,4 L 4,4 L 4,5 L 2,5 Z" />
+                                            <TextBlock Text="Text" FontSize="11" />
+                                        </StackPanel>
+                                    </ToggleButton>
+                                    <ToggleButton x:Name="ConnectorToolToggle" Style="{StaticResource VexioRibbonToggleButtonStyle}"
+                                                  Click="OnConnectorToolClick" ToolTipService.ToolTip="Dynamic Obstacle-Avoiding Connector (Ctrl+3)">
+                                        <StackPanel Spacing="3">
+                                            <PathIcon Width="16" Height="16" Data="M 2,3 L 6,3 L 6,7 L 2,7 Z M 6,5 L 10,5 L 10,11 L 12,11 M 10,11 L 14,11 L 14,15 L 10,15 Z" />
+                                            <TextBlock Text="Connector" FontSize="11" />
+                                        </StackPanel>
+                                    </ToggleButton>
+                                    <ToggleButton x:Name="RectToolToggle" Style="{StaticResource VexioRibbonToggleButtonStyle}"
+                                                  Click="OnRectToolClick" ToolTipService.ToolTip="Rectangle Geometry Tool">
+                                        <StackPanel Spacing="3">
+                                            <PathIcon Width="16" Height="16" Data="M 2,3 L 14,3 L 14,13 L 2,13 Z" />
+                                            <TextBlock Text="Rectangle" FontSize="11" />
+                                        </StackPanel>
+                                    </ToggleButton>
+                                </StackPanel>
+                                <TextBlock Text="Tools" Style="{StaticResource VexioRibbonGroupLabelStyle}" />
+                            </StackPanel>
+                            <AppBarSeparator />
+
+                            <!-- Shape Styles & Routing Group -->
+                            <StackPanel>
+                                <StackPanel Orientation="Horizontal" Spacing="6" Height="56" VerticalAlignment="Center">
+                                    <ComboBox x:Name="ConnectorRoutingCombo" Width="136" SelectedIndex="0" VerticalAlignment="Center"
+                                              SelectionChanged="OnConnectorRoutingChanged" ToolTipService.ToolTip="Dynamic Connector Routing Mode">
+                                        <x:String>Right-Angle Route</x:String>
+                                        <x:String>Straight Route</x:String>
+                                        <x:String>Curved Spline</x:String>
+                                    </ComboBox>
+                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnQuickStyleAccentClick" Content="Accent Fill" />
+                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnQuickStyleNeutralClick" Content="Clean Outline" />
+                                </StackPanel>
+                                <TextBlock Text="Shape Styles &amp; Routing" Style="{StaticResource VexioRibbonGroupLabelStyle}" />
+                            </StackPanel>
+                            <AppBarSeparator />
+
+                            <!-- Arrange Group -->
+                            <StackPanel>
+                                <StackPanel Orientation="Horizontal" Spacing="4" Height="56">
+                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnAlignCenterClick" Content="Align Center" />
+                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnDistributeHorizontallyClick" Content="Distribute" />
+                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnAutoLayoutQuickClick" Content="Auto-Align" />
+                                </StackPanel>
+                                <TextBlock Text="Arrange" Style="{StaticResource VexioRibbonGroupLabelStyle}" />
+                            </StackPanel>
+                        </StackPanel>
+
+                        <!-- 2. INSERT RIBBON PANEL -->
+                        <StackPanel x:Name="RibbonPanelInsert" Orientation="Horizontal" Spacing="12" Visibility="Collapsed">
+                            <StackPanel>
+                                <StackPanel Orientation="Horizontal" Spacing="4" Height="56">
+                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnInsertBlankPageClick" Content="New Page" />
+                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnInsertBackgroundPageClick" Content="Background Page" />
+                                </StackPanel>
+                                <TextBlock Text="Pages" Style="{StaticResource VexioRibbonGroupLabelStyle}" />
+                            </StackPanel>
+                            <AppBarSeparator />
+                            <StackPanel>
+                                <StackPanel Orientation="Horizontal" Spacing="4" Height="56">
+                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnInsertContainerClick" Content="Container" />
+                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnInsertSwimlaneClick" Content="Swimlane" />
+                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnInsertCalloutClick" Content="Callout" />
+                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnInsertLegendClick" Content="Data Legend" />
+                                </StackPanel>
+                                <TextBlock Text="Diagram Parts" Style="{StaticResource VexioRibbonGroupLabelStyle}" />
+                            </StackPanel>
+                            <AppBarSeparator />
+                            <StackPanel>
+                                <StackPanel Orientation="Horizontal" Spacing="4" Height="56">
+                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnInsertCadDrawingClick" Content="CAD Drawing (.dwg / .dxf)" />
+                                    <ToggleButton x:Name="LockCadScaleToggle" Style="{StaticResource VexioRibbonToggleButtonStyle}" IsChecked="True"
+                                                  Click="OnLockCadScaleClick" Content="Lock CAD Architectural Scale" />
+                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnConvertCadToShapeSheetClick" Content="Convert CAD to ShapeSheet" />
+                                </StackPanel>
+                                <TextBlock Text="Offline CAD Interop" Style="{StaticResource VexioRibbonGroupLabelStyle}" />
+                            </StackPanel>
+                        </StackPanel>
+
+                        <!-- 3. DESIGN RIBBON PANEL -->
+                        <StackPanel x:Name="RibbonPanelDesign" Orientation="Horizontal" Spacing="12" Visibility="Collapsed">
+                            <StackPanel>
+                                <StackPanel Orientation="Horizontal" Spacing="6" Height="56" VerticalAlignment="Center">
+                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnPageSetupClick" Content="Page Setup (Shift+F4)" />
+                                    <ComboBox x:Name="PageOrientationCombo" SelectedIndex="0" Width="120" VerticalAlignment="Center" SelectionChanged="OnPageOrientationChanged">
+                                        <x:String>Landscape (11x8.5 in)</x:String>
+                                        <x:String>Portrait (8.5x11 in)</x:String>
+                                        <x:String>ISO A3 Metric</x:String>
+                                        <x:String>ANSI D Architectural</x:String>
+                                    </ComboBox>
+                                    <ComboBox x:Name="DrawingScaleCombo" SelectedIndex="0" Width="136" VerticalAlignment="Center" SelectionChanged="OnDrawingScaleChanged">
+                                        <x:String>No Scale (1:1)</x:String>
+                                        <x:String>1/4&quot; = 1'0&quot; (1:48)</x:String>
+                                        <x:String>Metric 1:50</x:String>
+                                        <x:String>Metric 1:100</x:String>
+                                    </ComboBox>
+                                </StackPanel>
+                                <TextBlock Text="Page Setup &amp; Architectural Scale" Style="{StaticResource VexioRibbonGroupLabelStyle}" />
+                            </StackPanel>
+                            <AppBarSeparator />
+                            <StackPanel>
+                                <StackPanel Orientation="Horizontal" Spacing="6" Height="56" VerticalAlignment="Center">
+                                    <ComboBox x:Name="ThemeSelectorCombo" SelectedIndex="0" Width="154" VerticalAlignment="Center" SelectionChanged="OnThemeChanged">
+                                        <x:String>Enterprise Slate</x:String>
+                                        <x:String>Technical Blueprint</x:String>
+                                        <x:String>Executive Monochrome</x:String>
+                                        <x:String>Engineering Emerald</x:String>
+                                    </ComboBox>
+                                    <ComboBox x:Name="LineJumpStyleCombo" SelectedIndex="0" Width="124" VerticalAlignment="Center" SelectionChanged="OnLineJumpStyleChanged">
+                                        <x:String>Arc Line Jumps</x:String>
+                                        <x:String>Gap Line Jumps</x:String>
+                                        <x:String>Square Bridges</x:String>
+                                        <x:String>No Line Jumps</x:String>
+                                    </ComboBox>
+                                </StackPanel>
+                                <TextBlock Text="Themes &amp; Line Jumps" Style="{StaticResource VexioRibbonGroupLabelStyle}" />
+                            </StackPanel>
+                            <AppBarSeparator />
+                            <StackPanel>
+                                <StackPanel Orientation="Horizontal" Spacing="4" Height="56">
+                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnReLayoutTopDownClick" Content="Top-to-Bottom Tree" />
+                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnReLayoutLeftRightClick" Content="Left-to-Right Flow" />
+                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnReLayoutRadialClick" Content="Radial Network" />
+                                </StackPanel>
+                                <TextBlock Text="Auto-Layout" Style="{StaticResource VexioRibbonGroupLabelStyle}" />
+                            </StackPanel>
+                        </StackPanel>
+
+                        <!-- 4. DATA RIBBON PANEL -->
+                        <StackPanel x:Name="RibbonPanelData" Orientation="Horizontal" Spacing="12" Visibility="Collapsed">
+                            <StackPanel>
+                                <StackPanel Orientation="Horizontal" Spacing="4" Height="56">
+                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnLinkExternalDataClick" Content="Import Excel / CSV / SQLite" />
+                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnRefreshExternalDataClick" Content="Refresh All Data" />
+                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnPushTwoWaySyncClick" Content="Two-Way Writeback" />
+                                </StackPanel>
+                                <TextBlock Text="Two-Way External Data" Style="{StaticResource VexioRibbonGroupLabelStyle}" />
+                            </StackPanel>
+                            <AppBarSeparator />
+                            <StackPanel>
+                                <StackPanel Orientation="Horizontal" Spacing="4" Height="56">
+                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnApplyDataBarsClick" Content="Data Bars" />
+                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnApplyIconSetsClick" Content="Icon Sets" />
+                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnApplyColorByValueClick" Content="Color by Value" />
+                                </StackPanel>
+                                <TextBlock Text="Data Graphics" Style="{StaticResource VexioRibbonGroupLabelStyle}" />
+                            </StackPanel>
+                            <AppBarSeparator />
+                            <StackPanel>
+                                <StackPanel Orientation="Horizontal" Spacing="4" Height="56">
+                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnGenerateBomReportClick" Content="BOM Shape Report" />
+                                </StackPanel>
+                                <TextBlock Text="Reporting" Style="{StaticResource VexioRibbonGroupLabelStyle}" />
+                            </StackPanel>
+                        </StackPanel>
+
+                        <!-- 5. PROCESS RIBBON PANEL (BPMN 2.0 / UML 2.5 / SharePoint Check Diagram) -->
+                        <StackPanel x:Name="RibbonPanelProcess" Orientation="Horizontal" Spacing="12" Visibility="Collapsed">
+                            <StackPanel>
+                                <StackPanel Orientation="Horizontal" Spacing="6" Height="56" VerticalAlignment="Center">
+                                    <ComboBox x:Name="ValidationRuleSetCombo" SelectedIndex="0" Width="170" VerticalAlignment="Center"
+                                              SelectionChanged="OnValidationRuleSetChanged">
+                                        <x:String>BPMN 2.0 Specification</x:String>
+                                        <x:String>UML 2.5 Structural Rules</x:String>
+                                        <x:String>SharePoint Workflow</x:String>
+                                    </ComboBox>
+                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnCheckDiagramClick" FontWeight="SemiBold">
+                                        <StackPanel Orientation="Horizontal" Spacing="6">
+                                            <PathIcon Width="15" Height="15" Data="M 6.5,11.5 L 2.5,7.5 L 4,6 L 6.5,8.5 L 12.5,2.5 L 14,4 Z" />
+                                            <TextBlock Text="Check Diagram" />
+                                        </StackPanel>
+                                    </Button>
+                                </StackPanel>
+                                <TextBlock Text="Diagram Validation" Style="{StaticResource VexioRibbonGroupLabelStyle}" />
+                            </StackPanel>
+                            <AppBarSeparator />
+                            <StackPanel>
+                                <StackPanel Orientation="Horizontal" Spacing="4" Height="56">
+                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnCreateSubprocessPageClick" Content="Create Subprocess Page" />
+                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnLinkSubprocessClick" Content="Link Existing Page" />
+                                </StackPanel>
+                                <TextBlock Text="Subprocess" Style="{StaticResource VexioRibbonGroupLabelStyle}" />
+                            </StackPanel>
+                        </StackPanel>
+
+                        <!-- 6. REVIEW RIBBON PANEL (Ink & Comments) -->
+                        <StackPanel x:Name="RibbonPanelReview" Orientation="Horizontal" Spacing="12" Visibility="Collapsed">
+                            <StackPanel>
+                                <StackPanel Orientation="Horizontal" Spacing="4" Height="56">
+                                    <ToggleButton x:Name="InkPenToggle" Style="{StaticResource VexioRibbonToggleButtonStyle}" Click="OnInkPenToggleClick" Content="Markup Pen" />
+                                    <ToggleButton x:Name="InkHighlighterToggle" Style="{StaticResource VexioRibbonToggleButtonStyle}" Click="OnInkHighlighterToggleClick" Content="Highlighter" />
+                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnConvertInkToShapesClick" Content="Ink to Geometry" />
+                                </StackPanel>
+                                <TextBlock Text="Stylus &amp; Markup Ink" Style="{StaticResource VexioRibbonGroupLabelStyle}" />
+                            </StackPanel>
+                            <AppBarSeparator />
+                            <StackPanel>
+                                <StackPanel Orientation="Horizontal" Spacing="4" Height="56">
+                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnNewCommentClick" Content="New Comment" />
+                                    <ToggleButton x:Name="ShowMarkupOverlayToggle" Style="{StaticResource VexioRibbonToggleButtonStyle}" IsChecked="True"
+                                                  Click="OnToggleMarkupOverlayClick" Content="Show Markup Overlay" />
+                                </StackPanel>
+                                <TextBlock Text="Comments" Style="{StaticResource VexioRibbonGroupLabelStyle}" />
+                            </StackPanel>
+                        </StackPanel>
+
+                        <!-- 7. VIEW RIBBON PANEL -->
+                        <StackPanel x:Name="RibbonPanelView" Orientation="Horizontal" Spacing="12" Visibility="Collapsed">
+                            <StackPanel>
+                                <StackPanel Orientation="Horizontal" Spacing="8" Height="56" VerticalAlignment="Center">
+                                    <CheckBox x:Name="ViewRulersCheck" Content="Rulers" IsChecked="True" Checked="OnViewRulersChanged" Unchecked="OnViewRulersChanged" />
+                                    <CheckBox x:Name="ViewGridCheck" Content="Grid" IsChecked="True" Checked="OnViewGridChanged" Unchecked="OnViewGridChanged" />
+                                    <CheckBox x:Name="ViewAutoConnectCheck" Content="AutoConnect" IsChecked="True" Checked="OnViewAutoConnectChanged" Unchecked="OnViewAutoConnectChanged" />
+                                </StackPanel>
+                                <TextBlock Text="Show &amp; Visual Aids" Style="{StaticResource VexioRibbonGroupLabelStyle}" />
+                            </StackPanel>
+                            <AppBarSeparator />
+                            <StackPanel>
+                                <StackPanel Orientation="Horizontal" Spacing="4" Height="56">
+                                    <ToggleButton x:Name="ViewStencilsDockToggle" Style="{StaticResource VexioRibbonToggleButtonStyle}" IsChecked="True"
+                                                  Click="OnToggleLeftStencilDockClick" Content="Shapes Stencil Dock" />
+                                    <ToggleButton x:Name="ViewTaskPanesToggle" Style="{StaticResource VexioRibbonToggleButtonStyle}" IsChecked="True"
+                                                  Click="OnToggleRightTaskPanesClick" Content="Right Task Panes" />
+                                    <ToggleButton x:Name="ViewShapeSheetToggle" Style="{StaticResource VexioRibbonToggleButtonStyle}"
+                                                  Click="OnToggleShapeSheetClick" Content="ShapeSheet (Shift+F5)" />
+                                </StackPanel>
+                                <TextBlock Text="Workstation Panes" Style="{StaticResource VexioRibbonGroupLabelStyle}" />
+                            </StackPanel>
+                            <AppBarSeparator />
+                            <StackPanel>
+                                <StackPanel Orientation="Horizontal" Spacing="4" Height="56">
+                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnZoom100Click" Content="100%" />
+                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnFitToWindowClick" Content="Fit to Window" />
+                                </StackPanel>
+                                <TextBlock Text="Zoom" Style="{StaticResource VexioRibbonGroupLabelStyle}" />
+                            </StackPanel>
+                        </StackPanel>
+
+                        <!-- 8. DEVELOPER RIBBON PANEL (ShapeSheet & Sandboxed Macro Editor) -->
+                        <StackPanel x:Name="RibbonPanelDeveloper" Orientation="Horizontal" Spacing="12" Visibility="Collapsed">
+                            <StackPanel>
+                                <StackPanel Orientation="Horizontal" Spacing="4" Height="56">
+                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnToggleShapeSheetClick" FontWeight="SemiBold" Content="Show ShapeSheet (Shift+F5)" />
+                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnGuardSelectedCellClick" Content="Wrap in GUARD()" />
+                                </StackPanel>
+                                <TextBlock Text="Shape Design" Style="{StaticResource VexioRibbonGroupLabelStyle}" />
+                            </StackPanel>
+                            <AppBarSeparator />
+                            <StackPanel>
+                                <StackPanel Orientation="Horizontal" Spacing="4" Height="56">
+                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnBooleanUnionClick" Content="Union" />
+                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnBooleanFragmentClick" Content="Fragment" />
+                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnBooleanSubtractClick" Content="Subtract" />
+                                </StackPanel>
+                                <TextBlock Text="Boolean Geometry Operations" Style="{StaticResource VexioRibbonGroupLabelStyle}" />
+                            </StackPanel>
+                            <AppBarSeparator />
+                            <StackPanel>
+                                <StackPanel Orientation="Horizontal" Spacing="4" Height="56">
+                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnOpenMacroEditorClick" FontWeight="SemiBold"
+                                            Content="Sandboxed Macro Editor (Alt+F9)" />
+                                </StackPanel>
+                                <TextBlock Text="Deterministic Automation" Style="{StaticResource VexioRibbonGroupLabelStyle}" />
+                            </StackPanel>
+                        </StackPanel>
+                    </Grid>
+                </ScrollViewer>
+            </Grid>
+        </Border>
+
+        <!-- =================================================================== -->
+        <!-- ROW 2: WORKSPACE DIAGNOSTIC INFOBAR                                 -->
+        <!-- =================================================================== -->
+        <InfoBar x:Name="WorkspaceInfoBar" Grid.Row="2" IsOpen="False" IsClosable="True" Severity="Informational" />
+
+        <!-- =================================================================== -->
+        <!-- ROW 3: MAIN WORKSTATION AREA                                        -->
+        <!-- =================================================================== -->
+        <Grid Grid.Row="3">
+            <Grid.ColumnDefinitions>
+                <!-- Col 0: Collapsible Left Shapes / Stencils Dock -->
+                <ColumnDefinition x:Name="LeftStencilColumn" Width="264" />
+                <!-- Col 1: Center Ruler + DirectX 12 SwapChainPanel + Floating Formula Bar -->
+                <ColumnDefinition Width="*" />
+                <!-- Col 2: Dockable Right Task Panes -->
+                <ColumnDefinition x:Name="RightTaskPaneColumn" Width="328" />
+            </Grid.ColumnDefinitions>
+
+            <!-- =============================================================== -->
+            <!-- COL 0: COLLAPSIBLE LEFT SHAPES / STENCILS DOCK                  -->
+            <!-- =============================================================== -->
+            <Border x:Name="LeftStencilDockBorder" Grid.Column="0" Background="{ThemeResource LayerFillColorDefaultBrush}"
+                    BorderBrush="{StaticResource VexioRibbonGroupBorderBrush}" BorderThickness="0,0,1,0" Padding="8">
+                <Grid RowSpacing="8">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+
+                    <!-- Header + Collapse Button -->
+                    <Grid Grid.Row="0">
+                        <TextBlock Text="Shapes &amp; Stencils" FontWeight="SemiBold" FontSize="13.5" VerticalAlignment="Center" />
+                        <Button HorizontalAlignment="Right" Padding="6,2" Background="Transparent" BorderBrush="Transparent"
+                                Click="OnToggleLeftStencilDockClick" ToolTipService.ToolTip="Collapse Shapes Dock">
+                            <PathIcon Width="12" Height="12" Data="M 10,2 L 4,8 L 10,14" />
+                        </Button>
+                    </Grid>
+
+                    <!-- Instant Stencil Search -->
+                    <TextBox x:Name="StencilSearchBox" Grid.Row="1" PlaceholderText="Search 250+ masters (BPMN, UML, CAD)..."
+                             TextChanged="OnStencilSearchTextChanged" />
+
+                    <!-- Stencil Pack Switcher -->
+                    <ComboBox x:Name="StencilPackCombo" Grid.Row="2" HorizontalAlignment="Stretch" SelectedIndex="0"
+                              SelectionChanged="OnStencilPackSelectionChanged">
+                        <x:String>Basic Flowchart Shapes</x:String>
+                        <x:String>BPMN 2.0 Process Masters</x:String>
+                        <x:String>UML 2.5 Class &amp; Sequence</x:String>
+                        <x:String>Cloud &amp; Network Topology</x:String>
+                        <x:String>Architectural CAD Walls &amp; Doors</x:String>
+                    </ComboBox>
+
+                    <!-- Drag-Source Stencil Items -->
+                    <ListView x:Name="StencilMastersListView" Grid.Row="3"
+                              CanDragItems="True"
+                              SelectionMode="Single"
+                              IsItemClickEnabled="True"
+                              DragItemsStarting="OnStencilMasterDragStarting"
+                              ItemClick="OnStencilMasterItemClick" />
+
+                    <!-- Quick Drop Hint -->
+                    <TextBlock Grid.Row="4" Text="Drag master onto DX12 canvas or click to instantiate."
+                               FontSize="11" Opacity="0.7" TextWrapping="Wrap" />
+                </Grid>
+            </Border>
+
+            <!-- =============================================================== -->
+            <!-- COL 1: CENTER RULERS + DX12 SWAPCHAINPANEL + FORMULA BAR        -->
+            <!-- =============================================================== -->
+            <Grid Grid.Column="1" Background="{StaticResource VexioCanvasBackdropBrush}">
+                <Grid.RowDefinitions>
+                    <!-- Floating Formula Bar (when ShapeSheet is active) -->
+                    <RowDefinition Height="Auto" />
+                    <!-- Top Horizontal Ruler -->
+                    <RowDefinition x:Name="TopRulerRow" Height="24" />
+                    <!-- Canvas Row -->
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+                <Grid.ColumnDefinitions>
+                    <!-- Left Vertical Ruler -->
+                    <ColumnDefinition x:Name="LeftRulerColumn" Width="24" />
+                    <!-- DX12 SwapChain Column -->
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+
+                <!-- Floating Formula Bar (Active in ShapeSheet Mode) -->
+                <Border x:Name="FloatingFormulaBar" Grid.Row="0" Grid.ColumnSpan="2" Visibility="Collapsed"
+                        Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                        BorderBrush="{StaticResource VexioRibbonGroupBorderBrush}" BorderThickness="0,0,0,1" Padding="8,4">
+                    <Grid ColumnSpacing="6">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+
+                        <Border Grid.Column="0" Background="#FFE0E7FF" CornerRadius="4" Padding="8,3" VerticalAlignment="Center">
+                            <TextBlock x:Name="FloatingCellRefText" Text="Sheet.1!Width" Foreground="#FF1E3A8A" FontFamily="Consolas" FontSize="12" FontWeight="SemiBold" />
+                        </Border>
+
+                        <ToggleButton x:Name="FloatingForceSetfToggle" Grid.Column="1" Content="SETF Override" FontSize="11.5" Padding="8,3"
+                                      Click="OnFloatingForceSetfToggled" ToolTipService.ToolTip="Bypass GUARD(expr) using SETF semantics" />
+
+                        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="2">
+                            <Button Padding="6,3" Click="OnRevertFormulaClick" ToolTipService.ToolTip="Revert Formula">
+                                <TextBlock Text="✕" FontSize="11" />
+                            </Button>
+                            <Button Padding="6,3" Click="OnCommitFloatingFormulaClick" ToolTipService.ToolTip="Commit Formula (Enter)">
+                                <TextBlock Text="✓" FontSize="11" FontWeight="Bold" />
+                            </Button>
+                        </StackPanel>
+
+                        <TextBox x:Name="FloatingFormulaTextBox" Grid.Column="3" FontFamily="Consolas" FontSize="12.5"
+                                 PlaceholderText="=GUARD(Width*0.5)" KeyDown="OnFloatingFormulaKeyDown" />
+
+                        <Border Grid.Column="4" Background="#FFF1F5F9" CornerRadius="4" Padding="8,3" VerticalAlignment="Center">
+                            <TextBlock x:Name="FloatingEvaluatedValueText" Text="= 2.0000 in" Foreground="#FF0F172A" FontFamily="Consolas" FontSize="11.5" />
+                        </Border>
+                    </Grid>
+                </Border>
+
+                <!-- Ruler Origin Unit Switcher (in / mm) -->
+                <Button x:Name="RulerUnitOriginButton" Grid.Row="1" Grid.Column="0" Padding="0" CornerRadius="0"
+                        Background="{StaticResource VexioRulerSurfaceBrush}" BorderBrush="{StaticResource VexioRibbonGroupBorderBrush}" BorderThickness="0,0,1,1"
+                        Click="OnToggleRulerUnitClick" ToolTipService.ToolTip="Switch Ruler Display Units (in / mm)">
+                    <TextBlock x:Name="RulerUnitOriginText" Text="in" FontSize="9.5" FontWeight="SemiBold" Foreground="#FF334155" />
+                </Button>
+
+                <!-- Horizontal Ruler Overlay -->
+                <Border x:Name="HorizontalRulerBorder" Grid.Row="1" Grid.Column="1" Background="{StaticResource VexioRulerSurfaceBrush}"
+                        BorderBrush="{StaticResource VexioRibbonGroupBorderBrush}" BorderThickness="0,0,0,1" ClipToBounds="True">
+                    <Canvas x:Name="HorizontalRulerCanvas" SizeChanged="OnRulerCanvasSizeChanged">
+                        <Line x:Name="HorizontalCursorHairline" X1="0" Y1="0" X2="0" Y2="24" Stroke="#FF2563EB" StrokeThickness="1.5" />
+                    </Canvas>
+                </Border>
+
+                <!-- Vertical Ruler Overlay -->
+                <Border x:Name="VerticalRulerBorder" Grid.Row="2" Grid.Column="0" Background="{StaticResource VexioRulerSurfaceBrush}"
+                        BorderBrush="{StaticResource VexioRibbonGroupBorderBrush}" BorderThickness="0,0,1,0" ClipToBounds="True">
+                    <Canvas x:Name="VerticalRulerCanvas" SizeChanged="OnRulerCanvasSizeChanged">
+                        <Line x:Name="VerticalCursorHairline" X1="0" Y1="0" X2="24" Y2="0" Stroke="#FF2563EB" StrokeThickness="1.5" />
+                    </Canvas>
+                </Border>
+
+                <!-- 120 FPS DirectX 12 wgpu SwapChainPanel -->
+                <SwapChainPanel x:Name="DiagramSwapChainPanel"
+                                Grid.Row="2"
+                                Grid.Column="1"
+                                AllowDrop="True"
+                                IsTapEnabled="True"
+                                Loaded="OnSwapChainPanelLoaded"
+                                SizeChanged="OnSwapChainPanelSizeChanged"
+                                CompositionScaleChanged="OnSwapChainCompositionScaleChanged"
+                                PointerPressed="OnCanvasPointerPressed"
+                                PointerMoved="OnCanvasPointerMoved"
+                                PointerReleased="OnCanvasPointerReleased"
+                                PointerWheelChanged="OnCanvasPointerWheelChanged"
+                                DragOver="OnCanvasDragOver"
+                                Drop="OnCanvasDrop"
+                                AutomationProperties.Name="DirectX 12 Diagram Canvas">
+                    <!-- Non-blocking HUD Pill for Collapsed Dock Restore & Active Tool -->
+                    <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="12" IsHitTestVisible="True">
+                        <Button x:Name="RestoreStencilsPillButton" Visibility="Collapsed" Content="Show Shapes" FontSize="11.5" Padding="8,4"
+                                Click="OnToggleLeftStencilDockClick" />
+                        <Border Background="#CC0F172A" CornerRadius="4" Padding="8,3" IsHitTestVisible="False">
+                            <TextBlock x:Name="CanvasOverlayHudText" Text="Pointer Tool • Dynamic Glue Active" Foreground="White" FontSize="11" />
+                        </Border>
+                    </StackPanel>
+                </SwapChainPanel>
+            </Grid>
+
+            <!-- =============================================================== -->
+            <!-- COL 2: DOCKABLE RIGHT TASK PANES (6 COMPLETE TABS)              -->
+            <!-- =============================================================== -->
+            <Border x:Name="RightTaskPaneBorder" Grid.Column="2" Background="{ThemeResource LayerFillColorDefaultBrush}"
+                    BorderBrush="{StaticResource VexioRibbonGroupBorderBrush}" BorderThickness="1,0,0,0">
+                <Pivot x:Name="RightTaskPanesPivot" Title="Inspector &amp; Task Panes" FontSize="12">
+                    <!-- PANE 1: SHAPE DATA (Prop.*) -->
+                    <PivotItem Header="Shape Data">
+                        <ScrollViewer Padding="4,8,8,12">
+                            <StackPanel Spacing="10">
+                                <TextBlock x:Name="ShapeDataHeaderText" Text="Selected: Sheet.1 (Process Step)" FontWeight="SemiBold" FontSize="12.5" />
+                                <TextBox x:Name="PropLabelTextBox" Header="Prop.Label" Text="Order Validation" LostFocus="OnShapeDataFieldCommitted" />
+                                <TextBox x:Name="PropDepartmentTextBox" Header="Prop.Department" Text="Operations" LostFocus="OnShapeDataFieldCommitted" />
+                                <TextBox x:Name="PropOwnerTextBox" Header="Prop.Owner" Text="Platform Team" LostFocus="OnShapeDataFieldCommitted" />
+                                <TextBox x:Name="PropCostTextBox" Header="Prop.Cost (USD)" Text="1250.00" LostFocus="OnShapeDataFieldCommitted" />
+                                <ComboBox x:Name="PropStatusCombo" Header="Prop.Status" HorizontalAlignment="Stretch" SelectedIndex="1"
+                                          SelectionChanged="OnPropStatusChanged">
+                                    <x:String>Draft</x:String>
+                                    <x:String>Active</x:String>
+                                    <x:String>Approved</x:String>
+                                    <x:String>Blocked</x:String>
+                                </ComboBox>
+                                <Button HorizontalAlignment="Stretch" Click="OnApplyShapeDataClick" Content="Commit Shape Data to ShapeSheet" />
+                            </StackPanel>
+                        </ScrollViewer>
+                    </PivotItem>
+
+                    <!-- PANE 2: SIZE & POSITION -->
+                    <PivotItem Header="Size &amp; Pos">
+                        <ScrollViewer Padding="4,8,8,12">
+                            <StackPanel Spacing="8">
+                                <TextBlock Text="Canonical Shape Transform (1:1 ShapeSheet)" FontWeight="SemiBold" FontSize="12" />
+                                <Grid ColumnSpacing="8" RowSpacing="8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                    </Grid.RowDefinitions>
+
+                                    <TextBox x:Name="TransformPinXBox" Grid.Row="0" Grid.Column="0" Header="PinX" Text="4.25 in" />
+                                    <TextBox x:Name="TransformPinYBox" Grid.Row="0" Grid.Column="1" Header="PinY" Text="5.50 in" />
+                                    <TextBox x:Name="TransformWidthBox" Grid.Row="1" Grid.Column="0" Header="Width" Text="2.00 in" />
+                                    <TextBox x:Name="TransformHeightBox" Grid.Row="1" Grid.Column="1" Header="Height" Text="1.00 in" />
+                                    <TextBox x:Name="TransformLocPinXBox" Grid.Row="2" Grid.Column="0" Header="LocPinX" Text="Width*0.5" />
+                                    <TextBox x:Name="TransformLocPinYBox" Grid.Row="2" Grid.Column="1" Header="LocPinY" Text="Height*0.5" />
+                                    <TextBox x:Name="TransformAngleBox" Grid.Row="3" Grid.ColumnSpan="2" Header="Angle" Text="0 deg" />
+                                </Grid>
+                                <Button HorizontalAlignment="Stretch" Click="OnApplySizeAndPositionClick" Content="Apply Transform Cells" />
+                            </StackPanel>
+                        </ScrollViewer>
+                    </PivotItem>
+
+                    <!-- PANE 3: FORMAT SHAPE -->
+                    <PivotItem Header="Format">
+                        <ScrollViewer Padding="4,8,8,12">
+                            <StackPanel Spacing="10">
+                                <TextBlock Text="Fill &amp; Stroke Cells" FontWeight="SemiBold" FontSize="12" />
+                                <TextBox x:Name="FormatFillForegndBox" Header="FillForegnd (RGB Formula)" Text="RGB(59,130,246)" />
+                                <Slider x:Name="FormatFillTransSlider" Header="FillForegndTrans (%)" Minimum="0" Maximum="100" Value="8" />
+                                <TextBox x:Name="FormatLineColorBox" Header="LineColor (RGB Formula)" Text="RGB(30,58,138)" />
+                                <TextBox x:Name="FormatLineWeightBox" Header="LineWeight" Text="1.5 pt" />
+                                <TextBox x:Name="FormatRoundingBox" Header="Rounding" Text="0.08 in" />
+                                <ComboBox x:Name="FormatEndArrowCombo" Header="EndArrow" HorizontalAlignment="Stretch" SelectedIndex="1">
+                                    <x:String>0 — None</x:String>
+                                    <x:String>4 — Filled Triangle</x:String>
+                                    <x:String>13 — Open Stealth</x:String>
+                                    <x:String>10 — Crow's Foot</x:String>
+                                </ComboBox>
+                                <Button HorizontalAlignment="Stretch" Click="OnApplyFormatShapeClick" Content="Commit Fill &amp; Line Cells" />
+                            </StackPanel>
+                        </ScrollViewer>
+                    </PivotItem>
+
+                    <!-- PANE 4: PAN & ZOOM -->
+                    <PivotItem Header="Pan &amp; Zoom">
+                        <StackPanel Spacing="10" Padding="4,8,8,12">
+                            <TextBlock Text="Offscreen Page Bird's-Eye Preview" FontWeight="SemiBold" FontSize="12" />
+                            <Border Height="156" Background="#FFFFFFFF" BorderBrush="#FF94A3B8" BorderThickness="1" CornerRadius="4">
+                                <Grid>
+                                    <Image x:Name="PanZoomPreviewImage" Stretch="Uniform" />
+                                    <Rectangle Stroke="#FF2563EB" StrokeThickness="1.5" Fill="#1A2563EB" Width="120" Height="78"
+                                               HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                </Grid>
+                            </Border>
+                            <Button HorizontalAlignment="Stretch" Click="OnRefreshPanZoomPreviewClick" Content="Refresh Offscreen Preview" />
+                            <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Center">
+                                <Button Click="OnZoom50Click" Content="50%" />
+                                <Button Click="OnZoom100Click" Content="100%" />
+                                <Button Click="OnZoom200Click" Content="200%" />
+                                <Button Click="OnFitToWindowClick" Content="Fit" />
+                            </StackPanel>
+                        </StackPanel>
+                    </PivotItem>
+
+                    <!-- PANE 5: EXTERNAL DATA -->
+                    <PivotItem Header="External Data">
+                        <StackPanel Spacing="8" Padding="4,8,8,12">
+                            <TextBlock x:Name="ExternalDataSourceStatusText" Text="Source: Enterprise_Inventory.xlsx (Synced)" FontWeight="SemiBold" FontSize="12" />
+                            <ListView x:Name="ExternalDataRowsListView" Height="180" SelectionMode="Single" />
+                            <Button HorizontalAlignment="Stretch" Click="OnBindSelectedDataRowClick" Content="Link Selected Row to Active Shape" />
+                            <Button HorizontalAlignment="Stretch" Click="OnPushTwoWaySyncClick" Content="Write Shape Changes Back to Source" />
+                        </StackPanel>
+                    </PivotItem>
+
+                    <!-- PANE 6: LAYER PROPERTIES -->
+                    <PivotItem Header="Layers">
+                        <StackPanel Spacing="8" Padding="4,8,8,12">
+                            <TextBlock Text="Document &amp; CAD Layer Manager" FontWeight="SemiBold" FontSize="12" />
+                            <ListView x:Name="LayersListView" Height="195" SelectionMode="Single" />
+                            <Grid ColumnSpacing="6">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBox x:Name="NewLayerNameBox" Grid.Column="0" PlaceholderText="New layer name..." />
+                                <Button Grid.Column="1" Click="OnAddLayerClick" Content="Add Layer" />
+                            </Grid>
+                        </StackPanel>
+                    </PivotItem>
+                </Pivot>
+            </Border>
+        </Grid>
+
+        <!-- =================================================================== -->
+        <!-- ROW 4: SHAPESHEET SPLIT-VIEW GRIDSPLITTER                           -->
+        <!-- =================================================================== -->
+        <Border x:Name="ShapeSheetGridSplitter" Grid.Row="4" Visibility="Collapsed"
+                Background="{StaticResource VexioRibbonGroupBorderBrush}"
+                PointerPressed="OnShapeSheetSplitterPointerPressed"
+                PointerMoved="OnShapeSheetSplitterPointerMoved"
+                PointerReleased="OnShapeSheetSplitterPointerReleased"
+                AutomationProperties.Name="ShapeSheet GridSplitter"
+                ToolTipService.ToolTip="Drag to resize ShapeSheet Split-View">
+            <Border Width="44" Height="3" CornerRadius="1.5" Background="#FF64748B" HorizontalAlignment="Center" VerticalAlignment="Center" />
+        </Border>
+
+        <!-- =================================================================== -->
+        <!-- ROW 5: DOCKABLE BOTTOM SHAPESHEET EDITOR SPLIT-VIEW                 -->
+        <!-- =================================================================== -->
+        <Border x:Name="ShapeSheetSplitPane" Grid.Row="5" Visibility="Collapsed"
+                Background="{ThemeResource LayerFillColorDefaultBrush}"
+                BorderBrush="{StaticResource VexioRibbonGroupBorderBrush}" BorderThickness="0,1,0,0" Padding="10,6">
+            <Grid RowSpacing="6">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
+                <!-- ShapeSheet Header: Target Shape + Section Selector + GUARD / SETF Controls -->
+                <Grid Grid.Row="0" ColumnSpacing="8">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="220" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+
+                    <TextBlock x:Name="ShapeSheetTitleText" Grid.Column="0" Text="ShapeSheet — Sheet.1"
+                               FontWeight="Bold" FontSize="12.5" VerticalAlignment="Center" />
+
+                    <ComboBox x:Name="ShapeSheetSectionCombo" Grid.Column="1" SelectedIndex="0" HorizontalAlignment="Stretch"
+                              SelectionChanged="OnShapeSheetSectionChanged">
+                        <x:String>Shape Transform</x:String>
+                        <x:String>1-D Endpoints</x:String>
+                        <x:String>Geometry 1</x:String>
+                        <x:String>Protection</x:String>
+                        <x:String>Controls</x:String>
+                        <x:String>Connection Points</x:String>
+                        <x:String>User-defined Cells</x:String>
+                        <x:String>Shape Data (Prop.*)</x:String>
+                    </ComboBox>
+
+                    <TextBox x:Name="ShapeSheetFormulaEditorBox" Grid.Column="2" FontFamily="Consolas" FontSize="12.5"
+                             PlaceholderText="Select a cell and enter a ShapeSheet formula (e.g. GUARD(Width*0.5))..."
+                             KeyDown="OnShapeSheetFormulaKeyDown" />
+
+                    <Button Grid.Column="3" Click="OnGuardSelectedCellClick" Content="GUARD(expr)" FontSize="11.5"
+                            ToolTipService.ToolTip="Wrap current formula in GUARD(...) to block interactive SetValue overrides" />
+
+                    <ToggleButton x:Name="ShapeSheetForceSetfToggle" Grid.Column="4" Content="Force SETF" FontSize="11.5"
+                                  Click="OnShapeSheetForceSetfToggled"
+                                  ToolTipService.ToolTip="When checked, commits with force_setf=true to replace GUARD expressions" />
+
+                    <Button Grid.Column="5" Click="OnCommitShapeSheetFormulaClick" FontWeight="SemiBold" Content="Commit Cell" FontSize="11.5" />
+                </Grid>
+
+                <!-- Column Headers -->
+                <Grid Grid.Row="1" Padding="8,2" Background="{StaticResource VexioRibbonSurfaceBrush}" CornerRadius="3">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="190" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="190" />
+                        <ColumnDefinition Width="120" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" Text="Cell Name" FontSize="11" FontWeight="SemiBold" />
+                    <TextBlock Grid.Column="1" Text="Formula (Canonical Expression)" FontSize="11" FontWeight="SemiBold" />
+                    <TextBlock Grid.Column="2" Text="Evaluated Value" FontSize="11" FontWeight="SemiBold" />
+                    <TextBlock Grid.Column="3" Text="Protection" FontSize="11" FontWeight="SemiBold" />
+                </Grid>
+
+                <!-- Live Cell Rows -->
+                <ListView x:Name="ShapeSheetCellsListView" Grid.Row="2" SelectionMode="Single"
+                          SelectionChanged="OnShapeSheetCellSelectionChanged" />
+            </Grid>
+        </Border>
+
+        <!-- =================================================================== -->
+        <!-- ROW 6: BOTTOM PAGE TABS STRIP                                       -->
+        <!-- =================================================================== -->
+        <Border Grid.Row="6" Background="{StaticResource VexioRibbonSurfaceBrush}"
+                BorderBrush="{StaticResource VexioRibbonGroupBorderBrush}" BorderThickness="0,1,0,0" Padding="8,0">
+            <Grid ColumnSpacing="6">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <!-- All Pages Popup & Reorder Controls -->
+                <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">
+                    <Button Padding="6,2" Background="Transparent" BorderBrush="Transparent" Click="OnMovePageLeftClick"
+                            ToolTipService.ToolTip="Move Active Page Left">
+                        <TextBlock Text="◀" FontSize="10" />
+                    </Button>
+                    <Button Padding="6,2" Background="Transparent" BorderBrush="Transparent" Click="OnMovePageRightClick"
+                            ToolTipService.ToolTip="Move Active Page Right">
+                        <TextBlock Text="▶" FontSize="10" />
+                    </Button>
+                </StackPanel>
+
+                <!-- Dynamic Page Tabs Strip -->
+                <StackPanel x:Name="PageTabsStripPanel" Grid.Column="1" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center" />
+
+                <!-- Insert Page & Rename Page Controls -->
+                <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                    <Button Padding="8,2" Click="OnInsertBlankPageClick" ToolTipService.ToolTip="Insert Foreground Page">
+                        <TextBlock Text="+ Insert Page" FontSize="11.5" />
+                    </Button>
+                    <Button Padding="8,2" Click="OnRenameActivePageClick" ToolTipService.ToolTip="Rename Active Page">
+                        <TextBlock Text="Rename" FontSize="11.5" />
+                    </Button>
+                </StackPanel>
+
+                <!-- Active Scale & Layer Summary -->
+                <TextBlock x:Name="PageScaleSummaryText" Grid.Column="3" Text="Scale: 1:1 • Units: Inches"
+                           FontSize="11" Opacity="0.75" VerticalAlignment="Center" />
+            </Grid>
+        </Border>
+
+        <!-- =================================================================== -->
+        <!-- ROW 7: ENTERPRISE STATUS BAR                                        -->
+        <!-- =================================================================== -->
+        <Grid Grid.Row="7" Background="{StaticResource VexioStatusBarBrush}" Padding="10,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+
+            <TextBlock x:Name="StatusPageIndicatorText" Grid.Column="0" Text="Page 1 of 2"
+                       Foreground="{StaticResource VexioStatusBarForegroundBrush}" FontSize="11.5" VerticalAlignment="Center" Margin="0,0,16,0" />
+
+            <TextBlock x:Name="StatusShapeCountText" Grid.Column="1" Text="Shapes: 4 • Selected: Sheet.1"
+                       Foreground="{StaticResource VexioStatusBarForegroundBrush}" FontSize="11.5" VerticalAlignment="Center" Margin="0,0,16,0" />
+
+            <TextBlock x:Name="StatusCoordinatesText" Grid.Column="2" Text="X: 0.00 in   Y: 0.00 in"
+                       Foreground="#FFDBEAFE" FontFamily="Consolas" FontSize="11" VerticalAlignment="Center" Margin="0,0,16,0" />
+
+            <Button x:Name="StatusValidationBadgeButton" Grid.Column="3" Padding="8,1" Background="#26FFFFFF" BorderBrush="Transparent"
+                    Foreground="White" Click="OnCheckDiagramClick" VerticalAlignment="Center"
+                    ToolTipService.ToolTip="Run BPMN 2.0 / UML 2.5 / SharePoint Diagram Validator">
+                <TextBlock x:Name="StatusValidationBadgeText" Text="✓ 0 Validation Issues (BPMN 2.0)" FontSize="11" />
+            </Button>
+
+            <TextBlock x:Name="StatusAutomationText" Grid.Column="4" Text="VBA Sandbox: Deterministic Ready"
+                       Foreground="#FFBFDBFE" FontSize="11" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,16,0" />
+
+            <!-- Zoom Controls -->
+            <StackPanel Grid.Column="5" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                <TextBlock x:Name="StatusZoomPercentText" Text="100%" Foreground="White" FontSize="11.5" Width="38" TextAlignment="Right" VerticalAlignment="Center" />
+                <Slider x:Name="StatusZoomSlider" Width="116" Minimum="25" Maximum="400" Value="100" StepFrequency="5"
+                        ValueChanged="OnZoomSliderValueChanged" VerticalAlignment="Center" />
+                <Button Padding="6,2" Background="#26FFFFFF" BorderBrush="Transparent" Foreground="White"
+                        Click="OnFitToWindowClick" ToolTipService.ToolTip="Fit Page to Window">
+                    <PathIcon Width="12" Height="12" Data="M 1,5 L 1,1 L 5,1 M 11,1 L 15,1 L 15,5 M 15,11 L 15,15 L 11,15 M 5,15 L 1,15 L 1,11" />
+                </Button>
+            </StackPanel>
+        </Grid>
+    </Grid>
+</Window>

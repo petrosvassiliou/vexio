@@ -1,0 +1,124 @@
+# ==============================================================================
+# Vexio Monorepo — Git Ignore Rules
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# 1. Rust Cargo Build Artifacts
+# ------------------------------------------------------------------------------
+/target/
+**/*.rs.bk
+
+# ------------------------------------------------------------------------------
+# 2. Node.js, Vite, WASM Bindgen & ChromeOS PWA Generated Outputs
+# ------------------------------------------------------------------------------
+**/node_modules/
+/apps/chromeos-pwa/dist/
+/apps/chromeos-pwa/public/wasm/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ------------------------------------------------------------------------------
+# 3. Firebase CLI & Local Emulator Suite State / Debug Logs
+# ------------------------------------------------------------------------------
+.firebase/
+/**/.firebase/
+firebase-debug.log*
+firestore-debug.log*
+ui-debug.log*
+storage-debug.log*
+pubsub-debug.log*
+database-debug.log*
+auth-debug.log*
+firebase-export-*
+
+# ------------------------------------------------------------------------------
+# 4. Native Platform Build & Packaging Directories
+# ------------------------------------------------------------------------------
+# Windows (WinUI 3 / Windows App SDK 1.6 / CMake / MSIX)
+/apps/windows/build/
+/apps/windows/build-*/
+/apps/windows/out/
+/apps/windows/packages/
+*.msix
+*.msixbundle
+*.appxsym
+
+# macOS (Swift 6 / AppKit + Liquid Glass / Metal / DMG)
+/apps/macos/.build/
+/apps/macos/.swiftpm/
+/apps/macos/build/
+*.dmg
+*.dSYM/
+
+# Android & Googlebook OS (Kotlin / Compose M3 Expressive / NDK / Gradle)
+/apps/android-googlebook/.gradle/
+/apps/android-googlebook/build/
+/apps/android-googlebook/app/build/
+/apps/android-googlebook/app/src/main/jniLibs/
+/apps/android-googlebook/local.properties
+*.apk
+*.aab
+*.ap_
+*.dex
+
+# ------------------------------------------------------------------------------
+# 5. OS, Editor, Secrets & Workstation Home-Directory Hygiene
+# ------------------------------------------------------------------------------
+.DS_Store
+**/.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+.idea/
+.vscode/*
+!.vscode/extensions.json
+.env
+.env.local
+.env.*.local
+*.pem
+*.p12
+*.jks
+*.keystore
+service-account*.json
+
+# Ignore Linux VM user-home dotfiles if repo root coincides with $HOME
+/.bash_history
+/.bash_logout
+/.bashrc
+/.profile
+/.gitconfig
+/.lesshst
+/.viminfo
+/.python_history
+/.node_repl_history
+/.cache/
+/.cargo/
+/.config/
+/.gemini
+/.gemini/
+/.local/
+/.npm/
+/.rustup/
+/.pki/
+/.java/
+/.gradle/
+/.android/
+
+# ------------------------------------------------------------------------------
+# 6. Explicitly Tracked Artifacts, Lockfiles & Workspace Rules
+# ------------------------------------------------------------------------------
+!/Cargo.lock
+!/stencils/
+!/stencils/*.vssx
+!/apps/chromeos-pwa/public/stencils/
+!/apps/chromeos-pwa/public/stencils/*.vssx
+!/.agents/
+!/.agents/rules/
+!/.agents/rules/*.md
+!/.github/
+!/.github/workflows/
+!/.github/workflows/*.yml
+!/firebase/.firebaserc

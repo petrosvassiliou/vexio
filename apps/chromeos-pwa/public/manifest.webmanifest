@@ -1,0 +1,61 @@
+{
+  "id": "/?source=cros-pwa",
+  "name": "Vexio — Diagramming & Vector Architecture Suite",
+  "short_name": "Vexio",
+  "description": "1:1 Microsoft Visio Professional compatible diagramming, CAD & ShapeSheet workstation with 100% offline execution.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone"],
+  "background_color": "#111318",
+  "theme_color": "#111318",
+  "categories": ["productivity", "business", "utilities", "developer tools"],
+  "launch_handler": {
+    "client_mode": ["navigate-new", "auto"]
+  },
+  "icons": [
+    {
+      "src": "/icons/vexio-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/vexio-maskable.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ],
+  "file_handlers": [
+    {
+      "action": "/?open-file=1",
+      "accept": {
+        "application/vnd.ms-visio.drawing.main+xml": [".vsdx"],
+        "application/vnd.ms-visio.drawing.macroEnabled.main+xml": [".vsdm"],
+        "application/vnd.ms-visio.stencil.main+xml": [".vssx"],
+        "application/vnd.ms-visio.stencil.macroEnabled.main+xml": [".vssm"],
+        "application/vnd.ms-visio.template.main+xml": [".vstx"],
+        "application/vnd.ms-visio.template.macroEnabled.main+xml": [".vstm"],
+        "application/vnd.visio": [".vsd", ".vss", ".vst", ".vdx", ".vdw"],
+        "application/acad": [".dwg"],
+        "image/vnd.dxf": [".dxf"]
+      },
+      "launch_type": "multiple-clients"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "New Blank Drawing",
+      "url": "/?new=blank"
+    },
+    {
+      "name": "New BPMN 2.0 Diagram",
+      "url": "/?new=bpmn"
+    },
+    {
+      "name": "New Floor Plan / CAD Import",
+      "url": "/?new=cad"
+    }
+  ]
+}

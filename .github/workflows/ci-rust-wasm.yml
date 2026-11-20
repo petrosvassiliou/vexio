@@ -1,0 +1,112 @@
+name: CI — Rust Workspace & ChromeOS WASM PWA
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+    branches: ['**']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-rust-wasm-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  rust-workspace:
+    name: Rust Core Workspace Tests (Zero Warnings)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo registry and build artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run workspace unit & round-trip test suite
+        env:
+          RUSTFLAGS: "-D warnings"
+        run: RUSTFLAGS="-D warnings" cargo test --workspace
+
+  wasm-and-pwa:
+    name: WASM SIMD128, .vssx Stencils & ChromeOS PWA Bundle
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust stable + wasm32-unknown-unknown target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: apps/chromeos-pwa/package-lock.json
+
+      - name: Cache Cargo registry and WASM artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: wasm32-simd128
+
+      - name: Install wasm-bindgen-cli matching Cargo.lock
+        run: |
+          WASM_BINDGEN_VER=$(awk '/^name = "wasm-bindgen"$/{getline; gsub(/"/, "", $3); print $3; exit}' Cargo.lock)
+          echo "Resolved wasm-bindgen version from Cargo.lock: ${WASM_BINDGEN_VER}"
+          if ! command -v wasm-bindgen >/dev/null 2>&1 || [ "$(wasm-bindgen --version | awk '{print $2}')" != "${WASM_BINDGEN_VER}" ]; then
+            cargo install wasm-bindgen-cli --version "${WASM_BINDGEN_VER}" --locked
+          fi
+
+      - name: Export deterministic built-in .vssx stencils
+        run: |
+          if [ "$PWD" != "/home/antigravity" ] && [ ! -w "/home/antigravity" ]; then
+            sudo mkdir -p /home/antigravity/stencils /home/antigravity/apps/chromeos-pwa/public/stencils
+            sudo chown -R "$(id -u):$(id -g)" /home/antigravity
+          fi
+          cargo run -p vexio-core --example export_builtin_stencils
+          if [ "$PWD" != "/home/antigravity" ]; then
+            mkdir -p stencils apps/chromeos-pwa/public/stencils
+            cp -f /home/antigravity/stencils/*.vssx stencils/
+            cp -f /home/antigravity/apps/chromeos-pwa/public/stencils/*.vssx apps/chromeos-pwa/public/stencils/
+          fi
+          ls -lh stencils/*.vssx apps/chromeos-pwa/public/stencils/*.vssx
+
+      - name: Compile vexio-core for wasm32-unknown-unknown with SIMD128
+        env:
+          RUSTFLAGS: "-C target-feature=+simd128"
+        run: |
+          RUSTFLAGS="-C target-feature=+simd128" \
+            cargo build --target wasm32-unknown-unknown --release -p vexio-core
+
+      - name: Generate JS/TS WebAssembly bindings via wasm-bindgen
+        run: |
+          mkdir -p apps/chromeos-pwa/public/wasm
+          wasm-bindgen \
+            --target web \
+            --out-dir apps/chromeos-pwa/public/wasm \
+            target/wasm32-unknown-unknown/release/vexio_core.wasm
+          ls -lh apps/chromeos-pwa/public/wasm/
+
+      - name: Install dependencies and build ChromeOS Offline-First PWA
+        run: |
+          npm --prefix apps/chromeos-pwa ci
+          npm --prefix apps/chromeos-pwa run build
+
+      - name: Verify precache manifest, WASM bundle, and .vssx stencils in dist/
+        run: |
+          test -f apps/chromeos-pwa/dist/index.html
+          test -f apps/chromeos-pwa/dist/manifest.webmanifest
+          test -f apps/chromeos-pwa/dist/sw.js
+          test -f apps/chromeos-pwa/dist/wasm/vexio_core_bg.wasm
+          test -f apps/chromeos-pwa/dist/stencils/bpmn_2_0.vssx
+          grep -q "vexio_core_bg.wasm" apps/chromeos-pwa/dist/sw.js

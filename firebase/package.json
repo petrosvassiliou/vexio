@@ -1,0 +1,7 @@
+{
+  "name": "vexio-firebase-workspace",
+  "private": true,
+  "dependencies": {
+    "firebase-tools": "^13.29.1"
+  }
+}

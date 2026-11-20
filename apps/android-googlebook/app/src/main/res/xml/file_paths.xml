@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <cache-path name="vexio_exports" path="exports/" />
+    <cache-path name="vexio_drag_drop" path="drag_drop/" />
+    <files-path name="vexio_documents" path="documents/" />
+</paths>

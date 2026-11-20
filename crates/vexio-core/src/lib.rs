@@ -1,0 +1,421 @@
+//! `vexio-core` — Shared Deterministic High-Performance Core Engine for Vexio.
+
+pub mod autolayout;
+pub mod automation;
+pub mod containers;
+pub mod data_link;
+pub mod domains;
+pub mod export_print;
+pub mod ffi;
+pub mod journal;
+pub mod routing;
+pub mod validation;
+pub mod workspace;
+
+pub use vexio_cad;
+pub use vexio_render;
+pub use vexio_shapesheet;
+pub use vexio_vsd_legacy;
+pub use vexio_vsdx;
+pub use workspace::{CoreError, DocumentSession};
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::autolayout::{LayoutAlgorithm, LayoutOptions, apply_auto_layout};
+    use crate::automation::{AutomationError, SandboxLimits, execute_vba_macro};
+    use crate::containers::{
+        attach_callout, build_cross_functional_swimlanes, create_container,
+    };
+    use crate::data_link::{
+        DataGraphicItem, DataGraphicSpec, DataRecordset, apply_data_graphics,
+        bind_recordset_to_page, generate_bom_shape_report, insert_page_legend,
+        sync_shapes_back_to_recordset,
+    };
+    use crate::domains::{
+        PertTaskInput, build_pert_critical_path_diagram, create_architectural_room_space,
+        forward_engineer_sql_ddl, mount_rack_equipment, reverse_engineer_sql_ddl,
+    };
+    use crate::export_print::{
+        encode_rgba_to_png, export_document_html_report, export_document_pdf, export_page_eps,
+        export_page_svg, plan_tiled_print,
+    };
+    use crate::routing::{ObstacleRect, orthogonal_astar_route, route_page_connectors};
+    use crate::validation::{DiagramRuleSet, validate_document};
+    use std::collections::BTreeMap;
+    use std::ffi::CString;
+    use vexio_shapesheet::*;
+
+    #[test]
+    fn orthogonal_router_avoids_obstacles_and_generates_line_jumps() {
+        // Obstacle sits squarely at (5.0, 5.0) between (2.0, 5.0) and (8.0, 5.0)
+        let obs = ObstacleRect {
+            shape_id: 99,
+            min_x: 4.0,
+            min_y: 4.0,
+            max_x: 6.0,
+            max_y: 6.0,
+        };
+        let path = orthogonal_astar_route([2.0, 5.0], [8.0, 5.0], &[obs]);
+        assert!(path.len() >= 4, "Path must detour orthogonally around obstacle");
+        for seg in path.windows(2) {
+            assert!(
+                !obs.intersects_open_segment(seg[0], seg[1]),
+                "Orthogonal segment {:?}->{:?} intersected obstacle!",
+                seg[0],
+                seg[1]
+            );
+        }
+
+        // Verify crossing connectors emit ArcTo line jump in Geometry1
+        let mut doc = VisioDocument::new_blank("LineJumps");
+        {
+            let page = doc.page_mut(1).unwrap();
+            let v_conn = VisioShape::new_connector(1, "Vert", 5.0, 2.0, 5.0, 8.0);
+            let h_conn = VisioShape::new_connector(2, "Horiz", 2.0, 5.0, 8.0, 5.0);
+            page.shapes.push(v_conn);
+            page.shapes.push(h_conn);
+        }
+        route_page_connectors(&mut doc, 1);
+        let horiz = doc.page(1).unwrap().find_shape(2).unwrap();
+        let has_arc_jump = horiz.sheet.geometries[0]
+            .rows
+            .iter()
+            .any(|r| r.kind == GeometryRowKind::ArcTo);
+        assert!(has_arc_jump, "Horizontal connector must emit ArcTo jump over vertical connector");
+    }
+
+    #[test]
+    fn bpmn20_uml25_and_workflow_validators_detect_errors_and_accept_valid_graphs() {
+        let mut sess = DocumentSession::new_blank("BPMN Check");
+        let start_id = sess.drop_builtin_shape(1, "BPMN 2.0", "Start Event", 2.0, 5.0).unwrap();
+        let orphan_task = sess.drop_builtin_shape(1, "BPMN 2.0", "Task", 5.0, 5.0).unwrap();
+        let end_id = sess.drop_builtin_shape(1, "BPMN 2.0", "End Event", 8.0, 5.0).unwrap();
+
+        // Orphaned task & disconnected start/end must raise BPMN validation errors
+        let bad_issues = validate_document(&sess.doc, DiagramRuleSet::Bpmn20);
+        assert!(!bad_issues.is_empty());
+
+        // Wire `Start -> Task -> End`: BPMN 2.0 validation must now pass with 0 issues!
+        sess.connect_shapes(1, start_id, orphan_task).unwrap();
+        sess.connect_shapes(1, orphan_task, end_id).unwrap();
+        let clean_issues = validate_document(&sess.doc, DiagramRuleSet::Bpmn20);
+        assert_eq!(clean_issues.len(), 0, "Expected 0 BPMN issues, got: {clean_issues:?}");
+
+        // UML circular inheritance detection
+        let mut uml_doc = VisioDocument::new_blank("UML Cycle");
+        {
+            let p = uml_doc.page_mut(1).unwrap();
+            let mut c1 = VisioShape::new_rect(1, "ClassA", 2.0, 4.0, 2.0, 1.0);
+            c1.text = "ClassA".into();
+            c1.sheet.set_user_cell("DomainRole", "\"uml_class\"", "");
+            let mut c2 = VisioShape::new_rect(2, "ClassB", 6.0, 4.0, 2.0, 1.0);
+            c2.text = "ClassB".into();
+            c2.sheet.set_user_cell("DomainRole", "\"uml_class\"", "");
+            let mut g1 = VisioShape::new_connector(3, "Generalization.1", 0.0, 0.0, 1.0, 0.0);
+            g1.sheet.set_user_cell("DomainRole", "\"generalization\"", "");
+            let mut g2 = VisioShape::new_connector(4, "Generalization.2", 0.0, 0.0, 1.0, 0.0);
+            g2.sheet.set_user_cell("DomainRole", "\"generalization\"", "");
+            p.shapes.extend([c1, c2, g1, g2]);
+            p.connects.extend([
+                GlueEndpoint { connector_shape_id: 3, from_cell: "BeginX".into(), target_shape_id: 1, to_cell: "PinX".into(), is_dynamic: true },
+                GlueEndpoint { connector_shape_id: 3, from_cell: "EndX".into(), target_shape_id: 2, to_cell: "PinX".into(), is_dynamic: true },
+                GlueEndpoint { connector_shape_id: 4, from_cell: "BeginX".into(), target_shape_id: 2, to_cell: "PinX".into(), is_dynamic: true },
+                GlueEndpoint { connector_shape_id: 4, from_cell: "EndX".into(), target_shape_id: 1, to_cell: "PinX".into(), is_dynamic: true },
+            ]);
+        }
+        let uml_issues = validate_document(&uml_doc, DiagramRuleSet::Uml25);
+        assert!(uml_issues.iter().any(|i| i.rule_code == "UML-002"));
+    }
+
+    #[test]
+    fn sql_erd_reverse_and_forward_engineering_and_pert_critical_path() {
+        let mut doc = VisioDocument::new_blank("ERD & PERT");
+        let ddl = "
+            CREATE TABLE customers (
+                id INT PRIMARY KEY,
+                email VARCHAR NOT NULL
+            );
+            CREATE TABLE orders (
+                id INT PRIMARY KEY,
+                customer_id INT NOT NULL REFERENCES customers(id),
+                total DECIMAL NOT NULL
+            );
+        ";
+        let tables = reverse_engineer_sql_ddl(&mut doc, 1, ddl, true);
+        assert_eq!(tables.len(), 2);
+        let forward_sql = forward_engineer_sql_ddl(&doc, 1);
+        assert!(forward_sql.contains("CREATE TABLE customers"));
+        assert!(forward_sql.contains("FOREIGN KEY (customer_id) REFERENCES customers(id)"));
+
+        // PERT CPM on Page 2
+        doc.pages.push(VisioPage::new(2, "PERT", 11.0, 8.5));
+        let pert = build_pert_critical_path_diagram(
+            &mut doc,
+            2,
+            &[
+                PertTaskInput { id: "A".into(), name: "Design".into(), duration_days: 4.0, predecessors: vec![] },
+                PertTaskInput { id: "B".into(), name: "Rust Core".into(), duration_days: 6.0, predecessors: vec!["A".into()] },
+                PertTaskInput { id: "C".into(), name: "Docs".into(), duration_days: 2.0, predecessors: vec!["A".into()] },
+                PertTaskInput { id: "D".into(), name: "Ship".into(), duration_days: 3.0, predecessors: vec!["B".into(), "C".into()] },
+            ],
+        );
+        let node_b = pert.iter().find(|n| n.id == "B").unwrap();
+        let node_c = pert.iter().find(|n| n.id == "C").unwrap();
+        assert!(node_b.is_critical);
+        assert!(!node_c.is_critical);
+        assert!((node_c.slack - 4.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn two_way_xlsx_data_linking_data_graphics_swimlanes_rack_and_floorplan() {
+        let mut doc = VisioDocument::new_blank("Enterprise Ops");
+        build_cross_functional_swimlanes(&mut doc, 1, &["Network Ops", "Storage Tier"], 1.0, 8.0, 9.0, 3.0);
+        {
+            let p = doc.page_mut(1).unwrap();
+            let mut s1 = VisioShape::new_rect(10, "SRV-01", 3.0, 6.5, 2.0, 1.0);
+            s1.text = "SRV-01".into();
+            let mut s2 = VisioShape::new_rect(11, "SRV-02", 6.0, 3.5, 2.0, 1.0);
+            s2.text = "SRV-02".into();
+            p.shapes.extend([s1, s2]);
+        }
+        crate::containers::sync_swimlane_shape_metadata(&mut doc, 1);
+        let cont_id = create_container(&mut doc, 1, "Cluster Pod", &[10, 11], 0.3).unwrap();
+        assert!(cont_id > 0);
+        let callout_id = attach_callout(&mut doc, 1, 10, "Primary Ingress", 1.5, 1.0).unwrap();
+        assert!(callout_id > 0);
+
+        // Build `.xlsx` workbook in-memory, bind to shapes, apply Data Graphics, edit shape Prop, and sync back!
+        let csv = "Host,CPU_Pct,Status\nSRV-01,85,Healthy\nSRV-02,42,Warning\n";
+        let rs_initial = DataRecordset::from_csv(1, "Telemetry", "Host", csv).unwrap();
+        let xlsx_bytes = rs_initial.to_xlsx_bytes().unwrap();
+        let mut rs = DataRecordset::from_xlsx_bytes(1, "Telemetry", "Host", &xlsx_bytes).unwrap();
+
+        let bound = bind_recordset_to_page(&mut doc, 1, &rs, None);
+        assert_eq!(bound, 2);
+
+        let mut palette = BTreeMap::new();
+        palette.insert("Healthy".into(), RgbaColor { r: 220, g: 252, b: 231, a: 255 });
+        palette.insert("Warning".into(), RgbaColor { r: 254, g: 243, b: 199, a: 255 });
+        let dg = DataGraphicSpec {
+            name: "Server Health".into(),
+            items: vec![
+                DataGraphicItem::ColorByValue { prop_name: "Status".into(), palette },
+                DataGraphicItem::DataBar {
+                    prop_name: "CPU_Pct".into(),
+                    min_val: 0.0,
+                    max_val: 100.0,
+                    bar_color: RgbaColor { r: 37, g: 99, b: 235, a: 255 },
+                },
+                DataGraphicItem::IconSet { prop_name: "CPU_Pct".into(), green_min: 70.0, amber_min: 40.0 },
+                DataGraphicItem::TextCallout { prop_name: "Status".into(), prefix: "State: ".into() },
+            ],
+        };
+        assert_eq!(apply_data_graphics(&mut doc, 1, &dg), 2);
+        assert!(insert_page_legend(&mut doc, 1, "Status", 9.0, 1.5).is_some());
+
+        // Mutate SRV-02 CPU_Pct on shape and sync back to recordset
+        doc.page_mut(1)
+            .unwrap()
+            .find_shape_mut(11)
+            .unwrap()
+            .sheet
+            .set_formula("Prop.CPU_Pct", "91", Some(Unit::Number));
+        ReactiveEngine::recalculate_document(&mut doc);
+        assert_eq!(sync_shapes_back_to_recordset(&doc, 1, &mut rs), 1);
+        assert_eq!(rs.rows[1].get("CPU_Pct").map(String::as_str), Some("91"));
+
+        let bom = generate_bom_shape_report(&doc, &["Host", "CPU_Pct", "Function"]);
+        assert!(bom.to_xlsx_bytes().unwrap().starts_with(b"PK\x03\x04"));
+
+        // Verify 42U Rack & Architectural Room Space reactive area
+        doc.pages.push(VisioPage::new(2, "Facilities", 11.0, 8.5));
+        doc.page_mut(2).unwrap().page_sheet.set_formula("PageScale", "0.25 in", Some(Unit::Inch));
+        doc.page_mut(2).unwrap().page_sheet.set_formula("DrawingScale", "12 in", Some(Unit::Inch)); // 1/4" = 1'-0"
+        let room_id = create_architectural_room_space(&mut doc, 2, "Server Room", 4.0, 4.0, 2.5, 2.0).unwrap();
+        // 2.5 in @ 1/4"=1' -> 10 ft; 2.0 in @ 1/4"=1' -> 8 ft => Area = 80 sq ft!
+        let area = doc.page(2).unwrap().find_shape(room_id).unwrap().sheet.get_f64("Prop.AreaSqFt").unwrap();
+        assert!((area - 80.0).abs() < 1e-6);
+
+        let rack_id = doc.page(2).unwrap().next_shape_id();
+        doc.page_mut(2).unwrap().shapes.push(VisioShape::new_rect(rack_id, "Rack", 8.0, 4.5, 2.2, 7.35));
+        assert!(mount_rack_equipment(&mut doc, 2, rack_id, "CoreRouter", 20, 2).is_some());
+    }
+
+    #[test]
+    fn sandboxed_vba_automation_exports_and_c_abi_roundtrip() {
+        let mut doc = VisioDocument::new_blank("Automation & Exports");
+        let vba = "
+            Sub BuildFlow()
+                For i = 1 To 3
+                    Set shp = ActivePage.DrawRectangle(1.0 + i * 2.0, 4.0, 2.2 + i * 2.0, 4.8)
+                    shp.Text = \"Step \" & i
+                Next i
+            End Sub
+        ";
+        let rep = execute_vba_macro(&mut doc, vba, SandboxLimits::default()).unwrap();
+        assert_eq!(rep.shapes_created, 3);
+        apply_auto_layout(&mut doc, 1, LayoutOptions { algorithm: LayoutAlgorithm::Circular, ..Default::default() });
+
+        // Infinite loop in VBA MUST be stopped cleanly by InstructionQuota!
+        let bad_vba = "
+            Sub Runaway()
+                For i = 1 To 100000
+                    x = i * 2
+                Next i
+            End Sub
+        ";
+        let quota_err = execute_vba_macro(
+            &mut doc,
+            bad_vba,
+            SandboxLimits { max_instructions: 200, max_created_shapes: 50 },
+        );
+        assert!(matches!(quota_err, Err(AutomationError::QuotaExceeded { .. })));
+
+        // Exports: PDF/A, SVG, EPS, PNG, HTML, Tiled Print
+        let pdf = export_document_pdf(&doc);
+        assert!(pdf.starts_with(b"%PDF-1.7"));
+        assert!(export_page_svg(&doc, 1).contains("<svg"));
+        assert!(export_page_eps(&doc, 1).starts_with("%!PS-Adobe-3.0 EPSF-3.0"));
+        assert!(export_document_html_report(&doc).contains("<!DOCTYPE html>"));
+        let png = encode_rgba_to_png(4, 4, &[255u8; 64], 300);
+        assert!(png.starts_with(&[137, 80, 78, 71]));
+        let tiles = plan_tiled_print(22.0, 17.0, 10.5, 8.0, 0.5);
+        assert!(tiles.len() >= 4);
+
+        // C-ABI round-trip test
+        unsafe {
+            let eng = ffi::c_abi::vexio_engine_create();
+            let title_c = CString::new("C-ABI Doc").unwrap();
+            let cdoc = ffi::c_abi::vexio_doc_create_blank(title_c.as_ptr());
+            assert!(!cdoc.is_null());
+
+            // Save to .vsdx through C-ABI, re-open through C-ABI, and render RGBA preview!
+            let ext_vsdx = CString::new("vsdx").unwrap();
+            let mut owned = ffi::c_abi::VexioOwnedBuffer { ptr: std::ptr::null_mut(), len: 0, cap: 0 };
+            assert_eq!(
+                ffi::c_abi::vexio_doc_save_format(cdoc, ext_vsdx.as_ptr(), &mut owned),
+                ffi::c_abi::VexioStatus::Ok
+            );
+            assert!(owned.len > 100);
+
+            let mut reopened: *mut ffi::c_abi::VexioDoc = std::ptr::null_mut();
+            let slice = ffi::c_abi::VexioByteSlice { ptr: owned.ptr, len: owned.len };
+            assert_eq!(
+                ffi::c_abi::vexio_doc_open_bytes(eng, slice, ext_vsdx.as_ptr(), &mut reopened),
+                ffi::c_abi::VexioStatus::Ok
+            );
+            ffi::c_abi::vexio_buffer_free(owned);
+
+            let mut rgba_buf = ffi::c_abi::VexioOwnedBuffer { ptr: std::ptr::null_mut(), len: 0, cap: 0 };
+            assert_eq!(
+                ffi::c_abi::vexio_render_preview_rgba(reopened, 1, 64, 64, &mut rgba_buf),
+                ffi::c_abi::VexioStatus::Ok
+            );
+            assert_eq!(rgba_buf.len, 64 * 64 * 4);
+            ffi::c_abi::vexio_buffer_free(rgba_buf);
+
+            ffi::c_abi::vexio_doc_destroy(reopened);
+            ffi::c_abi::vexio_doc_destroy(cdoc);
+            ffi::c_abi::vexio_engine_destroy(eng);
+        }
+    }
+
+    #[test]
+    fn twelve_stencil_packs_org_chart_gantt_timeline_and_eight_starter_templates() {
+        use crate::domains::{
+            GanttTaskInput, TimelineMilestone, build_all_builtin_stencils, build_gantt_chart,
+            build_org_chart_from_csv, build_project_timeline, instantiate_starter_template,
+        };
+
+        // 1. Verify all 12 built-in stencil packs exist and every master round-trips cleanly
+        let packs = build_all_builtin_stencils();
+        assert_eq!(packs.len(), 12, "Expected 12 built-in domain stencil packs");
+        let mut sess = DocumentSession::new_blank("Stencil Verification");
+        for pack in &packs {
+            assert!(!pack.masters.is_empty(), "Pack {} must have masters", pack.title);
+            let first_master = &pack.masters[0].name;
+            let sid = sess
+                .drop_builtin_shape(1, &pack.title, first_master, 3.0, 4.0)
+                .unwrap_or_else(|e| panic!("Failed dropping {} / {}: {e}", pack.title, first_master));
+            assert!(sid > 0);
+        }
+
+        // 2. Org Chart CSV Wizard
+        let mut org_doc = VisioDocument::new_blank("Org Chart");
+        let csv = "Name,Title,Manager,Department\n\
+                   Ada Lovelace,Chief Executive Officer,,Executive\n\
+                   Alan Turing,VP Engineering,Ada Lovelace,Systems\n\
+                   Grace Hopper,Compiler Director,Alan Turing,Compilers\n";
+        let org_count = build_org_chart_from_csv(&mut org_doc, 1, csv);
+        assert_eq!(org_count, 3);
+        assert!(org_doc.page(1).unwrap().connects.len() >= 4);
+
+        // 3. Gantt Schedule Builder
+        let mut gantt_doc = VisioDocument::new_blank("Gantt");
+        let gantt_count = build_gantt_chart(
+            &mut gantt_doc,
+            1,
+            &[
+                GanttTaskInput {
+                    id: "1".into(),
+                    name: "Spec".into(),
+                    start_day: 0.0,
+                    duration_days: 4.0,
+                    percent_complete: 100.0,
+                    depends_on: vec![],
+                },
+                GanttTaskInput {
+                    id: "2".into(),
+                    name: "Build".into(),
+                    start_day: 4.0,
+                    duration_days: 6.0,
+                    percent_complete: 60.0,
+                    depends_on: vec!["1".into()],
+                },
+            ],
+        );
+        assert_eq!(gantt_count, 2);
+        assert!(gantt_doc.page(1).unwrap().shapes.len() >= 5);
+
+        // 4. Executive Project Timeline Builder
+        let mut tl_doc = VisioDocument::new_blank("Timeline");
+        let tl_count = build_project_timeline(
+            &mut tl_doc,
+            1,
+            "Release Roadmap",
+            90.0,
+            &[
+                TimelineMilestone { day: 15.0, label: "Alpha".into(), is_major: true },
+                TimelineMilestone { day: 60.0, label: "Beta".into(), is_major: false },
+            ],
+        );
+        assert_eq!(tl_count, 2);
+        assert!(tl_doc.page(1).unwrap().shapes.len() >= 5);
+
+        // 5. All 8 Backstage Starter Templates + VSDX lossless round-trip
+        for tid in [
+            "bpmn_fulfillment",
+            "cloud_microservices",
+            "sql_ecommerce_erd",
+            "executive_org_chart",
+            "release_gantt",
+            "project_timeline",
+            "datacenter_floorplan",
+            "blank",
+        ] {
+            let tdoc = instantiate_starter_template(tid);
+            assert!(!tdoc.pages.is_empty(), "Template {tid} must have at least 1 page");
+            if tid != "blank" {
+                assert!(
+                    !tdoc.page(1).unwrap().shapes.is_empty(),
+                    "Template {tid} must populate starter shapes"
+                );
+            }
+            let bytes = vexio_vsdx::write_vsdx(&tdoc, vexio_vsdx::VsdxPackageKind::Drawing).unwrap();
+            let (reopened, kind) = vexio_vsdx::read_vsdx(&bytes).unwrap();
+            assert_eq!(kind, vexio_vsdx::VsdxPackageKind::Drawing);
+            assert_eq!(reopened.pages.len(), tdoc.pages.len());
+        }
+    }
+}

@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:enabled="true"
+        android:shortcutId="new_blank_window"
+        android:shortcutLongLabel="@string/shortcut_new_diagram_long"
+        android:shortcutShortLabel="@string/shortcut_new_diagram_short">
+        <intent
+            android:action="com.vexio.action.NEW_DOCUMENT_WINDOW"
+            android:targetClass="com.vexio.MainActivity"
+            android:targetPackage="com.vexio.googlebook">
+            <extra android:name="vexio.template" android:value="blank" />
+        </intent>
+    </shortcut>
+    <shortcut
+        android:enabled="true"
+        android:shortcutId="new_bpmn_window"
+        android:shortcutLongLabel="@string/shortcut_new_bpmn_long"
+        android:shortcutShortLabel="@string/shortcut_new_bpmn_short">
+        <intent
+            android:action="com.vexio.action.NEW_DOCUMENT_WINDOW"
+            android:targetClass="com.vexio.MainActivity"
+            android:targetPackage="com.vexio.googlebook">
+            <extra android:name="vexio.template" android:value="bpmn2" />
+        </intent>
+    </shortcut>
+    <shortcut
+        android:enabled="true"
+        android:shortcutId="new_cad_window"
+        android:shortcutLongLabel="@string/shortcut_new_cad_long"
+        android:shortcutShortLabel="@string/shortcut_new_cad_short">
+        <intent
+            android:action="com.vexio.action.NEW_DOCUMENT_WINDOW"
+            android:targetClass="com.vexio.MainActivity"
+            android:targetPackage="com.vexio.googlebook">
+            <extra android:name="vexio.template" android:value="cad_floorplan" />
+        </intent>
+    </shortcut>
+</shortcuts>

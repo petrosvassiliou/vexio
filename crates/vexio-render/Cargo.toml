@@ -1,0 +1,20 @@
+[package]
+name = "vexio-render"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+vexio-shapesheet.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+rstar.workspace = true
+lyon_path.workspace = true
+lyon_tessellation.workspace = true
+bytemuck.workspace = true
+wgpu.workspace = true
+pollster.workspace = true
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+web-sys.workspace = true
+wasm-bindgen.workspace = true

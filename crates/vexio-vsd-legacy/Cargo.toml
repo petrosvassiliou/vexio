@@ -1,0 +1,15 @@
+[package]
+name = "vexio-vsd-legacy"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+vexio-shapesheet.workspace = true
+vexio-vsdx.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+cfb.workspace = true
+quick-xml.workspace = true
+zip.workspace = true
+crc32fast.workspace = true

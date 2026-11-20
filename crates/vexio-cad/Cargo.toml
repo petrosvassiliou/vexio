@@ -1,0 +1,11 @@
+[package]
+name = "vexio-cad"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+vexio-shapesheet.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+crc32fast.workspace = true

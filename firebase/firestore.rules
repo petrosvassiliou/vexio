@@ -1,0 +1,61 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isOwner(userId) {
+      return request.auth != null && request.auth.uid == userId;
+    }
+
+    match /users/{userId}/settings/{settingId} {
+      allow read, write: if isOwner(userId)
+        && request.resource.data.keys().hasAll(['schemaVersion', 'updatedAt'])
+        && request.resource.data.schemaVersion is int;
+    }
+
+    match /users/{userId}/stencils/{stencilId} {
+      allow read, delete: if isOwner(userId);
+      allow create, update: if isOwner(userId)
+        && request.resource.data.name is string
+        && request.resource.data.byteLength is int
+        && request.resource.data.byteLength <= 104857600;
+    }
+
+    match /users/{userId}/documents/{docId} {
+      allow read, delete: if isOwner(userId);
+      allow create, update: if isOwner(userId)
+        && request.resource.data.title is string
+        && request.resource.data.format in ['vsdx', 'vsdm', 'vssx', 'vstx', 'vsd']
+        && request.resource.data.updatedAt is string;
+    }
+
+    match /users/{userId}/versions/{versionId} {
+      allow read, delete: if isOwner(userId);
+      allow create, update: if isOwner(userId)
+        && request.resource.data.docId is string
+        && request.resource.data.label is string
+        && request.resource.data.byteLength is int
+        && request.resource.data.createdAt is string;
+    }
+
+    match /collabRooms/{roomId}/presence/{peerId} {
+      allow read: if request.auth != null;
+      allow delete: if request.auth != null && resource.data.uid == request.auth.uid;
+      allow create, update: if request.auth != null
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.peerName is string
+        && request.resource.data.color is string
+        && request.resource.data.cursorX is number
+        && request.resource.data.cursorY is number
+        && request.resource.data.updatedAt is string;
+    }
+
+    match /collabRooms/{roomId}/ops/{opId} {
+      allow read: if request.auth != null;
+      allow create, update: if request.auth != null
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.senderPeerId is string
+        && request.resource.data.vsdxBase64 is string
+        && request.resource.data.vsdxBase64.size() <= 750000
+        && request.resource.data.updatedAt is string;
+    }
+  }
+}

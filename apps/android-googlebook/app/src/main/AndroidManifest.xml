@@ -1,0 +1,146 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- Vulkan 1.1+ hardware rendering requirement for wgpu / ANativeWindow swapchains -->
+    <uses-feature
+        android:name="android.hardware.vulkan.version"
+        android:version="0x00401000"
+        android:required="true" />
+    <uses-feature
+        android:name="android.hardware.vulkan.level"
+        android:version="1"
+        android:required="true" />
+
+    <!-- Optional hardware peripherals: allow install on non-touch desktop Googlebooks, tablets, and USI convertibles -->
+    <uses-feature
+        android:name="android.hardware.touchscreen"
+        android:required="false" />
+    <uses-feature
+        android:name="android.hardware.type.pc"
+        android:required="false" />
+    <uses-feature
+        android:name="android.hardware.faketouch"
+        android:required="false" />
+    <uses-feature
+        android:name="android.hardware.stylus"
+        android:required="false" />
+
+    <application
+        android:allowBackup="true"
+        android:appCategory="productivity"
+        android:enableOnBackInvokedCallback="true"
+        android:hardwareAccelerated="true"
+        android:label="@string/app_name"
+        android:largeHeap="true"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.Vexio.Googlebook"
+        tools:targetApi="36">
+
+        <!-- Googlebook OS / Android Desktop Freeform Multi-Window & Multi-Resume Capabilities -->
+        <meta-data
+            android:name="android.allow_multiple_resumed_activities"
+            android:value="true" />
+        <meta-data
+            android:name="WindowManagerPreference:FreeformWindowSize"
+            android:value="maximize" />
+        <meta-data
+            android:name="WindowManagerPreference:FreeformWindowOrientation"
+            android:value="landscape" />
+        <meta-data
+            android:name="WindowManagerPreference:SuppressWindowControlNavigationButton"
+            android:value="false" />
+        <property
+            android:name="android.window.PROPERTY_SupportsSplitScreenMultiWindow"
+            android:value="true" />
+
+        <activity
+            android:name=".MainActivity"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|density|keyboard|keyboardHidden|navigation|uiMode|colorMode|touchscreen"
+            android:documentLaunchMode="intoExisting"
+            android:exported="true"
+            android:launchMode="standard"
+            android:maxRecents="16"
+            android:persistableMode="persistAcrossReboots"
+            android:resizeableActivity="true"
+            android:windowSoftInputMode="adjustResize">
+
+            <!-- Default Freeform Desktop Window Geometry on Googlebook OS -->
+            <layout
+                android:defaultWidth="1440dp"
+                android:defaultHeight="900dp"
+                android:gravity="center"
+                android:minWidth="640dp"
+                android:minHeight="480dp" />
+
+            <meta-data
+                android:name="android.app.shortcuts"
+                android:resource="@xml/shortcuts" />
+
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+                <category android:name="android.intent.category.MULTIWINDOW_LAUNCHER" />
+            </intent-filter>
+
+            <!-- Direct Visio OpenXML, Legacy Binary Visio, and CAD (.dwg / .dxf) MIME associations -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <action android:name="android.intent.action.EDIT" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="content" />
+                <data android:scheme="file" />
+                <data android:mimeType="application/vnd.ms-visio.drawing.main+xml" />
+                <data android:mimeType="application/vnd.ms-visio.drawing.macroEnabled.main+xml" />
+                <data android:mimeType="application/vnd.ms-visio.stencil.main+xml" />
+                <data android:mimeType="application/vnd.ms-visio.template.main+xml" />
+                <data android:mimeType="application/vnd.visio" />
+                <data android:mimeType="application/x-visio" />
+                <data android:mimeType="application/acad" />
+                <data android:mimeType="application/x-acad" />
+                <data android:mimeType="image/vnd.dwg" />
+                <data android:mimeType="image/vnd.dxf" />
+                <data android:mimeType="application/dxf" />
+            </intent-filter>
+
+            <!-- Extension-based intent filter for Files app / SAF providers serving generic octet-stream MIME -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <action android:name="android.intent.action.EDIT" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="content" />
+                <data android:scheme="file" />
+                <data android:host="*" />
+                <data android:mimeType="*/*" />
+                <data android:pathSuffix=".vsdx" />
+                <data android:pathSuffix=".vsdm" />
+                <data android:pathSuffix=".vssx" />
+                <data android:pathSuffix=".vstx" />
+                <data android:pathSuffix=".vsd" />
+                <data android:pathSuffix=".dwg" />
+                <data android:pathSuffix=".dxf" />
+                <data android:pathSuffix=".VSDX" />
+                <data android:pathSuffix=".VSDM" />
+                <data android:pathSuffix=".VSSX" />
+                <data android:pathSuffix=".VSTX" />
+                <data android:pathSuffix=".VSD" />
+                <data android:pathSuffix=".DWG" />
+                <data android:pathSuffix=".DXF" />
+            </intent-filter>
+        </activity>
+
+        <!-- Cross-Window Drag & Drop / Print Content Provider -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+    </application>
+
+</manifest>

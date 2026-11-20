@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Vexio Workstation</string>
+    <string name="shortcut_new_diagram_short">New Diagram</string>
+    <string name="shortcut_new_diagram_long">New Blank Visio Diagram Window</string>
+    <string name="shortcut_new_bpmn_short">BPMN 2.0</string>
+    <string name="shortcut_new_bpmn_long">New BPMN 2.0 Process Diagram Window</string>
+    <string name="shortcut_new_cad_short">CAD Floorplan</string>
+    <string name="shortcut_new_cad_long">New Architectural Scale CAD Floorplan</string>
+</resources>

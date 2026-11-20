@@ -1,0 +1,5 @@
+module VexioCoreFFI [system] {
+    umbrella header "shim.h"
+    link "vexio_core"
+    export *
+}
