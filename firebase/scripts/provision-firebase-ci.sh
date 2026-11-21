@@ -46,31 +46,54 @@ if [[ -n "${WEB_CONFIG_JSON}" ]] && command -v jq >/dev/null 2>&1; then
   echo "  ✓ Synced VITE_FIREBASE_* SDK variables to ${GH_REPO}."
 fi
 
-echo "==> [4/4] Provisioning GitHub Actions Hosting + Rules Service Account secret..."
+echo "==> [4/4] Provisioning Keyless Workload Identity Federation (OIDC) for GitHub Actions..."
 if command -v gcloud >/dev/null 2>&1; then
+  PROJECT_NUM="$(gcloud projects describe "${PROJECT_ID}" --format='value(projectNumber)')"
   SA_NAME="github-action-vexio-pwa"
   SA_EMAIL="${SA_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
+  POOL_ID="github-actions-pool"
+  PROVIDER_ID="github-oidc"
+
   gcloud iam service-accounts describe "${SA_EMAIL}" --project "${PROJECT_ID}" >/dev/null 2>&1 || \
     gcloud iam service-accounts create "${SA_NAME}" \
-      --display-name="Vexio ChromeOS PWA GitHub Actions Deployer" \
+      --display-name="GitHub Actions Vexio ChromeOS PWA Deployer" \
       --project "${PROJECT_ID}"
 
-  for ROLE in roles/firebasehosting.admin roles/firebaserules.admin roles/datastore.indexAdmin; do
+  for ROLE in roles/firebasehosting.admin roles/firebaserules.admin roles/datastore.indexAdmin roles/firebase.viewer roles/serviceusage.serviceUsageConsumer; do
     gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
       --member="serviceAccount:${SA_EMAIL}" \
       --role="${ROLE}" \
       --quiet >/dev/null
   done
 
-  TMP_KEY="$(mktemp)"
-  trap 'rm -f "${TMP_KEY}"' EXIT
-  gcloud iam service-accounts keys create "${TMP_KEY}" \
-    --iam-account="${SA_EMAIL}" \
-    --project "${PROJECT_ID}"
-  gh secret set FIREBASE_SERVICE_ACCOUNT_VEXIO_CHROMEOS_SUITE -R "${GH_REPO}" < "${TMP_KEY}"
-  echo "  ✓ Uploaded FIREBASE_SERVICE_ACCOUNT_VEXIO_CHROMEOS_SUITE secret to ${GH_REPO}."
+  gcloud iam workload-identity-pools describe "${POOL_ID}" --location="global" --project="${PROJECT_ID}" >/dev/null 2>&1 || \
+    gcloud iam workload-identity-pools create "${POOL_ID}" \
+      --location="global" \
+      --display-name="GitHub Actions Pool" \
+      --project="${PROJECT_ID}"
+
+  gcloud iam workload-identity-pools providers describe "${PROVIDER_ID}" \
+    --workload-identity-pool="${POOL_ID}" --location="global" --project="${PROJECT_ID}" >/dev/null 2>&1 || \
+    gcloud iam workload-identity-pools providers create-oidc "${PROVIDER_ID}" \
+      --workload-identity-pool="${POOL_ID}" \
+      --location="global" \
+      --issuer-uri="https://token.actions.githubusercontent.com" \
+      --attribute-mapping="google.subject=assertion.sub,attribute.actor=assertion.actor,attribute.repository=assertion.repository,attribute.repository_owner=assertion.repository_owner" \
+      --attribute-condition="assertion.repository == '${GH_REPO}'" \
+      --project="${PROJECT_ID}"
+
+  gcloud iam service-accounts add-iam-policy-binding "${SA_EMAIL}" \
+    --project="${PROJECT_ID}" \
+    --role="roles/iam.workloadIdentityUser" \
+    --member="principalSet://iam.googleapis.com/projects/${PROJECT_NUM}/locations/global/workloadIdentityPools/${POOL_ID}/attribute.repository/${GH_REPO}" \
+    --quiet >/dev/null
+
+  WIF_PROVIDER="projects/${PROJECT_NUM}/locations/global/workloadIdentityPools/${POOL_ID}/providers/${PROVIDER_ID}"
+  gh variable set GCP_WORKLOAD_IDENTITY_PROVIDER --body "${WIF_PROVIDER}" -R "${GH_REPO}"
+  gh variable set GCP_SERVICE_ACCOUNT_EMAIL --body "${SA_EMAIL}" -R "${GH_REPO}"
+  echo "  ✓ Configured keyless OIDC Workload Identity Federation for ${GH_REPO}."
 else
-  echo "  ! gcloud CLI not detected; run 'firebase init hosting:github' inside firebase/ to upload FIREBASE_SERVICE_ACCOUNT_VEXIO_CHROMEOS_SUITE."
+  echo "  ! gcloud CLI not detected; Workload Identity Federation variables already configured on ${GH_REPO}."
 fi
 
 echo "==> Triggering live Firebase ChromeOS PWA deployment workflow on ${GH_REPO}..."

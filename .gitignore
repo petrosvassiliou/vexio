@@ -14,6 +14,7 @@
 **/node_modules/
 /apps/chromeos-pwa/dist/
 /apps/chromeos-pwa/public/wasm/
+/firebase/dist/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*

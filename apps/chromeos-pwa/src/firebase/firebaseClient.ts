@@ -57,17 +57,38 @@ export interface CloudDocMeta {
 }
 
 const FIREBASE_CONFIG = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY ?? 'demo-vexio-offline-key',
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY ?? 'AIzaSyDANDxvTfJq2t_QZSK7ADO27z5_jO7Dzi0',
   authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN ?? 'vexio-chromeos-suite.firebaseapp.com',
   projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID ?? 'vexio-chromeos-suite',
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET ?? 'vexio-chromeos-suite.appspot.com',
-  appId: import.meta.env.VITE_FIREBASE_APP_ID ?? '1:100000000000:web:vexiocrospwa',
+  storageBucket:
+    import.meta.env.VITE_FIREBASE_STORAGE_BUCKET ?? 'vexio-chromeos-suite.firebasestorage.app',
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID ?? '186737172363',
+  appId:
+    import.meta.env.VITE_FIREBASE_APP_ID ?? '1:186737172363:web:576d2b268c59b3bf0b598e',
 };
 
 function toPlainBufferBytes(src: Uint8Array): Uint8Array<ArrayBuffer> {
   const copy = new Uint8Array(new ArrayBuffer(src.byteLength));
   copy.set(src);
   return copy;
+}
+
+function uint8ToBase64(bytes: Uint8Array): string {
+  let binary = '';
+  const chunkSize = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+  }
+  return btoa(binary);
+}
+
+function base64ToUint8(b64: string): Uint8Array {
+  const binary = atob(b64);
+  const out = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    out[i] = binary.charCodeAt(i);
+  }
+  return out;
 }
 
 export class VexioFirebaseSync {
@@ -148,9 +169,18 @@ export class VexioFirebaseSync {
       const cred = await signInAnonymously(this.auth);
       return cred.user;
     }
-    const provider = new GoogleAuthProvider();
-    const cred = await signInWithPopup(this.auth, provider);
-    return cred.user;
+    try {
+      const provider = new GoogleAuthProvider();
+      const cred = await signInWithPopup(this.auth, provider);
+      return cred.user;
+    } catch (err: unknown) {
+      const code = (err as { code?: string })?.code ?? '';
+      if (code === 'auth/operation-not-allowed') {
+        const cred = await signInAnonymously(this.auth);
+        return cred.user;
+      }
+      throw err;
+    }
   }
 
   public async signOutUser(): Promise<void> {
@@ -182,18 +212,31 @@ export class VexioFirebaseSync {
     format: 'vsdx' | 'vsdm' | 'vssx' | 'vstx' | 'vsd',
     bytes: Uint8Array
   ): Promise<void> {
-    if (!this.db || !this.storage || !this.currentUser) return;
+    if (!this.db || !this.currentUser) return;
     const uid = this.currentUser.uid;
-    const storageRef = ref(this.storage, `users/${uid}/workspaces/${docId}.${format}`);
-    await uploadBytes(storageRef, toPlainBufferBytes(bytes));
+    let storageBacked = false;
+    if (this.storage) {
+      try {
+        const storageRef = ref(this.storage, `users/${uid}/workspaces/${docId}.${format}`);
+        await uploadBytes(storageRef, toPlainBufferBytes(bytes));
+        storageBacked = true;
+      } catch {
+        storageBacked = false;
+      }
+    }
 
     const updatedAt = new Date().toISOString();
-    await setDoc(doc(this.db, 'users', uid, 'documents', docId), {
+    const payload: Record<string, unknown> = {
       title,
       format,
       byteLength: bytes.byteLength,
+      storageBacked,
       updatedAt,
-    });
+    };
+    if (!storageBacked && bytes.byteLength <= 700_000) {
+      payload.inlineBase64 = uint8ToBase64(bytes);
+    }
+    await setDoc(doc(this.db, 'users', uid, 'documents', docId), payload);
     this.lastSyncedIso = updatedAt;
     this.emit();
   }
@@ -220,12 +263,23 @@ export class VexioFirebaseSync {
     docId: string,
     format: 'vsdx' | 'vsdm' | 'vssx' | 'vstx' | 'vsd'
   ): Promise<Uint8Array | null> {
-    if (!this.db || !this.storage || !this.currentUser) return null;
+    if (!this.db || !this.currentUser) return null;
     const uid = this.currentUser.uid;
     const metaSnap = await getDoc(doc(this.db, 'users', uid, 'documents', docId));
     if (!metaSnap.exists()) return null;
-    const buf = await getBytes(ref(this.storage, `users/${uid}/workspaces/${docId}.${format}`));
-    return new Uint8Array(buf);
+    const meta = metaSnap.data();
+    if (meta.storageBacked !== false && this.storage) {
+      try {
+        const buf = await getBytes(ref(this.storage, `users/${uid}/workspaces/${docId}.${format}`));
+        return new Uint8Array(buf);
+      } catch {
+        // Fall through to Firestore inlineBase64 snapshot if present
+      }
+    }
+    if (typeof meta.inlineBase64 === 'string' && meta.inlineBase64.length > 0) {
+      return base64ToUint8(meta.inlineBase64);
+    }
+    return null;
   }
 
   public async backupVersionToCloud(
@@ -234,19 +288,32 @@ export class VexioFirebaseSync {
     label: string,
     vsdxBytes: Uint8Array
   ): Promise<void> {
-    if (!this.db || !this.storage || !this.currentUser) return;
+    if (!this.db || !this.currentUser) return;
     const uid = this.currentUser.uid;
-    await uploadBytes(
-      ref(this.storage, `users/${uid}/workspaces/${docId}__${versionId}.vsdx`),
-      toPlainBufferBytes(vsdxBytes)
-    );
+    let storageBacked = false;
+    if (this.storage) {
+      try {
+        await uploadBytes(
+          ref(this.storage, `users/${uid}/workspaces/${docId}__${versionId}.vsdx`),
+          toPlainBufferBytes(vsdxBytes)
+        );
+        storageBacked = true;
+      } catch {
+        storageBacked = false;
+      }
+    }
     const createdAt = new Date().toISOString();
-    await setDoc(doc(this.db, 'users', uid, 'versions', `${docId}__${versionId}`), {
+    const payload: Record<string, unknown> = {
       docId,
       label,
       byteLength: vsdxBytes.byteLength,
+      storageBacked,
       createdAt,
-    });
+    };
+    if (!storageBacked && vsdxBytes.byteLength <= 700_000) {
+      payload.inlineBase64 = uint8ToBase64(vsdxBytes);
+    }
+    await setDoc(doc(this.db, 'users', uid, 'versions', `${docId}__${versionId}`), payload);
     this.lastSyncedIso = createdAt;
     this.emit();
   }

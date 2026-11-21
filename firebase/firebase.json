@@ -1,6 +1,6 @@
 {
   "hosting": {
-    "public": "../apps/chromeos-pwa/dist",
+    "public": "dist",
     "ignore": [
       "firebase.json",
       "**/.*",

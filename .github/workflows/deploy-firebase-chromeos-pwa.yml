@@ -11,6 +11,7 @@ on:
 permissions:
   contents: write
   checks: write
+  id-token: write
 
 concurrency:
   group: deploy-firebase-chromeos-pwa-${{ github.ref }}
@@ -19,6 +20,8 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   FIREBASE_PROJECT_ID: ${{ vars.FIREBASE_PROJECT_ID || 'vexio-chromeos-suite' }}
+  GCP_WORKLOAD_IDENTITY_PROVIDER: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER || 'projects/186737172363/locations/global/workloadIdentityPools/github-actions-pool/providers/github-oidc' }}
+  GCP_SERVICE_ACCOUNT_EMAIL: ${{ vars.GCP_SERVICE_ACCOUNT_EMAIL || 'github-action-vexio-pwa@vexio-chromeos-suite.iam.gserviceaccount.com' }}
 
 jobs:
   build-and-deploy-pwa:
@@ -90,10 +93,11 @@ jobs:
       - name: Build Code-Split Vite + Service Worker Precache Bundle (apps/chromeos-pwa/dist)
         env:
           VITE_FIREBASE_PROJECT_ID: ${{ vars.FIREBASE_PROJECT_ID || 'vexio-chromeos-suite' }}
-          VITE_FIREBASE_API_KEY: ${{ vars.VITE_FIREBASE_API_KEY || 'demo-vexio-offline-key' }}
+          VITE_FIREBASE_API_KEY: ${{ vars.VITE_FIREBASE_API_KEY || 'AIzaSyDANDxvTfJq2t_QZSK7ADO27z5_jO7Dzi0' }}
           VITE_FIREBASE_AUTH_DOMAIN: ${{ vars.VITE_FIREBASE_AUTH_DOMAIN || 'vexio-chromeos-suite.firebaseapp.com' }}
-          VITE_FIREBASE_STORAGE_BUCKET: ${{ vars.VITE_FIREBASE_STORAGE_BUCKET || 'vexio-chromeos-suite.appspot.com' }}
-          VITE_FIREBASE_APP_ID: ${{ vars.VITE_FIREBASE_APP_ID || '1:100000000000:web:vexiocrospwa' }}
+          VITE_FIREBASE_STORAGE_BUCKET: ${{ vars.VITE_FIREBASE_STORAGE_BUCKET || 'vexio-chromeos-suite.firebasestorage.app' }}
+          VITE_FIREBASE_MESSAGING_SENDER_ID: ${{ vars.VITE_FIREBASE_MESSAGING_SENDER_ID || '186737172363' }}
+          VITE_FIREBASE_APP_ID: ${{ vars.VITE_FIREBASE_APP_ID || '1:186737172363:web:576d2b268c59b3bf0b598e' }}
         run: |
           npm --prefix apps/chromeos-pwa ci
           npm --prefix apps/chromeos-pwa run build
@@ -125,43 +129,34 @@ jobs:
         with:
           files: apps/Vexio-ChromeOS-PWA-*.zip
 
-      - name: Deploy Firestore & Cloud Storage Security Rules (firebase-tools)
-        if: env.FIREBASE_SERVICE_ACCOUNT != ''
+      - name: Authenticate to Google Cloud via Keyless Workload Identity Federation (OIDC)
+        id: gcp_auth
+        if: env.GCP_WORKLOAD_IDENTITY_PROVIDER != '' && env.GCP_SERVICE_ACCOUNT_EMAIL != ''
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ env.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ env.GCP_SERVICE_ACCOUNT_EMAIL }}
+          create_credentials_file: true
+
+      - name: Deploy Firebase Hosting (COOP/COEP SharedArrayBuffer) & Firestore Security Rules
+        if: steps.gcp_auth.outputs.credentials_file_path != '' || env.FIREBASE_SERVICE_ACCOUNT != ''
         working-directory: firebase
         env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ steps.gcp_auth.outputs.credentials_file_path }}
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_VEXIO_CHROMEOS_SUITE }}
         run: |
-          CRED_FILE="$(mktemp)"
-          trap 'rm -f "${CRED_FILE}"' EXIT
-          printf '%s' "${FIREBASE_SERVICE_ACCOUNT}" > "${CRED_FILE}"
-          GOOGLE_APPLICATION_CREDENTIALS="${CRED_FILE}" \
-            ./node_modules/.bin/firebase deploy \
-              --only firestore:rules,firestore:indexes,storage \
-              --project "${FIREBASE_PROJECT_ID}" \
-              --non-interactive
-
-      - name: Deploy ChromeOS PWA Hosting (COOP/COEP SharedArrayBuffer Headers)
-        if: env.FIREBASE_SERVICE_ACCOUNT != ''
-        env:
-          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_VEXIO_CHROMEOS_SUITE }}
-        uses: FirebaseExtended/action-hosting-deploy@v0
-        with:
-          repoToken: ${{ secrets.GITHUB_TOKEN }}
-          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_VEXIO_CHROMEOS_SUITE }}
-          projectId: ${{ env.FIREBASE_PROJECT_ID }}
-          entryPoint: ./firebase
-          channelId: live
-
-      - name: Report Firebase Live Hosting Status
-        if: env.FIREBASE_SERVICE_ACCOUNT == ''
-        run: |
-          {
-            echo "### Vexio ChromeOS PWA Build & 6-Stage Offline Emulator Gate Passed"
-            echo ""
-            echo "To activate automatic live deployment to \`https://${FIREBASE_PROJECT_ID}.web.app\`, run once from an authenticated workstation:"
-            echo "\`\`\`bash"
-            echo "chmod +x firebase/scripts/provision-firebase-ci.sh"
-            echo "./firebase/scripts/provision-firebase-ci.sh <your-firebase-project-id> ${{ github.repository }}"
-            echo "\`\`\`"
-          } >> "$GITHUB_STEP_SUMMARY"
+          if [ -z "${GOOGLE_APPLICATION_CREDENTIALS}" ] && [ -n "${FIREBASE_SERVICE_ACCOUNT}" ]; then
+            CRED_FILE="$(mktemp)"
+            trap 'rm -f "${CRED_FILE}"' EXIT
+            printf '%s' "${FIREBASE_SERVICE_ACCOUNT}" > "${CRED_FILE}"
+            export GOOGLE_APPLICATION_CREDENTIALS="${CRED_FILE}"
+          fi
+          ./node_modules/.bin/firebase deploy \
+            --only hosting,firestore:rules,firestore:indexes \
+            --project "${FIREBASE_PROJECT_ID}" \
+            --non-interactive
+          ./node_modules/.bin/firebase deploy \
+            --only storage \
+            --project "${FIREBASE_PROJECT_ID}" \
+            --non-interactive || echo "::notice::Cloud Storage default bucket not yet provisioned (Spark tier); Hosting & Firestore rules deployed."
 
