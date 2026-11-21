@@ -7,8 +7,8 @@
   "scope": "/",
   "display": "standalone",
   "display_override": ["window-controls-overlay", "standalone"],
-  "background_color": "#111318",
-  "theme_color": "#111318",
+  "background_color": "#f8fafc",
+  "theme_color": "#f8fafc",
   "categories": ["productivity", "business", "utilities", "developer tools"],
   "launch_handler": {
     "client_mode": ["navigate-new", "auto"]

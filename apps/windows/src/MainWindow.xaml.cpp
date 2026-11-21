@@ -500,19 +500,68 @@ void MainWindow::RefreshStencilList() {
         Grid card{};
         card.Padding(Thickness{6, 6, 6, 6});
         card.ColumnSpacing(10.0);
-        ColumnDefinition c0{}; c0.Width(GridLength{28.0});
+        ColumnDefinition c0{}; c0.Width(GridLength{44.0});
         ColumnDefinition c1{}; c1.Width(GridLength{1.0, GridUnitType::Star});
         card.ColumnDefinitions().Append(c0);
         card.ColumnDefinitions().Append(c1);
 
+        // Crisp Light Preview Well + Vector Shape Silhouette (never a plain colored box)
+        std::wstring pathMarkup = L"M 3,5 L 33,5 L 33,21 L 3,21 Z";
+        Windows::UI::Color strokeCol = Windows::UI::ColorHelper::FromArgb(0xFF, 0x25, 0x63, 0xEB);
+        std::wstring lowName = master.displayName;
+        std::transform(lowName.begin(), lowName.end(), lowName.begin(), [](wchar_t ch) { return static_cast<wchar_t>(::towlower(ch)); });
+        if (lowName.find(L"decision") != std::wstring::npos || lowName.find(L"gateway") != std::wstring::npos) {
+            pathMarkup = (lowName.find(L"parallel") != std::wstring::npos)
+                ? L"M 18,2 L 34,13 L 18,24 L 2,13 Z M 18,7 L 18,19 M 12,13 L 24,13"
+                : (lowName.find(L"exclusive") != std::wstring::npos)
+                    ? L"M 18,2 L 34,13 L 18,24 L 2,13 Z M 14,9 L 22,17 M 22,9 L 14,17"
+                    : L"M 18,2 L 34,13 L 18,24 L 2,13 Z";
+            strokeCol = Windows::UI::ColorHelper::FromArgb(0xFF, 0xD9, 0x77, 0x06);
+        } else if (lowName.find(L"event") != std::wstring::npos || lowName.find(L"pump") != std::wstring::npos) {
+            pathMarkup = L"M 18,3 A 10,10 0 1 1 17.99,3 Z";
+            strokeCol = (lowName.find(L"end") != std::wstring::npos)
+                ? Windows::UI::ColorHelper::FromArgb(0xFF, 0xDC, 0x26, 0x26)
+                : Windows::UI::ColorHelper::FromArgb(0xFF, 0x05, 0x96, 0x69);
+        } else if (lowName.find(L"start") != std::wstring::npos || lowName.find(L"terminator") != std::wstring::npos) {
+            pathMarkup = L"M 10,5 L 26,5 A 8,8 0 0 1 26,21 L 10,21 A 8,8 0 0 1 10,5 Z";
+            strokeCol = Windows::UI::ColorHelper::FromArgb(0xFF, 0x0D, 0x94, 0x88);
+        } else if (lowName.find(L"data") != std::wstring::npos) {
+            pathMarkup = L"M 8,5 L 34,5 L 28,21 L 2,21 Z";
+            strokeCol = Windows::UI::ColorHelper::FromArgb(0xFF, 0x02, 0x84, 0xC7);
+        } else if (lowName.find(L"subprocess") != std::wstring::npos) {
+            pathMarkup = L"M 3,5 L 33,5 L 33,21 L 3,21 Z M 7,5 L 7,21 M 29,5 L 29,21";
+            strokeCol = Windows::UI::ColorHelper::FromArgb(0xFF, 0x4F, 0x46, 0xE5);
+        } else if (lowName.find(L"class") != std::wstring::npos || lowName.find(L"entity") != std::wstring::npos) {
+            pathMarkup = L"M 3,3 L 33,3 L 33,23 L 3,23 Z M 3,9 L 33,9 M 3,16 L 33,16";
+            strokeCol = Windows::UI::ColorHelper::FromArgb(0xFF, 0x6D, 0x28, 0xD9);
+        } else if (lowName.find(L"door") != std::wstring::npos) {
+            pathMarkup = L"M 5,22 L 5,4 A 18,18 0 0 1 23,22 Z";
+            strokeCol = Windows::UI::ColorHelper::FromArgb(0xFF, 0x33, 0x41, 0x55);
+        }
+
         Border swatch{};
-        swatch.Width(24.0);
-        swatch.Height(20.0);
-        swatch.CornerRadius(CornerRadius{3, 3, 3, 3});
-        swatch.Background(SolidColorBrush{Windows::UI::ColorHelper::FromArgb(0xFF, 0x3B, 0x82, 0xF6)});
+        swatch.Width(42.0);
+        swatch.Height(30.0);
+        swatch.CornerRadius(CornerRadius{6, 6, 6, 6});
+        swatch.Background(SolidColorBrush{Windows::UI::ColorHelper::FromArgb(0xFF, 0xF8, 0xFA, 0xFC)});
+        swatch.BorderBrush(SolidColorBrush{Windows::UI::ColorHelper::FromArgb(0xFF, 0xCB, 0xD5, 0xE1)});
+        swatch.BorderThickness(Thickness{1, 1, 1, 1});
+        auto geom = Markup::XamlBindingHelper::ConvertValue(
+            xaml_typename<Media::Geometry>(),
+            box_value(hstring{pathMarkup})).try_as<Media::Geometry>();
+        Shapes::Path vectorPreview{};
+        if (geom) {
+            vectorPreview.Data(geom);
+        }
+        vectorPreview.Stroke(SolidColorBrush{strokeCol});
+        vectorPreview.StrokeThickness(1.6);
+        vectorPreview.Stretch(Media::Stretch::Uniform);
+        vectorPreview.Margin(Thickness{5, 4, 5, 4});
+        swatch.Child(vectorPreview);
         Grid::SetColumn(swatch, 0);
 
         StackPanel meta{};
+        meta.VerticalAlignment(VerticalAlignment::Center);
         TextBlock title{};
         title.Text(hstring{master.displayName});
         title.FontSize(12.0);

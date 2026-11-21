@@ -326,8 +326,8 @@ fun rememberAdaptiveWorkstationTypography(): Typography {
 
 @Composable
 fun VexioMaterial3ExpressiveTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
-    dynamicColor: Boolean = true,
+    darkTheme: Boolean = false,
+    dynamicColor: Boolean = false,
     content: @Composable () -> Unit
 ) {
     val context = LocalContext.current

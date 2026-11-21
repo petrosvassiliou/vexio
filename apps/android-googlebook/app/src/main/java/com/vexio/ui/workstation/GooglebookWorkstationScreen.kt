@@ -1381,21 +1381,76 @@ private fun DraggableStencilMasterCard(
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)
         ) {
             Surface(
-                shape = RoundedCornerShape(10.dp),
-                color = MaterialTheme.colorScheme.primaryContainer,
-                modifier = Modifier.size(36.dp)
+                shape = RoundedCornerShape(8.dp),
+                color = Color(0xFFF8FAFC),
+                border = BorderStroke(1.dp, Color(0xFFCBD5E1)),
+                modifier = Modifier.size(width = 50.dp, height = 36.dp)
             ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = when (master.shapeKind) {
-                            "Circle" -> Icons.Default.RadioButtonUnchecked
-                            "Diamond" -> Icons.Default.AccountTree
-                            else -> Icons.Default.CropSquare
-                        },
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                        modifier = Modifier.size(18.dp)
-                    )
+                val primaryStroke = MaterialTheme.colorScheme.primary
+                val fillTint = primaryStroke.copy(alpha = 0.14f)
+                androidx.compose.foundation.Canvas(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(6.dp)
+                ) {
+                    val w = size.width
+                    val h = size.height
+                    val strokeStyle = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.8.dp.toPx())
+                    val low = master.title.lowercase()
+                    when {
+                        master.shapeKind == "Circle" || "event" in low -> {
+                            val r = minOf(w, h) * 0.44f
+                            drawCircle(color = fillTint, radius = r)
+                            drawCircle(color = primaryStroke, radius = r, style = strokeStyle)
+                            if ("intermediate" in low) {
+                                drawCircle(color = primaryStroke, radius = r * 0.72f, style = strokeStyle)
+                            }
+                        }
+                        master.shapeKind == "Diamond" || "gateway" in low || "decision" in low -> {
+                            val p = androidx.compose.ui.graphics.Path().apply {
+                                moveTo(w * 0.5f, 0f)
+                                lineTo(w, h * 0.5f)
+                                lineTo(w * 0.5f, h)
+                                lineTo(0f, h * 0.5f)
+                                close()
+                            }
+                            drawPath(p, color = fillTint)
+                            drawPath(p, color = primaryStroke, style = strokeStyle)
+                            if ("exclusive" in low) {
+                                drawLine(primaryStroke, androidx.compose.ui.geometry.Offset(w * 0.38f, h * 0.36f), androidx.compose.ui.geometry.Offset(w * 0.62f, h * 0.64f), strokeWidth = strokeStyle.width)
+                                drawLine(primaryStroke, androidx.compose.ui.geometry.Offset(w * 0.62f, h * 0.36f), androidx.compose.ui.geometry.Offset(w * 0.38f, h * 0.64f), strokeWidth = strokeStyle.width)
+                            } else if ("parallel" in low) {
+                                drawLine(primaryStroke, androidx.compose.ui.geometry.Offset(w * 0.5f, h * 0.28f), androidx.compose.ui.geometry.Offset(w * 0.5f, h * 0.72f), strokeWidth = strokeStyle.width)
+                                drawLine(primaryStroke, androidx.compose.ui.geometry.Offset(w * 0.32f, h * 0.5f), androidx.compose.ui.geometry.Offset(w * 0.68f, h * 0.5f), strokeWidth = strokeStyle.width)
+                            }
+                        }
+                        "class" in low || "interface" in low || "entity" in low -> {
+                            drawRect(color = fillTint)
+                            drawRect(color = primaryStroke, style = strokeStyle)
+                            drawLine(primaryStroke, androidx.compose.ui.geometry.Offset(0f, h * 0.32f), androidx.compose.ui.geometry.Offset(w, h * 0.32f), strokeWidth = strokeStyle.width * 0.8f)
+                            drawLine(primaryStroke, androidx.compose.ui.geometry.Offset(0f, h * 0.66f), androidx.compose.ui.geometry.Offset(w, h * 0.66f), strokeWidth = strokeStyle.width * 0.8f)
+                        }
+                        "data" in low -> {
+                            val p = androidx.compose.ui.graphics.Path().apply {
+                                moveTo(w * 0.16f, 0f)
+                                lineTo(w, 0f)
+                                lineTo(w * 0.84f, h)
+                                lineTo(0f, h)
+                                close()
+                            }
+                            drawPath(p, color = fillTint)
+                            drawPath(p, color = primaryStroke, style = strokeStyle)
+                        }
+                        else -> {
+                            val cr = androidx.compose.ui.geometry.CornerRadius(if ("start" in low || "pill" in low) h * 0.5f else 3.dp.toPx())
+                            drawRoundRect(color = fillTint, cornerRadius = cr)
+                            drawRoundRect(color = primaryStroke, cornerRadius = cr, style = strokeStyle)
+                            if ("subprocess" in low) {
+                                drawLine(primaryStroke, androidx.compose.ui.geometry.Offset(w * 0.15f, 0f), androidx.compose.ui.geometry.Offset(w * 0.15f, h), strokeWidth = strokeStyle.width * 0.8f)
+                                drawLine(primaryStroke, androidx.compose.ui.geometry.Offset(w * 0.85f, 0f), androidx.compose.ui.geometry.Offset(w * 0.85f, h), strokeWidth = strokeStyle.width * 0.8f)
+                            }
+                        }
+                    }
                 }
             }
             Spacer(Modifier.width(10.dp))

@@ -257,6 +257,11 @@ impl WasmVexioSession {
         serde_json::to_string(&map).unwrap_or_else(|_| "{}".into())
     }
 
+    pub fn list_builtin_stencil_previews_json(&self) -> String {
+        let previews = crate::domains::list_builtin_stencil_previews();
+        serde_json::to_string(&previews).unwrap_or_else(|_| "{}".into())
+    }
+
     pub fn load_starter_template(&mut self, template_id: &str) {
         self.inner.doc = instantiate_starter_template(template_id);
         self.inner.journal = CommandJournal::new();

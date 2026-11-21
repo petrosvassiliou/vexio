@@ -118,8 +118,18 @@ async function main() {
   wasmMod.initSync({ module: localWasmBytes });
 
   const session = new wasmMod.WasmVexioSession('Offline ChromeOS Test');
+  assert.equal(manifest.theme_color, '#f8fafc', 'ChromeOS PWA manifest must default to Light Mode');
   const stencilMap = JSON.parse(session.list_builtin_stencils_json());
   assert.equal(Object.keys(stencilMap).length, 12, 'WASM session must expose all 12 stencil packs');
+  const stencilPreviews = JSON.parse(session.list_builtin_stencil_previews_json());
+  assert.equal(Object.keys(stencilPreviews).length, 12, 'WASM session must generate SVG previews for all 12 packs');
+  const totalPreviews = Object.values(stencilPreviews).reduce((acc, arr) => acc + arr.length, 0);
+  assert(totalPreviews >= 65, `Expected >= 65 vector stencil previews, got ${totalPreviews}`);
+  for (const [pk, items] of Object.entries(stencilPreviews)) {
+    for (const it of items) {
+      assert(it.svg.includes('<svg'), `Missing <svg> preview for ${pk}:${it.name}`);
+    }
+  }
 
   const s1 = session.drop_builtin_shape('BPMN 2.0', 'Start Event', 2.0, 5.0);
   const s2 = session.drop_builtin_shape('BPMN 2.0', 'Task', 5.0, 5.0);

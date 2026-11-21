@@ -7,6 +7,15 @@ import SwiftUI
 public final class VexioAppDelegate: NSObject, NSApplicationDelegate {
     public func applicationDidFinishLaunching(_ notification: Notification) {
         NSWindow.allowsAutomaticWindowTabbing = true
+        let savedAppearance = UserDefaults.standard.string(forKey: "vexio.appearanceMode") ?? "light"
+        switch savedAppearance {
+        case "dark":
+            NSApp.appearance = NSAppearance(named: .darkAqua)
+        case "system":
+            NSApp.appearance = nil
+        default:
+            NSApp.appearance = NSAppearance(named: .aqua)
+        }
     }
 
     public func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -38,8 +47,17 @@ public final class VexioAppDelegate: NSObject, NSApplicationDelegate {
 @main
 public struct VexioMacApp: App {
     @NSApplicationDelegateAdaptor(VexioAppDelegate.self) private var appDelegate
+    @AppStorage("vexio.appearanceMode") private var appearanceMode: String = "light"
 
     public init() {}
+
+    private var resolvedColorScheme: ColorScheme? {
+        switch appearanceMode {
+        case "dark": return .dark
+        case "system": return nil
+        default: return .light
+        }
+    }
 
     public var body: some Scene {
         DocumentGroup(newDocument: { VexioDocumentSession() }) { configuration in
@@ -47,6 +65,7 @@ public struct VexioMacApp: App {
                 session: configuration.document,
                 fileURL: configuration.fileURL
             )
+            .preferredColorScheme(resolvedColorScheme)
         }
         .windowStyle(.hiddenTitleBar)
         .defaultSize(width: 1440, height: 900)
