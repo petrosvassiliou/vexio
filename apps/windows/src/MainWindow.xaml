@@ -749,7 +749,7 @@
 
                 <!-- Horizontal Ruler Overlay -->
                 <Border x:Name="HorizontalRulerBorder" Grid.Row="1" Grid.Column="1" Background="{StaticResource VexioRulerSurfaceBrush}"
-                        BorderBrush="{StaticResource VexioRibbonGroupBorderBrush}" BorderThickness="0,0,0,1" ClipToBounds="True">
+                        BorderBrush="{StaticResource VexioRibbonGroupBorderBrush}" BorderThickness="0,0,0,1">
                     <Canvas x:Name="HorizontalRulerCanvas" SizeChanged="OnRulerCanvasSizeChanged">
                         <Line x:Name="HorizontalCursorHairline" X1="0" Y1="0" X2="0" Y2="24" Stroke="#FF2563EB" StrokeThickness="1.5" />
                     </Canvas>
@@ -757,7 +757,7 @@
 
                 <!-- Vertical Ruler Overlay -->
                 <Border x:Name="VerticalRulerBorder" Grid.Row="2" Grid.Column="0" Background="{StaticResource VexioRulerSurfaceBrush}"
-                        BorderBrush="{StaticResource VexioRibbonGroupBorderBrush}" BorderThickness="0,0,1,0" ClipToBounds="True">
+                        BorderBrush="{StaticResource VexioRibbonGroupBorderBrush}" BorderThickness="0,0,1,0">
                     <Canvas x:Name="VerticalRulerCanvas" SizeChanged="OnRulerCanvasSizeChanged">
                         <Line x:Name="VerticalCursorHairline" X1="0" Y1="0" X2="24" Y2="0" Stroke="#FF2563EB" StrokeThickness="1.5" />
                     </Canvas>
