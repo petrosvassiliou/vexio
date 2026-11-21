@@ -237,7 +237,21 @@ class NativeBridgePacketTest {
     }
 
     @Test
-    fun lightModeDefaultCleanWorkspaceSixteenToolsAndSeventeenStencilCategories() {
+    fun jpegExportProducesValidJfifStream() {
+        val vm = VexioSessionViewModel()
+        val jpgBytes = vm.exportDocumentBytes("jpg")
+        assertTrue(jpgBytes.size > 100)
+        assertEquals(0xFF.toByte(), jpgBytes[0])
+        assertEquals(0xD8.toByte(), jpgBytes[1])
+        assertEquals(0xFF.toByte(), jpgBytes[2])
+        assertEquals(0xE0.toByte(), jpgBytes[3])
+        assertEquals("JFIF", String(jpgBytes, 6, 4, Charsets.US_ASCII))
+        assertEquals(0xFF.toByte(), jpgBytes[jpgBytes.size - 2])
+        assertEquals(0xD9.toByte(), jpgBytes[jpgBytes.size - 1])
+    }
+
+    @Test
+    fun lightModeDefaultCleanWorkspaceSixteenToolsAndTwentyOneStencilCategories() {
         val vm = VexioSessionViewModel()
         val state = vm.uiState.value
 
@@ -252,11 +266,15 @@ class NativeBridgePacketTest {
         assertEquals(16, VexioTool.entries.size)
         assertEquals((0..15).toSet(), VexioTool.entries.map { it.nativeCode }.toSet())
 
-        // All 17 Visio Professional stencil categories are present
-        assertEquals(17, BuiltInStencilCatalog.categories.size)
-        assertEquals(17, state.stencilCategories.size)
+        // All 21 Visio Professional & Microsoft (M365, Servers/AD, Azure, Power Platform) stencil categories are present
+        assertEquals(21, BuiltInStencilCatalog.categories.size)
+        assertEquals(21, state.stencilCategories.size)
         val distinctCategories = state.stencilMasters.map { it.category }.distinct()
-        assertEquals(17, distinctCategories.size)
+        assertEquals(21, distinctCategories.size)
+        assertTrue(state.stencilCategories.contains("Microsoft 365 & Office"))
+        assertTrue(state.stencilCategories.contains("Microsoft Servers & Active Directory"))
+        assertTrue(state.stencilCategories.contains("Microsoft Azure & Hybrid Cloud"))
+        assertTrue(state.stencilCategories.contains("Microsoft Power Platform & Dynamics 365"))
 
         // Theme toggle flips deterministically
         vm.toggleDarkTheme()

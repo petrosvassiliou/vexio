@@ -397,6 +397,12 @@ impl WasmVexioSession {
             .map_err(|e| JsValue::from_str(&e.to_string()))
     }
 
+    pub fn save_page_format(&self, page_id: u32, ext: &str) -> Result<Vec<u8>, JsValue> {
+        self.inner
+            .save_page_format(page_id, ext)
+            .map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
     pub fn drop_builtin_shape(
         &mut self,
         category: &str,

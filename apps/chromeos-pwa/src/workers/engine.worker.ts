@@ -131,6 +131,7 @@ interface WasmSessionInstance {
   load_starter_template(template_id: string): void;
   open_bytes(bytes: Uint8Array, ext: string): void;
   save_format(ext: string): Uint8Array;
+  save_page_format?(page_id: number, ext: string): Uint8Array;
   drop_builtin_shape_on_page(
     page_id: number,
     category: string,
@@ -425,7 +426,10 @@ self.onmessage = async (ev: MessageEvent) => {
         break;
       }
       case 'saveFormat': {
-        const bytes = session.save_format(payload.ext);
+        const bytes =
+          typeof session.save_page_format === 'function'
+            ? session.save_page_format(activePageId, payload.ext)
+            : session.save_format(payload.ext);
         const wal = session.export_wal();
         self.postMessage({ id, ok: true, bytes, wal }, { transfer: [bytes.buffer, wal.buffer] });
         break;

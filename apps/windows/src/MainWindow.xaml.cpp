@@ -594,17 +594,21 @@ void MainWindow::RebuildRulerTicks() {
 }
 
 // ===========================================================================
-// 17-Category Stencils Catalog (160 Vector Masters via vexio_doc_list_stencils_json)
+// 21-Category Stencils Catalog (212 Vector Masters via vexio_doc_list_stencils_json)
 // ===========================================================================
 void MainWindow::InitializeStencilCatalog() {
     m_allMasters.clear();
     m_stencilPackNames.clear();
 
-    constexpr std::array<std::string_view, 17> kCanonicalPackOrder{
+    constexpr std::array<std::string_view, 21> kCanonicalPackOrder{
         "Basic Shapes",
         "Arrows & Block Arrows",
         "Callouts, Notes & Containers",
         "Basic Flowchart",
+        "Microsoft 365 & Office",
+        "Microsoft Servers & Active Directory",
+        "Microsoft Azure & Hybrid Cloud",
+        "Microsoft Power Platform & Dynamics 365",
         "Cross-Functional Swimlanes",
         "BPMN 2.0",
         "UML 2.5",
@@ -1941,7 +1945,7 @@ void MainWindow::OnAutoLayoutQuickClick(IInspectable const&, RoutedEventArgs con
 
 void MainWindow::OnInsertContainerClick(IInspectable const&, RoutedEventArgs const&) {
     if (!m_doc) return;
-    const auto res = m_doc.DropStencil(m_activePageId, "Callouts, Notes & Containers", "Container Box", 5.50, 4.25);
+    const auto res = m_doc.DropStencil(m_activePageId, "Callouts, Notes & Containers", "Section Container", 5.50, 4.25);
     if (res.ok()) {
         m_selectedShapeId = *res.value;
         MarkDocumentDirty(true);
@@ -1961,7 +1965,7 @@ void MainWindow::OnInsertSwimlaneClick(IInspectable const&, RoutedEventArgs cons
 
 void MainWindow::OnInsertCalloutClick(IInspectable const&, RoutedEventArgs const&) {
     if (!m_doc) return;
-    const auto res = m_doc.DropStencil(m_activePageId, "Callouts, Notes & Containers", "Speech Callout", 6.25, 6.25);
+    const auto res = m_doc.DropStencil(m_activePageId, "Callouts, Notes & Containers", "Callout Bubble", 6.25, 6.25);
     if (res.ok()) {
         m_selectedShapeId = *res.value;
         MarkDocumentDirty(true);
@@ -1971,7 +1975,7 @@ void MainWindow::OnInsertCalloutClick(IInspectable const&, RoutedEventArgs const
 
 void MainWindow::OnInsertLegendClick(IInspectable const&, RoutedEventArgs const&) {
     if (!m_doc) return;
-    const auto res = m_doc.DropStencil(m_activePageId, "Callouts, Notes & Containers", "Sticky Note", 8.75, 2.00);
+    const auto res = m_doc.DropStencil(m_activePageId, "Callouts, Notes & Containers", "Folded Note", 8.75, 2.00);
     if (res.ok()) {
         m_selectedShapeId = *res.value;
         MarkDocumentDirty(true);
@@ -2484,6 +2488,16 @@ void MainWindow::OnSaveAsClick(IInspectable const&, RoutedEventArgs const&) {
     SaveDocumentAsync(true);
 }
 
+void MainWindow::OnExportJpgClick(IInspectable const&, RoutedEventArgs const&) {
+    FileBackstageFlyout().Hide();
+    SaveDocumentAsync(true, "jpg");
+}
+
+void MainWindow::OnExportPngClick(IInspectable const&, RoutedEventArgs const&) {
+    FileBackstageFlyout().Hide();
+    SaveDocumentAsync(true, "png");
+}
+
 void MainWindow::OnExportPdfClick(IInspectable const&, RoutedEventArgs const&) {
     FileBackstageFlyout().Hide();
     SaveDocumentAsync(true, "pdf");
@@ -2602,7 +2616,13 @@ fire_and_forget MainWindow::SaveDocumentAsync(bool forceSaveAs, std::string forc
 
         const std::wstring stemName = std::filesystem::path{m_documentDisplayName}.stem().wstring();
 
-        if (forcedExtensionUtf8 == "pdf") {
+        if (forcedExtensionUtf8 == "jpg" || forcedExtensionUtf8 == "jpeg") {
+            picker.FileTypeChoices().Insert(L"High-DPI JPEG Image (.jpg)", single_threaded_vector<hstring>({L".jpg"}));
+            picker.SuggestedFileName(hstring{stemName});
+        } else if (forcedExtensionUtf8 == "png") {
+            picker.FileTypeChoices().Insert(L"High-DPI PNG Image (.png)", single_threaded_vector<hstring>({L".png"}));
+            picker.SuggestedFileName(hstring{stemName});
+        } else if (forcedExtensionUtf8 == "pdf") {
             picker.FileTypeChoices().Insert(L"Archival Vector PDF/A", single_threaded_vector<hstring>({L".pdf"}));
             picker.SuggestedFileName(L"Diagram_Export");
         } else if (forcedExtensionUtf8 == "svg") {
@@ -2630,6 +2650,8 @@ fire_and_forget MainWindow::SaveDocumentAsync(bool forceSaveAs, std::string forc
             picker.FileTypeChoices().Insert(L"Visio Template (.vstx)", single_threaded_vector<hstring>({L".vstx"}));
             picker.FileTypeChoices().Insert(L"Legacy Visio 2003-2010 (.vsd)", single_threaded_vector<hstring>({L".vsd"}));
             picker.FileTypeChoices().Insert(L"DatadiagramML XML (.vdx)", single_threaded_vector<hstring>({L".vdx"}));
+            picker.FileTypeChoices().Insert(L"JPEG Image (.jpg)", single_threaded_vector<hstring>({L".jpg"}));
+            picker.FileTypeChoices().Insert(L"PNG Image (.png)", single_threaded_vector<hstring>({L".png"}));
             picker.SuggestedFileName(hstring{stemName});
         }
 

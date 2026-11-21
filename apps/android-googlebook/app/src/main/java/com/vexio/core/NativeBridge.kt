@@ -844,28 +844,32 @@ private fun defaultShapeSheetCells(): List<ShapeSheetCellEntry> = listOf(
 )
 
 /**
- * Built-in enterprise stencil catalog covering all 17 Visio Professional categories
- * (superseded dynamically at runtime by the 160-master SVG catalog from `libvexio_jni.so`).
+ * Built-in enterprise stencil catalog covering all 21 Visio Professional & Microsoft categories
+ * (superseded dynamically at runtime by the 212-master SVG catalog from `libvexio_jni.so`).
  */
 object BuiltInStencilCatalog {
     val categories: List<String> = listOf(
         "Basic Shapes",
-        "Arrows & Callouts",
+        "Arrows & Block Arrows",
+        "Callouts, Notes & Containers",
         "Basic Flowchart",
+        "Microsoft 365 & Office",
+        "Microsoft Servers & Active Directory",
+        "Microsoft Azure & Hybrid Cloud",
+        "Microsoft Power Platform & Dynamics 365",
         "Cross-Functional Swimlanes",
         "BPMN 2.0",
         "UML 2.5",
-        "Entity Relationship (ERD)",
-        "Network & Rack",
-        "AWS Cloud Architecture",
-        "Azure & M365 Cloud",
-        "Google Cloud & Kubernetes",
-        "Org Chart",
-        "Floor Plan & Architectural",
-        "Electrical IEEE / IEC",
+        "Network & Rack Equipment",
+        "Cloud Architecture (AWS / GCP / Azure)",
+        "Database Crow's Foot & IDEF1X",
+        "Floor Plan & Architecture",
         "P&ID Process Engineering",
-        "Timeline, Gantt & Mind Map",
-        "Wireframe & UI Mockup"
+        "Electrical & Electronic (IEEE / IEC)",
+        "Organization Chart",
+        "UI & Application Wireframes",
+        "Project Schedule (Gantt & Timeline)",
+        "Value Stream Mapping (Lean VSM)"
     )
 
     val masters: List<StencilMasterItem> = listOf(
@@ -874,30 +878,39 @@ object BuiltInStencilCatalog {
         StencilMasterItem("Basic Shapes::Circle", "Circle", "Basic Shapes", "1.10 in", "1.10 in", "RGB(236,253,245)", "Circle"),
         StencilMasterItem("Basic Shapes::Diamond", "Diamond", "Basic Shapes", "1.30 in", "1.10 in", "RGB(255,251,235)", "Diamond"),
         StencilMasterItem("Basic Shapes::Hexagon", "Hexagon", "Basic Shapes", "1.40 in", "1.10 in", "RGB(245,243,255)", "Hexagon"),
-        StencilMasterItem("Basic Shapes::5-Point Star", "5-Point Star", "Basic Shapes", "1.20 in", "1.20 in", "RGB(254,249,195)", "Star"),
-        StencilMasterItem("Arrows & Callouts::Block Arrow Right", "Block Arrow Right", "Arrows & Callouts", "1.75 in", "0.75 in", "RGB(219,234,254)", "Arrow"),
-        StencilMasterItem("Arrows & Callouts::Speech Callout", "Speech Callout", "Arrows & Callouts", "1.80 in", "1.10 in", "RGB(254,249,195)", "Callout"),
+        StencilMasterItem("Basic Shapes::5-Point Star", "Star (5-Point)", "Basic Shapes", "1.20 in", "1.20 in", "RGB(254,249,195)", "Star"),
+        StencilMasterItem("Arrows & Block Arrows::Right Block Arrow", "Right Block Arrow", "Arrows & Block Arrows", "1.70 in", "0.85 in", "RGB(219,234,254)", "Arrow"),
+        StencilMasterItem("Callouts, Notes & Containers::Callout Bubble", "Callout Bubble", "Callouts, Notes & Containers", "1.70 in", "1.10 in", "RGB(254,249,195)", "Callout"),
         StencilMasterItem("Basic Flowchart::Process", "Process", "Basic Flowchart", "1.80 in", "0.90 in", "RGB(227,242,253)", "Rect"),
         StencilMasterItem("Basic Flowchart::Decision", "Decision", "Basic Flowchart", "1.40 in", "1.00 in", "RGB(255,243,224)", "Diamond"),
-        StencilMasterItem("Basic Flowchart::Start / End", "Start / End", "Basic Flowchart", "1.60 in", "0.70 in", "RGB(230,244,234)", "Pill"),
+        StencilMasterItem("Basic Flowchart::Start/End", "Start/End", "Basic Flowchart", "1.60 in", "0.70 in", "RGB(230,244,234)", "Pill"),
         StencilMasterItem("Basic Flowchart::Database", "Database", "Basic Flowchart", "1.30 in", "1.40 in", "RGB(237,231,246)", "Cylinder"),
+        StencilMasterItem("Microsoft 365 & Office::Microsoft Teams", "Microsoft Teams", "Microsoft 365 & Office", "1.50 in", "1.05 in", "RGB(238,242,255)", "RoundedRect"),
+        StencilMasterItem("Microsoft 365 & Office::SharePoint Online", "SharePoint Online", "Microsoft 365 & Office", "1.15 in", "1.15 in", "RGB(240,253,250)", "Circle"),
+        StencilMasterItem("Microsoft 365 & Office::Exchange Online", "Exchange Online", "Microsoft 365 & Office", "1.50 in", "1.05 in", "RGB(239,246,255)", "RoundedRect"),
+        StencilMasterItem("Microsoft Servers & Active Directory::Windows Server", "Windows Server", "Microsoft Servers & Active Directory", "1.35 in", "1.55 in", "RGB(241,245,249)", "Rack"),
+        StencilMasterItem("Microsoft Servers & Active Directory::Active Directory DC", "Active Directory DC", "Microsoft Servers & Active Directory", "1.45 in", "1.30 in", "RGB(241,245,249)", "Diamond"),
+        StencilMasterItem("Microsoft Servers & Active Directory::SQL Server Cluster", "SQL Server Cluster", "Microsoft Servers & Active Directory", "1.40 in", "1.35 in", "RGB(254,242,242)", "Cylinder"),
+        StencilMasterItem("Microsoft Azure & Hybrid Cloud::Azure Virtual Machine", "Azure Virtual Machine", "Microsoft Azure & Hybrid Cloud", "1.50 in", "1.05 in", "RGB(240,249,255)", "RoundedRect"),
+        StencilMasterItem("Microsoft Azure & Hybrid Cloud::Azure Kubernetes (AKS)", "Azure Kubernetes (AKS)", "Microsoft Azure & Hybrid Cloud", "1.50 in", "1.30 in", "RGB(240,249,255)", "Hexagon"),
+        StencilMasterItem("Microsoft Power Platform & Dynamics 365::Power BI Dashboard", "Power BI Dashboard", "Microsoft Power Platform & Dynamics 365", "1.50 in", "1.10 in", "RGB(254,249,195)", "RoundedRect"),
+        StencilMasterItem("Microsoft Power Platform & Dynamics 365::Power Automate Flow", "Power Automate Flow", "Microsoft Power Platform & Dynamics 365", "1.55 in", "0.95 in", "RGB(239,246,255)", "Arrow"),
         StencilMasterItem("Cross-Functional Swimlanes::Horizontal Swimlane", "Horizontal Swimlane", "Cross-Functional Swimlanes", "8.50 in", "2.20 in", "RGB(248,250,252)", "Swimlane"),
         StencilMasterItem("BPMN 2.0::User Task", "User Task", "BPMN 2.0", "1.75 in", "1.00 in", "RGB(232,240,254)", "RoundedRect"),
         StencilMasterItem("BPMN 2.0::Exclusive Gateway", "Exclusive Gateway", "BPMN 2.0", "GUARD(0.75 in)", "GUARD(0.75 in)", "RGB(254,247,224)", "Diamond"),
         StencilMasterItem("BPMN 2.0::Start Event", "Start Event", "BPMN 2.0", "GUARD(0.50 in)", "GUARD(0.50 in)", "RGB(230,244,234)", "Circle"),
         StencilMasterItem("UML 2.5::Class", "Class", "UML 2.5", "2.40 in", "1.60 in", "RGB(243,229,245)", "ClassBox"),
         StencilMasterItem("UML 2.5::Component", "Component", "UML 2.5", "2.20 in", "1.20 in", "RGB(224,242,241)", "Component"),
-        StencilMasterItem("Entity Relationship (ERD)::Entity", "Entity", "Entity Relationship (ERD)", "2.10 in", "1.40 in", "RGB(239,246,255)", "ClassBox"),
-        StencilMasterItem("Network & Rack::Server", "Server", "Network & Rack", "1.40 in", "1.20 in", "RGB(226,232,240)", "Rack"),
-        StencilMasterItem("AWS Cloud Architecture::EC2 Compute", "EC2 Compute", "AWS Cloud Architecture", "1.30 in", "1.30 in", "RGB(255,247,237)", "RoundedRect"),
-        StencilMasterItem("Azure & M365 Cloud::App Service", "App Service", "Azure & M365 Cloud", "1.30 in", "1.30 in", "RGB(239,246,255)", "RoundedRect"),
-        StencilMasterItem("Google Cloud & Kubernetes::GKE Cluster", "GKE Cluster", "Google Cloud & Kubernetes", "1.30 in", "1.30 in", "RGB(236,253,245)", "Hexagon"),
-        StencilMasterItem("Org Chart::Executive", "Executive", "Org Chart", "2.00 in", "1.00 in", "RGB(239,246,255)", "RoundedRect"),
-        StencilMasterItem("Floor Plan & Architectural::Exterior Wall", "Exterior Wall", "Floor Plan & Architectural", "12 ft", "6 in", "RGB(207,216,220)", "Wall"),
-        StencilMasterItem("Electrical IEEE / IEC::Resistor", "Resistor", "Electrical IEEE / IEC", "1.40 in", "0.55 in", "RGB(255,255,255)", "Electrical"),
-        StencilMasterItem("P&ID Process Engineering::Centrifugal Pump", "Centrifugal Pump", "P&ID Process Engineering", "1.20 in", "1.20 in", "RGB(240,249,255)", "Circle"),
-        StencilMasterItem("Timeline, Gantt & Mind Map::Central Idea", "Central Idea", "Timeline, Gantt & Mind Map", "2.00 in", "1.00 in", "RGB(245,243,255)", "Pill"),
-        StencilMasterItem("Wireframe & UI Mockup::Browser Window", "Browser Window", "Wireframe & UI Mockup", "3.20 in", "2.20 in", "RGB(248,250,252)", "ClassBox")
+        StencilMasterItem("Network & Rack Equipment::42U Standard Rack", "42U Standard Rack", "Network & Rack Equipment", "2.20 in", "7.35 in", "RGB(226,232,240)", "Rack"),
+        StencilMasterItem("Cloud Architecture (AWS / GCP / Azure)::Compute VM", "Compute VM", "Cloud Architecture (AWS / GCP / Azure)", "1.60 in", "1.00 in", "RGB(239,246,255)", "RoundedRect"),
+        StencilMasterItem("Database Crow's Foot & IDEF1X::Strong Entity", "Strong Entity", "Database Crow's Foot & IDEF1X", "2.20 in", "1.30 in", "RGB(239,246,255)", "ClassBox"),
+        StencilMasterItem("Floor Plan & Architecture::Exterior Wall", "Exterior Wall", "Floor Plan & Architecture", "4.00 in", "0.20 in", "RGB(207,216,220)", "Wall"),
+        StencilMasterItem("P&ID Process Engineering::Centrifugal Pump", "Centrifugal Pump", "P&ID Process Engineering", "0.90 in", "0.90 in", "RGB(240,249,255)", "Circle"),
+        StencilMasterItem("Electrical & Electronic (IEEE / IEC)::Resistor (IEEE)", "Resistor (IEEE)", "Electrical & Electronic (IEEE / IEC)", "1.40 in", "0.45 in", "RGB(255,255,255)", "Electrical"),
+        StencilMasterItem("Organization Chart::Executive", "Executive", "Organization Chart", "2.10 in", "0.95 in", "RGB(239,246,255)", "RoundedRect"),
+        StencilMasterItem("UI & Application Wireframes::Browser / Desktop Frame", "Browser / Desktop Frame", "UI & Application Wireframes", "4.20 in", "2.80 in", "RGB(248,250,252)", "ClassBox"),
+        StencilMasterItem("Project Schedule (Gantt & Timeline)::Timeline Spine", "Timeline Spine", "Project Schedule (Gantt & Timeline)", "5.00 in", "0.35 in", "RGB(219,234,254)", "Pill"),
+        StencilMasterItem("Value Stream Mapping (Lean VSM)::Customer / Supplier", "Customer / Supplier", "Value Stream Mapping (Lean VSM)", "1.60 in", "1.10 in", "RGB(241,245,249)", "Rect")
     )
 }
 
@@ -2861,6 +2874,7 @@ class VexioSessionViewModel(
         }
         val state = _uiState.value
         return when (cleanExt) {
+            "jpg", "jpeg" -> buildDeterministicJpegFallback()
             "pdf" -> buildDeterministicVectorPdf(state)
             "pptx" -> buildDeterministicPptxPackage(state)
             "docx" -> buildDeterministicDocxPackage(state)
@@ -3174,5 +3188,50 @@ class VexioSessionViewModel(
             </VexioDocument>
         """.trimIndent()
         return payload.toByteArray(Charsets.UTF_8)
+    }
+
+    /**
+     * Valid ITU-T T.81 JFIF 1.02 Baseline DCT 8x8 JPEG stream used when `libvexio_jni.so`
+     * is not loaded (e.g. host JVM unit tests); on Android/Googlebook OS devices,
+     * `NativeBridge.nativeSaveDocument(docPtr, "jpg")` renders the full 192-DPI page JPEG.
+     */
+    private fun buildDeterministicJpegFallback(): ByteArray {
+        val out = java.io.ByteArrayOutputStream(512)
+        // SOI + APP0 JFIF 1.02 (192 DPI)
+        out.write(
+            byteArrayOf(
+                0xFF.toByte(), 0xD8.toByte(),
+                0xFF.toByte(), 0xE0.toByte(), 0x00, 0x10,
+                'J'.code.toByte(), 'F'.code.toByte(), 'I'.code.toByte(), 'F'.code.toByte(), 0x00,
+                0x01, 0x02, 0x01, 0x00, 0xC0.toByte(), 0x00, 0xC0.toByte(), 0x00, 0x00
+            )
+        )
+        // DQT table 0 (all-16 luminance)
+        out.write(byteArrayOf(0xFF.toByte(), 0xDB.toByte(), 0x00, 67, 0x00))
+        out.write(ByteArray(64) { 16 })
+        // SOF0 (8-bit, 8x8 grayscale Y=1)
+        out.write(
+            byteArrayOf(
+                0xFF.toByte(), 0xC0.toByte(), 0x00, 11, 8,
+                0x00, 0x08, 0x00, 0x08, 1, 1, 0x11, 0
+            )
+        )
+        // Minimal DHT DC0 (symbol 0 -> 1-bit code 0) + AC0 (symbol 0x00 EOB -> 1-bit code 0)
+        val bits1 = ByteArray(16).apply { this[0] = 1 }
+        out.write(byteArrayOf(0xFF.toByte(), 0xC4.toByte(), 0x00, 20, 0x00))
+        out.write(bits1)
+        out.write(byteArrayOf(0x00))
+        out.write(byteArrayOf(0xFF.toByte(), 0xC4.toByte(), 0x00, 20, 0x10))
+        out.write(bits1)
+        out.write(byteArrayOf(0x00))
+        // SOS + 1-byte entropy scan (DC=0 '0', AC=EOB '0', 6-bit 1-padding = 0x3F) + EOI
+        out.write(
+            byteArrayOf(
+                0xFF.toByte(), 0xDA.toByte(), 0x00, 8, 1, 1, 0x00, 0x00, 63, 0x00,
+                0x3F,
+                0xFF.toByte(), 0xD9.toByte()
+            )
+        )
+        return out.toByteArray()
     }
 }

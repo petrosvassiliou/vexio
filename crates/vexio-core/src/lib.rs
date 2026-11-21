@@ -43,8 +43,8 @@ mod tests {
         forward_engineer_sql_ddl, mount_rack_equipment, reverse_engineer_sql_ddl,
     };
     use crate::export_print::{
-        encode_rgba_to_png, export_document_html_report, export_document_pdf, export_page_eps,
-        export_page_svg, plan_tiled_print,
+        encode_rgba_to_jpeg, encode_rgba_to_png, export_document_html_report, export_document_pdf,
+        export_page_eps, export_page_jpeg, export_page_svg, plan_tiled_print,
     };
     use crate::routing::{ObstacleRect, orthogonal_astar_route, route_page_connectors};
     use crate::validation::{DiagramRuleSet, validate_document};
@@ -278,7 +278,7 @@ mod tests {
         );
         assert!(matches!(quota_err, Err(AutomationError::QuotaExceeded { .. })));
 
-        // Exports: PDF/A, SVG, EPS, PNG, HTML, Tiled Print
+        // Exports: PDF/A, SVG, EPS, PNG, JPG (Baseline DCT JFIF), HTML, Tiled Print
         let pdf = export_document_pdf(&doc);
         assert!(pdf.starts_with(b"%PDF-1.7"));
         assert!(export_page_svg(&doc, 1).contains("<svg"));
@@ -286,15 +286,38 @@ mod tests {
         assert!(export_document_html_report(&doc).contains("<!DOCTYPE html>"));
         let png = encode_rgba_to_png(4, 4, &[255u8; 64], 300);
         assert!(png.starts_with(&[137, 80, 78, 71]));
+        let mut sample_rgba = vec![255u8; 16 * 12 * 4];
+        for px in sample_rgba.chunks_exact_mut(4).take(40) {
+            px.copy_from_slice(&[37, 99, 235, 255]);
+        }
+        let jpg = encode_rgba_to_jpeg(16, 12, &sample_rgba, 192, 92);
+        assert!(jpg.starts_with(&[0xFF, 0xD8, 0xFF, 0xE0]), "JPEG must start with SOI + APP0");
+        assert_eq!(&jpg[6..11], b"JFIF\0", "JPEG APP0 must carry JFIF identifier");
+        assert_eq!(&jpg[jpg.len() - 2..], &[0xFF, 0xD9], "JPEG must end with EOI marker");
+        let page_jpg = export_page_jpeg(&doc, 1, 96, 90);
+        assert!(page_jpg.starts_with(&[0xFF, 0xD8, 0xFF, 0xE0]));
+        assert_eq!(&page_jpg[page_jpg.len() - 2..], &[0xFF, 0xD9]);
         let tiles = plan_tiled_print(22.0, 17.0, 10.5, 8.0, 0.5);
         assert!(tiles.len() >= 4);
 
-        // C-ABI round-trip test
+        // C-ABI round-trip test (.vsdx + .jpg)
         unsafe {
             let eng = ffi::c_abi::vexio_engine_create();
             let title_c = CString::new("C-ABI Doc").unwrap();
             let cdoc = ffi::c_abi::vexio_doc_create_blank(title_c.as_ptr());
             assert!(!cdoc.is_null());
+
+            let ext_jpg = CString::new("jpg").unwrap();
+            let mut jpg_owned = ffi::c_abi::VexioOwnedBuffer { ptr: std::ptr::null_mut(), len: 0, cap: 0 };
+            assert_eq!(
+                ffi::c_abi::vexio_doc_save_format(cdoc, ext_jpg.as_ptr(), &mut jpg_owned),
+                ffi::c_abi::VexioStatus::Ok
+            );
+            assert!(jpg_owned.len > 200);
+            let jpg_slice = std::slice::from_raw_parts(jpg_owned.ptr, jpg_owned.len);
+            assert!(jpg_slice.starts_with(&[0xFF, 0xD8, 0xFF, 0xE0]));
+            assert_eq!(&jpg_slice[jpg_slice.len() - 2..], &[0xFF, 0xD9]);
+            ffi::c_abi::vexio_buffer_free(jpg_owned);
 
             // Save to .vsdx through C-ABI, re-open through C-ABI, and render RGBA preview!
             let ext_vsdx = CString::new("vsdx").unwrap();
@@ -334,17 +357,18 @@ mod tests {
             build_org_chart_from_csv, build_project_timeline, instantiate_starter_template,
         };
 
-        // 1. Verify all 17 built-in stencil packs exist and every master round-trips cleanly
+        // 1. Verify all 21 built-in stencil packs (including M365, Servers/AD, Azure, Power Platform) exist and every master round-trips cleanly
         let packs = build_all_builtin_stencils();
-        assert_eq!(packs.len(), 17, "Expected 17 built-in domain stencil packs");
+        assert_eq!(packs.len(), 21, "Expected 21 built-in domain stencil packs");
         let mut sess = DocumentSession::new_blank("Stencil Verification");
         for pack in &packs {
             assert!(!pack.masters.is_empty(), "Pack {} must have masters", pack.title);
-            let first_master = &pack.masters[0].name;
-            let sid = sess
-                .drop_builtin_shape(1, &pack.title, first_master, 3.0, 4.0)
-                .unwrap_or_else(|e| panic!("Failed dropping {} / {}: {e}", pack.title, first_master));
-            assert!(sid > 0);
+            for m in &pack.masters {
+                let sid = sess
+                    .drop_builtin_shape(1, &pack.title, &m.name, 3.0, 4.0)
+                    .unwrap_or_else(|e| panic!("Failed dropping {} / {}: {e}", pack.title, m.name));
+                assert!(sid > 0);
+            }
         }
 
         // 2. Org Chart CSV Wizard

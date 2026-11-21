@@ -871,8 +871,36 @@ pub fn export_page_eps(doc: &VisioDocument, page_id: u32) -> String {
 }
 
 // ============================================================================
-// 4. Pure-Rust High-DPI PNG Encoder (Zero External C Dependencies)
+// 4. Pure-Rust High-DPI PNG & Baseline 4:4:4 JFIF JPEG Encoders (Zero External C Deps)
 // ============================================================================
+
+/// Render a page cleanly to RGBA8 at `dpi` without editor grid/selection chrome.
+pub fn render_clean_page_rgba(doc: &VisioDocument, page_id: u32, dpi: u32) -> (u32, u32, Vec<u8>) {
+    let clean_dpi = dpi.clamp(72, 600);
+    let (w_in, h_in) = doc
+        .page(page_id)
+        .map(|p| (p.width_in().max(1.0), p.height_in().max(1.0)))
+        .unwrap_or((11.0, 8.5));
+    let width = ((w_in * clean_dpi as f64).round() as u32).clamp(64, 4096);
+    let height = ((h_in * clean_dpi as f64).round() as u32).clamp(64, 4096);
+    let mut camera = vexio_render::ViewportCamera::new(width, height, 1.0);
+    camera.center_x_in = w_in * 0.5;
+    camera.center_y_in = h_in * 0.5;
+    camera.zoom_ppi = (width as f64 / w_in).min(height as f64 / h_in);
+    let rgba = vexio_render::render_page_software_rgba_with_camera(doc, page_id, &camera, false)
+        .unwrap_or_else(|_| vec![255u8; (width as usize) * (height as usize) * 4]);
+    (width, height, rgba)
+}
+
+pub fn export_page_png(doc: &VisioDocument, page_id: u32, dpi: u32) -> Vec<u8> {
+    let (w, h, rgba) = render_clean_page_rgba(doc, page_id, dpi);
+    encode_rgba_to_png(w, h, &rgba, dpi)
+}
+
+pub fn export_page_jpeg(doc: &VisioDocument, page_id: u32, dpi: u32, quality: u8) -> Vec<u8> {
+    let (w, h, rgba) = render_clean_page_rgba(doc, page_id, dpi);
+    encode_rgba_to_jpeg(w, h, &rgba, dpi, quality)
+}
 
 pub fn encode_rgba_to_png(width: u32, height: u32, rgba: &[u8], dpi: u32) -> Vec<u8> {
     let mut png = Vec::new();
@@ -902,6 +930,361 @@ pub fn encode_rgba_to_png(width: u32, height: u32, rgba: &[u8], dpi: u32) -> Vec
     write_png_chunk(&mut png, b"IDAT", &zlib_stream);
     write_png_chunk(&mut png, b"IEND", &[]);
     png
+}
+
+const JPEG_ZIGZAG: [usize; 64] = [
+    0, 1, 8, 16, 9, 2, 3, 10,
+    17, 24, 32, 25, 18, 11, 4, 5,
+    12, 19, 26, 33, 40, 48, 41, 34,
+    27, 20, 13, 6, 7, 14, 21, 28,
+    35, 42, 49, 56, 57, 50, 43, 36,
+    29, 22, 15, 23, 30, 37, 44, 51,
+    58, 59, 52, 45, 38, 31, 39, 46,
+    53, 60, 61, 54, 47, 55, 62, 63,
+];
+
+const STD_LUMA_QUANT: [u8; 64] = [
+    16, 11, 10, 16, 24, 40, 51, 61,
+    12, 12, 14, 19, 26, 58, 60, 55,
+    14, 13, 16, 24, 40, 57, 69, 56,
+    14, 17, 22, 29, 51, 87, 80, 62,
+    18, 22, 37, 56, 68, 109, 103, 77,
+    24, 35, 55, 64, 81, 104, 113, 92,
+    49, 64, 78, 87, 103, 121, 120, 101,
+    72, 92, 95, 98, 112, 100, 103, 99,
+];
+
+const STD_CHROMA_QUANT: [u8; 64] = [
+    17, 18, 24, 47, 99, 99, 99, 99,
+    18, 21, 26, 66, 99, 99, 99, 99,
+    24, 26, 56, 99, 99, 99, 99, 99,
+    47, 66, 99, 99, 99, 99, 99, 99,
+    99, 99, 99, 99, 99, 99, 99, 99,
+    99, 99, 99, 99, 99, 99, 99, 99,
+    99, 99, 99, 99, 99, 99, 99, 99,
+    99, 99, 99, 99, 99, 99, 99, 99,
+];
+
+const BITS_DC_LUMA: [u8; 16] = [0, 1, 5, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0];
+const VALS_DC_LUMA: [u8; 12] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
+
+const BITS_DC_CHROMA: [u8; 16] = [0, 3, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0];
+const VALS_DC_CHROMA: [u8; 12] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
+
+const BITS_AC_LUMA: [u8; 16] = [0, 2, 1, 3, 3, 2, 4, 3, 5, 5, 4, 4, 0, 0, 1, 125];
+const VALS_AC_LUMA: [u8; 162] = [
+    0x01, 0x02, 0x03, 0x00, 0x04, 0x11, 0x05, 0x12, 0x21, 0x31, 0x41, 0x06, 0x13, 0x51, 0x61, 0x07,
+    0x22, 0x71, 0x14, 0x32, 0x81, 0x91, 0xa1, 0x08, 0x23, 0x42, 0xb1, 0xc1, 0x15, 0x52, 0xd1, 0xf0,
+    0x24, 0x33, 0x62, 0x72, 0x82, 0x09, 0x0a, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x25, 0x26, 0x27, 0x28,
+    0x29, 0x2a, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x3a, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48, 0x49,
+    0x4a, 0x53, 0x54, 0x55, 0x56, 0x57, 0x58, 0x59, 0x5a, 0x63, 0x64, 0x65, 0x66, 0x67, 0x68, 0x69,
+    0x6a, 0x73, 0x74, 0x75, 0x76, 0x77, 0x78, 0x79, 0x7a, 0x83, 0x84, 0x85, 0x86, 0x87, 0x88, 0x89,
+    0x8a, 0x92, 0x93, 0x94, 0x95, 0x96, 0x97, 0x98, 0x99, 0x9a, 0xa2, 0xa3, 0xa4, 0xa5, 0xa6, 0xa7,
+    0xa8, 0xa9, 0xaa, 0xb2, 0xb3, 0xb4, 0xb5, 0xb6, 0xb7, 0xb8, 0xb9, 0xba, 0xc2, 0xc3, 0xc4, 0xc5,
+    0xc6, 0xc7, 0xc8, 0xc9, 0xca, 0xd2, 0xd3, 0xd4, 0xd5, 0xd6, 0xd7, 0xd8, 0xd9, 0xda, 0xe1, 0xe2,
+    0xe3, 0xe4, 0xe5, 0xe6, 0xe7, 0xe8, 0xe9, 0xea, 0xf1, 0xf2, 0xf3, 0xf4, 0xf5, 0xf6, 0xf7, 0xf8,
+    0xf9, 0xfa,
+];
+
+const BITS_AC_CHROMA: [u8; 16] = [0, 2, 1, 2, 4, 4, 3, 4, 7, 5, 4, 4, 0, 1, 2, 119];
+const VALS_AC_CHROMA: [u8; 162] = [
+    0x00, 0x01, 0x02, 0x03, 0x11, 0x04, 0x05, 0x21, 0x31, 0x06, 0x12, 0x41, 0x51, 0x07, 0x61, 0x71,
+    0x13, 0x22, 0x32, 0x81, 0x08, 0x14, 0x42, 0x91, 0xa1, 0xb1, 0xc1, 0x09, 0x23, 0x33, 0x52, 0xf0,
+    0x15, 0x62, 0x72, 0xd1, 0x0a, 0x16, 0x24, 0x34, 0xe1, 0x25, 0xf1, 0x17, 0x18, 0x19, 0x1a, 0x26,
+    0x27, 0x28, 0x29, 0x2a, 0x35, 0x36, 0x37, 0x38, 0x39, 0x3a, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48,
+    0x49, 0x4a, 0x53, 0x54, 0x55, 0x56, 0x57, 0x58, 0x59, 0x5a, 0x63, 0x64, 0x65, 0x66, 0x67, 0x68,
+    0x69, 0x6a, 0x73, 0x74, 0x75, 0x76, 0x77, 0x78, 0x79, 0x7a, 0x82, 0x83, 0x84, 0x85, 0x86, 0x87,
+    0x88, 0x89, 0x8a, 0x92, 0x93, 0x94, 0x95, 0x96, 0x97, 0x98, 0x99, 0x9a, 0xa2, 0xa3, 0xa4, 0xa5,
+    0xa6, 0xa7, 0xa8, 0xa9, 0xaa, 0xb2, 0xb3, 0xb4, 0xb5, 0xb6, 0xb7, 0xb8, 0xb9, 0xba, 0xc2, 0xc3,
+    0xc4, 0xc5, 0xc6, 0xc7, 0xc8, 0xc9, 0xca, 0xd2, 0xd3, 0xd4, 0xd5, 0xd6, 0xd7, 0xd8, 0xd9, 0xda,
+    0xe2, 0xe3, 0xe4, 0xe5, 0xe6, 0xe7, 0xe8, 0xe9, 0xea, 0xf2, 0xf3, 0xf4, 0xf5, 0xf6, 0xf7, 0xf8,
+    0xf9, 0xfa,
+];
+
+struct JpegBitWriter {
+    out: Vec<u8>,
+    bit_buf: u32,
+    bit_count: u8,
+}
+
+impl JpegBitWriter {
+    fn with_capacity(cap: usize) -> Self {
+        Self {
+            out: Vec::with_capacity(cap),
+            bit_buf: 0,
+            bit_count: 0,
+        }
+    }
+
+    #[inline]
+    fn write_bits(&mut self, bits: u16, len: u8) {
+        if len == 0 {
+            return;
+        }
+        let mask = (1u32 << len) - 1;
+        self.bit_buf = (self.bit_buf << len) | ((bits as u32) & mask);
+        self.bit_count += len;
+        while self.bit_count >= 8 {
+            self.bit_count -= 8;
+            let byte = ((self.bit_buf >> self.bit_count) & 0xFF) as u8;
+            self.out.push(byte);
+            if byte == 0xFF {
+                self.out.push(0x00);
+            }
+        }
+    }
+
+    fn flush_pad_ones(&mut self) {
+        if self.bit_count > 0 {
+            let pad = 8 - self.bit_count;
+            self.write_bits((1u16 << pad) - 1, pad);
+        }
+    }
+}
+
+fn build_huffman_lut(bits: &[u8; 16], vals: &[u8]) -> [(u16, u8); 256] {
+    let mut lut = [(0u16, 0u8); 256];
+    let mut code: u16 = 0;
+    let mut idx = 0usize;
+    for len in 1..=16usize {
+        for _ in 0..(bits[len - 1] as usize) {
+            let sym = vals[idx] as usize;
+            lut[sym] = (code, len as u8);
+            code = code.wrapping_add(1);
+            idx += 1;
+        }
+        code <<= 1;
+    }
+    lut
+}
+
+#[inline]
+fn jpeg_magnitude_category(v: i32) -> (u8, u16) {
+    if v == 0 {
+        return (0, 0);
+    }
+    let abs_v = v.unsigned_abs();
+    let cat = (32 - abs_v.leading_zeros()) as u8;
+    let bits = if v > 0 {
+        abs_v as u16
+    } else {
+        ((1u32 << cat) - 1 - abs_v) as u16
+    };
+    (cat, bits)
+}
+
+/// Pure-Rust ITU-T T.81 Baseline DCT 4:4:4 JFIF 1.02 JPEG encoder.
+/// Uses 4:4:4 (`1x1` chroma) sampling so thin diagram strokes, arrowheads, and typography
+/// retain razor-sharp color edges without 4:2:0 chroma subsampling blur, compositing alpha over `#FFFFFF`.
+pub fn encode_rgba_to_jpeg(width: u32, height: u32, rgba: &[u8], dpi: u32, quality: u8) -> Vec<u8> {
+    let w = width.clamp(1, 65535) as usize;
+    let h = height.clamp(1, 65535) as usize;
+    let q = quality.clamp(1, 100) as u32;
+    let q_scale = if q < 50 { 5000 / q } else { 200 - 2 * q };
+
+    let mut q_luma_zig = [1u8; 64];
+    let mut q_chroma_zig = [1u8; 64];
+    for k in 0..64 {
+        let nat = JPEG_ZIGZAG[k];
+        q_luma_zig[k] = (((STD_LUMA_QUANT[nat] as u32 * q_scale + 50) / 100).clamp(1, 255)) as u8;
+        q_chroma_zig[k] = (((STD_CHROMA_QUANT[nat] as u32 * q_scale + 50) / 100).clamp(1, 255)) as u8;
+    }
+
+    // Precompute separable 1D DCT basis `cos((2*x + 1) * u * pi / 16) * alpha(u)`
+    let mut dct_basis = [[0.0f32; 8]; 8];
+    let inv_sqrt8 = (0.125f32).sqrt();
+    for u in 0..8 {
+        let alpha = if u == 0 { inv_sqrt8 } else { 0.5 };
+        for x in 0..8 {
+            dct_basis[u][x] =
+                (((2 * x + 1) * u) as f32 * std::f32::consts::PI / 16.0).cos() * alpha;
+        }
+    }
+
+    let dc_luma = build_huffman_lut(&BITS_DC_LUMA, &VALS_DC_LUMA);
+    let ac_luma = build_huffman_lut(&BITS_AC_LUMA, &VALS_AC_LUMA);
+    let dc_chroma = build_huffman_lut(&BITS_DC_CHROMA, &VALS_DC_CHROMA);
+    let ac_chroma = build_huffman_lut(&BITS_AC_CHROMA, &VALS_AC_CHROMA);
+
+    let mut bw = JpegBitWriter::with_capacity((w * h) / 2 + 1024);
+
+    // 1. SOI + JFIF APP0 (density in DPI)
+    bw.out.extend_from_slice(&[0xFF, 0xD8]);
+    let clean_dpi = dpi.clamp(72, 1200) as u16;
+    bw.out.extend_from_slice(&[
+        0xFF, 0xE0, 0x00, 0x10, b'J', b'F', b'I', b'F', 0x00, 0x01, 0x02, 0x01,
+        (clean_dpi >> 8) as u8, (clean_dpi & 0xFF) as u8,
+        (clean_dpi >> 8) as u8, (clean_dpi & 0xFF) as u8,
+        0x00, 0x00,
+    ]);
+
+    // 2. DQT (Luminance table 0 & Chrominance table 1 in zig-zag order)
+    for (tid, qtab) in [(0u8, &q_luma_zig), (1u8, &q_chroma_zig)] {
+        bw.out.extend_from_slice(&[0xFF, 0xDB, 0x00, 67, tid]);
+        bw.out.extend_from_slice(qtab);
+    }
+
+    // 3. SOF0 (Baseline DCT, 8-bit precision, 3 components, 4:4:4 1x1 sampling)
+    bw.out.extend_from_slice(&[
+        0xFF, 0xC0, 0x00, 17, 8,
+        ((h >> 8) & 0xFF) as u8, (h & 0xFF) as u8,
+        ((w >> 8) & 0xFF) as u8, (w & 0xFF) as u8,
+        3,
+        1, 0x11, 0, // Y:  1x1, Q0
+        2, 0x11, 1, // Cb: 1x1, Q1
+        3, 0x11, 1, // Cr: 1x1, Q1
+    ]);
+
+    // 4. DHT (4 standard Huffman tables)
+    let write_dht = |out: &mut Vec<u8>, class_id: u8, bits: &[u8; 16], vals: &[u8]| {
+        let seg_len = (2 + 1 + 16 + vals.len()) as u16;
+        out.extend_from_slice(&[0xFF, 0xC4]);
+        out.extend_from_slice(&seg_len.to_be_bytes());
+        out.push(class_id);
+        out.extend_from_slice(bits);
+        out.extend_from_slice(vals);
+    };
+    write_dht(&mut bw.out, 0x00, &BITS_DC_LUMA, &VALS_DC_LUMA);
+    write_dht(&mut bw.out, 0x10, &BITS_AC_LUMA, &VALS_AC_LUMA);
+    write_dht(&mut bw.out, 0x01, &BITS_DC_CHROMA, &VALS_DC_CHROMA);
+    write_dht(&mut bw.out, 0x11, &BITS_AC_CHROMA, &VALS_AC_CHROMA);
+
+    // 5. SOS (Start of Scan)
+    bw.out.extend_from_slice(&[
+        0xFF, 0xDA, 0x00, 12, 3,
+        1, 0x00, // Y  -> DC0/AC0
+        2, 0x11, // Cb -> DC1/AC1
+        3, 0x11, // Cr -> DC1/AC1
+        0, 63, 0,
+    ]);
+
+    let encode_block = |bw: &mut JpegBitWriter,
+                        samples: &[f32; 64],
+                        q_zig: &[u8; 64],
+                        prev_dc: &mut i32,
+                        dc_lut: &[(u16, u8); 256],
+                        ac_lut: &[(u16, u8); 256]| {
+        let mut tmp = [0.0f32; 64];
+        for r in 0..8 {
+            let row = &samples[r * 8..r * 8 + 8];
+            for u in 0..8 {
+                let b = &dct_basis[u];
+                tmp[r * 8 + u] = b[0] * row[0]
+                    + b[1] * row[1]
+                    + b[2] * row[2]
+                    + b[3] * row[3]
+                    + b[4] * row[4]
+                    + b[5] * row[5]
+                    + b[6] * row[6]
+                    + b[7] * row[7];
+            }
+        }
+        let mut dct_nat = [0.0f32; 64];
+        for u in 0..8 {
+            for v in 0..8 {
+                let b = &dct_basis[v];
+                dct_nat[v * 8 + u] = b[0] * tmp[u]
+                    + b[1] * tmp[8 + u]
+                    + b[2] * tmp[16 + u]
+                    + b[3] * tmp[24 + u]
+                    + b[4] * tmp[32 + u]
+                    + b[5] * tmp[40 + u]
+                    + b[6] * tmp[48 + u]
+                    + b[7] * tmp[56 + u];
+            }
+        }
+
+        let mut zz = [0i32; 64];
+        for k in 0..64 {
+            let raw = dct_nat[JPEG_ZIGZAG[k]] / (q_zig[k] as f32);
+            zz[k] = raw.round() as i32;
+        }
+
+        let diff = zz[0] - *prev_dc;
+        *prev_dc = zz[0];
+        let (dc_cat, dc_bits) = jpeg_magnitude_category(diff);
+        let (dc_code, dc_len) = dc_lut[dc_cat as usize];
+        bw.write_bits(dc_code, dc_len);
+        bw.write_bits(dc_bits, dc_cat);
+
+        let mut zero_run = 0u8;
+        for &ac in &zz[1..] {
+            if ac == 0 {
+                zero_run += 1;
+            } else {
+                while zero_run >= 16 {
+                    let (zrl_code, zrl_len) = ac_lut[0xF0];
+                    bw.write_bits(zrl_code, zrl_len);
+                    zero_run -= 16;
+                }
+                let (ac_cat, ac_bits) = jpeg_magnitude_category(ac);
+                let sym = ((zero_run << 4) | ac_cat) as usize;
+                let (ac_code, ac_len) = ac_lut[sym];
+                bw.write_bits(ac_code, ac_len);
+                bw.write_bits(ac_bits, ac_cat);
+                zero_run = 0;
+            }
+        }
+        if zero_run > 0 {
+            let (eob_code, eob_len) = ac_lut[0x00];
+            bw.write_bits(eob_code, eob_len);
+        }
+    };
+
+    let mut prev_dc_y = 0i32;
+    let mut prev_dc_cb = 0i32;
+    let mut prev_dc_cr = 0i32;
+    let mcu_cols = w.div_ceil(8);
+    let mcu_rows = h.div_ceil(8);
+
+    for my in 0..mcu_rows {
+        for mx in 0..mcu_cols {
+            let mut blk_y = [0.0f32; 64];
+            let mut blk_cb = [0.0f32; 64];
+            let mut blk_cr = [0.0f32; 64];
+
+            for py in 0..8 {
+                let sy = (my * 8 + py).min(h - 1);
+                for px in 0..8 {
+                    let sx = (mx * 8 + px).min(w - 1);
+                    let base = (sy * w + sx) * 4;
+                    let (sr, sg, sb, sa) = if base + 3 < rgba.len() {
+                        (
+                            rgba[base] as f32,
+                            rgba[base + 1] as f32,
+                            rgba[base + 2] as f32,
+                            rgba[base + 3] as f32 / 255.0,
+                        )
+                    } else {
+                        (255.0, 255.0, 255.0, 1.0)
+                    };
+                    // Alpha-composite onto crisp white page background
+                    let r = sr * sa + 255.0 * (1.0 - sa);
+                    let g = sg * sa + 255.0 * (1.0 - sa);
+                    let b = sb * sa + 255.0 * (1.0 - sa);
+
+                    let y_val = (0.299 * r + 0.587 * g + 0.114 * b).clamp(0.0, 255.0) - 128.0;
+                    let cb_val =
+                        (-0.168_736 * r - 0.331_264 * g + 0.5 * b + 128.0).clamp(0.0, 255.0) - 128.0;
+                    let cr_val =
+                        (0.5 * r - 0.418_688 * g - 0.081_312 * b + 128.0).clamp(0.0, 255.0) - 128.0;
+
+                    let idx = py * 8 + px;
+                    blk_y[idx] = y_val;
+                    blk_cb[idx] = cb_val;
+                    blk_cr[idx] = cr_val;
+                }
+            }
+
+            encode_block(&mut bw, &blk_y, &q_luma_zig, &mut prev_dc_y, &dc_luma, &ac_luma);
+            encode_block(&mut bw, &blk_cb, &q_chroma_zig, &mut prev_dc_cb, &dc_chroma, &ac_chroma);
+            encode_block(&mut bw, &blk_cr, &q_chroma_zig, &mut prev_dc_cr, &dc_chroma, &ac_chroma);
+        }
+    }
+
+    bw.flush_pad_ones();
+    bw.out.extend_from_slice(&[0xFF, 0xD9]);
+    bw.out
 }
 
 fn write_png_chunk(out: &mut Vec<u8>, tag: &[u8; 4], data: &[u8]) {

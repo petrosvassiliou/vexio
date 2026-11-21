@@ -161,6 +161,77 @@ export async function pickLocalBinaryFile(accept: string): Promise<OpenedLocalFi
   });
 }
 
+function pickerSpecForExtension(ext: string): { mime: string; pickerTypes: unknown[] } {
+  switch (ext) {
+    case 'jpg':
+    case 'jpeg':
+      return {
+        mime: 'image/jpeg',
+        pickerTypes: [{ description: 'JPEG Image (.jpg)', accept: { 'image/jpeg': ['.jpg', '.jpeg'] } }],
+      };
+    case 'png':
+      return {
+        mime: 'image/png',
+        pickerTypes: [{ description: 'PNG Image (.png)', accept: { 'image/png': ['.png'] } }],
+      };
+    case 'pdf':
+      return {
+        mime: 'application/pdf',
+        pickerTypes: [{ description: 'PDF Document (.pdf)', accept: { 'application/pdf': ['.pdf'] } }],
+      };
+    case 'svg':
+      return {
+        mime: 'image/svg+xml',
+        pickerTypes: [{ description: 'SVG Vector Drawing (.svg)', accept: { 'image/svg+xml': ['.svg'] } }],
+      };
+    case 'pptx':
+      return {
+        mime: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+        pickerTypes: [
+          {
+            description: 'PowerPoint Presentation (.pptx)',
+            accept: { 'application/vnd.openxmlformats-officedocument.presentationml.presentation': ['.pptx'] },
+          },
+        ],
+      };
+    case 'docx':
+      return {
+        mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        pickerTypes: [
+          {
+            description: 'Word Specification (.docx)',
+            accept: { 'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'] },
+          },
+        ],
+      };
+    case 'xlsx':
+      return {
+        mime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        pickerTypes: [
+          {
+            description: 'Excel Workbook (.xlsx)',
+            accept: { 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'] },
+          },
+        ],
+      };
+    case 'dxf':
+      return {
+        mime: 'image/vnd.dxf',
+        pickerTypes: [{ description: 'AutoCAD DXF (.dxf)', accept: { 'image/vnd.dxf': ['.dxf'] } }],
+      };
+    case 'json':
+      return {
+        mime: 'application/json',
+        pickerTypes: [{ description: 'JSON Definition (.json)', accept: { 'application/json': ['.json'] } }],
+      };
+    default:
+      return {
+        mime: 'application/vnd.ms-visio.drawing.main+xml',
+        pickerTypes: VISIO_FILE_PICKER_TYPES,
+      };
+  }
+}
+
 /**
  * Save directly in-place on ChromeOS local disk if an existing `FileSystemFileHandle` is held,
  * or prompt via `showSaveFilePicker` to acquire one!
@@ -170,12 +241,21 @@ export async function saveLocalDiagramInPlace(
   suggestedName: string,
   bytes: Uint8Array
 ): Promise<FileSystemFileHandle | null> {
+  const ext = extractExtension(suggestedName);
+  const { mime, pickerTypes } = pickerSpecForExtension(ext);
   let handle = existingHandle;
   if (!handle && window.showSaveFilePicker) {
-    handle = await window.showSaveFilePicker({
-      suggestedName,
-      types: VISIO_FILE_PICKER_TYPES,
-    });
+    try {
+      handle = await window.showSaveFilePicker({
+        suggestedName,
+        types: pickerTypes,
+      });
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        return null;
+      }
+      handle = null;
+    }
   }
 
   const standardBytes = new Uint8Array(bytes.byteLength);
@@ -189,7 +269,7 @@ export async function saveLocalDiagramInPlace(
   }
 
   // Fallback download anchor if browser doesn't expose File System Access API
-  const blob = new Blob([standardBytes], { type: 'application/octet-stream' });
+  const blob = new Blob([standardBytes], { type: mime });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;

@@ -727,8 +727,8 @@ private struct VexioStencilNavigatorSidebar: View {
 
     @State private var expandedCategories: Set<String> = [
         "Basic Shapes",
+        "Microsoft 365 & Office",
         "Basic Flowchart",
-        "Arrows & Callouts",
         "BPMN 2.0",
     ]
 

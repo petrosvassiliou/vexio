@@ -62,6 +62,17 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /**
+     * SAF CreateDocument contract for 1-click High-DPI JPEG (.jpg) diagram export.
+     */
+    private val exportJpgLauncher = registerForActivityResult(
+        ActivityResultContracts.CreateDocument("image/jpeg")
+    ) { targetUri: Uri? ->
+        if (targetUri != null) {
+            writeExportFormatToSafUri(targetUri, "jpg")
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
@@ -99,6 +110,7 @@ class MainActivity : ComponentActivity() {
                     onOpenDocumentRequested = ::triggerOpenSafPicker,
                     onSaveDocumentRequested = ::triggerSaveInPlaceOrPicker,
                     onSaveAsDocumentRequested = ::triggerSaveAsSafPicker,
+                    onExportJpgRequested = ::triggerExportJpgSafPicker,
                     onExternalUriDropped = ::loadDiagramFromSafUri,
                     onPrintRequested = {
                         launchVexioVectorPrintJob(this@MainActivity, sessionViewModel)
@@ -171,6 +183,27 @@ class MainActivity : ComponentActivity() {
             "$currentTitle.vsdx"
         }
         createDocumentLauncher.launch(suggestedName)
+    }
+
+    private fun triggerExportJpgSafPicker() {
+        val stem = sessionViewModel.uiState.value.documentTitle.substringBeforeLast('.')
+            .ifBlank { "Diagram_Export" }
+        exportJpgLauncher.launch("$stem.jpg")
+    }
+
+    private fun writeExportFormatToSafUri(uri: Uri, ext: String) {
+        lifecycleScope.launch(Dispatchers.IO) {
+            val payload = sessionViewModel.exportPlan2Artifact(ext)
+            runCatching {
+                contentResolver.openOutputStream(uri, "wt")?.use { s ->
+                    s.write(payload)
+                    s.flush()
+                } ?: contentResolver.openOutputStream(uri)?.use { s ->
+                    s.write(payload)
+                    s.flush()
+                }
+            }
+        }
     }
 
     fun openIndependentDocumentWindow(template: String = "blank") {

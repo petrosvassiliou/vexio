@@ -98,6 +98,10 @@ async function main() {
     'arrows_block_arrows.vssx',
     'callouts_notes_containers.vssx',
     'basic_flowchart.vssx',
+    'microsoft_365_office.vssx',
+    'microsoft_servers_active_directory.vssx',
+    'microsoft_azure_hybrid_cloud.vssx',
+    'microsoft_power_platform_dynamics_365.vssx',
     'cross_functional_swimlanes.vssx',
     'bpmn_2_0.vssx',
     'uml_2_5.vssx',
@@ -114,7 +118,7 @@ async function main() {
   ]) {
     assert(swText.includes(`/stencils/${stFile}`), `sw.js missing precached stencil ${stFile}`);
   }
-  console.log(`  ✓ ChromeOS WCO, File Handlers, ${jsAssets.length} code-split chunks (<500 KB each), and 17 .vssx Stencil Packs verified.`);
+  console.log(`  ✓ ChromeOS WCO, File Handlers, ${jsAssets.length} code-split chunks (<500 KB each), and 21 .vssx Stencil Packs verified.`);
 
   console.log('=== [4/6] Verifying 100% Unauthenticated Offline Rust WASM SIMD Engine & Core Tools ===');
   const distWasmJs = pathToFileURL(resolve(DIST_DIR, 'wasm/vexio_core.js')).href;
@@ -125,18 +129,24 @@ async function main() {
   const session = new wasmMod.WasmVexioSession('Offline ChromeOS Test');
   assert.equal(manifest.theme_color, '#f8fafc', 'ChromeOS PWA manifest must default to Light Mode');
   const packOrder = JSON.parse(session.list_builtin_pack_order_json());
-  assert.equal(packOrder.length, 17, 'WASM session must expose canonical order for all 17 stencil packs');
+  assert.equal(packOrder.length, 21, 'WASM session must expose canonical order for all 21 stencil packs');
   const stencilMap = JSON.parse(session.list_builtin_stencils_json());
-  assert.equal(Object.keys(stencilMap).length, 17, 'WASM session must expose all 17 stencil packs');
+  assert.equal(Object.keys(stencilMap).length, 21, 'WASM session must expose all 21 stencil packs');
   const stencilPreviews = JSON.parse(session.list_builtin_stencil_previews_json());
-  assert.equal(Object.keys(stencilPreviews).length, 17, 'WASM session must generate SVG previews for all 17 packs');
+  assert.equal(Object.keys(stencilPreviews).length, 21, 'WASM session must generate SVG previews for all 21 packs');
   const totalPreviews = Object.values(stencilPreviews).reduce((acc, arr) => acc + arr.length, 0);
-  assert.equal(totalPreviews, 160, `Expected 160 high-definition vector stencil previews, got ${totalPreviews}`);
+  assert.equal(totalPreviews, 212, `Expected 212 high-definition vector stencil previews, got ${totalPreviews}`);
   for (const [pk, items] of Object.entries(stencilPreviews)) {
     for (const it of items) {
       assert(it.svg.includes('<svg') && it.svg.includes('<path'), `Missing vector <path> preview for ${pk}:${it.name}`);
     }
   }
+
+  // Verify Microsoft Stencils exist in WASM catalog
+  assert(stencilMap['Microsoft 365 & Office']?.includes('Microsoft Teams'), 'Missing Microsoft Teams stencil');
+  assert(stencilMap['Microsoft Servers & Active Directory']?.includes('Active Directory DC'), 'Missing Active Directory DC stencil');
+  assert(stencilMap['Microsoft Azure & Hybrid Cloud']?.includes('Azure Kubernetes (AKS)'), 'Missing Azure AKS stencil');
+  assert(stencilMap['Microsoft Power Platform & Dynamics 365']?.includes('Power BI Dashboard'), 'Missing Power BI stencil');
 
   const s1 = session.drop_builtin_shape('BPMN 2.0', 'Start Event', 2.0, 5.0);
   const s2 = session.drop_builtin_shape('BPMN 2.0', 'Task', 5.0, 5.0);
@@ -172,11 +182,13 @@ async function main() {
   const issues = JSON.parse(session.validate_diagram('bpmn'));
   assert.equal(issues.length, 0, `Valid BPMN flow must report 0 issues, got: ${JSON.stringify(issues)}`);
 
-  // Save .vsdx, .vsd, .dxf, .pdf, .pptx, .docx, .flow.json, .pbi.json, and OPFS WAL journal 100% offline in WASM!
+  // Save .vsdx, .vsd, .dxf, .pdf, .jpg, .png, .pptx, .docx, .flow.json, .pbi.json, and OPFS WAL journal 100% offline in WASM!
   const vsdxOut = session.save_format('vsdx');
   const vsdOut = session.save_format('vsd');
   const dxfOut = session.save_format('dxf');
   const pdfOut = session.save_format('pdf');
+  const jpgOut = session.save_page_format(1, 'jpg');
+  const pngOut = session.save_page_format(1, 'png');
   const pptxOut = session.save_format('pptx');
   const docxOut = session.save_format('docx');
   const flowOut = session.save_format('powerautomate');
@@ -186,6 +198,9 @@ async function main() {
   assert(vsdOut[0] === 0xd0 && vsdOut[1] === 0xcf, 'WASM .vsd must have OLE2 header');
   assert(new TextDecoder().decode(dxfOut).includes('ENTITIES'), 'WASM .dxf must contain ENTITIES');
   assert(new TextDecoder().decode(pdfOut.slice(0, 8)).startsWith('%PDF-1.7'), 'WASM .pdf must start with %PDF-1.7');
+  assert(jpgOut[0] === 0xff && jpgOut[1] === 0xd8 && jpgOut[2] === 0xff && jpgOut[3] === 0xe0, 'WASM .jpg must start with JFIF SOI+APP0');
+  assert(jpgOut[jpgOut.byteLength - 2] === 0xff && jpgOut[jpgOut.byteLength - 1] === 0xd9, 'WASM .jpg must end with EOI 0xFFD9');
+  assert(pngOut[0] === 137 && pngOut[1] === 80 && pngOut[2] === 78 && pngOut[3] === 71, 'WASM .png must start with PNG magic');
   assert(pptxOut[0] === 0x50 && pptxOut[1] === 0x4b, 'WASM .pptx must be valid OpenXML ZIP');
   assert(docxOut[0] === 0x50 && docxOut[1] === 0x4b, 'WASM .docx must be valid OpenXML ZIP');
   assert(JSON.parse(new TextDecoder().decode(flowOut)).actions, 'Power Automate JSON must contain workflow actions');

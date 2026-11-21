@@ -109,6 +109,66 @@ const FALLBACK_STENCILS: Record<string, string[]> = {
     'Delay',
     'On-Page Reference',
   ],
+  'Microsoft 365 & Office': [
+    'Microsoft 365 Tenant',
+    'Microsoft Teams',
+    'Exchange Online',
+    'SharePoint Online',
+    'OneDrive for Business',
+    'Outlook Mail Flow',
+    'Word Document',
+    'Excel Workbook',
+    'PowerPoint Deck',
+    'OneNote Notebook',
+    'Microsoft Copilot',
+    'Microsoft Loop',
+    'Microsoft Intune',
+    'Defender for M365',
+  ],
+  'Microsoft Servers & Active Directory': [
+    'Windows Server',
+    'Active Directory DC',
+    'Microsoft Entra ID',
+    'AD Forest / Domain Trust',
+    'Group Policy (GPO)',
+    'DNS / DHCP Server',
+    'IIS Web Server',
+    'SQL Server Cluster',
+    'Exchange Server',
+    'SharePoint Server',
+    'Hyper-V Host',
+    'Failover Cluster',
+    'System Center (MECM / SCOM)',
+    'Windows 11 Workstation',
+  ],
+  'Microsoft Azure & Hybrid Cloud': [
+    'Azure Subscription / RG',
+    'Azure Virtual Machine',
+    'Azure Kubernetes (AKS)',
+    'Azure App Service',
+    'Azure Functions',
+    'Azure SQL / Cosmos DB',
+    'Azure Storage Account',
+    'Azure Virtual Network (VNet)',
+    'Azure Front Door / App GW',
+    'Azure Key Vault',
+    'Azure Service Bus / Event Hub',
+    'Azure ExpressRoute / VPN',
+    'Azure Arc (Hybrid)',
+    'Azure AI Foundry / OpenAI',
+  ],
+  'Microsoft Power Platform & Dynamics 365': [
+    'Power BI Dashboard',
+    'Power Automate Flow',
+    'Power Apps',
+    'Microsoft Dataverse',
+    'Copilot Studio Agent',
+    'Power Pages Portal',
+    'On-Premises Data Gateway',
+    'Dynamics 365 Sales / CRM',
+    'Dynamics 365 Finance & ERP',
+    'Microsoft Fabric Lakehouse',
+  ],
   'Cross-Functional Swimlanes': [
     'Horizontal Swimlane',
     'Vertical Swimlane',
@@ -508,7 +568,7 @@ class VexioChromeOsApp {
   private packOrder: string[] = Object.keys(FALLBACK_STENCILS);
   private expandedStencilPacks = new Set<string>([
     'Basic Shapes',
-    'Arrows & Block Arrows',
+    'Microsoft 365 & Office',
     'Basic Flowchart',
   ]);
   private cloudState: CloudSyncState = {
@@ -1405,6 +1465,10 @@ class VexioChromeOsApp {
 
   private shortPackLabel(packName: string): string {
     if (packName === 'Basic Shapes') return 'Basic Shapes';
+    if (packName.startsWith('Microsoft 365')) return 'M365 & Office';
+    if (packName.startsWith('Microsoft Servers')) return 'MS Servers & AD';
+    if (packName.startsWith('Microsoft Azure')) return 'Microsoft Azure';
+    if (packName.startsWith('Microsoft Power Platform')) return 'Power Platform & D365';
     if (packName.startsWith('Arrows')) return 'Arrows';
     if (packName.startsWith('Callouts')) return 'Callouts & Notes';
     if (packName.startsWith('Cross-Functional')) return 'Swimlanes';
@@ -1537,10 +1601,13 @@ class VexioChromeOsApp {
         <button class="ctx-item" data-ctx="drop-here-ellipse"><span>Insert Circle / Ellipse Here</span><span class="ctx-kbd">O</span></button>
         <button class="ctx-item" data-ctx="drop-here-diamond"><span>Insert Decision Diamond Here</span><span class="ctx-kbd">D</span></button>
         <button class="ctx-item" data-ctx="drop-here-text"><span>Insert Text Box Here</span><span class="ctx-kbd">T</span></button>
-        <button class="ctx-item" data-ctx="drop-here-note"><span>Insert Sticky Note Here</span></button>
+        <button class="ctx-item" data-ctx="drop-here-note"><span>Insert Folded Note Here</span></button>
         <div class="ctx-sep"></div>
         <button class="ctx-item" data-ctx="layout-tb"><span>Auto-Layout Page (Top-Down)</span></button>
         <button class="ctx-item" data-ctx="layout-lr"><span>Auto-Layout Page (Left-Right)</span></button>
+        <div class="ctx-sep"></div>
+        <button class="ctx-item" data-ctx="export-jpg"><span>Export Page as JPG (.jpg)</span></button>
+        <button class="ctx-item" data-ctx="export-pdf"><span>Export Document as PDF (.pdf)</span></button>
         <div class="ctx-sep"></div>
         <button class="ctx-item" data-ctx="zoom-fit"><span>Fit Page to Window</span></button>
         <button class="ctx-item" data-ctx="toggle-grid"><span>${this.showGrid ? '✓ ' : ''}Show Dot Grid</span></button>
@@ -1584,7 +1651,9 @@ class VexioChromeOsApp {
           <div class="ribbon-divider"></div>
           <span class="ribbon-group-label">Layout &amp; Export</span>
           <button class="m3-btn tonal" data-layout="tb" title="Auto-Arrange Diagram Top-Down">Auto-Layout</button>
+          <button class="m3-btn tonal" id="btn-export-jpg" title="Export High-DPI JPEG Image (.jpg)">JPG</button>
           <button class="m3-btn tonal" id="btn-export-pdf" title="Export Vector PDF/A">PDF</button>
+          <button class="m3-btn" id="btn-export-png" title="Export High-DPI PNG Image (.png)">PNG</button>
           <button class="m3-btn" id="btn-export-pptx" title="Export PowerPoint Deck (.pptx)">PPTX</button>
           <button class="m3-btn" id="btn-copy-svg" title="Copy SVG to Clipboard">SVG</button>
           <button class="m3-btn" id="btn-export-dxf" title="Export AutoCAD .DXF">DXF</button>
@@ -2493,11 +2562,23 @@ class VexioChromeOsApp {
         <div class="modal-backdrop">
           <div class="modal-card wide">
             <div style="display:flex;justify-content:space-between;align-items:center">
-              <strong style="font-size:15px">Vexio File Backstage — Starter Templates, Workspaces & Version History</strong>
+              <strong style="font-size:15px">Vexio File Backstage — Export, Templates, Workspaces &amp; Version History</strong>
               <button class="m3-btn" id="btn-close-modal">Close</button>
             </div>
 
-            <div class="pane-header">8 Built-In Enterprise Starter Templates</div>
+            <div class="pane-header">Save &amp; Export Formats (100% Offline)</div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+              <button class="m3-btn active" data-export-ext="vsdx">Save Visio (.vsdx)</button>
+              <button class="m3-btn tonal" data-export-ext="jpg">Export JPG Image (.jpg)</button>
+              <button class="m3-btn tonal" data-export-ext="png">Export PNG Image (.png)</button>
+              <button class="m3-btn tonal" data-export-ext="pdf">Export PDF/A (.pdf)</button>
+              <button class="m3-btn" data-export-ext="svg">Export Vector (.svg)</button>
+              <button class="m3-btn" data-export-ext="pptx">PowerPoint (.pptx)</button>
+              <button class="m3-btn" data-export-ext="docx">Word Spec (.docx)</button>
+              <button class="m3-btn" data-export-ext="dxf">AutoCAD (.dxf)</button>
+            </div>
+
+            <div class="pane-header" style="margin-top:4px">8 Built-In Enterprise Starter Templates</div>
             <div class="backstage-grid">
               ${STARTER_TEMPLATES.map(
                 (t) => `
@@ -2840,11 +2921,21 @@ class VexioChromeOsApp {
     document.getElementById('btn-open')?.addEventListener('click', () => this.handleOpenDisk());
     document.getElementById('btn-ins-cad')?.addEventListener('click', () => this.handleOpenDisk());
     document.getElementById('btn-save')?.addEventListener('click', () => this.handleSaveInPlace('vsdx'));
+    document.getElementById('btn-export-jpg')?.addEventListener('click', () => this.handleSaveInPlace('jpg'));
+    document.getElementById('btn-export-png')?.addEventListener('click', () => this.handleSaveInPlace('png'));
     document.getElementById('btn-export-pdf')?.addEventListener('click', () => this.handleSaveInPlace('pdf'));
     document.getElementById('btn-export-pptx')?.addEventListener('click', () => this.handleSaveInPlace('pptx'));
     document.getElementById('btn-export-docx')?.addEventListener('click', () => this.handleSaveInPlace('docx'));
     document.getElementById('btn-export-dxf')?.addEventListener('click', () => this.handleSaveInPlace('dxf'));
     document.getElementById('btn-export-vsd')?.addEventListener('click', () => this.handleSaveInPlace('vsd'));
+    document.querySelectorAll('[data-export-ext]').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const ext = (btn as HTMLElement).dataset.exportExt ?? 'vsdx';
+        this.activeModal = null;
+        this.render();
+        await this.handleSaveInPlace(ext);
+      });
+    });
     document.getElementById('btn-export-flow')?.addEventListener('click', async () => {
       const { bytes } = await this.callEngine('saveFormat', { ext: 'powerautomate' });
       await saveLocalDiagramInPlace(null, 'Vexio-PowerAutomate-Definition.flow.json', bytes);
@@ -5056,7 +5147,7 @@ class VexioChromeOsApp {
           case 'drop-here-note': {
             const res = await this.callEngine('dropShape', {
               category: 'Callouts, Notes & Containers',
-              masterName: 'Sticky Note',
+              masterName: 'Folded Note',
               xIn: px,
               yIn: py,
             });
@@ -5066,6 +5157,14 @@ class VexioChromeOsApp {
             this.render();
             break;
           }
+          case 'export-jpg':
+            this.render();
+            await this.handleSaveInPlace('jpg');
+            break;
+          case 'export-pdf':
+            this.render();
+            await this.handleSaveInPlace('pdf');
+            break;
           case 'layout-tb':
           case 'layout-lr': {
             const res = await this.callEngine('autoLayout', {

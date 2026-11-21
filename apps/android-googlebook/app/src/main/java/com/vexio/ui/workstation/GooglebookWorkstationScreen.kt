@@ -270,6 +270,7 @@ fun GooglebookWorkstationScreen(
     onSaveDocumentRequested: () -> Unit,
     onSaveAsDocumentRequested: () -> Unit,
     onExternalUriDropped: (Uri) -> Unit,
+    onExportJpgRequested: () -> Unit = { viewModel.exportPlan2Artifact("jpg") },
     onPrintRequested: () -> Unit = { }
 ) {
     val context = LocalContext.current
@@ -422,6 +423,7 @@ fun GooglebookWorkstationScreen(
                 onLoadTemplate = viewModel::loadStarterTemplate,
                 onOpenClick = onOpenDocumentRequested,
                 onSaveClick = onSaveDocumentRequested,
+                onExportJpgClick = onExportJpgRequested,
                 onPrintClick = onPrintRequested,
                 onUndoClick = viewModel::performUndo,
                 onRedoClick = viewModel::performRedo,
@@ -697,6 +699,7 @@ private fun WorkstationHeaderBar(
     onLoadTemplate: (String) -> Unit,
     onOpenClick: () -> Unit,
     onSaveClick: () -> Unit,
+    onExportJpgClick: () -> Unit = {},
     onPrintClick: () -> Unit,
     onUndoClick: () -> Unit,
     onRedoClick: () -> Unit,
@@ -807,12 +810,19 @@ private fun WorkstationHeaderBar(
                 Icon(Icons.AutoMirrored.Filled.Redo, contentDescription = "Redo (Ctrl+Y)")
             }
 
-            // SAF Open / Save / Native OS Print
+            // SAF Open / Save / JPG Export / Native OS Print
             IconButton(onClick = onOpenClick) {
                 Icon(Icons.Default.FolderOpen, contentDescription = "Open Diagram (Ctrl+O)")
             }
             IconButton(onClick = onSaveClick) {
                 Icon(Icons.Default.Save, contentDescription = "Save Diagram (Ctrl+S)")
+            }
+            FilledTonalButton(
+                onClick = onExportJpgClick,
+                contentPadding = PaddingValues(horizontal = 9.dp, vertical = 5.dp),
+                shape = RoundedCornerShape(10.dp)
+            ) {
+                Text("JPG", style = MaterialTheme.typography.labelMedium)
             }
             IconButton(onClick = onPrintClick) {
                 Icon(Icons.Default.Print, contentDescription = "Print Vector PDF (Ctrl+P)")
@@ -854,7 +864,7 @@ private fun WorkstationHeaderBar(
 
             // Pane Toggles (Stencils, Plan 2 Ribbon, ShapeSheet Shift+F5, Inspector)
             FilledTonalIconButton(onClick = onToggleStencilDrawer) {
-                Icon(Icons.Default.Schema, contentDescription = "Toggle 17-Pack Stencil Navigator")
+                Icon(Icons.Default.Schema, contentDescription = "Toggle 21-Pack Stencil Navigator")
             }
             FilledTonalIconButton(onClick = onTogglePlan2Ribbon) {
                 Icon(Icons.Default.Architecture, contentDescription = "Toggle Advanced Operations Ribbon")

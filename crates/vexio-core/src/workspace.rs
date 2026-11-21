@@ -6,8 +6,8 @@ use crate::autolayout::{LayoutAlgorithm, LayoutOptions, apply_auto_layout};
 use crate::automation::{AutomationExecutionReport, SandboxLimits, execute_vba_macro};
 use crate::domains::{build_all_builtin_stencils, instantiate_starter_template};
 use crate::export_print::{
-    encode_rgba_to_png, export_document_html_report, export_document_pdf, export_page_eps,
-    export_page_svg,
+    export_document_html_report, export_document_pdf, export_page_eps, export_page_jpeg,
+    export_page_png, export_page_svg,
 };
 use crate::journal::{CommandJournal, DocCommand, JournalError};
 use crate::routing::route_page_connectors;
@@ -146,8 +146,24 @@ impl DocumentSession {
     }
 
     pub fn save_format(&self, ext: &str) -> Result<Vec<u8>, CoreError> {
+        let first_pid = self
+            .doc
+            .pages
+            .iter()
+            .find(|p| !p.is_background)
+            .or_else(|| self.doc.pages.first())
+            .map(|p| p.id)
+            .unwrap_or(1);
+        self.save_page_format(first_pid, ext)
+    }
+
+    pub fn save_page_format(&self, page_id: u32, ext: &str) -> Result<Vec<u8>, CoreError> {
         let clean_ext = ext.trim().trim_start_matches('.').to_ascii_lowercase();
-        let first_pid = self.doc.pages.first().map(|p| p.id).unwrap_or(1);
+        let pid = if self.doc.page(page_id).is_some() {
+            page_id
+        } else {
+            self.doc.pages.first().map(|p| p.id).unwrap_or(1)
+        };
         match clean_ext.as_str() {
             "vsdx" | "vsdm" | "vssx" | "vssm" | "vstx" | "vstm" => {
                 let kind = VsdxPackageKind::from_extension(&clean_ext);
@@ -155,31 +171,28 @@ impl DocumentSession {
             }
             "vsd" | "vss" | "vst" => Ok(vexio_vsd_legacy::write_vsd_cfb(&self.doc)?),
             "vdx" => Ok(vexio_vsd_legacy::write_vdx_xml(&self.doc).into_bytes()),
-            "dxf" => Ok(vexio_cad::export_page_to_dxf(&self.doc, first_pid).into_bytes()),
-            "dwg" => Ok(vexio_cad::encode_dwg_r2000_from_page(&self.doc, first_pid)?),
+            "dxf" => Ok(vexio_cad::export_page_to_dxf(&self.doc, pid).into_bytes()),
+            "dwg" => Ok(vexio_cad::encode_dwg_r2000_from_page(&self.doc, pid)?),
             "pdf" => Ok(export_document_pdf(&self.doc)),
-            "svg" => Ok(export_page_svg(&self.doc, first_pid).into_bytes()),
-            "eps" => Ok(export_page_eps(&self.doc, first_pid).into_bytes()),
+            "svg" => Ok(export_page_svg(&self.doc, pid).into_bytes()),
+            "eps" => Ok(export_page_eps(&self.doc, pid).into_bytes()),
             "html" => Ok(export_document_html_report(&self.doc).into_bytes()),
             "pptx" => crate::enterprise_plan2::export_presentation_pptx(&self.doc, &[])
                 .map_err(|e| CoreError::UnsupportedExtension(e.to_string())),
             "docx" => crate::enterprise_plan2::export_word_process_spec_docx(&self.doc)
                 .map_err(|e| CoreError::UnsupportedExtension(e.to_string())),
             "powerautomate" | "flow.json" => crate::plan2_connectors::export_power_automate_flow_json(
-                &self.doc, first_pid,
+                &self.doc, pid,
             )
             .map(String::into_bytes)
             .map_err(|e| CoreError::UnsupportedExtension(e.to_string())),
             "powerbi" | "pbi.json" => crate::plan2_connectors::export_power_bi_visual_json(
-                &self.doc, first_pid,
+                &self.doc, pid,
             )
             .map(String::into_bytes)
             .map_err(|e| CoreError::UnsupportedExtension(e.to_string())),
-            "png" => {
-                let rgba = vexio_render::render_page_rgba_auto(&self.doc, first_pid, 1056, 816)
-                    .unwrap_or_else(|_| vec![255u8; 1056 * 816 * 4]);
-                Ok(encode_rgba_to_png(1056, 816, &rgba, 300))
-            }
+            "png" => Ok(export_page_png(&self.doc, pid, 192)),
+            "jpg" | "jpeg" => Ok(export_page_jpeg(&self.doc, pid, 192, 92)),
             _ => Err(CoreError::UnsupportedExtension(clean_ext)),
         }
     }

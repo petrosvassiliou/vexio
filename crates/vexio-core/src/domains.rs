@@ -1101,6 +1101,82 @@ pub fn build_all_builtin_stencils() -> Vec<StencilPack> {
             ],
         ),
         make_stencil_pack(
+            "Microsoft 365 & Office",
+            "Microsoft 365",
+            &[
+                ("Microsoft 365 Tenant", "Rectangle", 1.85, 1.15, "m365_tenant"),
+                ("Microsoft Teams", "Rectangle", 1.50, 1.05, "m365_teams"),
+                ("Exchange Online", "Rectangle", 1.50, 1.05, "m365_exchange"),
+                ("SharePoint Online", "Circle", 1.15, 1.15, "m365_sharepoint"),
+                ("OneDrive for Business", "Pill", 1.65, 0.95, "m365_onedrive"),
+                ("Outlook Mail Flow", "Rectangle", 1.50, 1.00, "m365_outlook"),
+                ("Word Document", "FoldedNote", 1.25, 1.35, "office_word"),
+                ("Excel Workbook", "FoldedNote", 1.25, 1.35, "office_excel"),
+                ("PowerPoint Deck", "Rectangle", 1.55, 1.05, "office_powerpoint"),
+                ("OneNote Notebook", "Rectangle", 1.30, 1.30, "office_onenote"),
+                ("Microsoft Copilot", "Hexagon", 1.25, 1.15, "m365_copilot"),
+                ("Microsoft Loop", "Rectangle", 1.35, 1.05, "m365_loop"),
+                ("Microsoft Intune", "Rectangle", 1.45, 1.05, "m365_intune"),
+                ("Defender for M365", "Pentagon", 1.20, 1.25, "m365_defender"),
+            ],
+        ),
+        make_stencil_pack(
+            "Microsoft Servers & Active Directory",
+            "Microsoft Servers",
+            &[
+                ("Windows Server", "Rectangle", 1.35, 1.55, "ms_win_server"),
+                ("Active Directory DC", "Triangle", 1.45, 1.30, "ms_ad_dc"),
+                ("Microsoft Entra ID", "Diamond", 1.30, 1.25, "ms_entra_id"),
+                ("AD Forest / Domain Trust", "Pill", 1.85, 0.95, "ms_ad_trust"),
+                ("Group Policy (GPO)", "FoldedNote", 1.30, 1.25, "ms_gpo"),
+                ("DNS / DHCP Server", "Rectangle", 1.45, 1.10, "ms_dns_dhcp"),
+                ("IIS Web Server", "Rectangle", 1.50, 1.10, "ms_iis"),
+                ("SQL Server Cluster", "Rectangle", 1.40, 1.35, "ms_sql_server"),
+                ("Exchange Server", "Rectangle", 1.45, 1.25, "ms_exchange_srv"),
+                ("SharePoint Server", "Rectangle", 1.45, 1.25, "ms_sharepoint_srv"),
+                ("Hyper-V Host", "Cube3D", 1.55, 1.25, "ms_hyperv"),
+                ("Failover Cluster", "Rectangle", 1.70, 1.15, "ms_failover_cluster"),
+                ("System Center (MECM / SCOM)", "Hexagon", 1.45, 1.20, "ms_system_center"),
+                ("Windows 11 Workstation", "Rectangle", 1.45, 1.05, "ms_win11_client"),
+            ],
+        ),
+        make_stencil_pack(
+            "Microsoft Azure & Hybrid Cloud",
+            "Microsoft Azure",
+            &[
+                ("Azure Subscription / RG", "Rectangle", 2.20, 1.45, "az_resource_group"),
+                ("Azure Virtual Machine", "Rectangle", 1.50, 1.05, "az_vm"),
+                ("Azure Kubernetes (AKS)", "Hexagon", 1.50, 1.30, "az_aks"),
+                ("Azure App Service", "Circle", 1.15, 1.15, "az_app_service"),
+                ("Azure Functions", "Diamond", 1.30, 1.15, "az_functions"),
+                ("Azure SQL / Cosmos DB", "Rectangle", 1.35, 1.30, "az_sql_cosmos"),
+                ("Azure Storage Account", "Rectangle", 1.55, 1.05, "az_storage"),
+                ("Azure Virtual Network (VNet)", "Pill", 1.90, 1.05, "az_vnet"),
+                ("Azure Front Door / App GW", "Octagon", 1.35, 1.20, "az_front_door"),
+                ("Azure Key Vault", "Circle", 1.15, 1.15, "az_key_vault"),
+                ("Azure Service Bus / Event Hub", "Rectangle", 1.70, 0.95, "az_service_bus"),
+                ("Azure ExpressRoute / VPN", "Diamond", 1.40, 1.10, "az_expressroute"),
+                ("Azure Arc (Hybrid)", "Pill", 1.65, 1.00, "az_arc"),
+                ("Azure AI Foundry / OpenAI", "Hexagon", 1.35, 1.20, "az_openai"),
+            ],
+        ),
+        make_stencil_pack(
+            "Microsoft Power Platform & Dynamics 365",
+            "Power Platform",
+            &[
+                ("Power BI Dashboard", "Rectangle", 1.50, 1.10, "pp_powerbi"),
+                ("Power Automate Flow", "Chevron", 1.55, 0.95, "pp_automate"),
+                ("Power Apps", "Diamond", 1.30, 1.15, "pp_powerapps"),
+                ("Microsoft Dataverse", "Rectangle", 1.55, 1.05, "pp_dataverse"),
+                ("Copilot Studio Agent", "CalloutBubble", 1.50, 1.10, "pp_copilot_studio"),
+                ("Power Pages Portal", "Rectangle", 1.60, 1.10, "pp_power_pages"),
+                ("On-Premises Data Gateway", "Hexagon", 1.40, 1.10, "pp_gateway"),
+                ("Dynamics 365 Sales / CRM", "Rectangle", 1.60, 1.05, "d365_crm"),
+                ("Dynamics 365 Finance & ERP", "Rectangle", 1.60, 1.05, "d365_erp"),
+                ("Microsoft Fabric Lakehouse", "Parallelogram", 1.65, 1.10, "ms_fabric"),
+            ],
+        ),
+        make_stencil_pack(
             "Cross-Functional Swimlanes",
             "Swimlanes",
             &[
@@ -1915,6 +1991,30 @@ fn apply_domain_master_styling_and_details(
         ("Lean Manufacturing", "vsm_inventory") => ("255,247,237", "217,119,6", 1.65),
         ("Lean Manufacturing", _) => ("241,245,249", "51,65,85", 1.6),
         ("Database", _) => ("239,246,255", "29,78,216", 1.6),
+        ("Microsoft 365", "m365_teams") | ("Microsoft 365", "m365_loop") => ("238,242,255", "79,70,229", 1.65),
+        ("Microsoft 365", "m365_sharepoint") => ("240,253,250", "13,148,136", 1.65),
+        ("Microsoft 365", "office_excel") => ("236,253,245", "21,128,61", 1.65),
+        ("Microsoft 365", "office_powerpoint") => ("255,247,237", "194,65,12", 1.65),
+        ("Microsoft 365", "office_onenote") => ("250,245,255", "126,34,206", 1.65),
+        ("Microsoft 365", "m365_copilot") => ("245,243,255", "109,40,217", 1.7),
+        ("Microsoft 365", "m365_defender") => ("239,246,255", "30,64,175", 1.75),
+        ("Microsoft 365", _) => ("239,246,255", "2,132,199", 1.65),
+        ("Microsoft Servers", "ms_sql_server") => ("254,242,242", "185,28,28", 1.7),
+        ("Microsoft Servers", "ms_entra_id") => ("240,249,255", "2,132,199", 1.7),
+        ("Microsoft Servers", "ms_sharepoint_srv") => ("240,253,250", "13,148,136", 1.65),
+        ("Microsoft Servers", "ms_hyperv") => ("238,242,255", "55,48,163", 1.65),
+        ("Microsoft Servers", _) => ("241,245,249", "3,105,161", 1.65),
+        ("Microsoft Azure", "az_functions") => ("255,251,235", "217,119,6", 1.7),
+        ("Microsoft Azure", "az_key_vault") => ("254,249,195", "180,83,9", 1.7),
+        ("Microsoft Azure", "az_storage") => ("236,253,245", "5,150,105", 1.65),
+        ("Microsoft Azure", "az_openai") => ("245,243,255", "124,58,237", 1.7),
+        ("Microsoft Azure", _) => ("240,249,255", "2,132,199", 1.65),
+        ("Power Platform", "pp_powerbi") => ("254,249,195", "202,138,4", 1.7),
+        ("Power Platform", "pp_powerapps") => ("253,244,255", "162,28,175", 1.7),
+        ("Power Platform", "pp_dataverse") => ("236,253,245", "22,163,74", 1.65),
+        ("Power Platform", "ms_fabric") => ("240,253,250", "15,118,110", 1.7),
+        ("Power Platform", "pp_copilot_studio") => ("245,243,255", "109,40,217", 1.65),
+        ("Power Platform", _) => ("239,246,255", "37,99,235", 1.65),
         _ => ("239,246,255", "37,99,235", 1.6),
     };
 
@@ -1948,6 +2048,29 @@ fn apply_domain_master_styling_and_details(
                 | "org_mgr"
                 | "org_ic"
                 | "org_consultant"
+                | "m365_tenant"
+                | "m365_teams"
+                | "m365_exchange"
+                | "m365_outlook"
+                | "office_powerpoint"
+                | "office_onenote"
+                | "m365_loop"
+                | "m365_intune"
+                | "ms_win_server"
+                | "ms_dns_dhcp"
+                | "ms_iis"
+                | "ms_exchange_srv"
+                | "ms_sharepoint_srv"
+                | "ms_failover_cluster"
+                | "az_resource_group"
+                | "az_vm"
+                | "az_storage"
+                | "az_service_bus"
+                | "pp_powerbi"
+                | "pp_dataverse"
+                | "pp_power_pages"
+                | "d365_crm"
+                | "d365_erp"
         )
     {
         sh.sheet.set_formula(
@@ -1960,7 +2083,10 @@ fn apply_domain_master_styling_and_details(
             Some(Unit::Inch),
         );
     }
-    if matches!(role, "org_vacancy" | "org_consultant" | "cloud_vpc" | "vsm_shared") {
+    if matches!(
+        role,
+        "org_vacancy" | "org_consultant" | "cloud_vpc" | "vsm_shared" | "az_resource_group"
+    ) {
         sh.sheet.set_formula("LinePattern", "2", Some(Unit::Number));
     }
 
@@ -2859,6 +2985,790 @@ fn apply_domain_master_styling_and_details(
             ];
             sh.sheet.add_geometry(detail);
         }
+        // --- Microsoft 365 & Office (14 high-definition multi-geometry vector masters) ---
+        "m365_tenant" => {
+            detail.rows = vec![
+                // Top tenant banner divider + 4-quadrant window emblem
+                GeometryRow::move_to(1, "0 in", "=Height*0.74"),
+                GeometryRow::line_to(2, "=Width", "=Height*0.74"),
+                GeometryRow::move_to(3, "=Width*0.38", "=Height*0.16"),
+                GeometryRow::line_to(4, "=Width*0.62", "=Height*0.16"),
+                GeometryRow::line_to(5, "=Width*0.62", "=Height*0.58"),
+                GeometryRow::line_to(6, "=Width*0.38", "=Height*0.58"),
+                GeometryRow::line_to(7, "=Width*0.38", "=Height*0.16"),
+                GeometryRow::move_to(8, "=Width*0.50", "=Height*0.16"),
+                GeometryRow::line_to(9, "=Width*0.50", "=Height*0.58"),
+                GeometryRow::move_to(10, "=Width*0.38", "=Height*0.37"),
+                GeometryRow::line_to(11, "=Width*0.62", "=Height*0.37"),
+            ];
+            sh.sheet.add_geometry(detail);
+        }
+        "m365_teams" => {
+            detail.rows = vec![
+                // Left badge with 'T' + dual collaborator silhouettes
+                GeometryRow::move_to(1, "=Width*0.14", "=Height*0.28"),
+                GeometryRow::line_to(2, "=Width*0.44", "=Height*0.28"),
+                GeometryRow::line_to(3, "=Width*0.44", "=Height*0.72"),
+                GeometryRow::line_to(4, "=Width*0.14", "=Height*0.72"),
+                GeometryRow::line_to(5, "=Width*0.14", "=Height*0.28"),
+                GeometryRow::move_to(6, "=Width*0.21", "=Height*0.60"),
+                GeometryRow::line_to(7, "=Width*0.37", "=Height*0.60"),
+                GeometryRow::move_to(8, "=Width*0.29", "=Height*0.60"),
+                GeometryRow::line_to(9, "=Width*0.29", "=Height*0.38"),
+                // Primary & secondary user heads/shoulders
+                GeometryRow::move_to(10, "=Width*0.52", "=Height*0.24"),
+                GeometryRow::arc_to(11, "=Width*0.84", "=Height*0.24", "-0.12 in"),
+                GeometryRow::move_to(12, "=Width*0.60", "=Height*0.66"),
+                GeometryRow::arc_to(13, "=Width*0.76", "=Height*0.66", "0.08 in"),
+                GeometryRow::arc_to(14, "=Width*0.60", "=Height*0.66", "0.08 in"),
+            ];
+            sh.sheet.add_geometry(detail);
+        }
+        "m365_exchange" => {
+            detail.rows = vec![
+                // Diamond routing shield + internal mail chevron
+                GeometryRow::move_to(1, "=Width*0.50", "=Height*0.12"),
+                GeometryRow::line_to(2, "=Width*0.84", "=Height*0.50"),
+                GeometryRow::line_to(3, "=Width*0.50", "=Height*0.88"),
+                GeometryRow::line_to(4, "=Width*0.16", "=Height*0.50"),
+                GeometryRow::line_to(5, "=Width*0.50", "=Height*0.12"),
+                GeometryRow::move_to(6, "=Width*0.32", "=Height*0.38"),
+                GeometryRow::line_to(7, "=Width*0.68", "=Height*0.38"),
+                GeometryRow::line_to(8, "=Width*0.68", "=Height*0.62"),
+                GeometryRow::line_to(9, "=Width*0.32", "=Height*0.62"),
+                GeometryRow::line_to(10, "=Width*0.32", "=Height*0.38"),
+                GeometryRow::move_to(11, "=Width*0.32", "=Height*0.62"),
+                GeometryRow::line_to(12, "=Width*0.50", "=Height*0.48"),
+                GeometryRow::line_to(13, "=Width*0.68", "=Height*0.62"),
+            ];
+            sh.sheet.add_geometry(detail);
+        }
+        "m365_sharepoint" => {
+            detail.rows = vec![
+                // Overlapping SharePoint portal circles
+                GeometryRow::move_to(1, "=Width*0.20", "=Height*0.62"),
+                GeometryRow::arc_to(2, "=Width*0.60", "=Height*0.62", "0.18 in"),
+                GeometryRow::arc_to(3, "=Width*0.20", "=Height*0.62", "0.18 in"),
+                GeometryRow::move_to(4, "=Width*0.44", "=Height*0.38"),
+                GeometryRow::arc_to(5, "=Width*0.80", "=Height*0.38", "0.16 in"),
+                GeometryRow::arc_to(6, "=Width*0.44", "=Height*0.38", "0.16 in"),
+            ];
+            sh.sheet.add_geometry(detail);
+        }
+        "m365_onedrive" => {
+            detail.rows = vec![
+                // Dual-cloud contour silhouette inside OneDrive pill
+                GeometryRow::move_to(1, "=Width*0.18", "=Height*0.28"),
+                GeometryRow::line_to(2, "=Width*0.82", "=Height*0.28"),
+                GeometryRow::arc_to(3, "=Width*0.70", "=Height*0.62", "0.10 in"),
+                GeometryRow::arc_to(4, "=Width*0.40", "=Height*0.68", "0.14 in"),
+                GeometryRow::arc_to(5, "=Width*0.18", "=Height*0.28", "0.11 in"),
+            ];
+            sh.sheet.add_geometry(detail);
+        }
+        "m365_outlook" => {
+            detail.rows = vec![
+                // Mail envelope + calendar sidebar
+                GeometryRow::move_to(1, "=Width*0.14", "=Height*0.20"),
+                GeometryRow::line_to(2, "=Width*0.86", "=Height*0.20"),
+                GeometryRow::line_to(3, "=Width*0.86", "=Height*0.76"),
+                GeometryRow::line_to(4, "=Width*0.14", "=Height*0.76"),
+                GeometryRow::line_to(5, "=Width*0.14", "=Height*0.20"),
+                GeometryRow::move_to(6, "=Width*0.14", "=Height*0.76"),
+                GeometryRow::line_to(7, "=Width*0.50", "=Height*0.44"),
+                GeometryRow::line_to(8, "=Width*0.86", "=Height*0.76"),
+            ];
+            sh.sheet.add_geometry(detail);
+        }
+        "office_word" => {
+            detail.rows = vec![
+                // 'W' monogram + ruled document lines
+                GeometryRow::move_to(1, "=Width*0.18", "=Height*0.78"),
+                GeometryRow::line_to(2, "=Width*0.25", "=Height*0.54"),
+                GeometryRow::line_to(3, "=Width*0.32", "=Height*0.70"),
+                GeometryRow::line_to(4, "=Width*0.39", "=Height*0.54"),
+                GeometryRow::line_to(5, "=Width*0.46", "=Height*0.78"),
+                GeometryRow::move_to(6, "=Width*0.18", "=Height*0.38"),
+                GeometryRow::line_to(7, "=Width*0.82", "=Height*0.38"),
+                GeometryRow::move_to(8, "=Width*0.18", "=Height*0.24"),
+                GeometryRow::line_to(9, "=Width*0.82", "=Height*0.24"),
+            ];
+            sh.sheet.add_geometry(detail);
+        }
+        "office_excel" => {
+            detail.rows = vec![
+                // 'X' emblem + 2x3 spreadsheet cell grid
+                GeometryRow::move_to(1, "=Width*0.18", "=Height*0.78"),
+                GeometryRow::line_to(2, "=Width*0.38", "=Height*0.56"),
+                GeometryRow::move_to(3, "=Width*0.38", "=Height*0.78"),
+                GeometryRow::line_to(4, "=Width*0.18", "=Height*0.56"),
+                GeometryRow::move_to(5, "=Width*0.18", "=Height*0.44"),
+                GeometryRow::line_to(6, "=Width*0.82", "=Height*0.44"),
+                GeometryRow::line_to(7, "=Width*0.82", "=Height*0.16"),
+                GeometryRow::line_to(8, "=Width*0.18", "=Height*0.16"),
+                GeometryRow::line_to(9, "=Width*0.18", "=Height*0.44"),
+                GeometryRow::move_to(10, "=Width*0.18", "=Height*0.30"),
+                GeometryRow::line_to(11, "=Width*0.82", "=Height*0.30"),
+                GeometryRow::move_to(12, "=Width*0.50", "=Height*0.16"),
+                GeometryRow::line_to(13, "=Width*0.50", "=Height*0.44"),
+            ];
+            sh.sheet.add_geometry(detail);
+        }
+        "office_powerpoint" => {
+            detail.rows = vec![
+                // Slide header + circular pie chart + bullet bars
+                GeometryRow::move_to(1, "0 in", "=Height*0.78"),
+                GeometryRow::line_to(2, "=Width", "=Height*0.78"),
+                GeometryRow::move_to(3, "=Width*0.18", "=Height*0.44"),
+                GeometryRow::arc_to(4, "=Width*0.46", "=Height*0.44", "0.14 in"),
+                GeometryRow::arc_to(5, "=Width*0.18", "=Height*0.44", "0.14 in"),
+                GeometryRow::move_to(6, "=Width*0.32", "=Height*0.44"),
+                GeometryRow::line_to(7, "=Width*0.32", "=Height*0.62"),
+                GeometryRow::move_to(8, "=Width*0.32", "=Height*0.44"),
+                GeometryRow::line_to(9, "=Width*0.46", "=Height*0.44"),
+                GeometryRow::move_to(10, "=Width*0.56", "=Height*0.54"),
+                GeometryRow::line_to(11, "=Width*0.86", "=Height*0.54"),
+                GeometryRow::move_to(12, "=Width*0.56", "=Height*0.34"),
+                GeometryRow::line_to(13, "=Width*0.82", "=Height*0.34"),
+            ];
+            sh.sheet.add_geometry(detail);
+        }
+        "office_onenote" => {
+            detail.rows = vec![
+                // Left binder spine + right section tabs + 'N' monogram
+                GeometryRow::move_to(1, "=Width*0.20", "0 in"),
+                GeometryRow::line_to(2, "=Width*0.20", "=Height"),
+                GeometryRow::move_to(3, "=Width*0.86", "=Height*0.75"),
+                GeometryRow::line_to(4, "=Width", "=Height*0.75"),
+                GeometryRow::move_to(5, "=Width*0.86", "=Height*0.50"),
+                GeometryRow::line_to(6, "=Width", "=Height*0.50"),
+                GeometryRow::move_to(7, "=Width*0.86", "=Height*0.25"),
+                GeometryRow::line_to(8, "=Width", "=Height*0.25"),
+                GeometryRow::move_to(9, "=Width*0.38", "=Height*0.32"),
+                GeometryRow::line_to(10, "=Width*0.38", "=Height*0.68"),
+                GeometryRow::line_to(11, "=Width*0.66", "=Height*0.32"),
+                GeometryRow::line_to(12, "=Width*0.66", "=Height*0.68"),
+            ];
+            sh.sheet.add_geometry(detail);
+        }
+        "m365_copilot" => {
+            detail.rows = vec![
+                // Intertwined dual-ribbon infinity loop
+                GeometryRow::move_to(1, "=Width*0.22", "=Height*0.50"),
+                GeometryRow::arc_to(2, "=Width*0.50", "=Height*0.50", "0.14 in"),
+                GeometryRow::arc_to(3, "=Width*0.78", "=Height*0.50", "-0.14 in"),
+                GeometryRow::arc_to(4, "=Width*0.50", "=Height*0.50", "-0.14 in"),
+                GeometryRow::arc_to(5, "=Width*0.22", "=Height*0.50", "0.14 in"),
+            ];
+            sh.sheet.add_geometry(detail);
+        }
+        "m365_loop" => {
+            detail.rows = vec![
+                // Tear-drop modular Loop ring anchored bottom-left
+                GeometryRow::move_to(1, "=Width*0.26", "=Height*0.22"),
+                GeometryRow::line_to(2, "=Width*0.52", "=Height*0.22"),
+                GeometryRow::arc_to(3, "=Width*0.52", "=Height*0.78", "0.18 in"),
+                GeometryRow::arc_to(4, "=Width*0.26", "=Height*0.50", "0.12 in"),
+                GeometryRow::line_to(5, "=Width*0.26", "=Height*0.22"),
+            ];
+            sh.sheet.add_geometry(detail);
+        }
+        "m365_intune" => {
+            detail.rows = vec![
+                // Managed laptop screen + overlapping mobile handset
+                GeometryRow::move_to(1, "=Width*0.14", "=Height*0.30"),
+                GeometryRow::line_to(2, "=Width*0.66", "=Height*0.30"),
+                GeometryRow::line_to(3, "=Width*0.66", "=Height*0.78"),
+                GeometryRow::line_to(4, "=Width*0.14", "=Height*0.78"),
+                GeometryRow::line_to(5, "=Width*0.14", "=Height*0.30"),
+                GeometryRow::move_to(6, "=Width*0.62", "=Height*0.18"),
+                GeometryRow::line_to(7, "=Width*0.86", "=Height*0.18"),
+                GeometryRow::line_to(8, "=Width*0.86", "=Height*0.66"),
+                GeometryRow::line_to(9, "=Width*0.62", "=Height*0.66"),
+                GeometryRow::line_to(10, "=Width*0.62", "=Height*0.18"),
+            ];
+            sh.sheet.add_geometry(detail);
+        }
+        "m365_defender" => {
+            // Classic pointed-bottom security shield + 4-quadrant seam
+            let mut g1 = GeometrySection::new(1);
+            g1.rows = vec![
+                GeometryRow::move_to(1, "=Width*0.50", "0 in"),
+                GeometryRow::line_to(2, "=Width*0.92", "=Height*0.36"),
+                GeometryRow::line_to(3, "=Width*0.92", "=Height*0.84"),
+                GeometryRow::line_to(4, "=Width*0.50", "=Height"),
+                GeometryRow::line_to(5, "=Width*0.08", "=Height*0.84"),
+                GeometryRow::line_to(6, "=Width*0.08", "=Height*0.36"),
+                GeometryRow::line_to(7, "=Width*0.50", "0 in"),
+            ];
+            sh.sheet.add_geometry(g1);
+            detail.rows = vec![
+                GeometryRow::move_to(1, "=Width*0.50", "0 in"),
+                GeometryRow::line_to(2, "=Width*0.50", "=Height"),
+                GeometryRow::move_to(3, "=Width*0.08", "=Height*0.52"),
+                GeometryRow::line_to(4, "=Width*0.92", "=Height*0.52"),
+            ];
+            sh.sheet.add_geometry(detail);
+        }
+        // --- Microsoft Servers & Active Directory (14 high-definition vector masters) ---
+        "ms_win_server" => {
+            detail.rows = vec![
+                // 3 horizontal server drive bays + front LEDs + 2x2 OS emblem
+                GeometryRow::move_to(1, "=Width*0.16", "=Height*0.82"),
+                GeometryRow::line_to(2, "=Width*0.84", "=Height*0.82"),
+                GeometryRow::move_to(3, "=Width*0.16", "=Height*0.68"),
+                GeometryRow::line_to(4, "=Width*0.84", "=Height*0.68"),
+                GeometryRow::move_to(5, "=Width*0.16", "=Height*0.54"),
+                GeometryRow::line_to(6, "=Width*0.84", "=Height*0.54"),
+                GeometryRow::move_to(7, "=Width*0.34", "=Height*0.16"),
+                GeometryRow::line_to(8, "=Width*0.66", "=Height*0.16"),
+                GeometryRow::line_to(9, "=Width*0.66", "=Height*0.42"),
+                GeometryRow::line_to(10, "=Width*0.34", "=Height*0.42"),
+                GeometryRow::line_to(11, "=Width*0.34", "=Height*0.16"),
+                GeometryRow::move_to(12, "=Width*0.50", "=Height*0.16"),
+                GeometryRow::line_to(13, "=Width*0.50", "=Height*0.42"),
+                GeometryRow::move_to(14, "=Width*0.34", "=Height*0.29"),
+                GeometryRow::line_to(15, "=Width*0.66", "=Height*0.29"),
+            ];
+            sh.sheet.add_geometry(detail);
+        }
+        "ms_ad_dc" => {
+            detail.rows = vec![
+                // Hierarchical Active Directory tree lines inside pyramid
+                GeometryRow::move_to(1, "=Width*0.50", "=Height*0.72"),
+                GeometryRow::line_to(2, "=Width*0.50", "=Height*0.42"),
+                GeometryRow::move_to(3, "=Width*0.26", "=Height*0.42"),
+                GeometryRow::line_to(4, "=Width*0.74", "=Height*0.42"),
+                GeometryRow::move_to(5, "=Width*0.26", "=Height*0.42"),
+                GeometryRow::line_to(6, "=Width*0.26", "=Height*0.18"),
+                GeometryRow::move_to(7, "=Width*0.50", "=Height*0.42"),
+                GeometryRow::line_to(8, "=Width*0.50", "=Height*0.18"),
+                GeometryRow::move_to(9, "=Width*0.74", "=Height*0.42"),
+                GeometryRow::line_to(10, "=Width*0.74", "=Height*0.18"),
+            ];
+            sh.sheet.add_geometry(detail);
+        }
+        "ms_entra_id" => {
+            detail.rows = vec![
+                // Faceted Entra identity prism rays
+                GeometryRow::move_to(1, "=Width*0.50", "=Height"),
+                GeometryRow::line_to(2, "=Width*0.50", "=Height*0.38"),
+                GeometryRow::line_to(3, "0 in", "=Height*0.50"),
+                GeometryRow::move_to(4, "=Width*0.50", "=Height*0.38"),
+                GeometryRow::line_to(5, "=Width", "=Height*0.50"),
+                GeometryRow::move_to(6, "=Width*0.50", "=Height*0.38"),
+                GeometryRow::line_to(7, "=Width*0.50", "0 in"),
+            ];
+            sh.sheet.add_geometry(detail);
+        }
+        "ms_ad_trust" => {
+            detail.rows = vec![
+                // Left & right directory triangles linked by bidirectional trust arrow
+                GeometryRow::move_to(1, "=Width*0.12", "=Height*0.26"),
+                GeometryRow::line_to(2, "=Width*0.34", "=Height*0.26"),
+                GeometryRow::line_to(3, "=Width*0.23", "=Height*0.74"),
+                GeometryRow::line_to(4, "=Width*0.12", "=Height*0.26"),
+                GeometryRow::move_to(5, "=Width*0.66", "=Height*0.26"),
+                GeometryRow::line_to(6, "=Width*0.88", "=Height*0.26"),
+                GeometryRow::line_to(7, "=Width*0.77", "=Height*0.74"),
+                GeometryRow::line_to(8, "=Width*0.66", "=Height*0.26"),
+                GeometryRow::move_to(9, "=Width*0.36", "=Height*0.50"),
+                GeometryRow::line_to(10, "=Width*0.64", "=Height*0.50"),
+            ];
+            sh.sheet.add_geometry(detail);
+        }
+        "ms_gpo" => {
+            detail.rows = vec![
+                // Policy checkmarks & rule bars
+                GeometryRow::move_to(1, "=Width*0.18", "=Height*0.62"),
+                GeometryRow::line_to(2, "=Width*0.26", "=Height*0.54"),
+                GeometryRow::line_to(3, "=Width*0.36", "=Height*0.68"),
+                GeometryRow::move_to(4, "=Width*0.44", "=Height*0.60"),
+                GeometryRow::line_to(5, "=Width*0.80", "=Height*0.60"),
+                GeometryRow::move_to(6, "=Width*0.18", "=Height*0.34"),
+                GeometryRow::line_to(7, "=Width*0.26", "=Height*0.26"),
+                GeometryRow::line_to(8, "=Width*0.36", "=Height*0.40"),
+                GeometryRow::move_to(9, "=Width*0.44", "=Height*0.32"),
+                GeometryRow::line_to(10, "=Width*0.80", "=Height*0.32"),
+            ];
+            sh.sheet.add_geometry(detail);
+        }
+        "ms_dns_dhcp" => {
+            detail.rows = vec![
+                // Server slot + bidirectional IP lookup arrows
+                GeometryRow::move_to(1, "0 in", "=Height*0.68"),
+                GeometryRow::line_to(2, "=Width", "=Height*0.68"),
+                GeometryRow::move_to(3, "=Width*0.20", "=Height*0.44"),
+                GeometryRow::line_to(4, "=Width*0.80", "=Height*0.44"),
+                GeometryRow::line_to(5, "=Width*0.68", "=Height*0.54"),
+                GeometryRow::move_to(6, "=Width*0.80", "=Height*0.24"),
+                GeometryRow::line_to(7, "=Width*0.20", "=Height*0.24"),
+                GeometryRow::line_to(8, "=Width*0.32", "=Height*0.14"),
+            ];
+            sh.sheet.add_geometry(detail);
+        }
+        "ms_iis" => {
+            detail.rows = vec![
+                // Web globe circle + equator & meridian
+                GeometryRow::move_to(1, "=Width*0.28", "=Height*0.50"),
+                GeometryRow::arc_to(2, "=Width*0.72", "=Height*0.50", "0.22 in"),
+                GeometryRow::arc_to(3, "=Width*0.28", "=Height*0.50", "0.22 in"),
+                GeometryRow::move_to(4, "=Width*0.28", "=Height*0.50"),
+                GeometryRow::line_to(5, "=Width*0.72", "=Height*0.50"),
+                GeometryRow::move_to(6, "=Width*0.50", "=Height*0.18"),
+                GeometryRow::line_to(7, "=Width*0.50", "=Height*0.82"),
+            ];
+            sh.sheet.add_geometry(detail);
+        }
+        "ms_sql_server" => {
+            // SQL cylinder body + top ellipse cap + dual data-tier rings
+            let mut g1 = GeometrySection::new(1);
+            g1.rows = vec![
+                GeometryRow::move_to(1, "0 in", "=Height*0.14"),
+                GeometryRow::line_to(2, "=Width", "=Height*0.14"),
+                GeometryRow::line_to(3, "=Width", "=Height*0.84"),
+                GeometryRow::line_to(4, "0 in", "=Height*0.84"),
+                GeometryRow::line_to(5, "0 in", "=Height*0.14"),
+            ];
+            sh.sheet.add_geometry(g1);
+            let mut cap = GeometrySection::new(2);
+            cap.rows = vec![GeometryRow {
+                ix: 1,
+                kind: vexio_shapesheet::GeometryRowKind::Ellipse,
+                x: "=Width*0.5".into(),
+                y: "=Height*0.84".into(),
+                a: Some("=Width".into()),
+                b: Some("=Height*0.84".into()),
+                c: Some("=Width*0.5".into()),
+                d: Some("=Height".into()),
+                e: None,
+                deleted: false,
+            }];
+            sh.sheet.add_geometry(cap);
+            let mut rings = GeometrySection::new(3);
+            rings.no_fill = "TRUE".into();
+            rings.rows = vec![
+                GeometryRow::move_to(1, "0 in", "=Height*0.58"),
+                GeometryRow::arc_to(2, "=Width", "=Height*0.58", "-0.08 in"),
+                GeometryRow::move_to(3, "0 in", "=Height*0.36"),
+                GeometryRow::arc_to(4, "=Width", "=Height*0.36", "-0.08 in"),
+            ];
+            sh.sheet.add_geometry(rings);
+        }
+        "ms_exchange_srv" => {
+            detail.rows = vec![
+                // Server rack header + front mail routing envelope
+                GeometryRow::move_to(1, "0 in", "=Height*0.76"),
+                GeometryRow::line_to(2, "=Width", "=Height*0.76"),
+                GeometryRow::move_to(3, "=Width*0.20", "=Height*0.20"),
+                GeometryRow::line_to(4, "=Width*0.80", "=Height*0.20"),
+                GeometryRow::line_to(5, "=Width*0.80", "=Height*0.58"),
+                GeometryRow::line_to(6, "=Width*0.20", "=Height*0.58"),
+                GeometryRow::line_to(7, "=Width*0.20", "=Height*0.20"),
+                GeometryRow::move_to(8, "=Width*0.20", "=Height*0.58"),
+                GeometryRow::line_to(9, "=Width*0.50", "=Height*0.36"),
+                GeometryRow::line_to(10, "=Width*0.80", "=Height*0.58"),
+            ];
+            sh.sheet.add_geometry(detail);
+        }
+        "ms_sharepoint_srv" => {
+            detail.rows = vec![
+                // Server header + interconnected intranet farm nodes
+                GeometryRow::move_to(1, "0 in", "=Height*0.76"),
+                GeometryRow::line_to(2, "=Width", "=Height*0.76"),
+                GeometryRow::move_to(3, "=Width*0.26", "=Height*0.38"),
+                GeometryRow::arc_to(4, "=Width*0.56", "=Height*0.38", "0.14 in"),
+                GeometryRow::arc_to(5, "=Width*0.26", "=Height*0.38", "0.14 in"),
+                GeometryRow::move_to(6, "=Width*0.46", "=Height*0.38"),
+                GeometryRow::arc_to(7, "=Width*0.76", "=Height*0.38", "0.14 in"),
+                GeometryRow::arc_to(8, "=Width*0.46", "=Height*0.38", "0.14 in"),
+            ];
+            sh.sheet.add_geometry(detail);
+        }
+        "ms_hyperv" => {
+            // Add virtualized VM guest slices onto Cube3D face (`Geometry3` since Cube3D uses 1 & 2)
+            let mut slices = GeometrySection::new(3);
+            slices.no_fill = "TRUE".into();
+            slices.rows = vec![
+                GeometryRow::move_to(1, "=Width*0.12", "=Height*0.50"),
+                GeometryRow::line_to(2, "=Width*0.64", "=Height*0.50"),
+                GeometryRow::move_to(3, "=Width*0.12", "=Height*0.26"),
+                GeometryRow::line_to(4, "=Width*0.64", "=Height*0.26"),
+            ];
+            sh.sheet.add_geometry(slices);
+        }
+        "ms_failover_cluster" => {
+            detail.rows = vec![
+                // Dual HA server blades + central heartbeat pulse
+                GeometryRow::move_to(1, "=Width*0.42", "0 in"),
+                GeometryRow::line_to(2, "=Width*0.42", "=Height"),
+                GeometryRow::move_to(3, "=Width*0.58", "0 in"),
+                GeometryRow::line_to(4, "=Width*0.58", "=Height"),
+                GeometryRow::move_to(5, "=Width*0.20", "=Height*0.50"),
+                GeometryRow::line_to(6, "=Width*0.45", "=Height*0.50"),
+                GeometryRow::line_to(7, "=Width*0.48", "=Height*0.72"),
+                GeometryRow::line_to(8, "=Width*0.52", "=Height*0.28"),
+                GeometryRow::line_to(9, "=Width*0.55", "=Height*0.50"),
+                GeometryRow::line_to(10, "=Width*0.80", "=Height*0.50"),
+            ];
+            sh.sheet.add_geometry(detail);
+        }
+        "ms_system_center" => {
+            detail.rows = vec![
+                // Fleet telemetry waveform inside hexagon
+                GeometryRow::move_to(1, "=Width*0.18", "=Height*0.50"),
+                GeometryRow::line_to(2, "=Width*0.36", "=Height*0.50"),
+                GeometryRow::line_to(3, "=Width*0.45", "=Height*0.76"),
+                GeometryRow::line_to(4, "=Width*0.55", "=Height*0.24"),
+                GeometryRow::line_to(5, "=Width*0.64", "=Height*0.50"),
+                GeometryRow::line_to(6, "=Width*0.82", "=Height*0.50"),
+            ];
+            sh.sheet.add_geometry(detail);
+        }
+        "ms_win11_client" => {
+            // Monitor bezel + stand neck/base + centered Windows 11 taskbar
+            let mut g1 = GeometrySection::new(1);
+            g1.rows = vec![
+                GeometryRow::move_to(1, "=Width*0.08", "=Height*0.24"),
+                GeometryRow::line_to(2, "=Width*0.92", "=Height*0.24"),
+                GeometryRow::line_to(3, "=Width*0.92", "=Height*0.94"),
+                GeometryRow::line_to(4, "=Width*0.08", "=Height*0.94"),
+                GeometryRow::line_to(5, "=Width*0.08", "=Height*0.24"),
+            ];
+            sh.sheet.add_geometry(g1);
+            detail.rows = vec![
+                GeometryRow::move_to(1, "=Width*0.50", "=Height*0.24"),
+                GeometryRow::line_to(2, "=Width*0.50", "=Height*0.08"),
+                GeometryRow::move_to(3, "=Width*0.30", "=Height*0.08"),
+                GeometryRow::line_to(4, "=Width*0.70", "=Height*0.08"),
+                GeometryRow::move_to(5, "=Width*0.34", "=Height*0.34"),
+                GeometryRow::line_to(6, "=Width*0.66", "=Height*0.34"),
+            ];
+            sh.sheet.add_geometry(detail);
+        }
+        // --- Microsoft Azure & Hybrid Cloud (14 high-definition vector masters) ---
+        "az_resource_group" => {
+            detail.rows = vec![
+                // Resource group header line + corner cube badge
+                GeometryRow::move_to(1, "0 in", "=Height*0.76"),
+                GeometryRow::line_to(2, "=Width", "=Height*0.76"),
+                GeometryRow::move_to(3, "=Width*0.08", "=Height*0.82"),
+                GeometryRow::line_to(4, "=Width*0.20", "=Height*0.82"),
+                GeometryRow::line_to(5, "=Width*0.20", "=Height*0.94"),
+                GeometryRow::line_to(6, "=Width*0.08", "=Height*0.94"),
+                GeometryRow::line_to(7, "=Width*0.08", "=Height*0.82"),
+            ];
+            sh.sheet.add_geometry(detail);
+        }
+        "az_vm" => {
+            detail.rows = vec![
+                // Inner compute cube + VM monitor pedestal
+                GeometryRow::move_to(1, "=Width*0.32", "=Height*0.34"),
+                GeometryRow::line_to(2, "=Width*0.68", "=Height*0.34"),
+                GeometryRow::line_to(3, "=Width*0.68", "=Height*0.76"),
+                GeometryRow::line_to(4, "=Width*0.32", "=Height*0.76"),
+                GeometryRow::line_to(5, "=Width*0.32", "=Height*0.34"),
+                GeometryRow::move_to(6, "=Width*0.36", "=Height*0.16"),
+                GeometryRow::line_to(7, "=Width*0.64", "=Height*0.16"),
+            ];
+            sh.sheet.add_geometry(detail);
+        }
+        "az_aks" => {
+            detail.rows = vec![
+                // AKS 6-spoke container helm + central hub
+                GeometryRow::move_to(1, "=Width*0.50", "=Height*0.16"),
+                GeometryRow::line_to(2, "=Width*0.50", "=Height*0.84"),
+                GeometryRow::move_to(3, "=Width*0.22", "=Height*0.32"),
+                GeometryRow::line_to(4, "=Width*0.78", "=Height*0.68"),
+                GeometryRow::move_to(5, "=Width*0.22", "=Height*0.68"),
+                GeometryRow::line_to(6, "=Width*0.78", "=Height*0.32"),
+                GeometryRow::move_to(7, "=Width*0.38", "=Height*0.50"),
+                GeometryRow::arc_to(8, "=Width*0.62", "=Height*0.50", "0.11 in"),
+                GeometryRow::arc_to(9, "=Width*0.38", "=Height*0.50", "0.11 in"),
+            ];
+            sh.sheet.add_geometry(detail);
+        }
+        "az_app_service" => {
+            detail.rows = vec![
+                // Criss-crossing orbital web paths across App Service sphere
+                GeometryRow::move_to(1, "=Width*0.14", "=Height*0.34"),
+                GeometryRow::arc_to(2, "=Width*0.86", "=Height*0.66", "0.16 in"),
+                GeometryRow::move_to(3, "=Width*0.14", "=Height*0.66"),
+                GeometryRow::arc_to(4, "=Width*0.86", "=Height*0.34", "-0.16 in"),
+            ];
+            sh.sheet.add_geometry(detail);
+        }
+        "az_functions" => {
+            detail.rows = vec![
+                // Serverless lightning bolt + '< >' code brackets
+                GeometryRow::move_to(1, "=Width*0.54", "=Height*0.78"),
+                GeometryRow::line_to(2, "=Width*0.40", "=Height*0.50"),
+                GeometryRow::line_to(3, "=Width*0.56", "=Height*0.50"),
+                GeometryRow::line_to(4, "=Width*0.44", "=Height*0.22"),
+                GeometryRow::move_to(5, "=Width*0.30", "=Height*0.62"),
+                GeometryRow::line_to(6, "=Width*0.20", "=Height*0.50"),
+                GeometryRow::line_to(7, "=Width*0.30", "=Height*0.38"),
+                GeometryRow::move_to(8, "=Width*0.70", "=Height*0.62"),
+                GeometryRow::line_to(9, "=Width*0.80", "=Height*0.50"),
+                GeometryRow::line_to(10, "=Width*0.70", "=Height*0.38"),
+            ];
+            sh.sheet.add_geometry(detail);
+        }
+        "az_sql_cosmos" => {
+            // Cylinder + planetary Cosmos DB ring
+            let mut g1 = GeometrySection::new(1);
+            g1.rows = vec![
+                GeometryRow::move_to(1, "=Width*0.14", "=Height*0.16"),
+                GeometryRow::line_to(2, "=Width*0.86", "=Height*0.16"),
+                GeometryRow::line_to(3, "=Width*0.86", "=Height*0.84"),
+                GeometryRow::line_to(4, "=Width*0.14", "=Height*0.84"),
+                GeometryRow::line_to(5, "=Width*0.14", "=Height*0.16"),
+            ];
+            sh.sheet.add_geometry(g1);
+            detail.rows = vec![
+                GeometryRow::move_to(1, "=Width*0.14", "=Height*0.84"),
+                GeometryRow::arc_to(2, "=Width*0.86", "=Height*0.84", "0.10 in"),
+                GeometryRow::arc_to(3, "=Width*0.14", "=Height*0.84", "0.10 in"),
+                GeometryRow::move_to(4, "0 in", "=Height*0.38"),
+                GeometryRow::arc_to(5, "=Width", "=Height*0.62", "-0.14 in"),
+            ];
+            sh.sheet.add_geometry(detail);
+        }
+        "az_storage" => {
+            detail.rows = vec![
+                // 3 stacked Azure Storage tiers (Blob / File / Table)
+                GeometryRow::move_to(1, "0 in", "=Height*0.68"),
+                GeometryRow::line_to(2, "=Width", "=Height*0.68"),
+                GeometryRow::move_to(3, "0 in", "=Height*0.36"),
+                GeometryRow::line_to(4, "=Width", "=Height*0.36"),
+                GeometryRow::move_to(5, "=Width*0.36", "=Height*0.84"),
+                GeometryRow::line_to(6, "=Width*0.64", "=Height*0.84"),
+                GeometryRow::move_to(7, "=Width*0.36", "=Height*0.52"),
+                GeometryRow::line_to(8, "=Width*0.64", "=Height*0.52"),
+                GeometryRow::move_to(9, "=Width*0.36", "=Height*0.18"),
+                GeometryRow::line_to(10, "=Width*0.64", "=Height*0.18"),
+            ];
+            sh.sheet.add_geometry(detail);
+        }
+        "az_vnet" => {
+            detail.rows = vec![
+                // '< ... >' VNet address brackets + 3 subnet nodes
+                GeometryRow::move_to(1, "=Width*0.28", "=Height*0.76"),
+                GeometryRow::line_to(2, "=Width*0.14", "=Height*0.50"),
+                GeometryRow::line_to(3, "=Width*0.28", "=Height*0.24"),
+                GeometryRow::move_to(4, "=Width*0.72", "=Height*0.76"),
+                GeometryRow::line_to(5, "=Width*0.86", "=Height*0.50"),
+                GeometryRow::line_to(6, "=Width*0.72", "=Height*0.24"),
+                GeometryRow::move_to(7, "=Width*0.36", "=Height*0.50"),
+                GeometryRow::line_to(8, "=Width*0.64", "=Height*0.50"),
+            ];
+            sh.sheet.add_geometry(detail);
+        }
+        "az_front_door" => {
+            detail.rows = vec![
+                // Global ingress 1 -> 3 fan-out routing
+                GeometryRow::move_to(1, "=Width*0.18", "=Height*0.50"),
+                GeometryRow::line_to(2, "=Width*0.46", "=Height*0.50"),
+                GeometryRow::line_to(3, "=Width*0.78", "=Height*0.76"),
+                GeometryRow::move_to(4, "=Width*0.46", "=Height*0.50"),
+                GeometryRow::line_to(5, "=Width*0.82", "=Height*0.50"),
+                GeometryRow::move_to(6, "=Width*0.46", "=Height*0.50"),
+                GeometryRow::line_to(7, "=Width*0.78", "=Height*0.24"),
+            ];
+            sh.sheet.add_geometry(detail);
+        }
+        "az_key_vault" => {
+            detail.rows = vec![
+                // Inner vault ring + central keyhole
+                GeometryRow::move_to(1, "=Width*0.34", "=Height*0.58"),
+                GeometryRow::arc_to(2, "=Width*0.66", "=Height*0.58", "0.14 in"),
+                GeometryRow::arc_to(3, "=Width*0.34", "=Height*0.58", "0.14 in"),
+                GeometryRow::move_to(4, "=Width*0.44", "=Height*0.44"),
+                GeometryRow::line_to(5, "=Width*0.40", "=Height*0.20"),
+                GeometryRow::line_to(6, "=Width*0.60", "=Height*0.20"),
+                GeometryRow::line_to(7, "=Width*0.56", "=Height*0.44"),
+            ];
+            sh.sheet.add_geometry(detail);
+        }
+        "az_service_bus" => {
+            detail.rows = vec![
+                // Top/bottom bus rails + streaming message lanes
+                GeometryRow::move_to(1, "=Width*0.12", "=Height*0.76"),
+                GeometryRow::line_to(2, "=Width*0.88", "=Height*0.76"),
+                GeometryRow::move_to(3, "=Width*0.18", "=Height*0.50"),
+                GeometryRow::line_to(4, "=Width*0.82", "=Height*0.50"),
+                GeometryRow::line_to(5, "=Width*0.70", "=Height*0.62"),
+                GeometryRow::move_to(6, "=Width*0.12", "=Height*0.24"),
+                GeometryRow::line_to(7, "=Width*0.88", "=Height*0.24"),
+            ];
+            sh.sheet.add_geometry(detail);
+        }
+        "az_expressroute" => {
+            detail.rows = vec![
+                // Dedicated private triangle circuit between 3 peering sites
+                GeometryRow::move_to(1, "=Width*0.50", "=Height*0.74"),
+                GeometryRow::line_to(2, "=Width*0.28", "=Height*0.32"),
+                GeometryRow::line_to(3, "=Width*0.72", "=Height*0.32"),
+                GeometryRow::line_to(4, "=Width*0.50", "=Height*0.74"),
+            ];
+            sh.sheet.add_geometry(detail);
+        }
+        "az_arc" => {
+            detail.rows = vec![
+                // Sweeping hybrid Azure Arc over on-prem horizon
+                GeometryRow::move_to(1, "=Width*0.16", "=Height*0.28"),
+                GeometryRow::arc_to(2, "=Width*0.84", "=Height*0.28", "0.24 in"),
+                GeometryRow::move_to(3, "=Width*0.28", "=Height*0.28"),
+                GeometryRow::arc_to(4, "=Width*0.72", "=Height*0.28", "0.14 in"),
+                GeometryRow::move_to(5, "=Width*0.14", "=Height*0.28"),
+                GeometryRow::line_to(6, "=Width*0.86", "=Height*0.28"),
+            ];
+            sh.sheet.add_geometry(detail);
+        }
+        "az_openai" => {
+            detail.rows = vec![
+                // Neural star-mesh inside Azure AI Foundry hexagon
+                GeometryRow::move_to(1, "=Width*0.50", "=Height*0.82"),
+                GeometryRow::line_to(2, "=Width*0.24", "=Height*0.34"),
+                GeometryRow::line_to(3, "=Width*0.76", "=Height*0.34"),
+                GeometryRow::line_to(4, "=Width*0.50", "=Height*0.82"),
+                GeometryRow::move_to(5, "=Width*0.50", "=Height*0.18"),
+                GeometryRow::line_to(6, "=Width*0.24", "=Height*0.66"),
+                GeometryRow::line_to(7, "=Width*0.76", "=Height*0.66"),
+                GeometryRow::line_to(8, "=Width*0.50", "=Height*0.18"),
+            ];
+            sh.sheet.add_geometry(detail);
+        }
+        // --- Microsoft Power Platform & Dynamics 365 (10 high-definition vector masters) ---
+        "pp_powerbi" => {
+            detail.rows = vec![
+                // 3 ascending Power BI column bars
+                GeometryRow::move_to(1, "=Width*0.20", "=Height*0.16"),
+                GeometryRow::line_to(2, "=Width*0.20", "=Height*0.44"),
+                GeometryRow::line_to(3, "=Width*0.36", "=Height*0.44"),
+                GeometryRow::line_to(4, "=Width*0.36", "=Height*0.16"),
+                GeometryRow::move_to(5, "=Width*0.44", "=Height*0.16"),
+                GeometryRow::line_to(6, "=Width*0.44", "=Height*0.64"),
+                GeometryRow::line_to(7, "=Width*0.60", "=Height*0.64"),
+                GeometryRow::line_to(8, "=Width*0.60", "=Height*0.16"),
+                GeometryRow::move_to(9, "=Width*0.68", "=Height*0.16"),
+                GeometryRow::line_to(10, "=Width*0.68", "=Height*0.84"),
+                GeometryRow::line_to(11, "=Width*0.84", "=Height*0.84"),
+                GeometryRow::line_to(12, "=Width*0.84", "=Height*0.16"),
+            ];
+            sh.sheet.add_geometry(detail);
+        }
+        "pp_automate" => {
+            detail.rows = vec![
+                // Nested automation flow chevron
+                GeometryRow::move_to(1, "=Width*0.34", "=Height*0.22"),
+                GeometryRow::line_to(2, "=Width*0.64", "=Height*0.50"),
+                GeometryRow::line_to(3, "=Width*0.34", "=Height*0.78"),
+            ];
+            sh.sheet.add_geometry(detail);
+        }
+        "pp_powerapps" => {
+            detail.rows = vec![
+                // Nested layered app diamond
+                GeometryRow::move_to(1, "=Width*0.50", "=Height*0.22"),
+                GeometryRow::line_to(2, "=Width*0.78", "=Height*0.50"),
+                GeometryRow::line_to(3, "=Width*0.50", "=Height*0.78"),
+                GeometryRow::line_to(4, "=Width*0.22", "=Height*0.50"),
+                GeometryRow::line_to(5, "=Width*0.50", "=Height*0.22"),
+            ];
+            sh.sheet.add_geometry(detail);
+        }
+        "pp_dataverse" => {
+            detail.rows = vec![
+                // 3 relational Dataverse record rows with primary-key divider
+                GeometryRow::move_to(1, "0 in", "=Height*0.67"),
+                GeometryRow::line_to(2, "=Width", "=Height*0.67"),
+                GeometryRow::move_to(3, "0 in", "=Height*0.34"),
+                GeometryRow::line_to(4, "=Width", "=Height*0.34"),
+                GeometryRow::move_to(5, "=Width*0.26", "0 in"),
+                GeometryRow::line_to(6, "=Width*0.26", "=Height"),
+            ];
+            sh.sheet.add_geometry(detail);
+        }
+        "pp_copilot_studio" => {
+            detail.rows = vec![
+                // Conversational bot visor & eyes inside CalloutBubble
+                GeometryRow::move_to(1, "=Width*0.24", "=Height*0.48"),
+                GeometryRow::line_to(2, "=Width*0.76", "=Height*0.48"),
+                GeometryRow::line_to(3, "=Width*0.76", "=Height*0.78"),
+                GeometryRow::line_to(4, "=Width*0.24", "=Height*0.78"),
+                GeometryRow::line_to(5, "=Width*0.24", "=Height*0.48"),
+                GeometryRow::move_to(6, "=Width*0.38", "=Height*0.63"),
+                GeometryRow::line_to(7, "=Width*0.44", "=Height*0.63"),
+                GeometryRow::move_to(8, "=Width*0.56", "=Height*0.63"),
+                GeometryRow::line_to(9, "=Width*0.62", "=Height*0.63"),
+            ];
+            sh.sheet.add_geometry(detail);
+        }
+        "pp_power_pages" => {
+            detail.rows = vec![
+                // Portal browser bar + 2-column content layout
+                GeometryRow::move_to(1, "0 in", "=Height*0.76"),
+                GeometryRow::line_to(2, "=Width", "=Height*0.76"),
+                GeometryRow::move_to(3, "=Width*0.36", "0 in"),
+                GeometryRow::line_to(4, "=Width*0.36", "=Height*0.76"),
+                GeometryRow::move_to(5, "=Width*0.48", "=Height*0.52"),
+                GeometryRow::line_to(6, "=Width*0.86", "=Height*0.52"),
+                GeometryRow::move_to(7, "=Width*0.48", "=Height*0.28"),
+                GeometryRow::line_to(8, "=Width*0.86", "=Height*0.28"),
+            ];
+            sh.sheet.add_geometry(detail);
+        }
+        "pp_gateway" => {
+            detail.rows = vec![
+                // On-premises data gateway bidirectional bridge
+                GeometryRow::move_to(1, "=Width*0.22", "=Height*0.60"),
+                GeometryRow::line_to(2, "=Width*0.78", "=Height*0.60"),
+                GeometryRow::line_to(3, "=Width*0.66", "=Height*0.74"),
+                GeometryRow::move_to(4, "=Width*0.78", "=Height*0.40"),
+                GeometryRow::line_to(5, "=Width*0.22", "=Height*0.40"),
+                GeometryRow::line_to(6, "=Width*0.34", "=Height*0.26"),
+            ];
+            sh.sheet.add_geometry(detail);
+        }
+        "d365_crm" => {
+            detail.rows = vec![
+                // Dynamics 365 CRM pipeline growth trend line
+                GeometryRow::move_to(1, "=Width*0.16", "=Height*0.24"),
+                GeometryRow::line_to(2, "=Width*0.40", "=Height*0.48"),
+                GeometryRow::line_to(3, "=Width*0.58", "=Height*0.36"),
+                GeometryRow::line_to(4, "=Width*0.84", "=Height*0.76"),
+                GeometryRow::move_to(5, "=Width*0.68", "=Height*0.76"),
+                GeometryRow::line_to(6, "=Width*0.84", "=Height*0.76"),
+                GeometryRow::line_to(7, "=Width*0.84", "=Height*0.58"),
+            ];
+            sh.sheet.add_geometry(detail);
+        }
+        "d365_erp" => {
+            detail.rows = vec![
+                // Dynamics 365 Finance & Supply Chain modular blocks
+                GeometryRow::move_to(1, "=Width*0.50", "0 in"),
+                GeometryRow::line_to(2, "=Width*0.50", "=Height"),
+                GeometryRow::move_to(3, "0 in", "=Height*0.50"),
+                GeometryRow::line_to(4, "=Width", "=Height*0.50"),
+                GeometryRow::move_to(5, "=Width*0.34", "=Height*0.34"),
+                GeometryRow::line_to(6, "=Width*0.66", "=Height*0.34"),
+                GeometryRow::line_to(7, "=Width*0.66", "=Height*0.66"),
+                GeometryRow::line_to(8, "=Width*0.34", "=Height*0.66"),
+                GeometryRow::line_to(9, "=Width*0.34", "=Height*0.34"),
+            ];
+            sh.sheet.add_geometry(detail);
+        }
+        "ms_fabric" => {
+            detail.rows = vec![
+                // OneLake delta-lakehouse strata inside Fabric parallelogram
+                GeometryRow::move_to(1, "=Width*0.06", "=Height*0.66"),
+                GeometryRow::line_to(2, "=Width*0.90", "=Height*0.66"),
+                GeometryRow::move_to(3, "=Width*0.11", "=Height*0.34"),
+                GeometryRow::line_to(4, "=Width*0.95", "=Height*0.34"),
+            ];
+            sh.sheet.add_geometry(detail);
+        }
         _ => {}
     }
 }
@@ -2877,7 +3787,7 @@ pub struct StencilMasterPreview {
     pub svg: String,
 }
 
-/// Render every built-in stencil master across all 17 Visio categories into a crisp, proportional standalone SVG
+/// Render every built-in stencil master across all 21 Visio & Microsoft categories into a crisp, proportional standalone SVG
 /// (`1.50 in × 1.00 in` mini-sheet evaluated through `ReactiveEngine` + `export_page_svg`).
 pub fn list_builtin_stencil_previews() -> BTreeMap<String, Vec<StencilMasterPreview>> {
     let packs = build_all_builtin_stencils();
@@ -2972,11 +3882,11 @@ mod stencil_preview_tests {
     use super::*;
 
     #[test]
-    fn all_160_builtin_stencil_masters_generate_distinct_vector_svg_previews() {
+    fn all_212_builtin_stencil_masters_generate_distinct_vector_svg_previews() {
         let previews = list_builtin_stencil_previews();
-        assert_eq!(previews.len(), 17);
+        assert_eq!(previews.len(), 21);
         let total: usize = previews.values().map(|v| v.len()).sum();
-        assert!(total >= 155, "expected at least 155 masters across 17 packs, got {total}");
+        assert_eq!(total, 212, "expected 212 masters across 21 packs, got {total}");
         for (pack_name, masters) in &previews {
             assert!(!masters.is_empty(), "pack {pack_name} had no masters");
             for m in masters {
@@ -2987,6 +3897,16 @@ mod stencil_preview_tests {
                     pack_name,
                     m.name
                 );
+                if pack_name.starts_with("Microsoft") {
+                    let prim_count =
+                        m.svg.matches("<path").count() + m.svg.matches("<ellipse").count();
+                    assert!(
+                        prim_count >= 2,
+                        "Microsoft stencil {}:{} must have multi-geometry interior detail (got {prim_count})",
+                        pack_name,
+                        m.name
+                    );
+                }
             }
         }
     }

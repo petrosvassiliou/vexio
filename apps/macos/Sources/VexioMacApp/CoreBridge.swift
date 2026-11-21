@@ -28,6 +28,8 @@ public extension UTType {
         case .autoCADDXF: return "dxf"
         case .pdf: return "pdf"
         case .svg: return "svg"
+        case .jpeg: return "jpg"
+        case .png: return "png"
         default:
             return preferredFilenameExtension?.lowercased() ?? "vsdx"
         }
@@ -114,13 +116,14 @@ public enum FormulaWriteMode: String, CaseIterable, Identifiable, Sendable {
 
 public enum VexioExportFormat: String, CaseIterable, Identifiable, Sendable {
     case vsdx
-    case vsd
-    case dxf
+    case jpg
+    case png
     case pdf
     case svg
+    case dxf
+    case vsd
     case pptx
     case docx
-    case emf
     case powerautomate
     case powerbi
 
@@ -129,13 +132,14 @@ public enum VexioExportFormat: String, CaseIterable, Identifiable, Sendable {
     public var displayName: String {
         switch self {
         case .vsdx: return "Visio Drawing (.vsdx)"
-        case .vsd: return "Visio 2003–2010 Binary (.vsd)"
-        case .dxf: return "AutoCAD Exchange (.dxf)"
+        case .jpg: return "High-DPI JPEG Image (.jpg)"
+        case .png: return "High-DPI PNG Image (.png)"
         case .pdf: return "Vector PDF/A (.pdf)"
         case .svg: return "Scalable Vector Graphics (.svg)"
+        case .dxf: return "AutoCAD Exchange (.dxf)"
+        case .vsd: return "Visio 2003–2010 Binary (.vsd)"
         case .pptx: return "PowerPoint Presentation (.pptx)"
         case .docx: return "Word Process Specification (.docx)"
-        case .emf: return "Enhanced Metafile Vector (.emf)"
         case .powerautomate: return "Power Automate Workflow (.flow.json)"
         case .powerbi: return "Power BI Visio Visual (.pbi.json)"
         }
@@ -152,13 +156,14 @@ public enum VexioExportFormat: String, CaseIterable, Identifiable, Sendable {
     public var contentType: UTType {
         switch self {
         case .vsdx: return .visioDrawing
-        case .vsd: return .visioLegacyDrawing
-        case .dxf: return .autoCADDXF
+        case .jpg: return .jpeg
+        case .png: return .png
         case .pdf: return .pdf
         case .svg: return .svg
+        case .dxf: return .autoCADDXF
+        case .vsd: return .visioLegacyDrawing
         case .pptx: return .presentation
         case .docx: return .data
-        case .emf: return .data
         case .powerautomate: return .json
         case .powerbi: return .json
         }
@@ -576,11 +581,11 @@ public struct VexioDocumentSnapshot: Sendable {
 
 public struct VexioExportFileDocument: FileDocument, Sendable {
     public static let readableContentTypes: [UTType] = [
-        .visioDrawing, .visioLegacyDrawing, .autoCADDXF, .pdf, .svg,
+        .visioDrawing, .visioLegacyDrawing, .autoCADDXF, .pdf, .svg, .jpeg, .png,
         .presentation, .spreadsheet, .data, .json,
     ]
     public static let writableContentTypes: [UTType] = [
-        .visioDrawing, .visioLegacyDrawing, .autoCADDXF, .pdf, .svg,
+        .visioDrawing, .visioLegacyDrawing, .autoCADDXF, .pdf, .svg, .jpeg, .png,
         .presentation, .spreadsheet, .data, .json,
     ]
 
@@ -1353,6 +1358,8 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
         .autoCADDXF,
         .pdf,
         .svg,
+        .jpeg,
+        .png,
         .presentation,
         .spreadsheet,
         .data,
@@ -1442,22 +1449,26 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
 
     nonisolated public static let canonicalCategoryOrder: [String] = [
         "Basic Shapes",
-        "Arrows & Callouts",
+        "Arrows & Block Arrows",
+        "Callouts, Notes & Containers",
         "Basic Flowchart",
+        "Microsoft 365 & Office",
+        "Microsoft Servers & Active Directory",
+        "Microsoft Azure & Hybrid Cloud",
+        "Microsoft Power Platform & Dynamics 365",
         "Cross-Functional Swimlanes",
         "BPMN 2.0",
         "UML 2.5",
-        "Entity Relationship (ERD)",
-        "Network & Rack",
-        "AWS Cloud Architecture",
-        "Azure & M365 Cloud",
-        "Google Cloud & Kubernetes",
-        "Org Chart",
-        "Floor Plan & Architectural",
-        "Electrical IEEE / IEC",
+        "Network & Rack Equipment",
+        "Cloud Architecture (AWS / GCP / Azure)",
+        "Database Crow's Foot & IDEF1X",
+        "Floor Plan & Architecture",
         "P&ID Process Engineering",
-        "Timeline, Gantt & Mind Map",
-        "Wireframe & UI Mockup",
+        "Electrical & Electronic (IEEE / IEC)",
+        "Organization Chart",
+        "UI & Application Wireframes",
+        "Project Schedule (Gantt & Timeline)",
+        "Value Stream Mapping (Lean VSM)",
     ]
 
     // Fallback Stencil Seed (superseded immediately by 160-master C-ABI catalog on load)

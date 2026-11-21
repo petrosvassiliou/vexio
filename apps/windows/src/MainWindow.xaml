@@ -151,9 +151,13 @@
                                     <Button HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Click="OnSaveClick" Content="Save Active Document (Ctrl+S)" />
                                     <Button HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Click="OnSaveAsClick" Content="Save As (.vsdx, .vsdm, .vssx, .vstx, .vsd, .vdx)..." />
                                     <MenuFlyoutSeparator />
-                                    <TextBlock Text="Vector, Office &amp; Print Exports" FontSize="12" FontWeight="SemiBold" />
+                                    <TextBlock Text="Vector, Image, Office &amp; Print Exports" FontSize="12" FontWeight="SemiBold" />
                                     <StackPanel Orientation="Horizontal" Spacing="6">
+                                        <Button Click="OnExportJpgClick" Content="Export JPG (.jpg)" />
+                                        <Button Click="OnExportPngClick" Content="Export PNG (.png)" />
                                         <Button Click="OnExportPdfClick" Content="Export PDF/A" />
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Spacing="6">
                                         <Button Click="OnExportSvgClick" Content="Export SVG" />
                                         <Button Click="OnExportDxfClick" Content="Export CAD DXF" />
                                     </StackPanel>
@@ -592,7 +596,7 @@
 
                     <!-- Header + Collapse Button -->
                     <Grid Grid.Row="0">
-                        <TextBlock x:Name="StencilHeaderCountText" Text="Shapes (17 Categories)" FontWeight="SemiBold" FontSize="13" VerticalAlignment="Center" />
+                        <TextBlock x:Name="StencilHeaderCountText" Text="Shapes (21 Categories)" FontWeight="SemiBold" FontSize="13" VerticalAlignment="Center" />
                         <Button HorizontalAlignment="Right" Padding="6,2" Background="Transparent" BorderBrush="Transparent"
                                 Click="OnToggleLeftStencilDockClick" ToolTipService.ToolTip="Collapse Shapes Dock">
                             <PathIcon Width="12" Height="12" Data="M 10,2 L 4,8 L 10,14" />
@@ -600,10 +604,10 @@
                     </Grid>
 
                     <!-- Instant Stencil Search -->
-                    <TextBox x:Name="StencilSearchBox" Grid.Row="1" PlaceholderText="Search 160 shapes in 17 packs..."
+                    <TextBox x:Name="StencilSearchBox" Grid.Row="1" PlaceholderText="Search 212 shapes in 21 packs..."
                              TextChanged="OnStencilSearchTextChanged" />
 
-                    <!-- Stencil Pack Switcher (Populated Dynamically with All 17 Visio Categories) -->
+                    <!-- Stencil Pack Switcher (Populated Dynamically with All 21 Visio Categories) -->
                     <ComboBox x:Name="StencilPackCombo" Grid.Row="2" HorizontalAlignment="Stretch"
                               SelectionChanged="OnStencilPackSelectionChanged" />
 
