@@ -134,6 +134,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.PathParser
 import androidx.compose.ui.input.key.Key
@@ -1802,12 +1803,12 @@ private fun DraggableStencilMasterCard(
                         if (parsedSvgPaths.isNotEmpty()) {
                             val srcW = 144f
                             val srcH = 96f
-                            val scale = minOf(w / srcW, h / srcH)
-                            val offX = (w - srcW * scale) * 0.5f
-                            val offY = (h - srcH * scale) * 0.5f
-                            androidx.compose.ui.graphics.drawscope.withTransform({
+                            val fitScale = minOf(w / srcW, h / srcH)
+                            val offX = (w - srcW * fitScale) * 0.5f
+                            val offY = (h - srcH * fitScale) * 0.5f
+                            withTransform({
                                 translate(left = offX, top = offY)
-                                scale(scaleX = scale, scaleY = scale, pivot = Offset.Zero)
+                                scale(scaleX = fitScale, scaleY = fitScale, pivot = Offset.Zero)
                             }) {
                                 parsedSvgPaths.forEach { seg ->
                                     if (seg.fillColor != null) {

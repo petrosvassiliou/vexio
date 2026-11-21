@@ -589,7 +589,7 @@ public final class VexioMetalNSView: NSView {
                 session.forceTouchQuickInspect = ForceTouchQuickInspectContext(
                     shapeId: session.selectedShapeId,
                     viewLocation: viewLocation,
-                    pressure: event.stageTransition > 0 ? event.stageTransition : event.pressure
+                    pressure: event.stageTransition > 0 ? Float(event.stageTransition) : event.pressure
                 )
             }
         }

@@ -228,28 +228,22 @@ pub fn prepare_visible_shape_batch(
     batch_out.vertices.reserve(visible_entries.len() * 4);
     batch_out.indices.reserve(visible_entries.len() * 6);
 
-    // Fast O(1) index lookup when `visuals` matches `z_order` from `SpatialIndex::build(visuals)`,
-    // with fallback map only if `visuals` was mutated out-of-line.
-    let direct_indexed = visuals
-        .iter()
-        .enumerate()
-        .all(|(i, v)| spatial.get(v.shape_id).is_some_and(|e| e.z_order as usize == i));
-
-    let fallback_map: BTreeMap<u64, &EvaluatedShapeVisual> = if direct_indexed {
-        BTreeMap::new()
-    } else {
-        visuals.iter().map(|v| (v.shape_id, v)).collect()
-    };
-
+    // Fast O(1) index lookup per visible entry when `visuals` matches `z_order` from `SpatialIndex::build(visuals)`,
+    // building a fallback lookup map lazily only if `visuals` was mutated out-of-line.
+    let mut fallback_map: Option<BTreeMap<u64, &EvaluatedShapeVisual>> = None;
     let mut lod_proxy_shapes = 0usize;
     let mut rendered = 0usize;
 
     for entry in &visible_entries {
-        let vis_opt = if direct_indexed {
-            visuals.get(entry.z_order as usize)
-        } else {
-            fallback_map.get(&entry.shape_id).copied()
-        };
+        let vis_opt = visuals
+            .get(entry.z_order as usize)
+            .filter(|v| v.shape_id == entry.shape_id)
+            .or_else(|| {
+                let map = fallback_map.get_or_insert_with(|| {
+                    visuals.iter().map(|v| (v.shape_id, v)).collect()
+                });
+                map.get(&entry.shape_id).copied()
+            });
         if let Some(vis) = vis_opt {
             rendered += 1;
             if mesh_cache.append_shape_with_lod(vis, ppi, batch_out) {
@@ -471,7 +465,9 @@ impl WgpuCanvasRenderer {
         });
         // SAFETY: Caller guarantees `non_null` is a valid WinUI 3 `SwapChainPanel` COM object.
         let surface = unsafe {
-            instance.create_surface_unsafe(wgpu::SurfaceTargetUnsafe::SwapChainPanel(non_null))
+            instance.create_surface_unsafe(wgpu::SurfaceTargetUnsafe::SwapChainPanel(
+                non_null.as_ptr(),
+            ))
         }
         .map_err(|e| RenderError::Surface(e.to_string()))?;
         let mut r = pollster::block_on(Self::new_with_surface_async(

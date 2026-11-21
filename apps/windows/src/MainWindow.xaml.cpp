@@ -635,8 +635,8 @@ void MainWindow::InitializeStencilCatalog() {
                     for (uint32_t i = 0; i < arr.Size(); ++i) {
                         const auto itemObj = arr.GetObjectAt(i);
                         const hstring mNameH = itemObj.GetNamedString(L"name", L"Shape");
-                        const double wIn = itemObj.GetNamedNumber(L"width_in", 1.8);
-                        const double hIn = itemObj.GetNamedNumber(L"height_in", 1.0);
+                        const double wIn = itemObj.GetNamedNumber(L"widthIn", 1.8);
+                        const double hIn = itemObj.GetNamedNumber(L"heightIn", 1.0);
                         const hstring svgH = itemObj.GetNamedString(L"svg", L"");
 
                         const std::string mNameUtf8 = vexio::win::ToUtf8(mNameH);
@@ -720,12 +720,45 @@ void MainWindow::RefreshStencilList() {
         card.ColumnDefinitions().Append(c0);
         card.ColumnDefinitions().Append(c1);
 
-        // Crisp Vector Shape Silhouette for all 17 categories (never a plain empty box!)
+        // Crisp multi-geometry SVG vector preview extracted from Rust engine SVG (with rich fallback)
         std::wstring pathMarkup = L"M 3,5 L 33,5 L 33,21 L 3,21 Z";
         Windows::UI::Color strokeCol = Windows::UI::ColorHelper::FromArgb(0xFF, 0x25, 0x63, 0xEB);
+        std::string extractedSvgPaths{};
+        if (!master.svgMarkup.empty()) {
+            size_t searchPos = master.svgMarkup.find("data-shape-id=");
+            if (searchPos == std::string::npos) {
+                searchPos = 0;
+            }
+            while (true) {
+                const size_t pathPos = master.svgMarkup.find("<path", searchPos);
+                if (pathPos == std::string::npos) {
+                    break;
+                }
+                const size_t tagEnd = master.svgMarkup.find('>', pathPos);
+                if (tagEnd == std::string::npos) {
+                    break;
+                }
+                const std::string_view tagView{master.svgMarkup.data() + pathPos, tagEnd - pathPos};
+                const size_t dPos = tagView.find(" d=\"");
+                if (dPos != std::string_view::npos) {
+                    const size_t dStart = dPos + 4;
+                    const size_t dEnd = tagView.find('"', dStart);
+                    if (dEnd != std::string_view::npos && dEnd > dStart) {
+                        if (!extractedSvgPaths.empty()) {
+                            extractedSvgPaths.push_back(' ');
+                        }
+                        extractedSvgPaths.append(tagView.substr(dStart, dEnd - dStart));
+                    }
+                }
+                searchPos = tagEnd + 1;
+            }
+        }
+
         std::wstring lowName = master.displayName;
         std::transform(lowName.begin(), lowName.end(), lowName.begin(), [](wchar_t ch) { return static_cast<wchar_t>(::towlower(ch)); });
-        if (lowName.find(L"decision") != std::wstring::npos || lowName.find(L"gateway") != std::wstring::npos || lowName.find(L"diamond") != std::wstring::npos) {
+        if (!extractedSvgPaths.empty()) {
+            pathMarkup = std::wstring{vexio::win::ToHString(extractedSvgPaths).c_str()};
+        } else if (lowName.find(L"decision") != std::wstring::npos || lowName.find(L"gateway") != std::wstring::npos || lowName.find(L"diamond") != std::wstring::npos) {
             pathMarkup = L"M 18,2 L 34,13 L 18,24 L 2,13 Z";
             strokeCol = Windows::UI::ColorHelper::FromArgb(0xFF, 0xD9, 0x77, 0x06);
         } else if (lowName.find(L"circle") != std::wstring::npos || lowName.find(L"ellipse") != std::wstring::npos || lowName.find(L"event") != std::wstring::npos || lowName.find(L"ring") != std::wstring::npos) {

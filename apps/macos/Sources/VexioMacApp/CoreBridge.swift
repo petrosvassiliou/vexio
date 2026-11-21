@@ -1509,17 +1509,14 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
         (.layersAndRouting, "ShapeRouteStyle", "1"),
     ]
 
-    public init(blankTitle: String = "Untitled Diagram") {
+    nonisolated public init(blankTitle: String = "Untitled Diagram") {
         do {
             self.core = try NativeDocumentCore(blankTitle: blankTitle)
         } catch {
             preconditionFailure("Unable to create native Vexio engine/document: \(error.localizedDescription)")
         }
         self.sourceFormatExtension = "vsdx"
-        self.documentTitle = blankTitle
-        ensureStencilsLoadedIfNeeded()
-        seedInitialShapeIfNeeded()
-        reloadSelectedShapeSheetCells()
+        _ = try? self.core.loadStarterTemplate(templateId: "flowchart")
     }
 
     nonisolated public required init(configuration: ReadConfiguration) throws {
@@ -1895,7 +1892,9 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
         guard let undoManager else { return }
         undoManager.setActionName(actionName)
         undoManager.registerUndo(withTarget: self) { target in
-            target.performUndo(undoManager: undoManager)
+            MainActor.assumeIsolated {
+                target.performUndo(undoManager: undoManager)
+            }
         }
     }
 
@@ -1905,7 +1904,9 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
             lastBannerError = nil
             statusMessage = "Undo applied"
             undoManager?.registerUndo(withTarget: self) { target in
-                target.performRedo(undoManager: undoManager)
+                MainActor.assumeIsolated {
+                    target.performRedo(undoManager: undoManager)
+                }
             }
             reloadSelectedShapeSheetCells()
             core.renderViewportFrame()
@@ -1923,7 +1924,9 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
             lastBannerError = nil
             statusMessage = "Redo applied"
             undoManager?.registerUndo(withTarget: self) { target in
-                target.performUndo(undoManager: undoManager)
+                MainActor.assumeIsolated {
+                    target.performUndo(undoManager: undoManager)
+                }
             }
             reloadSelectedShapeSheetCells()
             core.renderViewportFrame()
