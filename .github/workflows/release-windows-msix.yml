@@ -17,7 +17,7 @@ env:
 jobs:
   build-windows-msix:
     name: Windows MSIX (${{ matrix.arch }})
-    runs-on: windows-latest
+    runs-on: windows-2022
     strategy:
       fail-fast: false
       matrix:
@@ -74,7 +74,7 @@ jobs:
       - name: Build Vexio Native Windows Workstation (Release)
         shell: pwsh
         run: |
-          cmake --build "apps/windows/build-${{ matrix.arch }}" --config Release --parallel
+          cmake --build "apps/windows/build-${{ matrix.arch }}" --target Vexio --config Release -- /r /m
 
       - name: Stage & Package MSIX (${{ matrix.arch }})
         shell: pwsh

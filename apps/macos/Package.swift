@@ -38,7 +38,6 @@ let package = Package(
             dependencies: ["VexioCoreFFI"],
             path: "Sources/VexioMacApp",
             swiftSettings: [
-                .swiftLanguageMode(.v6),
                 .unsafeFlags([vexioHeaderSearchFlag]),
             ],
             linkerSettings: [
@@ -60,7 +59,6 @@ let package = Package(
             path: "Sources/VexioQuickLookExtension",
             exclude: ["Info.plist"],
             swiftSettings: [
-                .swiftLanguageMode(.v6),
                 .unsafeFlags([vexioHeaderSearchFlag]),
             ],
             linkerSettings: [

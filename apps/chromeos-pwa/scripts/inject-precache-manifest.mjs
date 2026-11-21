@@ -33,7 +33,7 @@ const buildRevision = hash.digest('hex').slice(0, 12);
 const swPath = join(distDir, 'sw.js');
 let swSource = readFileSync(swPath, 'utf8');
 swSource = swSource
-  .replace('vexio-precache-v1', `vexio-precache-${buildRevision}`)
+  .replace(/vexio-precache-v\d+/, `vexio-precache-${buildRevision}`)
   .replace(
     'self.__VEXIO_PRECACHE_MANIFEST',
     JSON.stringify(files, null, 2)

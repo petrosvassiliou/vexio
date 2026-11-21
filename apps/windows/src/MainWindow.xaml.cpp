@@ -106,14 +106,14 @@ MainWindow::MainWindow()
     InitializeComponent();
     ConfigureCustomTitleBar();
 
+    (void)m_doc.LoadStarterTemplate("bpmn_fulfillment");
+
     m_pages = {
-        PageTabModel{1u, L"Page-1", false, 4u},
-        PageTabModel{2u, L"VBackground-1", true, 1u}
+        PageTabModel{1u, L"Page-1", false, 7u}
     };
 
     InitializeStencilCatalog();
     InitializeExternalDataAndLayers();
-    SeedActiveShapeDefaultCells();
     RefreshBaselineSnapshot();
 
     m_isInitialized = true;
@@ -177,33 +177,78 @@ void MainWindow::AttachOrResizeDx12SwapChain() {
     const uint32_t physHeight = std::max<uint32_t>(1u, static_cast<uint32_t>(std::lround(logicalH * scaleY)));
 
     const com_ptr<ISwapChainPanelNative> panelNative = panel.try_as<ISwapChainPanelNative>();
-    if (!panelNative) {
-        return;
+
+    m_viewport.Reset();
+    m_usingHeadlessFallback = false;
+
+    if (panelNative) {
+        auto created = vexio::win::ViewportHandle::CreateDx12SwapChain(
+            m_engine,
+            m_doc,
+            panelNative.get(),
+            physWidth,
+            physHeight,
+            scaleX);
+
+        if (created.ok()) {
+            m_viewport = std::move(*created.value);
+            SoftwareCanvasFallbackImage().Visibility(Visibility::Collapsed);
+            GpuSwapChainBadgeText().Text(hstring{
+                std::format(L"DX12 120Hz • {}x{} @ {:.0f}%", physWidth, physHeight, scaleX * 100.0f)
+            });
+        }
     }
 
-    // Release previous swapchain before binding replacement dimensions on the same ISwapChainPanelNative
-    m_viewport.Reset();
-
-    auto created = vexio::win::ViewportHandle::CreateDx12SwapChain(
-        m_engine,
-        m_doc,
-        panelNative.get(),
-        physWidth,
-        physHeight,
-        scaleX);
-
-    if (created.ok()) {
-        m_viewport = std::move(*created.value);
-        GpuSwapChainBadgeText().Text(hstring{
-            std::format(L"DX12 120Hz • {}x{} @ {:.0f}%", physWidth, physHeight, scaleX * 100.0f)
-        });
-    } else {
-        // Headless fallback if running in a remote session without hardware DXGI adapter
+    if (!m_viewport) {
         auto headless = vexio::win::ViewportHandle::CreateHeadless(
             m_engine, m_doc, m_activePageId, physWidth, physHeight, scaleX);
         if (headless.ok()) {
             m_viewport = std::move(*headless.value);
-            GpuSwapChainBadgeText().Text(L"DX12 WARP / Headless Active");
+            m_usingHeadlessFallback = true;
+            SoftwareCanvasFallbackImage().Visibility(Visibility::Visible);
+            GpuSwapChainBadgeText().Text(L"DX12 WARP / Software Fallback Active");
+        }
+    }
+
+    if (m_viewport) {
+        (void)m_viewport.SetPage(m_doc, m_activePageId);
+        (void)m_viewport.SetTool(static_cast<uint32_t>(m_activeTool));
+        PresentViewportFrame();
+    }
+}
+
+void MainWindow::PresentViewportFrame() {
+    if (!m_doc || !m_viewport) {
+        return;
+    }
+
+    (void)m_viewport.RenderFrame(m_doc);
+
+    const uint64_t sel = m_viewport.GetPrimarySelection();
+    if (sel > 0 && sel != m_selectedShapeId) {
+        m_previousSelectedShapeId = m_selectedShapeId;
+        m_selectedShapeId = sel;
+    }
+
+    if (m_usingHeadlessFallback) {
+        const uint32_t wPx = std::max<uint32_t>(320u, static_cast<uint32_t>(std::lround(DiagramSwapChainPanel().ActualWidth())));
+        const uint32_t hPx = std::max<uint32_t>(200u, static_cast<uint32_t>(std::lround(DiagramSwapChainPanel().ActualHeight())));
+        const auto rgbaRes = m_doc.RenderPreviewRgba(m_activePageId, wPx, hPx);
+        if (rgbaRes.ok()) {
+            const auto src = rgbaRes.value->Bytes();
+            const size_t expected = static_cast<size_t>(wPx) * static_cast<size_t>(hPx) * 4u;
+            if (src.size() >= expected) {
+                WriteableBitmap bmp{static_cast<int32_t>(wPx), static_cast<int32_t>(hPx)};
+                uint8_t* dst = bmp.PixelBuffer().data();
+                for (size_t px = 0; px < expected; px += 4) {
+                    dst[px + 0] = src[px + 2];
+                    dst[px + 1] = src[px + 1];
+                    dst[px + 2] = src[px + 0];
+                    dst[px + 3] = src[px + 3];
+                }
+                bmp.Invalidate();
+                SoftwareCanvasFallbackImage().Source(bmp);
+            }
         }
     }
 }
@@ -240,7 +285,6 @@ void MainWindow::DispatchCanvasPointerEvent(uint32_t kindOverride, PointerRouted
     const PointerPointProperties props = pt.Properties();
     const Point pos = pt.Position();
 
-    // Update live ruler hairlines and canonical document coordinate readout
     HorizontalCursorHairline().X1(pos.X);
     HorizontalCursorHairline().X2(pos.X);
     VerticalCursorHairline().Y1(pos.Y);
@@ -305,26 +349,36 @@ void MainWindow::DispatchCanvasPointerEvent(uint32_t kindOverride, PointerRouted
 }
 
 void MainWindow::OnCanvasPointerPressed(IInspectable const&, PointerRoutedEventArgs const& e) {
+    const auto props = e.GetCurrentPoint(DiagramSwapChainPanel()).Properties();
+    if (props.IsRightButtonPressed()) {
+        return;
+    }
     DiagramSwapChainPanel().CapturePointer(e.Pointer());
     DispatchCanvasPointerEvent(static_cast<uint32_t>(vexio::win::PointerEventKind::Down), e);
-
-    // If Rectangle tool is active, instantiate a new rectangle shape at click location
-    if (m_activeTool == ActiveCanvasTool::Rectangle && !m_allMasters.empty()) {
-        const Point pos = e.GetCurrentPoint(DiagramSwapChainPanel()).Position();
-        const double pxPerIn = 96.0 * (m_zoomPercent / 100.0);
-        InstantiateMasterOnCanvas(m_allMasters.front(), pos.X / pxPerIn, pos.Y / pxPerIn);
-    }
+    PresentViewportFrame();
     e.Handled(true);
 }
 
 void MainWindow::OnCanvasPointerMoved(IInspectable const&, PointerRoutedEventArgs const& e) {
     DispatchCanvasPointerEvent(static_cast<uint32_t>(vexio::win::PointerEventKind::Move), e);
+    if (e.GetCurrentPoint(DiagramSwapChainPanel()).Properties().IsLeftButtonPressed()) {
+        PresentViewportFrame();
+    }
 }
 
 void MainWindow::OnCanvasPointerReleased(IInspectable const&, PointerRoutedEventArgs const& e) {
     DispatchCanvasPointerEvent(static_cast<uint32_t>(vexio::win::PointerEventKind::Up), e);
     DiagramSwapChainPanel().ReleasePointerCapture(e.Pointer());
+    if (m_activeTool != ActiveCanvasTool::Pointer &&
+        m_activeTool != ActiveCanvasTool::Pan &&
+        m_activeTool != ActiveCanvasTool::InkPen &&
+        m_activeTool != ActiveCanvasTool::InkHighlighter)
+    {
+        SetActiveTool(ActiveCanvasTool::Pointer);
+    }
+    PresentViewportFrame();
     SyncInspectorFromShapeSheet();
+    RefreshShapeSheetSectionRows();
     e.Handled(true);
 }
 
@@ -335,6 +389,117 @@ void MainWindow::OnCanvasPointerWheelChanged(IInspectable const&, PointerRoutedE
         SetZoomPercent(std::clamp(m_zoomPercent + step, 25.0, 400.0));
     }
     DispatchCanvasPointerEvent(static_cast<uint32_t>(vexio::win::PointerEventKind::Wheel), e);
+    PresentViewportFrame();
+    e.Handled(true);
+}
+
+void MainWindow::OnCanvasRightTapped(IInspectable const&, RightTappedRoutedEventArgs const& e) {
+    auto panel = DiagramSwapChainPanel();
+    const Point pt = e.GetPosition(panel);
+    const double pxPerIn = std::max(16.0, 96.0 * (m_zoomPercent / 100.0));
+    const double clickXIn = std::clamp(pt.X / pxPerIn, 0.5, 10.5);
+    const double clickYIn = std::clamp(8.5 - (pt.Y / pxPerIn), 0.5, 8.0);
+
+    MenuFlyout menu{};
+
+    auto addItem = [&](std::wstring_view label, auto handler) {
+        MenuFlyoutItem item{};
+        item.Text(hstring{label});
+        item.Click(handler);
+        menu.Items().Append(item);
+    };
+
+    addItem(L"Duplicate Selected Shape (Ctrl+D)", [this](IInspectable const&, RoutedEventArgs const&) {
+        OnDuplicateShapeClick(nullptr, nullptr);
+    });
+    addItem(L"Copy Shape (Ctrl+C)", [this](IInspectable const&, RoutedEventArgs const&) {
+        OnCopyShapeClick(nullptr, nullptr);
+    });
+    addItem(L"Paste Here", [this, clickXIn, clickYIn](IInspectable const&, RoutedEventArgs const&) {
+        for (auto const& m : m_allMasters) {
+            if (m.id == m_clipboardMasterId) {
+                InstantiateMasterOnCanvas(m, clickXIn, clickYIn);
+                return;
+            }
+        }
+        if (!m_allMasters.empty()) {
+            InstantiateMasterOnCanvas(m_allMasters.front(), clickXIn, clickYIn);
+        }
+    });
+    addItem(L"Delete Selected Shape (Del)", [this](IInspectable const&, RoutedEventArgs const&) {
+        OnDeleteShapeClick(nullptr, nullptr);
+    });
+
+    menu.Items().Append(MenuFlyoutSeparator{});
+
+    addItem(L"Bring to Front", [this](IInspectable const&, RoutedEventArgs const&) {
+        OnBringFrontClick(nullptr, nullptr);
+    });
+    addItem(L"Send to Back", [this](IInspectable const&, RoutedEventArgs const&) {
+        OnSendBackClick(nullptr, nullptr);
+    });
+
+    menu.Items().Append(MenuFlyoutSeparator{});
+
+    auto insertSub = MenuFlyoutSubItem{};
+    insertSub.Text(L"Insert Shape Here");
+    auto addPrim = [&](std::wstring_view title, std::string kindSlug) {
+        MenuFlyoutItem sub{};
+        sub.Text(hstring{title});
+        sub.Click([this, kindSlug, clickXIn, clickYIn](IInspectable const&, RoutedEventArgs const&) {
+            if (!m_doc) return;
+            const auto res = m_doc.DrawPrimitive(m_activePageId, kindSlug, clickXIn - 0.8, clickYIn - 0.5, clickXIn + 0.8, clickYIn + 0.5);
+            if (res.ok()) {
+                m_selectedShapeId = *res.value;
+                MarkDocumentDirty(true);
+                PresentViewportFrame();
+                SyncInspectorFromShapeSheet();
+            }
+        });
+        insertSub.Items().Append(sub);
+    };
+    addPrim(L"Rectangle", "rect");
+    addPrim(L"Rounded Rectangle", "round_rect");
+    addPrim(L"Circle / Ellipse", "ellipse");
+    addPrim(L"Decision Diamond", "diamond");
+    addPrim(L"Triangle", "triangle");
+    addPrim(L"Hexagon", "hexagon");
+    addPrim(L"5-Point Star", "star");
+    menu.Items().Append(insertSub);
+
+    auto routeSub = MenuFlyoutSubItem{};
+    routeSub.Text(L"Connector Routing Style");
+    auto addRoute = [&](std::wstring_view title, const char* code) {
+        MenuFlyoutItem sub{};
+        sub.Text(hstring{title});
+        sub.Click([this, code](IInspectable const&, RoutedEventArgs const&) {
+            if (!m_doc) return;
+            (void)m_doc.SetCellFormula(m_activePageId, m_selectedShapeId, "ShapeRouteStyle", code, true);
+            MarkDocumentDirty(true);
+            PresentViewportFrame();
+        });
+        routeSub.Items().Append(sub);
+    };
+    addRoute(L"Right-Angle Orthogonal", "16");
+    addRoute(L"Curved Spline", "2");
+    addRoute(L"Straight Line", "1");
+    menu.Items().Append(routeSub);
+
+    menu.Items().Append(MenuFlyoutSeparator{});
+
+    addItem(L"Auto-Layout Page (Top-Down)", [this](IInspectable const&, RoutedEventArgs const&) {
+        OnReLayoutTopDownClick(nullptr, nullptr);
+    });
+    addItem(L"Fit Page to Window", [this](IInspectable const&, RoutedEventArgs const&) {
+        OnFitToWindowClick(nullptr, nullptr);
+    });
+    addItem(L"Inspect ShapeSheet (Shift+F5)", [this](IInspectable const&, RoutedEventArgs const&) {
+        if (!m_shapeSheetOpen) {
+            OnToggleShapeSheetClick(nullptr, nullptr);
+        }
+    });
+
+    menu.ShowAt(panel, pt);
     e.Handled(true);
 }
 
@@ -427,40 +592,89 @@ void MainWindow::RebuildRulerTicks() {
 }
 
 // ===========================================================================
-// Stencils Catalog, Instant Search & Master Drag-onto-Canvas
+// 17-Category Stencils Catalog (160 Vector Masters via vexio_doc_list_stencils_json)
 // ===========================================================================
 void MainWindow::InitializeStencilCatalog() {
-    m_allMasters = {
-        // Pack 0: Basic Flowchart
-        {"flow.process",    L"Basic Flowchart Shapes",        L"Process",             L"Flowchart", "2.00 in", "1.00 in", "RGB(59,130,246)",  "Process"},
-        {"flow.decision",   L"Basic Flowchart Shapes",        L"Decision Diamond",    L"Flowchart", "1.75 in", "1.25 in", "RGB(245,158,11)",  "Gateway"},
-        {"flow.start_end",  L"Basic Flowchart Shapes",        L"Start / Terminator",  L"Flowchart", "1.80 in", "0.75 in", "RGB(16,185,129)",  "StartEvent"},
-        {"flow.subprocess", L"Basic Flowchart Shapes",        L"Subprocess Call",     L"Flowchart", "2.20 in", "1.10 in", "RGB(99,102,241)",  "SubProcess"},
-        {"flow.database",   L"Basic Flowchart Shapes",        L"Data Store Cylinder", L"Flowchart", "1.60 in", "1.40 in", "RGB(14,165,233)",  "DataStore"},
+    m_allMasters.clear();
+    m_stencilPackNames.clear();
 
-        // Pack 1: BPMN 2.0
-        {"bpmn.start",      L"BPMN 2.0 Process Masters",      L"Start Event (Message)", L"BPMN 2.0", "0.65 in", "0.65 in", "RGB(34,197,94)",  "BPMN.StartEvent"},
-        {"bpmn.task",       L"BPMN 2.0 Process Masters",      L"User Task Activity",    L"BPMN 2.0", "2.10 in", "1.10 in", "RGB(59,130,246)", "BPMN.Task"},
-        {"bpmn.xor",        L"BPMN 2.0 Process Masters",      L"Exclusive Gateway (XOR)", L"BPMN 2.0", "0.95 in", "0.95 in", "RGB(234,179,8)", "BPMN.ExclusiveGateway"},
-        {"bpmn.end",        L"BPMN 2.0 Process Masters",      L"End Event (Terminate)", L"BPMN 2.0", "0.65 in", "0.65 in", "RGB(239,68,68)",   "BPMN.EndEvent"},
-        {"bpmn.pool",       L"BPMN 2.0 Process Masters",      L"Participant Pool / Lane", L"BPMN 2.0", "7.50 in", "2.40 in", "RGB(241,245,249)", "BPMN.Pool"},
-
-        // Pack 2: UML 2.5
-        {"uml.class",       L"UML 2.5 Class & Sequence",      L"Class (3-Compartment)", L"UML 2.5", "2.40 in", "1.65 in", "RGB(238,242,255)", "UML.Class"},
-        {"uml.interface",   L"UML 2.5 Class & Sequence",      L"«interface» Contract",  L"UML 2.5", "2.20 in", "1.30 in", "RGB(240,253,244)", "UML.Interface"},
-        {"uml.lifeline",    L"UML 2.5 Class & Sequence",      L"Sequence Lifeline",     L"UML 2.5", "1.50 in", "4.50 in", "RGB(248,250,252)", "UML.Lifeline"},
-        {"uml.component",   L"UML 2.5 Class & Sequence",      L"Subsystem Component",   L"UML 2.5", "2.50 in", "1.40 in", "RGB(224,242,254)", "UML.Component"},
-
-        // Pack 3: Cloud & Network
-        {"net.router",      L"Cloud & Network Topology",      L"Core BGP Router",       L"Network", "1.40 in", "1.10 in", "RGB(37,99,235)",   "Net.Router"},
-        {"net.firewall",    L"Cloud & Network Topology",      L"Zero-Trust Firewall",   L"Network", "1.50 in", "1.00 in", "RGB(220,38,38)",   "Net.Firewall"},
-        {"net.k8s_cluster", L"Cloud & Network Topology",      L"Kubernetes Cluster",    L"Cloud",   "3.20 in", "2.10 in", "RGB(56,189,248)",  "Cloud.Cluster"},
-
-        // Pack 4: Architectural CAD
-        {"cad.wall_ext",    L"Architectural CAD Walls & Doors", L"Exterior Structural Wall", L"CAD", "6.00 in", "0.35 in", "RGB(71,85,105)",  "CAD.Wall"},
-        {"cad.door_swing",  L"Architectural CAD Walls & Doors", L"Single Swing Door 36\"",   L"CAD", "0.90 in", "0.90 in", "RGB(148,163,184)", "CAD.Door"},
-        {"cad.room_stamp",  L"Architectural CAD Walls & Doors", L"Architectural Space Tag",  L"CAD", "1.80 in", "0.90 in", "RGB(226,232,240)", "CAD.Space"}
+    constexpr std::array<std::string_view, 17> kCanonicalPackOrder{
+        "Basic Shapes",
+        "Arrows & Block Arrows",
+        "Callouts, Notes & Containers",
+        "Basic Flowchart",
+        "Cross-Functional Swimlanes",
+        "BPMN 2.0",
+        "UML 2.5",
+        "Network & Rack Equipment",
+        "Cloud Architecture (AWS / GCP / Azure)",
+        "Database Crow's Foot & IDEF1X",
+        "Floor Plan & Architecture",
+        "P&ID Process Engineering",
+        "Electrical & Electronic (IEEE / IEC)",
+        "Organization Chart",
+        "UI & Application Wireframes",
+        "Project Schedule (Gantt & Timeline)",
+        "Value Stream Mapping (Lean VSM)"
     };
+
+    if (m_doc) {
+        const auto jsonRes = m_doc.ListStencilsJson();
+        if (jsonRes.ok() && !jsonRes.value->empty()) {
+            Windows::Data::Json::JsonObject rootObj{nullptr};
+            if (Windows::Data::Json::JsonObject::TryParse(*jsonRes.value, rootObj)) {
+                auto appendCategory = [&](std::string_view catUtf8) {
+                    const hstring catKey = vexio::win::ToHString(catUtf8);
+                    if (!rootObj.HasKey(catKey)) {
+                        return;
+                    }
+                    const auto arr = rootObj.GetNamedArray(catKey);
+                    const std::wstring packWide{catKey.c_str()};
+                    m_stencilPackNames.push_back(packWide);
+
+                    for (uint32_t i = 0; i < arr.Size(); ++i) {
+                        const auto itemObj = arr.GetObjectAt(i);
+                        const hstring mNameH = itemObj.GetNamedString(L"name", L"Shape");
+                        const double wIn = itemObj.GetNamedNumber(L"width_in", 1.8);
+                        const double hIn = itemObj.GetNamedNumber(L"height_in", 1.0);
+                        const hstring svgH = itemObj.GetNamedString(L"svg", L"");
+
+                        const std::string mNameUtf8 = vexio::win::ToUtf8(mNameH);
+                        StencilMasterDescriptor desc{};
+                        desc.id = std::string{catUtf8} + "::" + mNameUtf8;
+                        desc.categoryUtf8 = std::string{catUtf8};
+                        desc.masterNameUtf8 = mNameUtf8;
+                        desc.packName = packWide;
+                        desc.displayName = std::wstring{mNameH.c_str()};
+                        desc.categoryTag = packWide;
+                        desc.defaultWidthFormula = std::format("{:.2f} in", wIn);
+                        desc.defaultHeightFormula = std::format("{:.2f} in", hIn);
+                        desc.defaultFillFormula = "RGB(239,246,255)";
+                        desc.stereotypeOrRuleType = mNameUtf8;
+                        desc.svgMarkup = vexio::win::ToUtf8(svgH);
+                        m_allMasters.push_back(std::move(desc));
+                    }
+                };
+
+                for (const auto cat : kCanonicalPackOrder) {
+                    appendCategory(cat);
+                }
+            }
+        }
+    }
+
+    auto comboItems = StencilPackCombo().Items();
+    comboItems.Clear();
+    comboItems.Append(box_value(hstring{
+        std::format(L"All {} Categories ({} Shapes)", m_stencilPackNames.size(), m_allMasters.size())
+    }));
+    for (auto const& pack : m_stencilPackNames) {
+        comboItems.Append(box_value(hstring{pack}));
+    }
+    StencilPackCombo().SelectedIndex(1); // Start on "Basic Shapes" while keeping All 17 + every domain 1-click away!
+    StencilHeaderCountText().Text(hstring{
+        std::format(L"Shapes ({} Categories)", m_stencilPackNames.size())
+    });
 }
 
 void MainWindow::RefreshStencilList() {
@@ -474,9 +688,10 @@ void MainWindow::RefreshStencilList() {
         return q;
     }();
 
+    const int32_t packIdx = StencilPackCombo().SelectedIndex();
     std::wstring selectedPack{};
-    if (auto sel = StencilPackCombo().SelectedItem().try_as<hstring>()) {
-        selectedPack = sel->c_str();
+    if (packIdx > 0 && static_cast<size_t>(packIdx - 1) < m_stencilPackNames.size()) {
+        selectedPack = m_stencilPackNames[static_cast<size_t>(packIdx - 1)];
     }
 
     m_filteredMasters.clear();
@@ -488,7 +703,7 @@ void MainWindow::RefreshStencilList() {
             continue;
         }
         if (!query.empty()) {
-            std::wstring hay = master.displayName + L" " + master.categoryTag + L" " + vexio::win::ToHString(master.id).c_str();
+            std::wstring hay = master.displayName + L" " + master.categoryTag;
             std::transform(hay.begin(), hay.end(), hay.begin(), [](wchar_t ch) { return static_cast<wchar_t>(::towlower(ch)); });
             if (hay.find(query) == std::wstring::npos) {
                 continue;
@@ -500,48 +715,54 @@ void MainWindow::RefreshStencilList() {
         Grid card{};
         card.Padding(Thickness{6, 6, 6, 6});
         card.ColumnSpacing(10.0);
-        ColumnDefinition c0{}; c0.Width(GridLength{44.0});
+        ColumnDefinition c0{}; c0.Width(GridLength{46.0});
         ColumnDefinition c1{}; c1.Width(GridLength{1.0, GridUnitType::Star});
         card.ColumnDefinitions().Append(c0);
         card.ColumnDefinitions().Append(c1);
 
-        // Crisp Light Preview Well + Vector Shape Silhouette (never a plain colored box)
+        // Crisp Vector Shape Silhouette for all 17 categories (never a plain empty box!)
         std::wstring pathMarkup = L"M 3,5 L 33,5 L 33,21 L 3,21 Z";
         Windows::UI::Color strokeCol = Windows::UI::ColorHelper::FromArgb(0xFF, 0x25, 0x63, 0xEB);
         std::wstring lowName = master.displayName;
         std::transform(lowName.begin(), lowName.end(), lowName.begin(), [](wchar_t ch) { return static_cast<wchar_t>(::towlower(ch)); });
-        if (lowName.find(L"decision") != std::wstring::npos || lowName.find(L"gateway") != std::wstring::npos) {
-            pathMarkup = (lowName.find(L"parallel") != std::wstring::npos)
-                ? L"M 18,2 L 34,13 L 18,24 L 2,13 Z M 18,7 L 18,19 M 12,13 L 24,13"
-                : (lowName.find(L"exclusive") != std::wstring::npos)
-                    ? L"M 18,2 L 34,13 L 18,24 L 2,13 Z M 14,9 L 22,17 M 22,9 L 14,17"
-                    : L"M 18,2 L 34,13 L 18,24 L 2,13 Z";
+        if (lowName.find(L"decision") != std::wstring::npos || lowName.find(L"gateway") != std::wstring::npos || lowName.find(L"diamond") != std::wstring::npos) {
+            pathMarkup = L"M 18,2 L 34,13 L 18,24 L 2,13 Z";
             strokeCol = Windows::UI::ColorHelper::FromArgb(0xFF, 0xD9, 0x77, 0x06);
-        } else if (lowName.find(L"event") != std::wstring::npos || lowName.find(L"pump") != std::wstring::npos) {
+        } else if (lowName.find(L"circle") != std::wstring::npos || lowName.find(L"ellipse") != std::wstring::npos || lowName.find(L"event") != std::wstring::npos || lowName.find(L"ring") != std::wstring::npos) {
             pathMarkup = L"M 18,3 A 10,10 0 1 1 17.99,3 Z";
-            strokeCol = (lowName.find(L"end") != std::wstring::npos)
-                ? Windows::UI::ColorHelper::FromArgb(0xFF, 0xDC, 0x26, 0x26)
-                : Windows::UI::ColorHelper::FromArgb(0xFF, 0x05, 0x96, 0x69);
-        } else if (lowName.find(L"start") != std::wstring::npos || lowName.find(L"terminator") != std::wstring::npos) {
-            pathMarkup = L"M 10,5 L 26,5 A 8,8 0 0 1 26,21 L 10,21 A 8,8 0 0 1 10,5 Z";
-            strokeCol = Windows::UI::ColorHelper::FromArgb(0xFF, 0x0D, 0x94, 0x88);
-        } else if (lowName.find(L"data") != std::wstring::npos) {
-            pathMarkup = L"M 8,5 L 34,5 L 28,21 L 2,21 Z";
+            strokeCol = Windows::UI::ColorHelper::FromArgb(0xFF, 0x05, 0x96, 0x69);
+        } else if (lowName.find(L"triangle") != std::wstring::npos) {
+            pathMarkup = L"M 18,3 L 33,23 L 3,23 Z";
+        } else if (lowName.find(L"hexagon") != std::wstring::npos || lowName.find(L"pentagon") != std::wstring::npos || lowName.find(L"octagon") != std::wstring::npos) {
+            pathMarkup = L"M 10,3 L 26,3 L 34,13 L 26,23 L 10,23 L 2,13 Z";
+        } else if (lowName.find(L"star") != std::wstring::npos) {
+            pathMarkup = L"M 18,2 L 22,10 L 32,10 L 24,16 L 27,24 L 18,19 L 9,24 L 12,16 L 4,10 L 14,10 Z";
+            strokeCol = Windows::UI::ColorHelper::FromArgb(0xFF, 0xD9, 0x77, 0x06);
+        } else if (lowName.find(L"arrow") != std::wstring::npos || lowName.find(L"chevron") != std::wstring::npos) {
+            pathMarkup = L"M 3,9 L 21,9 L 21,4 L 33,13 L 21,22 L 21,17 L 3,17 Z";
+        } else if (lowName.find(L"callout") != std::wstring::npos || lowName.find(L"note") != std::wstring::npos) {
+            pathMarkup = L"M 3,3 L 33,3 L 33,18 L 16,18 L 9,24 L 11,18 L 3,18 Z";
+            strokeCol = Windows::UI::ColorHelper::FromArgb(0xFF, 0xCA, 0x8A, 0x04);
+        } else if (lowName.find(L"cylinder") != std::wstring::npos || lowName.find(L"database") != std::wstring::npos || lowName.find(L"tank") != std::wstring::npos) {
+            pathMarkup = L"M 5,6 C 5,3 31,3 31,6 L 31,20 C 31,23 5,23 5,20 Z M 5,6 C 5,9 31,9 31,6";
             strokeCol = Windows::UI::ColorHelper::FromArgb(0xFF, 0x02, 0x84, 0xC7);
-        } else if (lowName.find(L"subprocess") != std::wstring::npos) {
-            pathMarkup = L"M 3,5 L 33,5 L 33,21 L 3,21 Z M 7,5 L 7,21 M 29,5 L 29,21";
-            strokeCol = Windows::UI::ColorHelper::FromArgb(0xFF, 0x4F, 0x46, 0xE5);
-        } else if (lowName.find(L"class") != std::wstring::npos || lowName.find(L"entity") != std::wstring::npos) {
+        } else if (lowName.find(L"class") != std::wstring::npos || lowName.find(L"entity") != std::wstring::npos || lowName.find(L"table") != std::wstring::npos) {
             pathMarkup = L"M 3,3 L 33,3 L 33,23 L 3,23 Z M 3,9 L 33,9 M 3,16 L 33,16";
             strokeCol = Windows::UI::ColorHelper::FromArgb(0xFF, 0x6D, 0x28, 0xD9);
-        } else if (lowName.find(L"door") != std::wstring::npos) {
-            pathMarkup = L"M 5,22 L 5,4 A 18,18 0 0 1 23,22 Z";
+        } else if (lowName.find(L"cloud") != std::wstring::npos || lowName.find(L"vpc") != std::wstring::npos) {
+            pathMarkup = L"M 9,20 C 4,20 3,14 8,13 C 9,7 19,6 22,11 C 28,10 33,15 29,20 Z";
+            strokeCol = Windows::UI::ColorHelper::FromArgb(0xFF, 0x02, 0x84, 0xC7);
+        } else if (lowName.find(L"resistor") != std::wstring::npos || lowName.find(L"inductor") != std::wstring::npos) {
+            pathMarkup = L"M 2,13 L 7,13 L 10,6 L 15,20 L 20,6 L 25,20 L 28,13 L 34,13";
             strokeCol = Windows::UI::ColorHelper::FromArgb(0xFF, 0x33, 0x41, 0x55);
+        } else if (lowName.find(L"valve") != std::wstring::npos) {
+            pathMarkup = L"M 4,6 L 32,20 L 32,6 L 4,20 Z";
+            strokeCol = Windows::UI::ColorHelper::FromArgb(0xFF, 0x0F, 0x17, 0x2A);
         }
 
         Border swatch{};
-        swatch.Width(42.0);
-        swatch.Height(30.0);
+        swatch.Width(44.0);
+        swatch.Height(32.0);
         swatch.CornerRadius(CornerRadius{6, 6, 6, 6});
         swatch.Background(SolidColorBrush{Windows::UI::ColorHelper::FromArgb(0xFF, 0xF8, 0xFA, 0xFC)});
         swatch.BorderBrush(SolidColorBrush{Windows::UI::ColorHelper::FromArgb(0xFF, 0xCB, 0xD5, 0xE1)});
@@ -573,6 +794,33 @@ void MainWindow::RefreshStencilList() {
         meta.Children().Append(title);
         meta.Children().Append(sub);
         Grid::SetColumn(meta, 1);
+
+        // Right-click ContextFlyout on every stencil item!
+        MenuFlyout stencilMenu{};
+        MenuFlyoutItem dropCenter{};
+        dropCenter.Text(L"Place on Center of Page");
+        dropCenter.Click([this, master](IInspectable const&, RoutedEventArgs const&) {
+            InstantiateMasterOnCanvas(master, 5.5, 4.25);
+        });
+        MenuFlyoutItem dropThree{};
+        dropThree.Text(L"Place 3 Connected Steps");
+        dropThree.Click([this, master](IInspectable const&, RoutedEventArgs const&) {
+            if (!m_doc) return;
+            const auto r1 = m_doc.DropStencil(m_activePageId, master.categoryUtf8, master.masterNameUtf8, 3.0, 4.25);
+            const auto r2 = m_doc.DropStencil(m_activePageId, master.categoryUtf8, master.masterNameUtf8, 5.5, 4.25);
+            const auto r3 = m_doc.DropStencil(m_activePageId, master.categoryUtf8, master.masterNameUtf8, 8.0, 4.25);
+            if (r1.ok() && r2.ok() && r3.ok()) {
+                (void)m_doc.ConnectShapes(m_activePageId, *r1.value, *r2.value);
+                (void)m_doc.ConnectShapes(m_activePageId, *r2.value, *r3.value);
+                m_selectedShapeId = *r3.value;
+                MarkDocumentDirty(true);
+                PresentViewportFrame();
+                SyncInspectorFromShapeSheet();
+            }
+        });
+        stencilMenu.Items().Append(dropCenter);
+        stencilMenu.Items().Append(dropThree);
+        card.ContextFlyout(stencilMenu);
 
         card.Children().Append(swatch);
         card.Children().Append(meta);
@@ -607,7 +855,7 @@ void MainWindow::OnStencilMasterItemClick(IInspectable const&, ItemClickEventArg
             const std::string targetId = vexio::win::ToUtf8(*idStr);
             for (auto const& master : m_allMasters) {
                 if (master.id == targetId) {
-                    InstantiateMasterOnCanvas(master, 4.25, 5.50);
+                    InstantiateMasterOnCanvas(master, 4.50, 4.50);
                     break;
                 }
             }
@@ -629,9 +877,9 @@ void MainWindow::OnCanvasDrop(IInspectable const&, DragEventArgs const& e) {
     }
 
     const Point dropPt = e.GetPosition(DiagramSwapChainPanel());
-    const double pxPerIn = 96.0 * (m_zoomPercent / 100.0);
-    const double dropInchesX = std::max(0.25, dropPt.X / pxPerIn);
-    const double dropInchesY = std::max(0.25, dropPt.Y / pxPerIn);
+    const double pxPerIn = std::max(16.0, 96.0 * (m_zoomPercent / 100.0));
+    const double dropInchesX = std::clamp(dropPt.X / pxPerIn, 0.4, 10.6);
+    const double dropInchesY = std::clamp(8.5 - (dropPt.Y / pxPerIn), 0.4, 8.1);
 
     [this, dataView = e.DataView(), dropInchesX, dropInchesY]() -> fire_and_forget {
         const auto weakSelf = get_weak();
@@ -653,25 +901,25 @@ void MainWindow::InstantiateMasterOnCanvas(StencilMasterDescriptor const& master
         return;
     }
 
-    const uint64_t newShapeId = m_nextShapeId++;
-    m_previousSelectedShapeId = m_selectedShapeId;
-    m_selectedShapeId = newShapeId;
+    const auto dropped = m_doc.DropStencil(
+        m_activePageId,
+        master.categoryUtf8,
+        master.masterNameUtf8.empty() ? vexio::win::ToUtf8(master.displayName) : master.masterNameUtf8,
+        pinXInches,
+        pinYInches);
 
-    (void)m_doc.SetCellFormula(m_activePageId, newShapeId, "PinX",            std::format("{:.3f} in", pinXInches), true);
-    (void)m_doc.SetCellFormula(m_activePageId, newShapeId, "PinY",            std::format("{:.3f} in", pinYInches), true);
-    (void)m_doc.SetCellFormula(m_activePageId, newShapeId, "Width",           master.defaultWidthFormula, true);
-    (void)m_doc.SetCellFormula(m_activePageId, newShapeId, "Height",          master.defaultHeightFormula, true);
-    (void)m_doc.SetCellFormula(m_activePageId, newShapeId, "LocPinX",         "GUARD(Width*0.5)", true);
-    (void)m_doc.SetCellFormula(m_activePageId, newShapeId, "LocPinY",         "GUARD(Height*0.5)", true);
-    (void)m_doc.SetCellFormula(m_activePageId, newShapeId, "Angle",           "0 deg", true);
-    (void)m_doc.SetCellFormula(m_activePageId, newShapeId, "FillForegnd",     master.defaultFillFormula, true);
-    (void)m_doc.SetCellFormula(m_activePageId, newShapeId, "LineWeight",      "1.5 pt", true);
-    (void)m_doc.SetCellFormula(m_activePageId, newShapeId, "Prop.Label",      std::format("\"{}\"", vexio::win::ToUtf8(master.displayName)), true);
-    (void)m_doc.SetCellFormula(m_activePageId, newShapeId, "Prop.Department", "\"Engineering\"", true);
-    (void)m_doc.SetCellFormula(m_activePageId, newShapeId, "Prop.Owner",      "\"Architecture\"", true);
-    (void)m_doc.SetCellFormula(m_activePageId, newShapeId, "Prop.Cost",       "850.00", true);
-    (void)m_doc.SetCellFormula(m_activePageId, newShapeId, "Prop.Status",     "\"Active\"", true);
-    (void)m_doc.SetCellFormula(m_activePageId, newShapeId, "User.BPMNActivityType", std::format("\"{}\"", master.stereotypeOrRuleType), true);
+    if (dropped.ok() && *dropped.value > 0) {
+        m_previousSelectedShapeId = m_selectedShapeId;
+        m_selectedShapeId = *dropped.value;
+    } else {
+        const uint64_t fallbackId = m_nextShapeId++;
+        m_previousSelectedShapeId = m_selectedShapeId;
+        m_selectedShapeId = fallbackId;
+        (void)m_doc.SetCellFormula(m_activePageId, fallbackId, "PinX", std::format("{:.3f} in", pinXInches), true);
+        (void)m_doc.SetCellFormula(m_activePageId, fallbackId, "PinY", std::format("{:.3f} in", pinYInches), true);
+        (void)m_doc.SetCellFormula(m_activePageId, fallbackId, "Width", master.defaultWidthFormula, true);
+        (void)m_doc.SetCellFormula(m_activePageId, fallbackId, "Height", master.defaultHeightFormula, true);
+    }
 
     for (auto& page : m_pages) {
         if (page.pageId == m_activePageId) {
@@ -684,35 +932,16 @@ void MainWindow::InstantiateMasterOnCanvas(StencilMasterDescriptor const& master
     }
 
     MarkDocumentDirty(true);
+    PresentViewportFrame();
     SyncInspectorFromShapeSheet();
     RefreshShapeSheetSectionRows();
-    AttachOrResizeDx12SwapChain();
 }
 
-// ===========================================================================
-// ShapeSheet Cell Inspection, Reactive Formula Commit & GUARD/SETF Enforcement
-// ===========================================================================
 void MainWindow::SeedActiveShapeDefaultCells() {
     if (!m_doc) {
         return;
     }
-
-    (void)m_doc.SetCellFormula(m_activePageId, 1, "PinX",            "4.25 in", true);
-    (void)m_doc.SetCellFormula(m_activePageId, 1, "PinY",            "5.50 in", true);
-    (void)m_doc.SetCellFormula(m_activePageId, 1, "Width",           "2.00 in", true);
-    (void)m_doc.SetCellFormula(m_activePageId, 1, "Height",          "1.00 in", true);
-    (void)m_doc.SetCellFormula(m_activePageId, 1, "LocPinX",         "GUARD(Width*0.5)", true);
-    (void)m_doc.SetCellFormula(m_activePageId, 1, "LocPinY",         "GUARD(Height*0.5)", true);
-    (void)m_doc.SetCellFormula(m_activePageId, 1, "Angle",           "0 deg", true);
-    (void)m_doc.SetCellFormula(m_activePageId, 1, "FillForegnd",     "RGB(59,130,246)", true);
-    (void)m_doc.SetCellFormula(m_activePageId, 1, "LineColor",       "RGB(30,58,138)", true);
-    (void)m_doc.SetCellFormula(m_activePageId, 1, "LineWeight",      "1.5 pt", true);
-    (void)m_doc.SetCellFormula(m_activePageId, 1, "Rounding",        "0.08 in", true);
-    (void)m_doc.SetCellFormula(m_activePageId, 1, "Prop.Label",      "\"Order Validation\"", true);
-    (void)m_doc.SetCellFormula(m_activePageId, 1, "Prop.Department", "\"Operations\"", true);
-    (void)m_doc.SetCellFormula(m_activePageId, 1, "Prop.Owner",      "\"Platform Team\"", true);
-    (void)m_doc.SetCellFormula(m_activePageId, 1, "Prop.Cost",       "1250.00", true);
-    (void)m_doc.SetCellFormula(m_activePageId, 1, "Prop.Status",     "\"Active\"", true);
+    (void)m_doc.LoadStarterTemplate("bpmn_fulfillment");
 }
 
 void MainWindow::SyncInspectorFromShapeSheet() {
@@ -1246,11 +1475,37 @@ void MainWindow::RebuildPageTabsStrip() {
         const uint32_t targetId = p.pageId;
         tabBtn.Click([this, targetId](IInspectable const&, RoutedEventArgs const&) {
             m_activePageId = targetId;
+            if (m_viewport && m_doc) {
+                (void)m_viewport.SetPage(m_doc, m_activePageId);
+            }
             RebuildPageTabsStrip();
+            PresentViewportFrame();
             SyncInspectorFromShapeSheet();
             RefreshShapeSheetSectionRows();
-            AttachOrResizeDx12SwapChain();
         });
+
+        MenuFlyout pageMenu{};
+        MenuFlyoutItem renameItem{};
+        renameItem.Text(L"Rename Page...");
+        renameItem.Click([this, targetId](IInspectable const&, RoutedEventArgs const&) {
+            m_activePageId = targetId;
+            ShowRenamePageDialogAsync();
+        });
+        MenuFlyoutItem addItem{};
+        addItem.Text(L"Insert Blank Page");
+        addItem.Click([this](IInspectable const&, RoutedEventArgs const&) {
+            OnInsertBlankPageClick(nullptr, nullptr);
+        });
+        MenuFlyoutItem layoutItem{};
+        layoutItem.Text(L"Auto-Layout Page");
+        layoutItem.Click([this, targetId](IInspectable const&, RoutedEventArgs const&) {
+            m_activePageId = targetId;
+            OnReLayoutTopDownClick(nullptr, nullptr);
+        });
+        pageMenu.Items().Append(renameItem);
+        pageMenu.Items().Append(addItem);
+        pageMenu.Items().Append(layoutItem);
+        tabBtn.ContextFlyout(pageMenu);
 
         panel.Children().Append(tabBtn);
     }
@@ -1261,21 +1516,43 @@ void MainWindow::RebuildPageTabsStrip() {
 }
 
 void MainWindow::OnInsertBlankPageClick(IInspectable const&, RoutedEventArgs const&) {
-    const uint32_t nextId = static_cast<uint32_t>(m_pages.size() + 1);
-    m_pages.push_back(PageTabModel{nextId, std::format(L"Page-{}", nextId), false, 0u});
+    const uint32_t candidateIdx = static_cast<uint32_t>(m_pages.size() + 1);
+    const std::string pageNameUtf8 = std::format("Page-{}", candidateIdx);
+    uint32_t nextId = candidateIdx;
+    if (m_doc) {
+        const auto added = m_doc.AddPage(pageNameUtf8);
+        if (added.ok()) {
+            nextId = *added.value;
+        }
+    }
+    m_pages.push_back(PageTabModel{nextId, vexio::win::ToHString(pageNameUtf8).c_str(), false, 0u});
     m_activePageId = nextId;
+    if (m_viewport && m_doc) {
+        (void)m_viewport.SetPage(m_doc, m_activePageId);
+    }
     MarkDocumentDirty(true);
     RebuildPageTabsStrip();
-    AttachOrResizeDx12SwapChain();
+    PresentViewportFrame();
 }
 
 void MainWindow::OnInsertBackgroundPageClick(IInspectable const&, RoutedEventArgs const&) {
-    const uint32_t nextId = static_cast<uint32_t>(m_pages.size() + 1);
-    m_pages.push_back(PageTabModel{nextId, std::format(L"VBackground-{}", nextId), true, 1u});
+    const uint32_t candidateIdx = static_cast<uint32_t>(m_pages.size() + 1);
+    const std::string pageNameUtf8 = std::format("VBackground-{}", candidateIdx);
+    uint32_t nextId = candidateIdx;
+    if (m_doc) {
+        const auto added = m_doc.AddPage(pageNameUtf8);
+        if (added.ok()) {
+            nextId = *added.value;
+        }
+    }
+    m_pages.push_back(PageTabModel{nextId, vexio::win::ToHString(pageNameUtf8).c_str(), true, 0u});
     m_activePageId = nextId;
+    if (m_viewport && m_doc) {
+        (void)m_viewport.SetPage(m_doc, m_activePageId);
+    }
     MarkDocumentDirty(true);
     RebuildPageTabsStrip();
-    AttachOrResizeDx12SwapChain();
+    PresentViewportFrame();
 }
 
 void MainWindow::OnMovePageLeftClick(IInspectable const&, RoutedEventArgs const&) {
@@ -1310,6 +1587,10 @@ void MainWindow::SetZoomPercent(double zoomPercent) {
         StatusZoomSlider().Value(m_zoomPercent);
     }
     StatusZoomPercentText().Text(hstring{std::format(L"{:.0f}%", m_zoomPercent)});
+    if (m_viewport && m_doc) {
+        (void)m_viewport.SetZoom(m_doc, m_zoomPercent / 100.0);
+        PresentViewportFrame();
+    }
     RebuildRulerTicks();
 }
 
@@ -1322,10 +1603,16 @@ void MainWindow::OnZoomSliderValueChanged(IInspectable const&, RangeBaseValueCha
 void MainWindow::OnZoom50Click(IInspectable const&, RoutedEventArgs const&)  { SetZoomPercent(50.0); }
 void MainWindow::OnZoom100Click(IInspectable const&, RoutedEventArgs const&) { SetZoomPercent(100.0); }
 void MainWindow::OnZoom200Click(IInspectable const&, RoutedEventArgs const&) { SetZoomPercent(200.0); }
-void MainWindow::OnFitToWindowClick(IInspectable const&, RoutedEventArgs const&) { SetZoomPercent(100.0); }
+void MainWindow::OnFitToWindowClick(IInspectable const&, RoutedEventArgs const&) {
+    if (m_viewport && m_doc) {
+        (void)m_viewport.SetZoom(m_doc, 0.0);
+        PresentViewportFrame();
+    }
+    SetZoomPercent(100.0);
+}
 
 // ===========================================================================
-// Ribbon Tabs, Workstation Dock Toggles & Active Tools
+// Ribbon Tabs, Workstation Dock Toggles & All 16 Active Drawing Tools
 // ===========================================================================
 void MainWindow::OnRibbonTabChanged(IInspectable const& sender, RoutedEventArgs const&) {
     if (!m_isInitialized) return;
@@ -1346,6 +1633,11 @@ void MainWindow::OnRibbonTabChanged(IInspectable const& sender, RoutedEventArgs 
 
 void MainWindow::SetActiveTool(ActiveCanvasTool tool) {
     m_activeTool = tool;
+    const uint32_t code = static_cast<uint32_t>(tool);
+    if (m_viewport) {
+        (void)m_viewport.SetTool(code);
+    }
+
     PointerToolToggle().IsChecked(tool == ActiveCanvasTool::Pointer);
     TextToolToggle().IsChecked(tool == ActiveCanvasTool::Text);
     ConnectorToolToggle().IsChecked(tool == ActiveCanvasTool::Connector);
@@ -1353,21 +1645,53 @@ void MainWindow::SetActiveTool(ActiveCanvasTool tool) {
     InkPenToggle().IsChecked(tool == ActiveCanvasTool::InkPen);
     InkHighlighterToggle().IsChecked(tool == ActiveCanvasTool::InkHighlighter);
 
+    if (auto rail = DrawingToolRailPanel()) {
+        for (auto const& child : rail.Children()) {
+            if (auto tb = child.try_as<ToggleButton>()) {
+                const hstring tagStr = unbox_value_or<hstring>(tb.Tag(), L"-1");
+                const uint32_t btnCode = static_cast<uint32_t>(std::wcstoul(tagStr.c_str(), nullptr, 10));
+                tb.IsChecked(btnCode == code);
+            }
+        }
+    }
+
     switch (tool) {
         case ActiveCanvasTool::Pointer:
-            CanvasOverlayHudText().Text(L"Pointer Tool (Ctrl+1) • Dynamic Glue Active");
+            CanvasOverlayHudText().Text(L"Select Tool (Ctrl+1) • Right-Click for Context Menu");
             ApplyCanvasCursor(static_cast<uint32_t>(vexio::win::ViewportCursor::Arrow));
             break;
+        case ActiveCanvasTool::Pan:
+            CanvasOverlayHudText().Text(L"Pan Canvas Tool • Drag to Scroll Sheet");
+            ApplyCanvasCursor(static_cast<uint32_t>(vexio::win::ViewportCursor::Hand));
+            break;
         case ActiveCanvasTool::Text:
-            CanvasOverlayHudText().Text(L"Rich Text Block Tool (Ctrl+2)");
+            CanvasOverlayHudText().Text(L"Text Block Tool (Ctrl+2) • Click or Drag on Canvas");
             ApplyCanvasCursor(static_cast<uint32_t>(vexio::win::ViewportCursor::IBeam));
             break;
         case ActiveCanvasTool::Connector:
-            CanvasOverlayHudText().Text(L"Dynamic Obstacle-Avoiding Connector Tool (Ctrl+3)");
+            CanvasOverlayHudText().Text(L"Dynamic Connector Tool (Ctrl+3) • Drag Between Shapes");
+            ApplyCanvasCursor(static_cast<uint32_t>(vexio::win::ViewportCursor::Crosshair));
+            break;
+        case ActiveCanvasTool::Line:
+            CanvasOverlayHudText().Text(L"Line Tool • Click and Drag on Canvas");
+            ApplyCanvasCursor(static_cast<uint32_t>(vexio::win::ViewportCursor::Crosshair));
+            break;
+        case ActiveCanvasTool::Arc:
+            CanvasOverlayHudText().Text(L"Curved Arc Tool • Click and Drag on Canvas");
+            ApplyCanvasCursor(static_cast<uint32_t>(vexio::win::ViewportCursor::Crosshair));
+            break;
+        case ActiveCanvasTool::Freeform:
+            CanvasOverlayHudText().Text(L"Freeform Spline Curve Tool • Drag Path on Canvas");
             ApplyCanvasCursor(static_cast<uint32_t>(vexio::win::ViewportCursor::Crosshair));
             break;
         case ActiveCanvasTool::Rectangle:
-            CanvasOverlayHudText().Text(L"Rectangle Geometry Tool • Click Canvas to Place");
+        case ActiveCanvasTool::RoundedRect:
+        case ActiveCanvasTool::Ellipse:
+        case ActiveCanvasTool::Diamond:
+        case ActiveCanvasTool::Triangle:
+        case ActiveCanvasTool::Hexagon:
+        case ActiveCanvasTool::Star:
+            CanvasOverlayHudText().Text(L"Shape Drawing Tool • Click or Drag on Canvas to Draw");
             ApplyCanvasCursor(static_cast<uint32_t>(vexio::win::ViewportCursor::Crosshair));
             break;
         case ActiveCanvasTool::InkPen:
@@ -1378,6 +1702,14 @@ void MainWindow::SetActiveTool(ActiveCanvasTool tool) {
             CanvasOverlayHudText().Text(L"Markup Highlighter Overlay");
             ApplyCanvasCursor(static_cast<uint32_t>(vexio::win::ViewportCursor::Crosshair));
             break;
+    }
+}
+
+void MainWindow::OnRailToolClick(IInspectable const& sender, RoutedEventArgs const&) {
+    if (auto tb = sender.try_as<ToggleButton>()) {
+        const hstring tagStr = unbox_value_or<hstring>(tb.Tag(), L"0");
+        const uint32_t code = std::min<uint32_t>(15u, static_cast<uint32_t>(std::wcstoul(tagStr.c_str(), nullptr, 10)));
+        SetActiveTool(static_cast<ActiveCanvasTool>(code));
     }
 }
 
@@ -1394,9 +1726,15 @@ void MainWindow::OnTouchMouseModeToggle(IInspectable const&, RoutedEventArgs con
     RibbonBodyRow().Height(GridLength{m_touchMode ? 104.0 : 88.0});
 }
 
+void MainWindow::OnThemeModeToggleClick(IInspectable const&, RoutedEventArgs const&) {
+    m_lightThemeActive = !m_lightThemeActive;
+    RootWorkstationGrid().RequestedTheme(m_lightThemeActive ? ElementTheme::Light : ElementTheme::Dark);
+    ThemeModeLabel().Text(m_lightThemeActive ? L"Light UI" : L"Dark UI");
+}
+
 void MainWindow::OnToggleLeftStencilDockClick(IInspectable const&, RoutedEventArgs const&) {
     m_leftStencilOpen = !m_leftStencilOpen;
-    LeftStencilColumn().Width(GridLength{m_leftStencilOpen ? 264.0 : 0.0});
+    LeftStencilColumn().Width(GridLength{m_leftStencilOpen ? 268.0 : 0.0});
     LeftStencilDockBorder().Visibility(m_leftStencilOpen ? Visibility::Visible : Visibility::Collapsed);
     RestoreStencilsPillButton().Visibility(m_leftStencilOpen ? Visibility::Collapsed : Visibility::Visible);
     ViewStencilsDockToggle().IsChecked(m_leftStencilOpen);
@@ -1442,66 +1780,105 @@ void MainWindow::OnViewGridChanged(IInspectable const&, RoutedEventArgs const&) 
     if (!m_isInitialized || !m_doc) return;
     const bool show = ViewGridCheck().IsChecked().GetBoolean();
     (void)m_doc.SetCellFormula(m_activePageId, 0, "PageGridVisible", show ? "TRUE" : "FALSE", true);
-    AttachOrResizeDx12SwapChain();
+    PresentViewportFrame();
 }
 
 void MainWindow::OnViewAutoConnectChanged(IInspectable const&, RoutedEventArgs const&) {
     if (!m_isInitialized) return;
     const bool enabled = ViewAutoConnectCheck().IsChecked().GetBoolean();
     CanvasOverlayHudText().Text(enabled
-        ? L"Pointer Tool • Dynamic Glue & AutoConnect Active"
-        : L"Pointer Tool • Manual Glue Mode");
+        ? L"Select Tool • Dynamic Glue & AutoConnect Active"
+        : L"Select Tool • Manual Glue Mode");
 }
 
 // ===========================================================================
-// Undo / Redo, Clipboard, Routing, Layouts, Validation, CAD & Data Commands
+// Undo / Redo, Clipboard, Duplicate, Delete, Z-Order, Routing & Layouts
 // ===========================================================================
 void MainWindow::OnUndoClick(IInspectable const&, RoutedEventArgs const&) {
     if (!m_doc) return;
     if (m_doc.Undo() == VEXIO_OK) {
+        PresentViewportFrame();
         SyncInspectorFromShapeSheet();
         RefreshShapeSheetSectionRows();
-        AttachOrResizeDx12SwapChain();
     }
 }
 
 void MainWindow::OnRedoClick(IInspectable const&, RoutedEventArgs const&) {
     if (!m_doc) return;
     if (m_doc.Redo() == VEXIO_OK) {
+        PresentViewportFrame();
         SyncInspectorFromShapeSheet();
         RefreshShapeSheetSectionRows();
-        AttachOrResizeDx12SwapChain();
     }
 }
 
 void MainWindow::OnCopyShapeClick(IInspectable const&, RoutedEventArgs const&) {
-    m_clipboardMasterId = "flow.process";
     ShowBanner(InfoBarSeverity::Informational, L"Copied Shape",
                std::format(L"Sheet.{} copied to workstation clipboard.", m_selectedShapeId));
 }
 
 void MainWindow::OnCutShapeClick(IInspectable const&, RoutedEventArgs const&) {
-    m_clipboardMasterId = "flow.process";
-    (void)m_doc.SetCellFormula(m_activePageId, m_selectedShapeId, "Geometry1.NoShow", "TRUE", true);
+    if (!m_doc) return;
+    const std::array<uint64_t, 1> ids{m_selectedShapeId};
+    (void)m_doc.DeleteShapes(m_activePageId, ids);
     MarkDocumentDirty(true);
-    AttachOrResizeDx12SwapChain();
+    PresentViewportFrame();
 }
 
 void MainWindow::OnPasteShapeClick(IInspectable const&, RoutedEventArgs const&) {
-    for (auto const& master : m_allMasters) {
-        if (master.id == m_clipboardMasterId) {
-            InstantiateMasterOnCanvas(master, 4.75, 5.00);
-            break;
-        }
+    OnDuplicateShapeClick(nullptr, nullptr);
+}
+
+void MainWindow::OnDuplicateShapeClick(IInspectable const&, RoutedEventArgs const&) {
+    if (!m_doc) return;
+    const std::array<uint64_t, 1> ids{m_selectedShapeId};
+    const auto dup = m_doc.DuplicateShapes(m_activePageId, ids, 0.35, -0.35);
+    if (dup.ok() && *dup.value > 0) {
+        m_previousSelectedShapeId = m_selectedShapeId;
+        m_selectedShapeId = *dup.value;
+        MarkDocumentDirty(true);
+        PresentViewportFrame();
+        SyncInspectorFromShapeSheet();
+    } else if (!m_allMasters.empty()) {
+        InstantiateMasterOnCanvas(m_allMasters.front(), 4.75, 4.75);
+    }
+}
+
+void MainWindow::OnDeleteShapeClick(IInspectable const&, RoutedEventArgs const&) {
+    if (!m_doc) return;
+    const std::array<uint64_t, 1> ids{m_selectedShapeId};
+    if (m_doc.DeleteShapes(m_activePageId, ids).ok()) {
+        MarkDocumentDirty(true);
+        PresentViewportFrame();
+        SyncInspectorFromShapeSheet();
+    }
+}
+
+void MainWindow::OnBringFrontClick(IInspectable const&, RoutedEventArgs const&) {
+    if (!m_doc) return;
+    const std::array<uint64_t, 1> ids{m_selectedShapeId};
+    if (m_doc.ReorderShapes(m_activePageId, ids, "front") == VEXIO_OK) {
+        MarkDocumentDirty(true);
+        PresentViewportFrame();
+    }
+}
+
+void MainWindow::OnSendBackClick(IInspectable const&, RoutedEventArgs const&) {
+    if (!m_doc) return;
+    const std::array<uint64_t, 1> ids{m_selectedShapeId};
+    if (m_doc.ReorderShapes(m_activePageId, ids, "back") == VEXIO_OK) {
+        MarkDocumentDirty(true);
+        PresentViewportFrame();
     }
 }
 
 void MainWindow::OnConnectorRoutingChanged(IInspectable const&, SelectionChangedEventArgs const&) {
     if (!m_isInitialized || !m_doc) return;
     const int32_t idx = std::clamp(ConnectorRoutingCombo().SelectedIndex(), 0, 2);
-    const std::array<const char*, 3> routeStyles{"1", "16", "2"}; // Visio ShapeRouteStyle codes
+    const std::array<const char*, 3> routeStyles{"16", "1", "2"};
     (void)m_doc.SetCellFormula(m_activePageId, m_selectedShapeId, "ShapeRouteStyle", routeStyles[idx], true);
     MarkDocumentDirty(true);
+    PresentViewportFrame();
 }
 
 void MainWindow::OnQuickStyleAccentClick(IInspectable const&, RoutedEventArgs const&) {
@@ -1531,27 +1908,43 @@ void MainWindow::OnAutoLayoutQuickClick(IInspectable const&, RoutedEventArgs con
 }
 
 void MainWindow::OnInsertContainerClick(IInspectable const&, RoutedEventArgs const&) {
-    StencilMasterDescriptor container{"part.container", L"Diagram Parts", L"Logical Container", L"Container", "5.50 in", "3.50 in", "RGB(241,245,249)", "Container"};
-    InstantiateMasterOnCanvas(container, 5.50, 4.25);
+    if (!m_doc) return;
+    const auto res = m_doc.DropStencil(m_activePageId, "Callouts, Notes & Containers", "Container Box", 5.50, 4.25);
+    if (res.ok()) {
+        m_selectedShapeId = *res.value;
+        MarkDocumentDirty(true);
+        PresentViewportFrame();
+    }
 }
 
 void MainWindow::OnInsertSwimlaneClick(IInspectable const&, RoutedEventArgs const&) {
-    for (auto const& m : m_allMasters) {
-        if (m.id == "bpmn.pool") {
-            InstantiateMasterOnCanvas(m, 5.50, 4.25);
-            break;
-        }
+    if (!m_doc) return;
+    const auto res = m_doc.DropStencil(m_activePageId, "Cross-Functional Swimlanes", "Horizontal Swimlane", 5.50, 4.25);
+    if (res.ok()) {
+        m_selectedShapeId = *res.value;
+        MarkDocumentDirty(true);
+        PresentViewportFrame();
     }
 }
 
 void MainWindow::OnInsertCalloutClick(IInspectable const&, RoutedEventArgs const&) {
-    StencilMasterDescriptor callout{"part.callout", L"Diagram Parts", L"Annotation Callout", L"Callout", "2.10 in", "0.85 in", "RGB(254,249,195)", "Callout"};
-    InstantiateMasterOnCanvas(callout, 6.25, 6.25);
+    if (!m_doc) return;
+    const auto res = m_doc.DropStencil(m_activePageId, "Callouts, Notes & Containers", "Speech Callout", 6.25, 6.25);
+    if (res.ok()) {
+        m_selectedShapeId = *res.value;
+        MarkDocumentDirty(true);
+        PresentViewportFrame();
+    }
 }
 
 void MainWindow::OnInsertLegendClick(IInspectable const&, RoutedEventArgs const&) {
-    StencilMasterDescriptor legend{"part.legend", L"Diagram Parts", L"Data Graphics Legend", L"Legend", "2.60 in", "1.80 in", "RGB(255,255,255)", "Legend"};
-    InstantiateMasterOnCanvas(legend, 8.75, 2.00);
+    if (!m_doc) return;
+    const auto res = m_doc.DropStencil(m_activePageId, "Callouts, Notes & Containers", "Sticky Note", 8.75, 2.00);
+    if (res.ok()) {
+        m_selectedShapeId = *res.value;
+        MarkDocumentDirty(true);
+        PresentViewportFrame();
+    }
 }
 
 void MainWindow::OnInsertCadDrawingClick(IInspectable const&, RoutedEventArgs const&) {
@@ -1592,7 +1985,7 @@ void MainWindow::OnPageOrientationChanged(IInspectable const&, SelectionChangedE
         (void)m_doc.SetCellFormula(m_activePageId, 0, "PageHeight", "24 in", true);
     }
     MarkDocumentDirty(true);
-    AttachOrResizeDx12SwapChain();
+    PresentViewportFrame();
 }
 
 void MainWindow::OnDrawingScaleChanged(IInspectable const&, SelectionChangedEventArgs const&) {
@@ -1623,9 +2016,9 @@ void MainWindow::ApplySelectedThemeAndVariant() {
 
     if (status == VEXIO_OK) {
         MarkDocumentDirty(true);
+        PresentViewportFrame();
         SyncInspectorFromShapeSheet();
         RefreshShapeSheetSectionRows();
-        AttachOrResizeDx12SwapChain();
         OnRefreshPanZoomPreviewClick(nullptr, nullptr);
         ShowBanner(
             InfoBarSeverity::Informational,
@@ -1654,9 +2047,9 @@ void MainWindow::ApplyVisualPresetSlug(std::string_view presetSlugUtf8, std::wst
     const VexioStatus status = m_doc.ApplyVisualPreset(m_activePageId, m_selectedShapeId, presetSlugUtf8);
     if (status == VEXIO_OK) {
         MarkDocumentDirty(true);
+        PresentViewportFrame();
         SyncInspectorFromShapeSheet();
         RefreshShapeSheetSectionRows();
-        AttachOrResizeDx12SwapChain();
         OnRefreshPanZoomPreviewClick(nullptr, nullptr);
         ShowBanner(
             InfoBarSeverity::Success,
@@ -1690,24 +2083,31 @@ void MainWindow::OnLineJumpStyleChanged(IInspectable const&, SelectionChangedEve
     if (!m_isInitialized || !m_doc) return;
     const int32_t idx = std::clamp(LineJumpStyleCombo().SelectedIndex(), 0, 3);
     (void)m_doc.SetCellFormula(m_activePageId, 0, "PageLineJumpStyle", std::to_string(idx), true);
+    PresentViewportFrame();
 }
 
 void MainWindow::OnReLayoutTopDownClick(IInspectable const&, RoutedEventArgs const&) {
+    if (m_doc) (void)m_doc.AutoLayout(m_activePageId, "tb");
+    MarkDocumentDirty(true);
+    PresentViewportFrame();
     ShowBanner(InfoBarSeverity::Success, L"Hierarchical Top-Down Layout Applied",
                L"Sugiyama layered graph auto-layout executed with orthogonal obstacle-avoiding connectors.");
-    AttachOrResizeDx12SwapChain();
 }
 
 void MainWindow::OnReLayoutLeftRightClick(IInspectable const&, RoutedEventArgs const&) {
+    if (m_doc) (void)m_doc.AutoLayout(m_activePageId, "lr");
+    MarkDocumentDirty(true);
+    PresentViewportFrame();
     ShowBanner(InfoBarSeverity::Success, L"Left-to-Right Process Flow Applied",
                L"Swimlane-preserving horizontal Sugiyama layout completed.");
-    AttachOrResizeDx12SwapChain();
 }
 
 void MainWindow::OnReLayoutRadialClick(IInspectable const&, RoutedEventArgs const&) {
+    if (m_doc) (void)m_doc.AutoLayout(m_activePageId, "radial");
+    MarkDocumentDirty(true);
+    PresentViewportFrame();
     ShowBanner(InfoBarSeverity::Success, L"Radial Topology Layout Applied",
                L"Force-balanced concentric topology layout completed.");
-    AttachOrResizeDx12SwapChain();
 }
 
 void MainWindow::OnLinkExternalDataClick(IInspectable const&, RoutedEventArgs const&) {
@@ -1987,42 +2387,54 @@ void MainWindow::RefreshBaselineSnapshot() {
 void MainWindow::OnNewBlankDocClick(IInspectable const&, RoutedEventArgs const&) {
     FileBackstageFlyout().Hide();
     m_doc = vexio::win::DocHandle::CreateBlank("Drawing1.vsdx");
+    (void)m_doc.LoadStarterTemplate("blank");
     m_currentStorageFile = nullptr;
     m_documentDisplayName = L"Drawing1.vsdx";
     m_activeFormatExt = "vsdx";
     m_activePageId = 1;
     m_selectedShapeId = 1;
     m_previousSelectedShapeId = 1;
-    SeedActiveShapeDefaultCells();
     RefreshBaselineSnapshot();
     MarkDocumentDirty(false);
+    AttachOrResizeDx12SwapChain();
     SyncInspectorFromShapeSheet();
     RefreshShapeSheetSectionRows();
-    AttachOrResizeDx12SwapChain();
 }
 
 void MainWindow::OnNewBpmnTemplateClick(IInspectable const&, RoutedEventArgs const&) {
-    OnNewBlankDocClick(nullptr, nullptr);
+    FileBackstageFlyout().Hide();
+    m_doc = vexio::win::DocHandle::CreateBlank("Order_Fulfillment_BPMN2.vsdx");
+    (void)m_doc.LoadStarterTemplate("bpmn_fulfillment");
     m_documentDisplayName = L"Order_Fulfillment_BPMN2.vsdx";
-    StencilPackCombo().SelectedIndex(1);
     ValidationRuleSetCombo().SelectedIndex(0);
+    RefreshBaselineSnapshot();
     MarkDocumentDirty(false);
+    AttachOrResizeDx12SwapChain();
+    SyncInspectorFromShapeSheet();
 }
 
 void MainWindow::OnNewUmlTemplateClick(IInspectable const&, RoutedEventArgs const&) {
-    OnNewBlankDocClick(nullptr, nullptr);
+    FileBackstageFlyout().Hide();
+    m_doc = vexio::win::DocHandle::CreateBlank("Service_Domain_UML25.vsdx");
+    (void)m_doc.LoadStarterTemplate("cloud_microservices");
     m_documentDisplayName = L"Service_Domain_UML25.vsdx";
-    StencilPackCombo().SelectedIndex(2);
     ValidationRuleSetCombo().SelectedIndex(1);
+    RefreshBaselineSnapshot();
     MarkDocumentDirty(false);
+    AttachOrResizeDx12SwapChain();
+    SyncInspectorFromShapeSheet();
 }
 
 void MainWindow::OnNewCadFloorPlanClick(IInspectable const&, RoutedEventArgs const&) {
-    OnNewBlankDocClick(nullptr, nullptr);
+    FileBackstageFlyout().Hide();
+    m_doc = vexio::win::DocHandle::CreateBlank("FloorPlan_Level1.vsdx");
+    (void)m_doc.LoadStarterTemplate("datacenter_floorplan");
     m_documentDisplayName = L"FloorPlan_Level1.vsdx";
-    StencilPackCombo().SelectedIndex(4);
     DrawingScaleCombo().SelectedIndex(1);
+    RefreshBaselineSnapshot();
     MarkDocumentDirty(false);
+    AttachOrResizeDx12SwapChain();
+    SyncInspectorFromShapeSheet();
 }
 
 void MainWindow::OnOpenClick(IInspectable const&, RoutedEventArgs const&) {

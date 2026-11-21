@@ -452,6 +452,111 @@ impl WgpuCanvasRenderer {
             .await
     }
 
+    /// Bind a DirectX 12 WinUI 3 `ISwapChainPanelNative` (`IUnknown*`) directly to `wgpu`.
+    ///
+    /// # Safety
+    /// `panel_unk` must be a valid, non-null COM pointer to a WinUI 3 `SwapChainPanel` outliving the surface.
+    #[cfg(target_os = "windows")]
+    pub unsafe fn new_dx12_swapchain_panel(
+        panel_unk: *mut std::ffi::c_void,
+        width: u32,
+        height: u32,
+        dpi_scale: f32,
+    ) -> Result<Self, RenderError> {
+        let non_null = std::ptr::NonNull::new(panel_unk)
+            .ok_or_else(|| RenderError::Surface("null SwapChainPanel COM pointer".into()))?;
+        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+            backends: wgpu::Backends::DX12 | wgpu::Backends::VULKAN,
+            ..Default::default()
+        });
+        // SAFETY: Caller guarantees `non_null` is a valid WinUI 3 `SwapChainPanel` COM object.
+        let surface = unsafe {
+            instance.create_surface_unsafe(wgpu::SurfaceTargetUnsafe::SwapChainPanel(non_null))
+        }
+        .map_err(|e| RenderError::Surface(e.to_string()))?;
+        let mut r = pollster::block_on(Self::new_with_surface_async(
+            instance,
+            surface,
+            width.max(1),
+            height.max(1),
+            4,
+        ))?;
+        r.camera.dpi_scale = sanitize_positive(dpi_scale as f64, 1.0);
+        Ok(r)
+    }
+
+    /// Bind a macOS AppKit/SwiftUI `CAMetalLayer*` directly to `wgpu` Metal backend.
+    ///
+    /// # Safety
+    /// `layer_ptr` must be a valid, non-null `CAMetalLayer` Objective-C object outliving the surface.
+    #[cfg(target_os = "macos")]
+    pub unsafe fn new_metal_layer(
+        layer_ptr: *mut std::ffi::c_void,
+        width: u32,
+        height: u32,
+        dpi_scale: f32,
+    ) -> Result<Self, RenderError> {
+        if layer_ptr.is_null() {
+            return Err(RenderError::Surface("null CAMetalLayer pointer".into()));
+        }
+        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+            backends: wgpu::Backends::METAL,
+            ..Default::default()
+        });
+        // SAFETY: Caller guarantees `layer_ptr` is a valid retained `CAMetalLayer` instance.
+        let surface = unsafe {
+            instance.create_surface_unsafe(wgpu::SurfaceTargetUnsafe::CoreAnimationLayer(layer_ptr))
+        }
+        .map_err(|e| RenderError::Surface(e.to_string()))?;
+        let mut r = pollster::block_on(Self::new_with_surface_async(
+            instance,
+            surface,
+            width.max(1),
+            height.max(1),
+            4,
+        ))?;
+        r.camera.dpi_scale = sanitize_positive(dpi_scale as f64, 1.0);
+        Ok(r)
+    }
+
+    /// Bind an Android NDK `ANativeWindow*` directly to `wgpu` Vulkan/GLES backend.
+    ///
+    /// # Safety
+    /// `a_native_window` must be a valid, acquired `ANativeWindow*` outliving the surface.
+    #[cfg(target_os = "android")]
+    pub unsafe fn new_android_native_window(
+        a_native_window: *mut std::ffi::c_void,
+        width: u32,
+        height: u32,
+        dpi_scale: f32,
+    ) -> Result<Self, RenderError> {
+        let non_null = std::ptr::NonNull::new(a_native_window)
+            .ok_or_else(|| RenderError::Surface("null ANativeWindow pointer".into()))?;
+        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+            backends: wgpu::Backends::VULKAN | wgpu::Backends::GL,
+            ..Default::default()
+        });
+        let win_handle = wgpu::rwh::AndroidNdkWindowHandle::new(non_null);
+        let disp_handle = wgpu::rwh::AndroidDisplayHandle::new();
+        // SAFETY: Caller guarantees `a_native_window` was acquired via `ANativeWindow_fromSurface` and remains valid.
+        let surface = unsafe {
+            instance.create_surface_unsafe(wgpu::SurfaceTargetUnsafe::RawHandle {
+                raw_display_handle: wgpu::rwh::RawDisplayHandle::Android(disp_handle),
+                raw_window_handle: wgpu::rwh::RawWindowHandle::AndroidNdk(win_handle),
+            })
+        }
+        .map_err(|e| RenderError::Surface(e.to_string()))?;
+        let mut r = pollster::block_on(Self::new_with_surface_async(
+            instance,
+            surface,
+            width.max(1),
+            height.max(1),
+            4,
+        ))?;
+        r.camera.dpi_scale = sanitize_positive(dpi_scale as f64, 1.0);
+        Ok(r)
+    }
+
     async fn init_with_instance_and_surface(
         instance: wgpu::Instance,
         compatible_surface: Option<wgpu::Surface<'static>>,
@@ -1168,6 +1273,17 @@ pub fn render_page_software_rgba_with_camera(
     camera: &ViewportCamera,
     show_grid: bool,
 ) -> Result<Vec<u8>, RenderError> {
+    render_page_software_rgba_with_selection(doc, page_id, camera, show_grid, &[])
+}
+
+/// Deterministic 4x-RGSS software rasterizer with caller-supplied `ViewportCamera` and `selected_shapes`.
+pub fn render_page_software_rgba_with_selection(
+    doc: &VisioDocument,
+    page_id: u32,
+    camera: &ViewportCamera,
+    show_grid: bool,
+    selected_shapes: &[u64],
+) -> Result<Vec<u8>, RenderError> {
     let width = camera.width_px;
     let height = camera.height_px;
     if width == 0 || height == 0 {
@@ -1175,16 +1291,33 @@ pub fn render_page_software_rgba_with_camera(
     }
 
     let mut cache = MeshCache::new();
-    let (mesh, _stats, grid_spacing_in) =
-        build_page_scene_mesh(doc, page_id, camera, &mut cache, show_grid, false, &[])?;
+    let (mesh, _stats, grid_spacing_in) = build_page_scene_mesh(
+        doc,
+        page_id,
+        camera,
+        &mut cache,
+        show_grid,
+        false,
+        selected_shapes,
+    )?;
 
-    let bg = active_page_background_color(doc);
+    let pasteboard = RgbaColor {
+        r: 226,
+        g: 232,
+        b: 240,
+        a: 255,
+    };
+    let clear = if selected_shapes.is_empty() && !show_grid {
+        active_page_background_color(doc)
+    } else {
+        pasteboard
+    };
     let mut fb = vec![0u8; (width as usize) * (height as usize) * 4];
     for px in fb.chunks_exact_mut(4) {
-        px[0] = bg.r;
-        px[1] = bg.g;
-        px[2] = bg.b;
-        px[3] = bg.a;
+        px[0] = clear.r;
+        px[1] = clear.g;
+        px[2] = clear.b;
+        px[3] = clear.a;
     }
 
     rasterize_mesh_rgss4(&mesh, camera, grid_spacing_in as f32, &mut fb);

@@ -334,9 +334,9 @@ mod tests {
             build_org_chart_from_csv, build_project_timeline, instantiate_starter_template,
         };
 
-        // 1. Verify all 12 built-in stencil packs exist and every master round-trips cleanly
+        // 1. Verify all 17 built-in stencil packs exist and every master round-trips cleanly
         let packs = build_all_builtin_stencils();
-        assert_eq!(packs.len(), 12, "Expected 12 built-in domain stencil packs");
+        assert_eq!(packs.len(), 17, "Expected 17 built-in domain stencil packs");
         let mut sess = DocumentSession::new_blank("Stencil Verification");
         for pack in &packs {
             assert!(!pack.masters.is_empty(), "Pack {} must have masters", pack.title);

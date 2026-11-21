@@ -63,15 +63,18 @@ jobs:
       - name: Build Swift 6 VexioMacApp (Liquid Glass + Metal) & VexioQuickLookExtension
         working-directory: apps/macos
         run: |
-          swift build -c release --arch arm64 --arch x86_64 --product VexioMacApp
-          swift build -c release --arch arm64 --arch x86_64 --product VexioQuickLookExtension
+          swift build -c release --arch arm64 --product VexioMacApp
+          swift build -c release --arch x86_64 --product VexioMacApp
+          swift build -c release --arch arm64 --product VexioQuickLookExtension
+          swift build -c release --arch x86_64 --product VexioQuickLookExtension
 
       - name: Assemble Vexio.app Bundle, Embed Quick Look Extension & Package DMG
         run: |
           STAGE_DIR="apps/macos/build/dmg-stage"
           APP_BUNDLE="${STAGE_DIR}/Vexio.app"
           QL_APPEX="${APP_BUNDLE}/Contents/PlugIns/VexioQuickLookExtension.appex"
-          SWIFT_BIN_DIR=$(swift build --package-path apps/macos -c release --arch arm64 --arch x86_64 --show-bin-path)
+          ARM_BIN_DIR=$(swift build --package-path apps/macos -c release --arch arm64 --show-bin-path)
+          X64_BIN_DIR=$(swift build --package-path apps/macos -c release --arch x86_64 --show-bin-path)
 
           rm -rf "apps/macos/build"
           mkdir -p \
@@ -79,18 +82,26 @@ jobs:
             "${APP_BUNDLE}/Contents/Resources/Stencils" \
             "${QL_APPEX}/Contents/MacOS"
 
-          cp -f "${SWIFT_BIN_DIR}/VexioMacApp" "${APP_BUNDLE}/Contents/MacOS/VexioMacApp"
+          lipo -create \
+            -output "${APP_BUNDLE}/Contents/MacOS/VexioMacApp" \
+            "${ARM_BIN_DIR}/VexioMacApp" \
+            "${X64_BIN_DIR}/VexioMacApp"
           chmod +x "${APP_BUNDLE}/Contents/MacOS/VexioMacApp"
           cp -f "apps/macos/Info.plist" "${APP_BUNDLE}/Contents/Info.plist"
           cp -f stencils/*.vssx "${APP_BUNDLE}/Contents/Resources/Stencils/"
 
-          # Embed VexioQuickLookExtension (.vsdx, .vssx, .vstx, .vsd offline previews)
-          cp -f "${SWIFT_BIN_DIR}/libVexioQuickLookExtension.dylib" "${QL_APPEX}/Contents/MacOS/VexioQuickLookExtension"
+          # Embed Universal2 VexioQuickLookExtension (.vsdx, .vssx, .vstx, .vsd offline previews)
+          lipo -create \
+            -output "${QL_APPEX}/Contents/MacOS/VexioQuickLookExtension" \
+            "${ARM_BIN_DIR}/libVexioQuickLookExtension.dylib" \
+            "${X64_BIN_DIR}/libVexioQuickLookExtension.dylib"
+          chmod +x "${QL_APPEX}/Contents/MacOS/VexioQuickLookExtension"
           if [ -f "apps/macos/Sources/VexioQuickLookExtension/Info.plist" ]; then
             cp -f "apps/macos/Sources/VexioQuickLookExtension/Info.plist" "${QL_APPEX}/Contents/Info.plist"
           fi
 
           lipo -info "${APP_BUNDLE}/Contents/MacOS/VexioMacApp"
+          lipo -info "${QL_APPEX}/Contents/MacOS/VexioQuickLookExtension"
           codesign --force --deep --sign - "${APP_BUNDLE}"
 
           ln -s /Applications "${STAGE_DIR}/Applications"

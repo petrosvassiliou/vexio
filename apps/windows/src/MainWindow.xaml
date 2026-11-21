@@ -93,6 +93,11 @@
                         <TextBlock x:Name="TouchModeLabel" Text="Mouse" FontSize="11" VerticalAlignment="Center" />
                     </StackPanel>
                 </ToggleButton>
+
+                <Button x:Name="QatThemeToggleButton" Style="{StaticResource VexioQatButtonStyle}" Click="OnThemeModeToggleClick"
+                        ToolTipService.ToolTip="Switch Light / Dark Appearance (Default: Light)">
+                    <TextBlock x:Name="ThemeModeLabel" Text="Light UI" FontSize="11" VerticalAlignment="Center" />
+                </Button>
             </StackPanel>
 
             <!-- Document Title & Format Badge -->
@@ -182,7 +187,7 @@
                             <!-- Clipboard Group -->
                             <StackPanel>
                                 <StackPanel Orientation="Horizontal" Spacing="4" Height="56">
-                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnPasteShapeClick" ToolTipService.ToolTip="Duplicate / Paste Shape">
+                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnPasteShapeClick" ToolTipService.ToolTip="Paste Shape (Ctrl+V)">
                                         <StackPanel Spacing="3">
                                             <PathIcon Width="16" Height="16" Data="M 5,1 L 11,1 L 11,3 L 14,3 L 14,15 L 2,15 L 2,3 L 5,3 Z" />
                                             <TextBlock Text="Paste" FontSize="11" />
@@ -191,6 +196,10 @@
                                     <StackPanel Spacing="2" VerticalAlignment="Center">
                                         <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnCutShapeClick" Content="Cut" Padding="6,2" />
                                         <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnCopyShapeClick" Content="Copy" Padding="6,2" />
+                                    </StackPanel>
+                                    <StackPanel Spacing="2" VerticalAlignment="Center">
+                                        <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnDuplicateShapeClick" Content="Duplicate" Padding="6,2" />
+                                        <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnDeleteShapeClick" Content="Delete" Padding="6,2" />
                                     </StackPanel>
                                 </StackPanel>
                                 <TextBlock Text="Clipboard" Style="{StaticResource VexioRibbonGroupLabelStyle}" />
@@ -249,14 +258,15 @@
                             </StackPanel>
                             <AppBarSeparator />
 
-                            <!-- Arrange Group -->
+                            <!-- Arrange & Z-Order Group -->
                             <StackPanel>
                                 <StackPanel Orientation="Horizontal" Spacing="4" Height="56">
+                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnBringFrontClick" Content="Bring Front" />
+                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnSendBackClick" Content="Send Back" />
                                     <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnAlignCenterClick" Content="Align Center" />
-                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnDistributeHorizontallyClick" Content="Distribute" />
-                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnAutoLayoutQuickClick" Content="Auto-Align" />
+                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnAutoLayoutQuickClick" Content="Auto-Layout" />
                                 </StackPanel>
-                                <TextBlock Text="Arrange" Style="{StaticResource VexioRibbonGroupLabelStyle}" />
+                                <TextBlock Text="Arrange &amp; Order" Style="{StaticResource VexioRibbonGroupLabelStyle}" />
                             </StackPanel>
                         </StackPanel>
 
@@ -556,11 +566,13 @@
         <!-- =================================================================== -->
         <Grid Grid.Row="3">
             <Grid.ColumnDefinitions>
-                <!-- Col 0: Collapsible Left Shapes / Stencils Dock -->
-                <ColumnDefinition x:Name="LeftStencilColumn" Width="264" />
-                <!-- Col 1: Center Ruler + DirectX 12 SwapChainPanel + Floating Formula Bar -->
+                <!-- Col 0: Collapsible Left Shapes / Stencils Dock (All 17 Visio Categories) -->
+                <ColumnDefinition x:Name="LeftStencilColumn" Width="268" />
+                <!-- Col 1: Persistent Vertical Drawing Tool Rail (All 16 Basic Drawing & Diagramming Tools) -->
+                <ColumnDefinition Width="56" />
+                <!-- Col 2: Center Ruler + DirectX 12 SwapChainPanel + Floating Formula Bar -->
                 <ColumnDefinition Width="*" />
-                <!-- Col 2: Dockable Right Task Panes -->
+                <!-- Col 3: Dockable Right Task Panes -->
                 <ColumnDefinition x:Name="RightTaskPaneColumn" Width="328" />
             </Grid.ColumnDefinitions>
 
@@ -580,7 +592,7 @@
 
                     <!-- Header + Collapse Button -->
                     <Grid Grid.Row="0">
-                        <TextBlock Text="Shapes &amp; Stencils" FontWeight="SemiBold" FontSize="13.5" VerticalAlignment="Center" />
+                        <TextBlock x:Name="StencilHeaderCountText" Text="Shapes (17 Categories)" FontWeight="SemiBold" FontSize="13" VerticalAlignment="Center" />
                         <Button HorizontalAlignment="Right" Padding="6,2" Background="Transparent" BorderBrush="Transparent"
                                 Click="OnToggleLeftStencilDockClick" ToolTipService.ToolTip="Collapse Shapes Dock">
                             <PathIcon Width="12" Height="12" Data="M 10,2 L 4,8 L 10,14" />
@@ -588,18 +600,12 @@
                     </Grid>
 
                     <!-- Instant Stencil Search -->
-                    <TextBox x:Name="StencilSearchBox" Grid.Row="1" PlaceholderText="Search 250+ masters (BPMN, UML, CAD)..."
+                    <TextBox x:Name="StencilSearchBox" Grid.Row="1" PlaceholderText="Search 160 shapes in 17 packs..."
                              TextChanged="OnStencilSearchTextChanged" />
 
-                    <!-- Stencil Pack Switcher -->
-                    <ComboBox x:Name="StencilPackCombo" Grid.Row="2" HorizontalAlignment="Stretch" SelectedIndex="0"
-                              SelectionChanged="OnStencilPackSelectionChanged">
-                        <x:String>Basic Flowchart Shapes</x:String>
-                        <x:String>BPMN 2.0 Process Masters</x:String>
-                        <x:String>UML 2.5 Class &amp; Sequence</x:String>
-                        <x:String>Cloud &amp; Network Topology</x:String>
-                        <x:String>Architectural CAD Walls &amp; Doors</x:String>
-                    </ComboBox>
+                    <!-- Stencil Pack Switcher (Populated Dynamically with All 17 Visio Categories) -->
+                    <ComboBox x:Name="StencilPackCombo" Grid.Row="2" HorizontalAlignment="Stretch"
+                              SelectionChanged="OnStencilPackSelectionChanged" />
 
                     <!-- Drag-Source Stencil Items -->
                     <ListView x:Name="StencilMastersListView" Grid.Row="3"
@@ -610,15 +616,77 @@
                               ItemClick="OnStencilMasterItemClick" />
 
                     <!-- Quick Drop Hint -->
-                    <TextBlock Grid.Row="4" Text="Drag master onto DX12 canvas or click to instantiate."
+                    <TextBlock Grid.Row="4" Text="Click, drag onto canvas, or right-click any stencil."
                                FontSize="11" Opacity="0.7" TextWrapping="Wrap" />
                 </Grid>
             </Border>
 
             <!-- =============================================================== -->
-            <!-- COL 1: CENTER RULERS + DX12 SWAPCHAINPANEL + FORMULA BAR        -->
+            <!-- COL 1: PERSISTENT VERTICAL DRAWING TOOL RAIL (16 BASIC TOOLS)   -->
             <!-- =============================================================== -->
-            <Grid Grid.Column="1" Background="{StaticResource VexioCanvasBackdropBrush}">
+            <Border Grid.Column="1" Background="{StaticResource VexioRibbonSurfaceBrush}"
+                    BorderBrush="{StaticResource VexioRibbonGroupBorderBrush}" BorderThickness="0,0,1,0">
+                <ScrollViewer VerticalScrollBarVisibility="Hidden" HorizontalScrollBarVisibility="Disabled" Padding="4,6">
+                    <StackPanel x:Name="DrawingToolRailPanel" Spacing="3">
+                        <ToggleButton Tag="0" Click="OnRailToolClick" IsChecked="True" HorizontalAlignment="Stretch" Padding="2,4" ToolTipService.ToolTip="Select / Pointer (Ctrl+1)">
+                            <StackPanel Spacing="1"><PathIcon Width="13" Height="13" Data="M 3,1 L 3,13 L 6.5,9.8 L 9,15 L 11,14 L 8.5,9 L 13,9 Z" /><TextBlock Text="Select" FontSize="9.5" HorizontalAlignment="Center" /></StackPanel>
+                        </ToggleButton>
+                        <ToggleButton Tag="1" Click="OnRailToolClick" HorizontalAlignment="Stretch" Padding="2,4" ToolTipService.ToolTip="Pan Canvas">
+                            <StackPanel Spacing="1"><PathIcon Width="13" Height="13" Data="M 8,1 L 11,4 L 9,4 L 9,7 L 12,7 L 12,5 L 15,8 L 12,11 L 12,9 L 9,9 L 9,12 L 11,12 L 8,15 L 5,12 L 7,12 L 7,9 L 4,9 L 4,11 L 1,8 L 4,5 L 4,7 L 7,7 L 7,4 L 5,4 Z" /><TextBlock Text="Pan" FontSize="9.5" HorizontalAlignment="Center" /></StackPanel>
+                        </ToggleButton>
+                        <MenuFlyoutSeparator />
+                        <ToggleButton Tag="2" Click="OnRailToolClick" HorizontalAlignment="Stretch" Padding="2,4" ToolTipService.ToolTip="Dynamic Connector (Ctrl+3)">
+                            <StackPanel Spacing="1"><PathIcon Width="13" Height="13" Data="M 2,3 L 5,3 L 5,6 L 2,6 Z M 5,4.5 L 10,4.5 L 10,11.5 L 12,11.5 M 11,10 L 14,10 L 14,13 L 11,13 Z" /><TextBlock Text="Connect" FontSize="9.5" HorizontalAlignment="Center" /></StackPanel>
+                        </ToggleButton>
+                        <ToggleButton Tag="9" Click="OnRailToolClick" HorizontalAlignment="Stretch" Padding="2,4" ToolTipService.ToolTip="Straight Line Tool">
+                            <StackPanel Spacing="1"><PathIcon Width="13" Height="13" Data="M 2,14 L 14,2" /><TextBlock Text="Line" FontSize="9.5" HorizontalAlignment="Center" /></StackPanel>
+                        </ToggleButton>
+                        <ToggleButton Tag="10" Click="OnRailToolClick" HorizontalAlignment="Stretch" Padding="2,4" ToolTipService.ToolTip="Curved Arc Tool">
+                            <StackPanel Spacing="1"><PathIcon Width="13" Height="13" Data="M 2,13 C 2,5 8,2 14,3" /><TextBlock Text="Arc" FontSize="9.5" HorizontalAlignment="Center" /></StackPanel>
+                        </ToggleButton>
+                        <ToggleButton Tag="11" Click="OnRailToolClick" HorizontalAlignment="Stretch" Padding="2,4" ToolTipService.ToolTip="Freeform Spline Curve">
+                            <StackPanel Spacing="1"><PathIcon Width="13" Height="13" Data="M 1,12 C 4,2 11,14 15,3" /><TextBlock Text="Curve" FontSize="9.5" HorizontalAlignment="Center" /></StackPanel>
+                        </ToggleButton>
+                        <MenuFlyoutSeparator />
+                        <ToggleButton Tag="4" Click="OnRailToolClick" HorizontalAlignment="Stretch" Padding="2,4" ToolTipService.ToolTip="Rectangle Tool">
+                            <StackPanel Spacing="1"><PathIcon Width="13" Height="13" Data="M 2,3 L 14,3 L 14,13 L 2,13 Z" /><TextBlock Text="Rect" FontSize="9.5" HorizontalAlignment="Center" /></StackPanel>
+                        </ToggleButton>
+                        <ToggleButton Tag="5" Click="OnRailToolClick" HorizontalAlignment="Stretch" Padding="2,4" ToolTipService.ToolTip="Rounded Rectangle Tool">
+                            <StackPanel Spacing="1"><PathIcon Width="13" Height="13" Data="M 4,3 L 12,3 L 14,5 L 14,11 L 12,13 L 4,13 L 2,11 L 2,5 Z" /><TextBlock Text="Round" FontSize="9.5" HorizontalAlignment="Center" /></StackPanel>
+                        </ToggleButton>
+                        <ToggleButton Tag="6" Click="OnRailToolClick" HorizontalAlignment="Stretch" Padding="2,4" ToolTipService.ToolTip="Circle / Ellipse Tool">
+                            <StackPanel Spacing="1"><PathIcon Width="13" Height="13" Data="M 8,2 A 6,6 0 1 1 7.99,2 Z" /><TextBlock Text="Circle" FontSize="9.5" HorizontalAlignment="Center" /></StackPanel>
+                        </ToggleButton>
+                        <ToggleButton Tag="7" Click="OnRailToolClick" HorizontalAlignment="Stretch" Padding="2,4" ToolTipService.ToolTip="Decision Diamond Tool">
+                            <StackPanel Spacing="1"><PathIcon Width="13" Height="13" Data="M 8,1 L 15,8 L 8,15 L 1,8 Z" /><TextBlock Text="Diamond" FontSize="9.5" HorizontalAlignment="Center" /></StackPanel>
+                        </ToggleButton>
+                        <ToggleButton Tag="8" Click="OnRailToolClick" HorizontalAlignment="Stretch" Padding="2,4" ToolTipService.ToolTip="Triangle Tool">
+                            <StackPanel Spacing="1"><PathIcon Width="13" Height="13" Data="M 8,2 L 15,14 L 1,14 Z" /><TextBlock Text="Triangle" FontSize="9.5" HorizontalAlignment="Center" /></StackPanel>
+                        </ToggleButton>
+                        <ToggleButton Tag="14" Click="OnRailToolClick" HorizontalAlignment="Stretch" Padding="2,4" ToolTipService.ToolTip="Hexagon Tool">
+                            <StackPanel Spacing="1"><PathIcon Width="13" Height="13" Data="M 4.5,2 L 11.5,2 L 15,8 L 11.5,14 L 4.5,14 L 1,8 Z" /><TextBlock Text="Hexagon" FontSize="9.5" HorizontalAlignment="Center" /></StackPanel>
+                        </ToggleButton>
+                        <ToggleButton Tag="15" Click="OnRailToolClick" HorizontalAlignment="Stretch" Padding="2,4" ToolTipService.ToolTip="5-Point Star Tool">
+                            <StackPanel Spacing="1"><PathIcon Width="13" Height="13" Data="M 8,1 L 10,6 L 15,6 L 11,9.5 L 12.5,15 L 8,11.8 L 3.5,15 L 5,9.5 L 1,6 L 6,6 Z" /><TextBlock Text="Star" FontSize="9.5" HorizontalAlignment="Center" /></StackPanel>
+                        </ToggleButton>
+                        <MenuFlyoutSeparator />
+                        <ToggleButton Tag="3" Click="OnRailToolClick" HorizontalAlignment="Stretch" Padding="2,4" ToolTipService.ToolTip="Text Box Tool (Ctrl+2)">
+                            <StackPanel Spacing="1"><PathIcon Width="13" Height="13" Data="M 2,2 L 14,2 L 14,5 L 12,5 L 12,4 L 9,4 L 9,14 L 7,14 L 7,4 L 4,4 L 4,5 L 2,5 Z" /><TextBlock Text="Text" FontSize="9.5" HorizontalAlignment="Center" /></StackPanel>
+                        </ToggleButton>
+                        <ToggleButton Tag="12" Click="OnRailToolClick" HorizontalAlignment="Stretch" Padding="2,4" ToolTipService.ToolTip="Markup Ink Pen">
+                            <StackPanel Spacing="1"><PathIcon Width="13" Height="13" Data="M 11,2 L 14,5 L 5,14 L 2,14 L 2,11 Z" /><TextBlock Text="Pen" FontSize="9.5" HorizontalAlignment="Center" /></StackPanel>
+                        </ToggleButton>
+                        <ToggleButton Tag="13" Click="OnRailToolClick" HorizontalAlignment="Stretch" Padding="2,4" ToolTipService.ToolTip="Markup Highlighter">
+                            <StackPanel Spacing="1"><PathIcon Width="13" Height="13" Data="M 9,2 L 14,7 L 7,14 L 2,14 L 2,9 Z" /><TextBlock Text="Marker" FontSize="9.5" HorizontalAlignment="Center" /></StackPanel>
+                        </ToggleButton>
+                    </StackPanel>
+                </ScrollViewer>
+            </Border>
+
+            <!-- =============================================================== -->
+            <!-- COL 2: CENTER RULERS + DX12 SWAPCHAINPANEL + FORMULA BAR        -->
+            <!-- =============================================================== -->
+            <Grid Grid.Column="2" Background="{StaticResource VexioCanvasBackdropBrush}">
                 <Grid.RowDefinitions>
                     <!-- Floating Formula Bar (when ShapeSheet is active) -->
                     <RowDefinition Height="Auto" />
@@ -695,12 +763,13 @@
                     </Canvas>
                 </Border>
 
-                <!-- 120 FPS DirectX 12 wgpu SwapChainPanel -->
+                <!-- 120 FPS DirectX 12 wgpu SwapChainPanel + Right-Click Context Menu -->
                 <SwapChainPanel x:Name="DiagramSwapChainPanel"
                                 Grid.Row="2"
                                 Grid.Column="1"
                                 AllowDrop="True"
                                 IsTapEnabled="True"
+                                IsRightTapEnabled="True"
                                 Loaded="OnSwapChainPanelLoaded"
                                 SizeChanged="OnSwapChainPanelSizeChanged"
                                 CompositionScaleChanged="OnSwapChainCompositionScaleChanged"
@@ -708,24 +777,26 @@
                                 PointerMoved="OnCanvasPointerMoved"
                                 PointerReleased="OnCanvasPointerReleased"
                                 PointerWheelChanged="OnCanvasPointerWheelChanged"
+                                RightTapped="OnCanvasRightTapped"
                                 DragOver="OnCanvasDragOver"
                                 Drop="OnCanvasDrop"
                                 AutomationProperties.Name="DirectX 12 Diagram Canvas">
+                    <Image x:Name="SoftwareCanvasFallbackImage" Stretch="Fill" IsHitTestVisible="False" Visibility="Collapsed" />
                     <!-- Non-blocking HUD Pill for Collapsed Dock Restore & Active Tool -->
                     <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="12" IsHitTestVisible="True">
                         <Button x:Name="RestoreStencilsPillButton" Visibility="Collapsed" Content="Show Shapes" FontSize="11.5" Padding="8,4"
                                 Click="OnToggleLeftStencilDockClick" />
                         <Border Background="#CC0F172A" CornerRadius="4" Padding="8,3" IsHitTestVisible="False">
-                            <TextBlock x:Name="CanvasOverlayHudText" Text="Pointer Tool • Dynamic Glue Active" Foreground="White" FontSize="11" />
+                            <TextBlock x:Name="CanvasOverlayHudText" Text="Select Tool • Right-Click for Context Menu" Foreground="White" FontSize="11" />
                         </Border>
                     </StackPanel>
                 </SwapChainPanel>
             </Grid>
 
             <!-- =============================================================== -->
-            <!-- COL 2: DOCKABLE RIGHT TASK PANES (6 COMPLETE TABS)              -->
+            <!-- COL 3: DOCKABLE RIGHT TASK PANES (6 COMPLETE TABS)              -->
             <!-- =============================================================== -->
-            <Border x:Name="RightTaskPaneBorder" Grid.Column="2" Background="{ThemeResource LayerFillColorDefaultBrush}"
+            <Border x:Name="RightTaskPaneBorder" Grid.Column="3" Background="{ThemeResource LayerFillColorDefaultBrush}"
                     BorderBrush="{StaticResource VexioRibbonGroupBorderBrush}" BorderThickness="1,0,0,0">
                 <Pivot x:Name="RightTaskPanesPivot" Title="Inspector &amp; Task Panes" FontSize="12">
                     <!-- PANE 1: SHAPE DATA (Prop.*) -->

@@ -5,7 +5,7 @@
 use rstar::{Envelope, PointDistance, RTree, RTreeObject, AABB};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
-use vexio_shapesheet::EvaluatedShapeVisual;
+use vexio_shapesheet::{EvaluatedPathVerb, EvaluatedShapeVisual, ShapeKind};
 
 /// World-space bounding-box record stored inside the R*-tree, in canonical Visio inches.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -263,6 +263,40 @@ impl SpatialIndex {
         hits.into_iter().map(|e| e.shape_id).collect()
     }
 
+    /// Geometry-accurate hit-test using R*-tree broadphase (`O(log N)`) followed by narrowphase:
+    /// - 1D connectors and open (`no_fill`) strokes require true point-to-polyline/curve distance `<= tol`,
+    ///   preventing L/Z-connector AABBs from stealing clicks across the page.
+    /// - Rotated 2D shapes test in local unrotated shape coordinates (`parent_to_local`).
+    pub fn hit_test_visuals(
+        &self,
+        visuals: &[EvaluatedShapeVisual],
+        x_in: f64,
+        y_in: f64,
+        tolerance_in: f64,
+    ) -> Vec<u64> {
+        let tol = if tolerance_in.is_finite() {
+            tolerance_in.max(0.03)
+        } else {
+            0.06
+        };
+        let candidates = self.hit_test_point(x_in, y_in, tol);
+        if candidates.is_empty() {
+            return candidates;
+        }
+        let vis_by_id: BTreeMap<u64, &EvaluatedShapeVisual> =
+            visuals.iter().map(|v| (v.shape_id, v)).collect();
+
+        candidates
+            .into_iter()
+            .filter(|id| {
+                let Some(vis) = vis_by_id.get(id) else {
+                    return true;
+                };
+                visual_narrowphase_hit(vis, x_in, y_in, tol)
+            })
+            .collect()
+    }
+
     /// Locate the nearest magnetic connection/snap point within `max_dist_in` inches of `(x_in, y_in)`.
     /// Uses `RTree::locate_within_distance` for `O(log N)` spatial pruning.
     pub fn nearest_snap_point(
@@ -319,3 +353,155 @@ fn sanitize_interval(a: f64, b: f64) -> (f64, f64) {
         (fb, fa)
     }
 }
+
+#[inline]
+fn point_to_segment_dist_sq(p: [f64; 2], a: [f64; 2], b: [f64; 2]) -> f64 {
+    let vx = b[0] - a[0];
+    let vy = b[1] - a[1];
+    let len_sq = vx * vx + vy * vy;
+    if len_sq <= 1e-12 {
+        let dx = p[0] - a[0];
+        let dy = p[1] - a[1];
+        return dx * dx + dy * dy;
+    }
+    let t = (((p[0] - a[0]) * vx + (p[1] - a[1]) * vy) / len_sq).clamp(0.0, 1.0);
+    let proj_x = a[0] + t * vx;
+    let proj_y = a[1] + t * vy;
+    let dx = p[0] - proj_x;
+    let dy = p[1] - proj_y;
+    dx * dx + dy * dy
+}
+
+fn min_dist_sq_to_visual_strokes(vis: &EvaluatedShapeVisual, pt: [f64; 2]) -> f64 {
+    let mut best_sq = f64::INFINITY;
+    for path in &vis.paths {
+        if path.no_show {
+            continue;
+        }
+        let mut cur = [0.0, 0.0];
+        let mut start = [0.0, 0.0];
+        let mut has_cur = false;
+        for verb in &path.verbs_page_space {
+            match *verb {
+                EvaluatedPathVerb::MoveTo(p) => {
+                    cur = p;
+                    start = p;
+                    has_cur = true;
+                }
+                EvaluatedPathVerb::LineTo(to) => {
+                    if has_cur {
+                        best_sq = best_sq.min(point_to_segment_dist_sq(pt, cur, to));
+                    }
+                    cur = to;
+                    has_cur = true;
+                }
+                EvaluatedPathVerb::QuadTo { ctrl, to } => {
+                    if has_cur {
+                        let mut prev = cur;
+                        for step in 1..=8 {
+                            let t = step as f64 / 8.0;
+                            let mt = 1.0 - t;
+                            let nx = mt * mt * cur[0] + 2.0 * mt * t * ctrl[0] + t * t * to[0];
+                            let ny = mt * mt * cur[1] + 2.0 * mt * t * ctrl[1] + t * t * to[1];
+                            let next = [nx, ny];
+                            best_sq = best_sq.min(point_to_segment_dist_sq(pt, prev, next));
+                            prev = next;
+                        }
+                    }
+                    cur = to;
+                    has_cur = true;
+                }
+                EvaluatedPathVerb::CubicTo { ctrl1, ctrl2, to } => {
+                    if has_cur {
+                        let mut prev = cur;
+                        for step in 1..=10 {
+                            let t = step as f64 / 10.0;
+                            let mt = 1.0 - t;
+                            let nx = mt * mt * mt * cur[0]
+                                + 3.0 * mt * mt * t * ctrl1[0]
+                                + 3.0 * mt * t * t * ctrl2[0]
+                                + t * t * t * to[0];
+                            let ny = mt * mt * mt * cur[1]
+                                + 3.0 * mt * mt * t * ctrl1[1]
+                                + 3.0 * mt * t * t * ctrl2[1]
+                                + t * t * t * to[1];
+                            let next = [nx, ny];
+                            best_sq = best_sq.min(point_to_segment_dist_sq(pt, prev, next));
+                            prev = next;
+                        }
+                    }
+                    cur = to;
+                    has_cur = true;
+                }
+                EvaluatedPathVerb::ArcTo { to, bow } => {
+                    if has_cur {
+                        let mx = (cur[0] + to[0]) * 0.5;
+                        let my = (cur[1] + to[1]) * 0.5;
+                        let dx = to[0] - cur[0];
+                        let dy = to[1] - cur[1];
+                        let chord = (dx * dx + dy * dy).sqrt();
+                        let ctrl = if chord > 1e-9 {
+                            let nx = -dy / chord;
+                            let ny = dx / chord;
+                            [mx + nx * bow * 2.0, my + ny * bow * 2.0]
+                        } else {
+                            [mx, my]
+                        };
+                        let mut prev = cur;
+                        for step in 1..=10 {
+                            let t = step as f64 / 10.0;
+                            let mt = 1.0 - t;
+                            let nx = mt * mt * cur[0] + 2.0 * mt * t * ctrl[0] + t * t * to[0];
+                            let ny = mt * mt * cur[1] + 2.0 * mt * t * ctrl[1] + t * t * to[1];
+                            let next = [nx, ny];
+                            best_sq = best_sq.min(point_to_segment_dist_sq(pt, prev, next));
+                            prev = next;
+                        }
+                    }
+                    cur = to;
+                    has_cur = true;
+                }
+                EvaluatedPathVerb::Close => {
+                    if has_cur {
+                        best_sq = best_sq.min(point_to_segment_dist_sq(pt, cur, start));
+                        cur = start;
+                    }
+                }
+                EvaluatedPathVerb::Ellipse {
+                    center,
+                    rx,
+                    ry,
+                    angle_rad,
+                } => {
+                    let dx = pt[0] - center[0];
+                    let dy = pt[1] - center[1];
+                    let (s, c) = (-angle_rad).sin_cos();
+                    let lx = (dx * c - dy * s) / rx.max(1e-4);
+                    let ly = (dx * s + dy * c) / ry.max(1e-4);
+                    let norm_r = (lx * lx + ly * ly).sqrt();
+                    let approx_dist = ((norm_r - 1.0).abs()) * rx.min(ry).max(1e-4);
+                    best_sq = best_sq.min(approx_dist * approx_dist);
+                }
+            }
+        }
+    }
+    best_sq
+}
+
+fn visual_narrowphase_hit(vis: &EvaluatedShapeVisual, x_in: f64, y_in: f64, tol_in: f64) -> bool {
+    let stroke_tol = (vis.stroke_weight_in.max(0.02) * 0.5 + tol_in).max(0.075);
+    if vis.kind == ShapeKind::Connector1D {
+        return min_dist_sq_to_visual_strokes(vis, [x_in, y_in]) <= stroke_tol * stroke_tol;
+    }
+
+    let (lx, ly) = vis.transform.parent_to_local(x_in, y_in);
+    let w = vis.transform.width.max(0.0);
+    let h = vis.transform.height.max(0.0);
+    if lx >= -tol_in && lx <= w + tol_in && ly >= -tol_in && ly <= h + tol_in {
+        return true;
+    }
+
+    // Fallback for freeform/boolean shapes whose evaluated path vertices extend beyond [0..w, 0..h]
+    min_dist_sq_to_visual_strokes(vis, [x_in, y_in]) <= stroke_tol * stroke_tol
+}
+

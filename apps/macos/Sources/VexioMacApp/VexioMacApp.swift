@@ -152,39 +152,103 @@ public struct VexioGlobalMenuCommands: Commands {
             .disabled(session == nil)
         }
 
-        // Tools Menu
+        // Tools Menu (All 16 Visio Drawing & Diagramming Tools)
         CommandMenu("Tools") {
-            Button("Pointer Tool") { session?.activeTool = .pointer }
+            Button("Select Tool") { session?.activeTool = .pointer }
                 .keyboardShortcut("1", modifiers: [.command])
+                .disabled(session == nil)
+
+            Button("Pan Tool") { session?.activeTool = .pan }
                 .disabled(session == nil)
 
             Button("Dynamic Connector Tool") { session?.activeTool = .connector }
                 .keyboardShortcut("2", modifiers: [.command])
                 .disabled(session == nil)
 
-            Button("Text Block Tool") { session?.activeTool = .text }
-                .keyboardShortcut("3", modifiers: [.command])
+            Divider()
+
+            Button("Line Tool") { session?.activeTool = .line }
                 .disabled(session == nil)
 
-            Button("Rectangle Tool") { session?.activeTool = .rectangle }
-                .keyboardShortcut("4", modifiers: [.command])
-                .disabled(session == nil)
-
-            Button("Ellipse Tool") { session?.activeTool = .ellipse }
-                .keyboardShortcut("5", modifiers: [.command])
+            Button("Arc Tool") { session?.activeTool = .arc }
                 .disabled(session == nil)
 
             Button("Freeform Spline Tool") { session?.activeTool = .freeform }
                 .keyboardShortcut("6", modifiers: [.command])
                 .disabled(session == nil)
 
-            Button("Markup Ink Tool") { session?.activeTool = .ink }
+            Divider()
+
+            Button("Rectangle Tool") { session?.activeTool = .rectangle }
+                .keyboardShortcut("4", modifiers: [.command])
+                .disabled(session == nil)
+
+            Button("Rounded Rectangle Tool") { session?.activeTool = .roundedRect }
+                .keyboardShortcut("4", modifiers: [.command, .shift])
+                .disabled(session == nil)
+
+            Button("Circle / Ellipse Tool") { session?.activeTool = .ellipse }
+                .keyboardShortcut("5", modifiers: [.command])
+                .disabled(session == nil)
+
+            Button("Diamond Tool") { session?.activeTool = .diamond }
+                .disabled(session == nil)
+
+            Button("Triangle Tool") { session?.activeTool = .triangle }
+                .disabled(session == nil)
+
+            Button("Hexagon Tool") { session?.activeTool = .hexagon }
+                .disabled(session == nil)
+
+            Button("Star Tool") { session?.activeTool = .star }
+                .disabled(session == nil)
+
+            Divider()
+
+            Button("Text Block Tool") { session?.activeTool = .text }
+                .keyboardShortcut("3", modifiers: [.command])
+                .disabled(session == nil)
+
+            Button("Markup Pen Ink Tool") { session?.activeTool = .ink }
                 .keyboardShortcut("7", modifiers: [.command])
+                .disabled(session == nil)
+
+            Button("Highlighter Tool") { session?.activeTool = .highlighter }
+                .keyboardShortcut("7", modifiers: [.command, .shift])
                 .disabled(session == nil)
         }
 
         // Shape, Boolean Operations, Visual Presets & ShapeSheet Protection Menu
         CommandMenu("Shape") {
+            Button("Duplicate Selection") {
+                session?.duplicateSelectedShapes(undoManager: NSApp.keyWindow?.undoManager)
+            }
+            .keyboardShortcut("d", modifiers: [.command])
+            .disabled(session == nil)
+
+            Button("Delete Selection") {
+                session?.deleteSelectedShapes(undoManager: NSApp.keyWindow?.undoManager)
+            }
+            .disabled(session == nil)
+
+            Menu("Arrange Order") {
+                Button("Bring to Front") {
+                    session?.reorderSelectedShapes(mode: "front", undoManager: NSApp.keyWindow?.undoManager)
+                }
+                Button("Bring Forward") {
+                    session?.reorderSelectedShapes(mode: "forward", undoManager: NSApp.keyWindow?.undoManager)
+                }
+                Button("Send Backward") {
+                    session?.reorderSelectedShapes(mode: "backward", undoManager: NSApp.keyWindow?.undoManager)
+                }
+                Button("Send to Back") {
+                    session?.reorderSelectedShapes(mode: "back", undoManager: NSApp.keyWindow?.undoManager)
+                }
+            }
+            .disabled(session == nil)
+
+            Divider()
+
             Menu("Shape Operations") {
                 Button("Union") {
                     session?.applyBooleanOperation(.union, undoManager: NSApp.keyWindow?.undoManager)

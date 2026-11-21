@@ -49,10 +49,104 @@ use crate::workspace::DocumentSession;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use vexio_shapesheet::{
-    CommentAnnotation, ForeignMediaData, MarkupInkPoint, MarkupInkStroke, ReactiveEngine,
-    RgbaColor, ShapeKind, Unit, VisioDocument, VisioShape, format_clean_f64,
+    CommentAnnotation, EvaluatedPathVerb, EvaluatedShapeVisual, ForeignMediaData, MarkupInkPoint,
+    MarkupInkStroke, ReactiveEngine, RgbaColor, ShapeKind, Unit, VisioDocument, VisioShape,
+    format_clean_f64,
 };
 use wasm_bindgen::prelude::*;
+
+fn sample_visual_polyline(vis: &EvaluatedShapeVisual) -> Vec<[f64; 2]> {
+    let mut pts: Vec<[f64; 2]> = Vec::new();
+    for path in &vis.paths {
+        if path.no_show {
+            continue;
+        }
+        let mut cur = [0.0, 0.0];
+        let mut has_cur = false;
+        for verb in &path.verbs_page_space {
+            match *verb {
+                EvaluatedPathVerb::MoveTo(p) => {
+                    pts.push(p);
+                    cur = p;
+                    has_cur = true;
+                }
+                EvaluatedPathVerb::LineTo(to) => {
+                    pts.push(to);
+                    cur = to;
+                    has_cur = true;
+                }
+                EvaluatedPathVerb::QuadTo { ctrl, to } => {
+                    if has_cur {
+                        for step in 1..=8 {
+                            let t = step as f64 / 8.0;
+                            let mt = 1.0 - t;
+                            pts.push([
+                                mt * mt * cur[0] + 2.0 * mt * t * ctrl[0] + t * t * to[0],
+                                mt * mt * cur[1] + 2.0 * mt * t * ctrl[1] + t * t * to[1],
+                            ]);
+                        }
+                    } else {
+                        pts.push(to);
+                    }
+                    cur = to;
+                    has_cur = true;
+                }
+                EvaluatedPathVerb::CubicTo { ctrl1, ctrl2, to } => {
+                    if has_cur {
+                        for step in 1..=10 {
+                            let t = step as f64 / 10.0;
+                            let mt = 1.0 - t;
+                            pts.push([
+                                mt * mt * mt * cur[0]
+                                    + 3.0 * mt * mt * t * ctrl1[0]
+                                    + 3.0 * mt * t * t * ctrl2[0]
+                                    + t * t * t * to[0],
+                                mt * mt * mt * cur[1]
+                                    + 3.0 * mt * mt * t * ctrl1[1]
+                                    + 3.0 * mt * t * t * ctrl2[1]
+                                    + t * t * t * to[1],
+                            ]);
+                        }
+                    } else {
+                        pts.push(to);
+                    }
+                    cur = to;
+                    has_cur = true;
+                }
+                EvaluatedPathVerb::ArcTo { to, bow } => {
+                    if has_cur {
+                        let mx = (cur[0] + to[0]) * 0.5;
+                        let my = (cur[1] + to[1]) * 0.5;
+                        let dx = to[0] - cur[0];
+                        let dy = to[1] - cur[1];
+                        let chord = (dx * dx + dy * dy).sqrt();
+                        let ctrl = if chord > 1e-9 {
+                            let nx = -dy / chord;
+                            let ny = dx / chord;
+                            [mx + nx * bow * 2.0, my + ny * bow * 2.0]
+                        } else {
+                            [mx, my]
+                        };
+                        for step in 1..=10 {
+                            let t = step as f64 / 10.0;
+                            let mt = 1.0 - t;
+                            pts.push([
+                                mt * mt * cur[0] + 2.0 * mt * t * ctrl[0] + t * t * to[0],
+                                mt * mt * cur[1] + 2.0 * mt * t * ctrl[1] + t * t * to[1],
+                            ]);
+                        }
+                    } else {
+                        pts.push(to);
+                    }
+                    cur = to;
+                    has_cur = true;
+                }
+                EvaluatedPathVerb::Close | EvaluatedPathVerb::Ellipse { .. } => {}
+            }
+        }
+    }
+    pts
+}
 
 #[wasm_bindgen]
 pub struct WasmVexioSession {
@@ -82,6 +176,17 @@ struct WasmShapeInfo {
     width: f64,
     height: f64,
     angle_deg: f64,
+    begin_x: Option<f64>,
+    begin_y: Option<f64>,
+    end_x: Option<f64>,
+    end_y: Option<f64>,
+    path_points: Vec<[f64; 2]>,
+    ports: Vec<[f64; 2]>,
+    route_style: i32,
+    begin_arrow: i32,
+    end_arrow: i32,
+    line_weight_pt: f64,
+    line_pattern: i32,
     subprocess_page: Option<String>,
     screentip: Option<String>,
     control_handles: Vec<ControlHandleInfo>,
@@ -262,6 +367,16 @@ impl WasmVexioSession {
         serde_json::to_string(&previews).unwrap_or_else(|_| "{}".into())
     }
 
+    pub fn list_builtin_pack_order_json(&self) -> String {
+        let order: Vec<String> = self
+            .inner
+            .builtin_stencils
+            .iter()
+            .map(|p| p.title.clone())
+            .collect();
+        serde_json::to_string(&order).unwrap_or_else(|_| "[]".into())
+    }
+
     pub fn load_starter_template(&mut self, template_id: &str) {
         self.inner.doc = instantiate_starter_template(template_id);
         self.inner.journal = CommandJournal::new();
@@ -313,7 +428,7 @@ impl WasmVexioSession {
         let visuals = ReactiveEngine::evaluate_page_visuals(&self.inner.doc, page_id);
         let index = vexio_render::SpatialIndex::build(&visuals);
         index
-            .hit_test_point(x_in, y_in, 0.08)
+            .hit_test_visuals(&visuals, x_in, y_in, 0.08)
             .into_iter()
             .next()
             .unwrap_or(0) as u32
@@ -457,6 +572,58 @@ impl WasmVexioSession {
             || sh.sheet.get_bool("LockMoveY").unwrap_or(false)
         {
             return false;
+        }
+        if sh.kind == ShapeKind::Connector1D {
+            let cur_px = sh.sheet.get_f64("PinX").unwrap_or(0.0);
+            let cur_py = sh.sheet.get_f64("PinY").unwrap_or(0.0);
+            let dx = new_pin_x_in - cur_px;
+            let dy = new_pin_y_in - cur_py;
+            let bx = sh.sheet.get_f64("BeginX").unwrap_or(0.0) + dx;
+            let by = sh.sheet.get_f64("BeginY").unwrap_or(0.0) + dy;
+            let ex = sh.sheet.get_f64("EndX").unwrap_or(1.0) + dx;
+            let ey = sh.sheet.get_f64("EndY").unwrap_or(0.0) + dy;
+            let old_bx = sh.sheet.get_cell("BeginX").map(|c| c.formula.clone()).unwrap_or_default();
+            let old_by = sh.sheet.get_cell("BeginY").map(|c| c.formula.clone()).unwrap_or_default();
+            let old_ex = sh.sheet.get_cell("EndX").map(|c| c.formula.clone()).unwrap_or_default();
+            let old_ey = sh.sheet.get_cell("EndY").map(|c| c.formula.clone()).unwrap_or_default();
+            let batch = DocCommand::Batch {
+                label: "Move 1D Shape".into(),
+                commands: vec![
+                    DocCommand::SetCellFormula {
+                        page_id,
+                        shape_id: sid,
+                        cell_name: "BeginX".into(),
+                        old_formula: old_bx,
+                        new_formula: format!("{} in", format_clean_f64(bx)),
+                        force_setf: false,
+                    },
+                    DocCommand::SetCellFormula {
+                        page_id,
+                        shape_id: sid,
+                        cell_name: "BeginY".into(),
+                        old_formula: old_by,
+                        new_formula: format!("{} in", format_clean_f64(by)),
+                        force_setf: false,
+                    },
+                    DocCommand::SetCellFormula {
+                        page_id,
+                        shape_id: sid,
+                        cell_name: "EndX".into(),
+                        old_formula: old_ex,
+                        new_formula: format!("{} in", format_clean_f64(ex)),
+                        force_setf: false,
+                    },
+                    DocCommand::SetCellFormula {
+                        page_id,
+                        shape_id: sid,
+                        cell_name: "EndY".into(),
+                        old_formula: old_ey,
+                        new_formula: format!("{} in", format_clean_f64(ey)),
+                        force_setf: false,
+                    },
+                ],
+            };
+            return self.inner.journal.execute(&mut self.inner.doc, batch).is_ok();
         }
         let old_x = sh
             .sheet
@@ -811,53 +978,132 @@ impl WasmVexioSession {
         x2_in: f64,
         y2_in: f64,
     ) -> Result<u32, JsValue> {
-        let w = (x2_in - x1_in).abs().max(0.4);
-        let h = (y2_in - y1_in).abs().max(0.3);
-        let cx = (x1_in + x2_in) * 0.5;
-        let cy = (y1_in + y2_in) * 0.5;
-        let sid = self
-            .inner
-            .doc
-            .page(page_id)
-            .map(|p| p.next_shape_id())
-            .unwrap_or(1);
-        let mut sh = VisioShape::new_rect(sid, format!("Rectangle.{sid}"), cx, cy, w, h);
-        sh.text = format!("Shape {sid}");
+        self.draw_primitive_2d(page_id, "rect", x1_in, y1_in, x2_in, y2_in)
+    }
+
+    pub fn draw_primitive_2d(
+        &mut self,
+        page_id: u32,
+        kind: &str,
+        x1_in: f64,
+        y1_in: f64,
+        x2_in: f64,
+        y2_in: f64,
+    ) -> Result<u32, JsValue> {
         self.inner
-            .journal
-            .execute(&mut self.inner.doc, DocCommand::AddShape { page_id, shape: sh })
-            .map_err(|e| JsValue::from_str(&e.to_string()))?;
-        Ok(sid as u32)
+            .draw_primitive_2d(page_id, kind, x1_in, y1_in, x2_in, y2_in)
+            .map(|id| id as u32)
+            .map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
+    pub fn draw_line(
+        &mut self,
+        page_id: u32,
+        x1_in: f64,
+        y1_in: f64,
+        x2_in: f64,
+        y2_in: f64,
+    ) -> Result<u32, JsValue> {
+        self.inner
+            .draw_line(page_id, x1_in, y1_in, x2_in, y2_in)
+            .map(|id| id as u32)
+            .map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
+    pub fn draw_arc(
+        &mut self,
+        page_id: u32,
+        x1_in: f64,
+        y1_in: f64,
+        x2_in: f64,
+        y2_in: f64,
+        bow_in: f64,
+    ) -> Result<u32, JsValue> {
+        self.inner
+            .draw_arc(page_id, x1_in, y1_in, x2_in, y2_in, bow_in)
+            .map(|id| id as u32)
+            .map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn connect_points_or_shapes(
+        &mut self,
+        page_id: u32,
+        x1_in: f64,
+        y1_in: f64,
+        x2_in: f64,
+        y2_in: f64,
+        from_shape_id: u32,
+        to_shape_id: u32,
+    ) -> Result<u32, JsValue> {
+        self.inner
+            .connect_points_or_shapes(
+                page_id,
+                x1_in,
+                y1_in,
+                x2_in,
+                y2_in,
+                if from_shape_id > 0 {
+                    Some(from_shape_id as u64)
+                } else {
+                    None
+                },
+                if to_shape_id > 0 {
+                    Some(to_shape_id as u64)
+                } else {
+                    None
+                },
+            )
+            .map(|id| id as u32)
+            .map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
+    pub fn move_connector_endpoint(
+        &mut self,
+        page_id: u32,
+        shape_id: u32,
+        is_begin: bool,
+        x_in: f64,
+        y_in: f64,
+        target_shape_id: u32,
+    ) -> Result<bool, JsValue> {
+        self.inner
+            .move_connector_endpoint(
+                page_id,
+                shape_id as u64,
+                is_begin,
+                x_in,
+                y_in,
+                if target_shape_id > 0 {
+                    Some(target_shape_id as u64)
+                } else {
+                    None
+                },
+            )
+            .map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
+    pub fn duplicate_shapes(
+        &mut self,
+        page_id: u32,
+        shape_ids: &[u32],
+        dx_in: f64,
+        dy_in: f64,
+    ) -> Vec<u32> {
+        let ids64: Vec<u64> = shape_ids.iter().map(|&i| i as u64).collect();
+        self.inner
+            .duplicate_shapes(page_id, &ids64, dx_in, dy_in)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|id| id as u32)
+            .collect()
     }
 
     pub fn delete_shape(&mut self, page_id: u32, shape_id: u32) -> bool {
-        let sid = shape_id as u64;
-        let Some(page) = self.inner.doc.page(page_id) else {
-            return false;
-        };
-        let Some(shape) = page.find_shape(sid).cloned() else {
-            return false;
-        };
-        if shape.sheet.get_bool("LockDelete").unwrap_or(false) {
-            return false;
-        }
-        let removed_connects = page
-            .connects
-            .iter()
-            .filter(|c| c.connector_shape_id == sid || c.target_shape_id == sid)
-            .cloned()
-            .collect();
         self.inner
-            .journal
-            .execute(
-                &mut self.inner.doc,
-                DocCommand::DeleteShape {
-                    page_id,
-                    shape,
-                    removed_connects,
-                },
-            )
-            .is_ok()
+            .delete_shapes(page_id, &[shape_id as u64])
+            .map(|n| n > 0)
+            .unwrap_or(false)
     }
 
     pub fn add_ink_stroke(
@@ -935,29 +1181,36 @@ impl WasmVexioSession {
     }
 
     pub fn set_page_dimensions(&mut self, page_id: u32, width_in: f64, height_in: f64, jump_style: i32) {
-        if let Some(page) = self.inner.doc.page_mut(page_id) {
-            page.page_sheet.set_formula(
-                "PageWidth",
-                format!("{} in", format_clean_f64(width_in)),
-                Some(Unit::Inch),
-            );
-            page.page_sheet.set_formula(
-                "PageHeight",
-                format!("{} in", format_clean_f64(height_in)),
-                Some(Unit::Inch),
-            );
-            if jump_style < 0 {
-                page.page_sheet.set_formula("PageLineJumpCode", "0", Some(Unit::Number));
-            } else {
-                page.page_sheet.set_formula("PageLineJumpCode", "1", Some(Unit::Number));
-                page.page_sheet.set_formula(
-                    "PageLineJumpStyle",
-                    jump_style.to_string(),
-                    Some(Unit::Number),
-                );
-            }
-        }
-        route_page_connectors(&mut self.inner.doc, page_id);
+        let _ = self
+            .inner
+            .journal
+            .record_mutation(&mut self.inner.doc, "Page Setup", |doc| {
+                if let Some(page) = doc.page_mut(page_id) {
+                    page.page_sheet.set_formula(
+                        "PageWidth",
+                        format!("{} in", format_clean_f64(width_in)),
+                        Some(Unit::Inch),
+                    );
+                    page.page_sheet.set_formula(
+                        "PageHeight",
+                        format!("{} in", format_clean_f64(height_in)),
+                        Some(Unit::Inch),
+                    );
+                    if jump_style < 0 {
+                        page.page_sheet
+                            .set_formula("PageLineJumpCode", "0", Some(Unit::Number));
+                    } else {
+                        page.page_sheet
+                            .set_formula("PageLineJumpCode", "1", Some(Unit::Number));
+                        page.page_sheet.set_formula(
+                            "PageLineJumpStyle",
+                            jump_style.to_string(),
+                            Some(Unit::Number),
+                        );
+                    }
+                }
+                route_page_connectors(doc, page_id);
+            });
     }
 
     // --- Enterprise Containers, Swimlanes, Callouts, FloorPlan, Rack, Org Chart, Gantt & Timeline ---
@@ -978,19 +1231,27 @@ impl WasmVexioSession {
         } else {
             member_ids.iter().map(|&i| i as u64).collect()
         };
-        create_container(&mut self.inner.doc, page_id, title, &ids, 0.35).unwrap_or(0) as u32
+        let mut created = 0u32;
+        let _ = self
+            .inner
+            .journal
+            .record_mutation(&mut self.inner.doc, "Insert Container", |doc| {
+                created = create_container(doc, page_id, title, &ids, 0.35).unwrap_or(0) as u32;
+            });
+        created
     }
 
     pub fn insert_callout(&mut self, page_id: u32, target_shape_id: u32, text: &str) -> u32 {
-        attach_callout(
-            &mut self.inner.doc,
-            page_id,
-            target_shape_id as u64,
-            text,
-            1.6,
-            1.1,
-        )
-        .unwrap_or(0) as u32
+        let mut created = 0u32;
+        let _ = self
+            .inner
+            .journal
+            .record_mutation(&mut self.inner.doc, "Insert Callout", |doc| {
+                created =
+                    attach_callout(doc, page_id, target_shape_id as u64, text, 1.6, 1.1).unwrap_or(0)
+                        as u32;
+            });
+        created
     }
 
     pub fn insert_swimlanes(&mut self, page_id: u32, lanes_semicolon: &str) -> usize {
@@ -999,45 +1260,84 @@ impl WasmVexioSession {
             .map(str::trim)
             .filter(|s| !s.is_empty())
             .collect();
-        build_cross_functional_swimlanes(
-            &mut self.inner.doc,
-            page_id,
-            &names,
-            0.75,
-            7.75,
-            9.5,
-            2.1,
-        )
-        .len()
+        let mut count = 0usize;
+        let _ = self
+            .inner
+            .journal
+            .record_mutation(&mut self.inner.doc, "Insert Swimlanes", |doc| {
+                count = build_cross_functional_swimlanes(doc, page_id, &names, 0.75, 7.75, 9.5, 2.1)
+                    .len();
+            });
+        count
     }
 
     pub fn insert_architectural_room(&mut self, page_id: u32, room_name: &str) -> u32 {
-        if let Some(p) = self.inner.doc.page_mut(page_id) {
-            p.page_sheet.set_formula("PageScale", "0.25 in", Some(Unit::Inch));
-            p.page_sheet.set_formula("DrawingScale", "12 in", Some(Unit::Inch));
-        }
-        create_architectural_room_space(&mut self.inner.doc, page_id, room_name, 5.5, 4.25, 3.0, 2.25)
-            .unwrap_or(0) as u32
+        let mut created = 0u32;
+        let _ = self
+            .inner
+            .journal
+            .record_mutation(&mut self.inner.doc, "Insert Room Space", |doc| {
+                if let Some(p) = doc.page_mut(page_id) {
+                    p.page_sheet
+                        .set_formula("PageScale", "0.25 in", Some(Unit::Inch));
+                    p.page_sheet
+                        .set_formula("DrawingScale", "12 in", Some(Unit::Inch));
+                }
+                created =
+                    create_architectural_room_space(doc, page_id, room_name, 5.5, 4.25, 3.0, 2.25)
+                        .unwrap_or(0) as u32;
+            });
+        created
     }
 
     pub fn insert_rack_with_equipment(&mut self, page_id: u32) -> u32 {
-        let Ok(rack_id) = self.drop_builtin_shape_on_page(
-            page_id,
-            "Network & Rack Equipment",
-            "42U Standard Rack",
-            5.5,
-            4.25,
-        ) else {
-            return 0;
-        };
-        let _ = mount_rack_equipment(&mut self.inner.doc, page_id, rack_id as u64, "Core Switch", 40, 2);
-        let _ = mount_rack_equipment(&mut self.inner.doc, page_id, rack_id as u64, "App Cluster", 28, 4);
-        let _ = mount_rack_equipment(&mut self.inner.doc, page_id, rack_id as u64, "SAN Array", 12, 6);
+        let rack_template = self
+            .inner
+            .builtin_stencils
+            .iter()
+            .find(|p| p.title.eq_ignore_ascii_case("Network & Rack Equipment"))
+            .and_then(|p| {
+                p.masters
+                    .iter()
+                    .find(|m| m.name.eq_ignore_ascii_case("42U Standard Rack"))
+            })
+            .and_then(|m| m.shapes.first())
+            .cloned();
+        let mut rack_id = 0u32;
+        let _ = self
+            .inner
+            .journal
+            .record_mutation(&mut self.inner.doc, "Insert 42U Rack", |doc| {
+                let Some(page) = doc.page_mut(page_id) else {
+                    return;
+                };
+                let sid = page.next_shape_id();
+                let mut rack = rack_template
+                    .clone()
+                    .unwrap_or_else(|| VisioShape::new_rect(sid, "42U Standard Rack", 5.5, 4.25, 1.8, 3.6));
+                rack.id = sid;
+                rack.name = format!("42U Standard Rack.{sid}");
+                rack.name_u = rack.name.clone();
+                rack.sheet.set_formula("PinX", "5.5 in", Some(Unit::Inch));
+                rack.sheet.set_formula("PinY", "4.25 in", Some(Unit::Inch));
+                page.shapes.push(rack);
+                let _ = mount_rack_equipment(doc, page_id, sid, "Core Switch", 40, 2);
+                let _ = mount_rack_equipment(doc, page_id, sid, "App Cluster", 28, 4);
+                let _ = mount_rack_equipment(doc, page_id, sid, "SAN Array", 12, 6);
+                rack_id = sid as u32;
+            });
         rack_id
     }
 
     pub fn import_org_chart_csv(&mut self, page_id: u32, csv_text: &str) -> usize {
-        build_org_chart_from_csv(&mut self.inner.doc, page_id, csv_text)
+        let mut count = 0usize;
+        let _ = self
+            .inner
+            .journal
+            .record_mutation(&mut self.inner.doc, "Import Org Chart CSV", |doc| {
+                count = build_org_chart_from_csv(doc, page_id, csv_text);
+            });
+        count
     }
 
     pub fn generate_gantt_demo(&mut self, page_id: u32) -> usize {
@@ -1075,7 +1375,14 @@ impl WasmVexioSession {
                 depends_on: vec!["3".into()],
             },
         ];
-        build_gantt_chart(&mut self.inner.doc, page_id, &tasks)
+        let mut count = 0usize;
+        let _ = self
+            .inner
+            .journal
+            .record_mutation(&mut self.inner.doc, "Generate Gantt Chart", |doc| {
+                count = build_gantt_chart(doc, page_id, &tasks);
+            });
+        count
     }
 
     pub fn generate_timeline_demo(&mut self, page_id: u32) -> usize {
@@ -1101,17 +1408,31 @@ impl WasmVexioSession {
                 is_major: true,
             },
         ];
-        build_project_timeline(
-            &mut self.inner.doc,
-            page_id,
-            "Vexio Product Release Timeline",
-            100.0,
-            &milestones,
-        )
+        let mut count = 0usize;
+        let _ = self
+            .inner
+            .journal
+            .record_mutation(&mut self.inner.doc, "Generate Timeline", |doc| {
+                count = build_project_timeline(
+                    doc,
+                    page_id,
+                    "Vexio Product Release Timeline",
+                    100.0,
+                    &milestones,
+                );
+            });
+        count
     }
 
     pub fn reverse_engineer_sql(&mut self, page_id: u32, sql_ddl: &str) -> usize {
-        reverse_engineer_sql_ddl(&mut self.inner.doc, page_id, sql_ddl, true).len()
+        let mut count = 0usize;
+        let _ = self
+            .inner
+            .journal
+            .record_mutation(&mut self.inner.doc, "Reverse Engineer SQL DDL", |doc| {
+                count = reverse_engineer_sql_ddl(doc, page_id, sql_ddl, true).len();
+            });
+        count
     }
 
     pub fn forward_engineer_sql(&self, page_id: u32) -> String {
@@ -1145,44 +1466,57 @@ impl WasmVexioSession {
                 predecessors: vec!["T2".into(), "T3".into()],
             },
         ];
-        build_pert_critical_path_diagram(&mut self.inner.doc, page_id, &tasks).len()
+        let mut count = 0usize;
+        let _ = self
+            .inner
+            .journal
+            .record_mutation(&mut self.inner.doc, "Generate PERT CPM", |doc| {
+                count = build_pert_critical_path_diagram(doc, page_id, &tasks).len();
+            });
+        count
     }
 
     pub fn link_csv_and_apply_data_graphics(&mut self, page_id: u32, csv_text: &str, key_col: &str) -> Result<usize, JsValue> {
         let rs = DataRecordset::from_csv(1, "External Telemetry", key_col, csv_text)
             .map_err(|e| JsValue::from_str(&e.to_string()))?;
-        let linked = bind_recordset_to_page(&mut self.inner.doc, page_id, &rs, None);
-        let mut palette = BTreeMap::new();
-        palette.insert("Healthy".into(), RgbaColor { r: 220, g: 252, b: 231, a: 255 });
-        palette.insert("Warning".into(), RgbaColor { r: 254, g: 243, b: 199, a: 255 });
-        palette.insert("Critical".into(), RgbaColor { r: 254, g: 226, b: 226, a: 255 });
+        let mut linked = 0usize;
+        let _ = self
+            .inner
+            .journal
+            .record_mutation(&mut self.inner.doc, "Link External Data & Graphics", |doc| {
+                linked = bind_recordset_to_page(doc, page_id, &rs, None);
+                let mut palette = BTreeMap::new();
+                palette.insert("Healthy".into(), RgbaColor { r: 220, g: 252, b: 231, a: 255 });
+                palette.insert("Warning".into(), RgbaColor { r: 254, g: 243, b: 199, a: 255 });
+                palette.insert("Critical".into(), RgbaColor { r: 254, g: 226, b: 226, a: 255 });
 
-        let spec = DataGraphicSpec {
-            name: "Live Telemetry".into(),
-            items: vec![
-                DataGraphicItem::ColorByValue {
-                    prop_name: "Status".into(),
-                    palette,
-                },
-                DataGraphicItem::DataBar {
-                    prop_name: "Load".into(),
-                    min_val: 0.0,
-                    max_val: 100.0,
-                    bar_color: RgbaColor { r: 37, g: 99, b: 235, a: 255 },
-                },
-                DataGraphicItem::IconSet {
-                    prop_name: "Load".into(),
-                    green_min: 75.0,
-                    amber_min: 40.0,
-                },
-                DataGraphicItem::TextCallout {
-                    prop_name: "Status".into(),
-                    prefix: "Status: ".into(),
-                },
-            ],
-        };
-        apply_data_graphics(&mut self.inner.doc, page_id, &spec);
-        let _ = insert_page_legend(&mut self.inner.doc, page_id, "Status", 9.4, 1.4);
+                let spec = DataGraphicSpec {
+                    name: "Live Telemetry".into(),
+                    items: vec![
+                        DataGraphicItem::ColorByValue {
+                            prop_name: "Status".into(),
+                            palette,
+                        },
+                        DataGraphicItem::DataBar {
+                            prop_name: "Load".into(),
+                            min_val: 0.0,
+                            max_val: 100.0,
+                            bar_color: RgbaColor { r: 37, g: 99, b: 235, a: 255 },
+                        },
+                        DataGraphicItem::IconSet {
+                            prop_name: "Load".into(),
+                            green_min: 75.0,
+                            amber_min: 40.0,
+                        },
+                        DataGraphicItem::TextCallout {
+                            prop_name: "Status".into(),
+                            prefix: "Status: ".into(),
+                        },
+                    ],
+                };
+                apply_data_graphics(doc, page_id, &spec);
+                let _ = insert_page_legend(doc, page_id, "Status", 9.4, 1.4);
+            });
         Ok(linked)
     }
 
@@ -1204,39 +1538,49 @@ impl WasmVexioSession {
         lock: bool,
         color_hex: &str,
     ) {
-        if let Some(page) = self.inner.doc.page_mut(page_id) {
-            if let Some(l) = page.layers.iter_mut().find(|l| l.ix == layer_ix) {
-                l.visible = visible;
-                l.lock = lock;
-                l.color_override = if color_hex.trim().is_empty() {
-                    None
-                } else {
-                    RgbaColor::from_hex(color_hex)
-                };
-            }
-        }
-        ReactiveEngine::recalculate_document(&mut self.inner.doc);
+        let _ = self
+            .inner
+            .journal
+            .record_mutation(&mut self.inner.doc, "Update Layer", |doc| {
+                if let Some(page) = doc.page_mut(page_id) {
+                    if let Some(l) = page.layers.iter_mut().find(|l| l.ix == layer_ix) {
+                        l.visible = visible;
+                        l.lock = lock;
+                        l.color_override = if color_hex.trim().is_empty() {
+                            None
+                        } else {
+                            RgbaColor::from_hex(color_hex)
+                        };
+                    }
+                }
+            });
     }
 
     pub fn add_comment(&mut self, page_id: u32, shape_id: u32, author: &str, text: &str) -> u32 {
-        let next_id = (self.inner.doc.comments.len() as u32) + 1;
-        self.inner.doc.comments.push(CommentAnnotation {
-            id: next_id,
-            author: author.into(),
-            initials: author
-                .split_whitespace()
-                .filter_map(|w| w.chars().next())
-                .take(2)
-                .collect::<String>()
-                .to_uppercase(),
-            timestamp_iso: "2026-11-20T18:00:00Z".into(),
-            page_id,
-            shape_id: if shape_id == 0 { None } else { Some(shape_id as u64) },
-            x_in: 1.0,
-            y_in: 1.0,
-            text: text.into(),
-            resolved: false,
-        });
+        let mut next_id = 0u32;
+        let _ = self
+            .inner
+            .journal
+            .record_mutation(&mut self.inner.doc, "Add Comment", |doc| {
+                next_id = (doc.comments.len() as u32) + 1;
+                doc.comments.push(CommentAnnotation {
+                    id: next_id,
+                    author: author.into(),
+                    initials: author
+                        .split_whitespace()
+                        .filter_map(|w| w.chars().next())
+                        .take(2)
+                        .collect::<String>()
+                        .to_uppercase(),
+                    timestamp_iso: "2026-11-20T18:00:00Z".into(),
+                    page_id,
+                    shape_id: if shape_id == 0 { None } else { Some(shape_id as u64) },
+                    x_in: 1.0,
+                    y_in: 1.0,
+                    text: text.into(),
+                    resolved: false,
+                });
+            });
         next_id
     }
 
@@ -1269,10 +1613,31 @@ impl WasmVexioSession {
         serde_json::to_string(&rep).map_err(|e| JsValue::from_str(&e.to_string()))
     }
 
+    pub fn reorder_shapes(&mut self, page_id: u32, shape_ids: &[u32], mode: &str) -> usize {
+        let ids64: Vec<u64> = shape_ids.iter().map(|&i| i as u64).collect();
+        self.inner
+            .reorder_shapes(page_id, &ids64, mode)
+            .unwrap_or(0)
+    }
+
     pub fn add_page(&mut self, name: &str) -> Result<u32, JsValue> {
         self.inner
             .add_page(name)
             .map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
+    pub fn rename_page(&mut self, page_id: u32, new_name: &str) -> bool {
+        self.inner.rename_page(page_id, new_name)
+    }
+
+    pub fn duplicate_page(&mut self, page_id: u32) -> Result<u32, JsValue> {
+        self.inner
+            .duplicate_page(page_id)
+            .map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
+    pub fn delete_page(&mut self, page_id: u32) -> bool {
+        self.inner.delete_page(page_id)
     }
 
     pub fn undo(&mut self) -> bool {
@@ -1309,6 +1674,9 @@ impl WasmVexioSession {
         let active_page = self.inner.doc.page(pid);
         let page_width_in = active_page.map(|p| p.width_in()).unwrap_or(11.0);
         let page_height_in = active_page.map(|p| p.height_in()).unwrap_or(8.5);
+        let visuals = ReactiveEngine::evaluate_page_visuals(&self.inner.doc, pid);
+        let vis_by_id: BTreeMap<u64, &EvaluatedShapeVisual> =
+            visuals.iter().map(|v| (v.shape_id, v)).collect();
 
         let pages: Vec<WasmPageInfo> = self
             .inner
@@ -1367,7 +1735,7 @@ impl WasmVexioSession {
                             .cells
                             .values()
                             .filter(|c| !c.name.starts_with("Geometry"))
-                            .take(28)
+                            .take(80)
                             .map(|c| WasmCellInfo {
                                 name: c.name.clone(),
                                 formula: c.formula.clone(),
@@ -1390,6 +1758,45 @@ impl WasmVexioSession {
                             .and_then(|c| c.value.as_str_coerced().ok())
                             .filter(|v| !v.trim().is_empty());
                         let control_handles = list_control_handles(&self.inner.doc, pid, s.id);
+                        let is_1d = s.kind == ShapeKind::Connector1D;
+                        let (begin_x, begin_y, end_x, end_y) = if is_1d {
+                            (
+                                s.sheet.get_f64("BeginX"),
+                                s.sheet.get_f64("BeginY"),
+                                s.sheet.get_f64("EndX"),
+                                s.sheet.get_f64("EndY"),
+                            )
+                        } else {
+                            (None, None, None, None)
+                        };
+                        let path_points = if is_1d {
+                            vis_by_id
+                                .get(&s.id)
+                                .map(|v| sample_visual_polyline(v))
+                                .unwrap_or_default()
+                        } else {
+                            Vec::new()
+                        };
+                        let ports = if s.kind == ShapeKind::Shape2D {
+                            if let Some(v) = vis_by_id.get(&s.id) {
+                                let w = v.transform.width;
+                                let h = v.transform.height;
+                                let (wx, wy) = v.transform.local_to_parent(0.0, h * 0.5);
+                                let (ex, ey) = v.transform.local_to_parent(w, h * 0.5);
+                                let (sx, sy) = v.transform.local_to_parent(w * 0.5, 0.0);
+                                let (nx, ny) = v.transform.local_to_parent(w * 0.5, h);
+                                vec![[wx, wy], [ex, ey], [sx, sy], [nx, ny]]
+                            } else {
+                                Vec::new()
+                            }
+                        } else {
+                            Vec::new()
+                        };
+                        let route_style = s.sheet.get_f64("ShapeRouteStyle").unwrap_or(16.0).round() as i32;
+                        let begin_arrow = s.sheet.get_f64("BeginArrow").unwrap_or(0.0).round() as i32;
+                        let end_arrow = s.sheet.get_f64("EndArrow").unwrap_or(if is_1d { 4.0 } else { 0.0 }).round() as i32;
+                        let line_weight_pt = (s.sheet.get_f64("LineWeight").unwrap_or(1.25 / 72.0) * 72.0 * 100.0).round() / 100.0;
+                        let line_pattern = s.sheet.get_f64("LinePattern").unwrap_or(1.0).round() as i32;
                         WasmShapeInfo {
                             id: s.id,
                             name: s.name.clone(),
@@ -1400,6 +1807,17 @@ impl WasmVexioSession {
                             width: s.sheet.get_f64("Width").unwrap_or(1.0),
                             height: s.sheet.get_f64("Height").unwrap_or(1.0),
                             angle_deg: s.sheet.get_f64("Angle").unwrap_or(0.0).to_degrees(),
+                            begin_x,
+                            begin_y,
+                            end_x,
+                            end_y,
+                            path_points,
+                            ports,
+                            route_style,
+                            begin_arrow,
+                            end_arrow,
+                            line_weight_pt,
+                            line_pattern,
                             subprocess_page,
                             screentip,
                             control_handles,
@@ -1472,10 +1890,17 @@ impl WasmVexioSession {
             "offset" => BooleanOpKind::Offset(offset_in),
             _ => return Vec::new(),
         };
-        apply_boolean_operation(&mut self.inner.doc, page_id, &ids64, kind)
-            .into_iter()
-            .map(|id| id as u32)
-            .collect()
+        let mut created = Vec::new();
+        let _ = self
+            .inner
+            .journal
+            .record_mutation(&mut self.inner.doc, format!("Boolean {op}"), |doc| {
+                created = apply_boolean_operation(doc, page_id, &ids64, kind)
+                    .into_iter()
+                    .map(|id| id as u32)
+                    .collect();
+            });
+        created
     }
 
     pub fn list_shape_vertices_json(&self, page_id: u32, shape_id: u32) -> String {
@@ -1492,15 +1917,14 @@ impl WasmVexioSession {
         x_in: f64,
         y_in: f64,
     ) -> bool {
-        move_shape_vertex(
-            &mut self.inner.doc,
-            page_id,
-            shape_id as u64,
-            geom_index,
-            row_ix,
-            x_in,
-            y_in,
-        )
+        let mut ok = false;
+        let _ = self
+            .inner
+            .journal
+            .record_mutation(&mut self.inner.doc, "Move Vertex", |doc| {
+                ok = move_shape_vertex(doc, page_id, shape_id as u64, geom_index, row_ix, x_in, y_in);
+            });
+        ok
     }
 
     pub fn draw_freeform_curve(
@@ -1511,11 +1935,25 @@ impl WasmVexioSession {
     ) -> Result<u32, JsValue> {
         let pts: Vec<[f64; 2]> =
             serde_json::from_str(points_json).map_err(|e| JsValue::from_str(&e.to_string()))?;
-        Ok(draw_freeform_curve(&mut self.inner.doc, page_id, &pts, closed).unwrap_or(0) as u32)
+        let mut sid = 0u32;
+        let _ = self
+            .inner
+            .journal
+            .record_mutation(&mut self.inner.doc, "Draw Freeform Curve", |doc| {
+                sid = draw_freeform_curve(doc, page_id, &pts, closed).unwrap_or(0) as u32;
+            });
+        Ok(sid)
     }
 
     pub fn ensure_control_handle(&mut self, page_id: u32, shape_id: u32) -> bool {
-        ensure_default_control_handle(&mut self.inner.doc, page_id, shape_id as u64)
+        let mut ok = false;
+        let _ = self
+            .inner
+            .journal
+            .record_mutation(&mut self.inner.doc, "Add Control Handle", |doc| {
+                ok = ensure_default_control_handle(doc, page_id, shape_id as u64);
+            });
+        ok
     }
 
     pub fn move_control_handle(
@@ -1526,13 +1964,27 @@ impl WasmVexioSession {
         x_in: f64,
         y_in: f64,
     ) -> bool {
-        move_control_handle(&mut self.inner.doc, page_id, shape_id as u64, row_name, x_in, y_in)
+        let mut ok = false;
+        let _ = self
+            .inner
+            .journal
+            .record_mutation(&mut self.inner.doc, "Move Control Handle", |doc| {
+                ok = move_control_handle(doc, page_id, shape_id as u64, row_name, x_in, y_in);
+            });
+        ok
     }
 
     // --- Phase 7: 6 Themes × 4 Variants, Gradients/Hatches/Shadows/3D Bevels/Sketchy & Cropped Images ---
 
     pub fn apply_theme_variant(&mut self, theme_slug: &str, variant_index: u8) -> usize {
-        apply_document_theme_variant(&mut self.inner.doc, theme_slug, variant_index)
+        let mut count = 0usize;
+        let _ = self
+            .inner
+            .journal
+            .record_mutation(&mut self.inner.doc, "Apply Theme Variant", |doc| {
+                count = apply_document_theme_variant(doc, theme_slug, variant_index);
+            });
+        count
     }
 
     pub fn apply_shape_visual_preset(&mut self, page_id: u32, shape_id: u32, preset: &str) -> bool {
@@ -1619,7 +2071,14 @@ impl WasmVexioSession {
                 ..Default::default()
             },
         };
-        apply_visual_effects_to_shape(&mut self.inner.doc, page_id, sid, &spec)
+        let mut ok = false;
+        let _ = self
+            .inner
+            .journal
+            .record_mutation(&mut self.inner.doc, "Apply Visual Style", |doc| {
+                ok = apply_visual_effects_to_shape(doc, page_id, sid, &spec);
+            });
+        ok
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1634,29 +2093,35 @@ impl WasmVexioSession {
         brightness: f64,
         contrast: f64,
     ) -> u32 {
-        let Some(page) = self.inner.doc.page_mut(page_id) else {
-            return 0;
-        };
-        let sid = page.next_shape_id();
-        let mut sh = VisioShape::new_rect(sid, format!("Picture.{sid}"), x_in, y_in, 2.4, 1.8);
-        sh.kind = ShapeKind::ForeignObject;
-        sh.foreign_data = Some(ForeignMediaData {
-            media_type: media_type.to_ascii_uppercase(),
-            rel_id: None,
-            data: image_bytes.to_vec(),
-        });
-        let c = format_clean_f64(crop_in.max(0.0));
-        sh.sheet.set_formula("CropLeft", format!("{c} in"), Some(Unit::Inch));
-        sh.sheet.set_formula("CropRight", format!("{c} in"), Some(Unit::Inch));
-        sh.sheet.set_formula("CropTop", format!("{c} in"), Some(Unit::Inch));
-        sh.sheet.set_formula("CropBottom", format!("{c} in"), Some(Unit::Inch));
-        sh.sheet
-            .set_formula("Brightness", format_clean_f64(brightness), Some(Unit::Number));
-        sh.sheet
-            .set_formula("Contrast", format_clean_f64(contrast), Some(Unit::Number));
-        page.shapes.push(sh);
-        ReactiveEngine::recalculate_document(&mut self.inner.doc);
-        sid as u32
+        let mut sid32 = 0u32;
+        let _ = self
+            .inner
+            .journal
+            .record_mutation(&mut self.inner.doc, "Insert Image", |doc| {
+                let Some(page) = doc.page_mut(page_id) else {
+                    return;
+                };
+                let sid = page.next_shape_id();
+                let mut sh = VisioShape::new_rect(sid, format!("Picture.{sid}"), x_in, y_in, 2.4, 1.8);
+                sh.kind = ShapeKind::ForeignObject;
+                sh.foreign_data = Some(ForeignMediaData {
+                    media_type: media_type.to_ascii_uppercase(),
+                    rel_id: None,
+                    data: image_bytes.to_vec(),
+                });
+                let c = format_clean_f64(crop_in.max(0.0));
+                sh.sheet.set_formula("CropLeft", format!("{c} in"), Some(Unit::Inch));
+                sh.sheet.set_formula("CropRight", format!("{c} in"), Some(Unit::Inch));
+                sh.sheet.set_formula("CropTop", format!("{c} in"), Some(Unit::Inch));
+                sh.sheet.set_formula("CropBottom", format!("{c} in"), Some(Unit::Inch));
+                sh.sheet
+                    .set_formula("Brightness", format_clean_f64(brightness), Some(Unit::Number));
+                sh.sheet
+                    .set_formula("Contrast", format_clean_f64(contrast), Some(Unit::Number));
+                page.shapes.push(sh);
+                sid32 = sid as u32;
+            });
+        sid32
     }
 
     // --- Phase 7: Subprocess Drill-Down, Hyperlinks/ScreenTips, Title Block, Compare & Plan 2 Connectors ---
@@ -1667,8 +2132,15 @@ impl WasmVexioSession {
         shape_id: u32,
         sub_name: &str,
     ) -> u32 {
-        create_or_link_subprocess_page(&mut self.inner.doc, page_id, shape_id as u64, sub_name)
-            .unwrap_or(0)
+        let mut pid = 0u32;
+        let _ = self
+            .inner
+            .journal
+            .record_mutation(&mut self.inner.doc, "Link Subprocess", |doc| {
+                pid = create_or_link_subprocess_page(doc, page_id, shape_id as u64, sub_name)
+                    .unwrap_or(0);
+            });
+        pid
     }
 
     pub fn set_hyperlink_and_screentip(
@@ -1681,20 +2153,25 @@ impl WasmVexioSession {
         screentip: &str,
     ) -> bool {
         let mut ok = false;
-        if !address.trim().is_empty() || !sub_address.trim().is_empty() {
-            ok |= add_shape_hyperlink(
-                &mut self.inner.doc,
-                page_id,
-                shape_id as u64,
-                description,
-                address,
-                sub_address,
-                true,
-            );
-        }
-        if !screentip.trim().is_empty() {
-            ok |= set_shape_screentip(&mut self.inner.doc, page_id, shape_id as u64, screentip);
-        }
+        let _ = self
+            .inner
+            .journal
+            .record_mutation(&mut self.inner.doc, "Set Hyperlink & ScreenTip", |doc| {
+                if !address.trim().is_empty() || !sub_address.trim().is_empty() {
+                    ok |= add_shape_hyperlink(
+                        doc,
+                        page_id,
+                        shape_id as u64,
+                        description,
+                        address,
+                        sub_address,
+                        true,
+                    );
+                }
+                if !screentip.trim().is_empty() {
+                    ok |= set_shape_screentip(doc, page_id, shape_id as u64, screentip);
+                }
+            });
         ok
     }
 
@@ -1705,8 +2182,16 @@ impl WasmVexioSession {
         author: &str,
         revision: &str,
     ) -> u32 {
-        apply_iso_title_block_background(&mut self.inner.doc, page_id, project_code, author, revision)
-            .unwrap_or(0)
+        let mut bg_pid = 0u32;
+        let _ = self
+            .inner
+            .journal
+            .record_mutation(&mut self.inner.doc, "Apply ISO Title Block", |doc| {
+                bg_pid =
+                    apply_iso_title_block_background(doc, page_id, project_code, author, revision)
+                        .unwrap_or(0);
+            });
+        bg_pid
     }
 
     pub fn compare_with_vsdx_bytes(&self, baseline_vsdx: &[u8]) -> Result<String, JsValue> {
@@ -1717,8 +2202,21 @@ impl WasmVexioSession {
     }
 
     pub fn import_data_visualizer(&mut self, page_id: u32, bytes: &[u8]) -> Result<usize, JsValue> {
-        import_data_visualizer_csv_or_xlsx(&mut self.inner.doc, page_id, bytes)
-            .map_err(|e| JsValue::from_str(&e.to_string()))
+        let mut count = 0usize;
+        let mut err = None;
+        let _ = self
+            .inner
+            .journal
+            .record_mutation(&mut self.inner.doc, "Import Data Visualizer", |doc| {
+                match import_data_visualizer_csv_or_xlsx(doc, page_id, bytes) {
+                    Ok(c) => count = c,
+                    Err(e) => err = Some(e.to_string()),
+                }
+            });
+        if let Some(e) = err {
+            return Err(JsValue::from_str(&e));
+        }
+        Ok(count)
     }
 
     pub fn export_data_visualizer_workbook(&self, page_id: u32) -> Result<Vec<u8>, JsValue> {
@@ -1731,13 +2229,39 @@ impl WasmVexioSession {
         page_id: u32,
         discovery_json: &str,
     ) -> Result<usize, JsValue> {
-        import_cloud_discovery_json(&mut self.inner.doc, page_id, discovery_json)
-            .map_err(|e| JsValue::from_str(&e.to_string()))
+        let mut count = 0usize;
+        let mut err = None;
+        let _ = self
+            .inner
+            .journal
+            .record_mutation(&mut self.inner.doc, "Import Cloud Discovery", |doc| {
+                match import_cloud_discovery_json(doc, page_id, discovery_json) {
+                    Ok(c) => count = c,
+                    Err(e) => err = Some(e.to_string()),
+                }
+            });
+        if let Some(e) = err {
+            return Err(JsValue::from_str(&e));
+        }
+        Ok(count)
     }
 
     pub fn import_entra_or_ldif(&mut self, page_id: u32, text: &str) -> Result<usize, JsValue> {
-        import_entra_or_ldif_org_chart(&mut self.inner.doc, page_id, text)
-            .map_err(|e| JsValue::from_str(&e.to_string()))
+        let mut count = 0usize;
+        let mut err = None;
+        let _ = self
+            .inner
+            .journal
+            .record_mutation(&mut self.inner.doc, "Import Directory Org Chart", |doc| {
+                match import_entra_or_ldif_org_chart(doc, page_id, text) {
+                    Ok(c) => count = c,
+                    Err(e) => err = Some(e.to_string()),
+                }
+            });
+        if let Some(e) = err {
+            return Err(JsValue::from_str(&e));
+        }
+        Ok(count)
     }
 
     pub fn import_sqlite_recordset(
@@ -1758,7 +2282,14 @@ impl WasmVexioSession {
         };
         let rs = read_sqlite_table_to_recordset(77, sqlite_bytes, &tbl, key_col)
             .map_err(|e| JsValue::from_str(&e))?;
-        Ok(bind_recordset_to_page(&mut self.inner.doc, page_id, &rs, None))
+        let mut linked = 0usize;
+        let _ = self
+            .inner
+            .journal
+            .record_mutation(&mut self.inner.doc, "Import SQLite Recordset", |doc| {
+                linked = bind_recordset_to_page(doc, page_id, &rs, None);
+            });
+        Ok(linked)
     }
 
     pub fn run_vba_macro_with_selection(
@@ -1767,14 +2298,26 @@ impl WasmVexioSession {
         selected_ids: &[u32],
     ) -> Result<String, JsValue> {
         let ids64: Vec<u64> = selected_ids.iter().map(|&i| i as u64).collect();
-        let rep = crate::automation::execute_vba_macro_with_selection(
-            &mut self.inner.doc,
-            script,
-            &ids64,
-            None,
-            crate::automation::SandboxLimits::default(),
-        )
-        .map_err(|e| JsValue::from_str(&e.to_string()))?;
-        serde_json::to_string(&rep).map_err(|e| JsValue::from_str(&e.to_string()))
+        let mut rep = None;
+        let mut err = None;
+        let _ = self
+            .inner
+            .journal
+            .record_mutation(&mut self.inner.doc, "Run VBA Macro", |doc| {
+                match crate::automation::execute_vba_macro_with_selection(
+                    doc,
+                    script,
+                    &ids64,
+                    None,
+                    crate::automation::SandboxLimits::default(),
+                ) {
+                    Ok(r) => rep = Some(r),
+                    Err(e) => err = Some(e.to_string()),
+                }
+            });
+        if let Some(e) = err {
+            return Err(JsValue::from_str(&e));
+        }
+        serde_json::to_string(&rep.unwrap()).map_err(|e| JsValue::from_str(&e.to_string()))
     }
 }

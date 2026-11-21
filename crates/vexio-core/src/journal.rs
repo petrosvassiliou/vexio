@@ -67,6 +67,11 @@ pub enum DocCommand {
         label: String,
         commands: Vec<DocCommand>,
     },
+    ReplaceDocument {
+        label: String,
+        before: Box<VisioDocument>,
+        after: Box<VisioDocument>,
+    },
 }
 
 impl DocCommand {
@@ -144,6 +149,9 @@ impl DocCommand {
                 for cmd in commands {
                     cmd.apply(doc)?;
                 }
+            }
+            Self::ReplaceDocument { after, .. } => {
+                *doc = (**after).clone();
             }
         }
         Ok(())
@@ -224,6 +232,9 @@ impl DocCommand {
                     cmd.revert(doc)?;
                 }
             }
+            Self::ReplaceDocument { before, .. } => {
+                *doc = (**before).clone();
+            }
         }
         Ok(())
     }
@@ -246,6 +257,26 @@ impl CommandJournal {
         self.undo_stack.push(cmd);
         self.redo_stack.clear();
         Ok(())
+    }
+
+    /// Execute an arbitrary document mutation closure and record an atomic `ReplaceDocument` undo entry
+    /// whenever the document state changed.
+    pub fn record_mutation<R, F>(&mut self, doc: &mut VisioDocument, label: impl Into<String>, f: F) -> R
+    where
+        F: FnOnce(&mut VisioDocument) -> R,
+    {
+        let before = doc.clone();
+        let result = f(doc);
+        ReactiveEngine::recalculate_document(doc);
+        if *doc != before {
+            self.undo_stack.push(DocCommand::ReplaceDocument {
+                label: label.into(),
+                before: Box::new(before),
+                after: Box::new(doc.clone()),
+            });
+            self.redo_stack.clear();
+        }
+        result
     }
 
     pub fn undo(&mut self, doc: &mut VisioDocument) -> Result<bool, JournalError> {

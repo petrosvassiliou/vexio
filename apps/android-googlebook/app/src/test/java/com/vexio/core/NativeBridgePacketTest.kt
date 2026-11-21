@@ -212,6 +212,19 @@ class NativeBridgePacketTest {
             assertEquals(returnType, method.returnType)
         }
 
+        verifyNative("nativeSetViewportTool", Void.TYPE, longT, intT)
+        verifyNative("nativeSetViewportPage", Void.TYPE, longT, longT, intT)
+        verifyNative("nativeSetViewportZoom", Void.TYPE, longT, longT, doubleT, doubleT, doubleT)
+        verifyNative("nativeRenderViewportFrame", boolT, longT, longT)
+        verifyNative("nativeRenderViewportRgba", intT, longT, longT, java.nio.ByteBuffer::class.java)
+        verifyNative("nativeGetPrimarySelection", longT, longT)
+        verifyNative("nativeListStencilsJson", String::class.java, longT)
+        verifyNative("nativeLoadStarterTemplate", boolT, longT, String::class.java)
+        verifyNative("nativeDropStencil", longT, longT, intT, String::class.java, String::class.java, doubleT, doubleT)
+        verifyNative("nativeDrawPrimitive", longT, longT, intT, String::class.java, doubleT, doubleT, doubleT, doubleT)
+        verifyNative("nativeDeleteShapes", intT, longT, intT, LongArray::class.java)
+        verifyNative("nativeDuplicateShapes", longT, longT, intT, LongArray::class.java, doubleT, doubleT)
+        verifyNative("nativeReorderShapes", intT, longT, intT, LongArray::class.java, String::class.java)
         verifyNative("nativeBooleanOp", intT, longT, intT, LongArray::class.java, String::class.java, doubleT)
         verifyNative("nativeApplyTheme", intT, longT, String::class.java, intT)
         verifyNative("nativeApplyVisualPreset", boolT, longT, intT, longT, String::class.java)
@@ -221,6 +234,35 @@ class NativeBridgePacketTest {
         verifyNative("nativeImportDataVisualizer", intT, longT, intT, ByteArray::class.java)
         verifyNative("nativeImportCloudDiscovery", intT, longT, intT, String::class.java)
         verifyNative("nativeImportEntraOrLdif", intT, longT, intT, String::class.java)
+    }
+
+    @Test
+    fun lightModeDefaultCleanWorkspaceSixteenToolsAndSeventeenStencilCategories() {
+        val vm = VexioSessionViewModel()
+        val state = vm.uiState.value
+
+        // Light mode default and uncluttered workspace defaults
+        assertFalse(state.isDarkTheme)
+        assertFalse(state.isPlan2RibbonExpanded)
+        assertFalse(state.isShapeSheetDrawerExpanded)
+        assertTrue(state.isStencilDrawerExpanded)
+        assertTrue(state.isInspectorExpanded)
+
+        // All 16 drawing tools map 1:1 to engine tool codes 0..15
+        assertEquals(16, VexioTool.entries.size)
+        assertEquals((0..15).toSet(), VexioTool.entries.map { it.nativeCode }.toSet())
+
+        // All 17 Visio Professional stencil categories are present
+        assertEquals(17, BuiltInStencilCatalog.categories.size)
+        assertEquals(17, state.stencilCategories.size)
+        val distinctCategories = state.stencilMasters.map { it.category }.distinct()
+        assertEquals(17, distinctCategories.size)
+
+        // Theme toggle flips deterministically
+        vm.toggleDarkTheme()
+        assertTrue(vm.uiState.value.isDarkTheme)
+        vm.toggleDarkTheme()
+        assertFalse(vm.uiState.value.isDarkTheme)
     }
 
     @Test

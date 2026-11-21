@@ -8,7 +8,8 @@
  *   delta validation from Firebase Hosting when online.
  */
 
-const CACHE_VERSION = 'vexio-precache-v1';
+const CACHE_VERSION = 'vexio-precache-v4';
+const IS_PROD_PRECACHE = Array.isArray(self.__VEXIO_PRECACHE_MANIFEST);
 // Replaced at build time by `scripts/inject-precache-manifest.mjs` with exact hashed dist paths + WASM + stencils.
 const PRECACHE_MANIFEST = self.__VEXIO_PRECACHE_MANIFEST || [
   '/',
@@ -21,8 +22,18 @@ const PRECACHE_MANIFEST = self.__VEXIO_PRECACHE_MANIFEST || [
 self.addEventListener('install', (event) => {
   event.waitUntil(
     (async () => {
-      const cache = await caches.open(CACHE_VERSION);
-      await cache.addAll(PRECACHE_MANIFEST);
+      if (IS_PROD_PRECACHE) {
+        const cache = await caches.open(CACHE_VERSION);
+        await Promise.all(
+          PRECACHE_MANIFEST.map(async (entryUrl) => {
+            const req = new Request(entryUrl, { cache: 'reload' });
+            const res = await fetch(req);
+            if (res && res.ok) {
+              await cache.put(entryUrl, res);
+            }
+          })
+        );
+      }
       await self.skipWaiting();
     })()
   );
@@ -63,11 +74,11 @@ function withIsolationHeaders(response) {
 }
 
 self.addEventListener('fetch', (event) => {
+  if (!IS_PROD_PRECACHE) return;
   const { request } = event;
   if (request.method !== 'GET') return;
 
   const url = new URL(request.url);
-  // Allow Firebase Auth / Firestore / Storage network traffic to use Firebase SDK's own IndexedDB offline queue.
   if (
     url.origin !== self.location.origin ||
     url.pathname.startsWith('/__/auth')
@@ -78,21 +89,28 @@ self.addEventListener('fetch', (event) => {
   event.respondWith(
     (async () => {
       const cache = await caches.open(CACHE_VERSION);
-      const cached = await cache.match(request, { ignoreSearch: request.mode === 'navigate' });
 
-      if (cached) {
-        // Background Stale-While-Revalidate delta refresh for mutable shell entry points when online
-        if (url.pathname === '/' || url.pathname.endsWith('index.html')) {
-          event.waitUntil(
-            fetch(request)
-              .then((fresh) => {
-                if (fresh && fresh.ok) {
-                  return cache.put(request, fresh.clone());
-                }
-              })
-              .catch(() => {})
-          );
+      // Network-First with instant offline cache fallback for HTML navigations
+      if (request.mode === 'navigate' || url.pathname === '/' || url.pathname.endsWith('/index.html')) {
+        try {
+          const fresh = await fetch(new Request(request, { cache: 'no-store' }));
+          if (fresh && fresh.ok) {
+            await cache.put('/index.html', fresh.clone());
+          }
+          return withIsolationHeaders(fresh);
+        } catch {
+          const cachedShell =
+            (await cache.match(request, { ignoreSearch: true })) ||
+            (await cache.match('/index.html'));
+          if (cachedShell) {
+            return withIsolationHeaders(cachedShell);
+          }
+          return new Response('Vexio Offline Shell Unavailable', { status: 503 });
         }
+      }
+
+      const cached = (await cache.match(request)) || (await cache.match(url.pathname, { ignoreSearch: true }));
+      if (cached) {
         return withIsolationHeaders(cached);
       }
 
@@ -103,13 +121,13 @@ self.addEventListener('fetch', (event) => {
         }
         return withIsolationHeaders(netResponse);
       } catch {
-        // Guaranteed SPA offline fallback for navigation launches (e.g., `?open-file=1` from ChromeOS Files!)
         const shell = await cache.match('/index.html');
         if (shell) {
           return withIsolationHeaders(shell);
         }
-        return new Response('Vexio Offline Shell Unavailable', { status: 503 });
+        return new Response('Vexio Offline Asset Unavailable', { status: 503 });
       }
     })()
   );
 });
+

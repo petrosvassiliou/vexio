@@ -30,6 +30,17 @@ export interface EngineShapeSummary {
   width: number;
   height: number;
   angleDeg: number;
+  beginX?: number | null;
+  beginY?: number | null;
+  endX?: number | null;
+  endY?: number | null;
+  pathPoints?: Array<[number, number]>;
+  ports?: Array<[number, number]>;
+  routeStyle?: number;
+  beginArrow?: number;
+  endArrow?: number;
+  lineWeightPt?: number;
+  linePattern?: number;
   subprocessPage: string | null;
   screentip: string | null;
   controlHandles: ControlHandleDto[];
@@ -101,7 +112,7 @@ export interface EngineSnapshot {
 }
 
 interface WasmExports {
-  default: (moduleOrPath?: string | URL) => Promise<unknown>;
+  default: (moduleOrPath?: string | URL | { module_or_path?: string | URL }) => Promise<unknown>;
   WasmVexioSession: new (title: string) => WasmSessionInstance;
 }
 
@@ -116,6 +127,7 @@ interface WasmSessionInstance {
   render_offscreen_frame(page_id: number, selected_ids: Uint32Array): boolean;
   list_builtin_stencils_json(): string;
   list_builtin_stencil_previews_json(): string;
+  list_builtin_pack_order_json(): string;
   load_starter_template(template_id: string): void;
   open_bytes(bytes: Uint8Array, ext: string): void;
   save_format(ext: string): Uint8Array;
@@ -148,7 +160,29 @@ interface WasmSessionInstance {
     angle_deg: number
   ): boolean;
   align_shapes(page_id: number, shape_ids: Uint32Array, mode: string): number;
+  reorder_shapes(page_id: number, shape_ids: Uint32Array, mode: string): number;
   draw_rectangle(page_id: number, x1: number, y1: number, x2: number, y2: number): number;
+  draw_primitive_2d(page_id: number, kind: string, x1: number, y1: number, x2: number, y2: number): number;
+  draw_line(page_id: number, x1: number, y1: number, x2: number, y2: number): number;
+  draw_arc(page_id: number, x1: number, y1: number, x2: number, y2: number, bow_in: number): number;
+  connect_points_or_shapes(
+    page_id: number,
+    x1: number,
+    y1: number,
+    x2: number,
+    y2: number,
+    from_shape_id: number,
+    to_shape_id: number
+  ): number;
+  move_connector_endpoint(
+    page_id: number,
+    shape_id: number,
+    is_begin: boolean,
+    x_in: number,
+    y_in: number,
+    target_shape_id: number
+  ): boolean;
+  duplicate_shapes(page_id: number, shape_ids: Uint32Array, dx_in: number, dy_in: number): Uint32Array;
   delete_shape(page_id: number, shape_id: number): boolean;
   add_ink_stroke(
     page_id: number,
@@ -193,6 +227,9 @@ interface WasmSessionInstance {
   run_vba_macro(script: string): string;
   run_vba_macro_with_selection(script: string, selected_ids: Uint32Array): string;
   add_page(name: string): number;
+  rename_page(page_id: number, new_name: string): boolean;
+  duplicate_page(page_id: number): number;
+  delete_page(page_id: number): boolean;
   undo(): boolean;
   redo(): boolean;
   export_wal(): Uint8Array;
@@ -253,6 +290,8 @@ let sharedInputRing: Int32Array | null = null;
 let webgpuSupported = false;
 let latestIssues: EngineSnapshot['validationIssues'] = [];
 
+const WASM_CACHE_TAG = '20261121v4';
+
 async function ensureWasmLoaded(): Promise<WasmSessionInstance> {
   if (wasmSession) return wasmSession;
 
@@ -266,9 +305,10 @@ async function ensureWasmLoaded(): Promise<WasmSessionInstance> {
     }
   }
 
-  const wasmJsUrl = new URL('/wasm/vexio_core.js', self.location.origin).href;
+  const wasmJsUrl = new URL(`/wasm/vexio_core.js?v=${WASM_CACHE_TAG}`, self.location.origin).href;
+  const wasmBinUrl = new URL(`/wasm/vexio_core_bg.wasm?v=${WASM_CACHE_TAG}`, self.location.origin).href;
   const mod = (await import(/* @vite-ignore */ wasmJsUrl)) as WasmExports;
-  await mod.default('/wasm/vexio_core_bg.wasm');
+  await mod.default({ module_or_path: wasmBinUrl });
   wasmSession = new mod.WasmVexioSession('Untitled Drawing');
   return wasmSession;
 }
@@ -320,7 +360,8 @@ self.onmessage = async (ev: MessageEvent) => {
         }
         const stencils = JSON.parse(session.list_builtin_stencils_json());
         const stencilPreviews = JSON.parse(session.list_builtin_stencil_previews_json());
-        self.postMessage({ id, ok: true, stencils, stencilPreviews, snapshot: buildSnapshot(session) });
+        const packOrder = JSON.parse(session.list_builtin_pack_order_json());
+        self.postMessage({ id, ok: true, stencils, stencilPreviews, packOrder, snapshot: buildSnapshot(session) });
         break;
       }
       case 'flushCrdtOps': {
@@ -468,7 +509,8 @@ self.onmessage = async (ev: MessageEvent) => {
           )
         );
         selectedShapeIds = createdIds;
-        self.postMessage({ id, ok: true, createdIds, snapshot: buildSnapshot(session) });
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, createdIds, wal, snapshot: buildSnapshot(session) });
         break;
       }
       case 'listShapeVertices': {
@@ -490,7 +532,8 @@ self.onmessage = async (ev: MessageEvent) => {
         const vertices: EditableVertexDto[] = JSON.parse(
           session.list_shape_vertices_json(activePageId, Number(payload.shapeId))
         );
-        self.postMessage({ id, ok: true, moved, vertices, snapshot: buildSnapshot(session) });
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, moved, vertices, wal, snapshot: buildSnapshot(session) });
         break;
       }
       case 'drawFreeformCurve': {
@@ -499,12 +542,14 @@ self.onmessage = async (ev: MessageEvent) => {
           JSON.stringify(payload.points ?? []),
           Boolean(payload.closed)
         );
-        self.postMessage({ id, ok: true, shapeId, snapshot: buildSnapshot(session) });
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, shapeId, wal, snapshot: buildSnapshot(session) });
         break;
       }
       case 'ensureControlHandle': {
         const okHandle = session.ensure_control_handle(activePageId, Number(payload.shapeId));
-        self.postMessage({ id, ok: true, okHandle, snapshot: buildSnapshot(session) });
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, okHandle, wal, snapshot: buildSnapshot(session) });
         break;
       }
       case 'moveControlHandle': {
@@ -515,7 +560,8 @@ self.onmessage = async (ev: MessageEvent) => {
           Number(payload.xIn),
           Number(payload.yIn)
         );
-        self.postMessage({ id, ok: true, moved, snapshot: buildSnapshot(session) });
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, moved, wal, snapshot: buildSnapshot(session) });
         break;
       }
       case 'applyThemeVariant': {
@@ -523,7 +569,8 @@ self.onmessage = async (ev: MessageEvent) => {
           String(payload.themeSlug ?? 'modern'),
           Number(payload.variantIndex ?? 0)
         );
-        self.postMessage({ id, ok: true, count, snapshot: buildSnapshot(session) });
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, count, wal, snapshot: buildSnapshot(session) });
         break;
       }
       case 'applyShapeVisualPreset': {
@@ -532,7 +579,8 @@ self.onmessage = async (ev: MessageEvent) => {
             session.apply_shape_visual_preset(activePageId, Number(sid), String(payload.preset));
           }
         }
-        self.postMessage({ id, ok: true, snapshot: buildSnapshot(session) });
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, wal, snapshot: buildSnapshot(session) });
         break;
       }
       case 'insertCroppedImage': {
@@ -546,7 +594,8 @@ self.onmessage = async (ev: MessageEvent) => {
           Number(payload.brightness ?? 1.05),
           Number(payload.contrast ?? 1.08)
         );
-        self.postMessage({ id, ok: true, shapeId, snapshot: buildSnapshot(session) });
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, shapeId, wal, snapshot: buildSnapshot(session) });
         break;
       }
       case 'createSubprocess': {
@@ -558,7 +607,8 @@ self.onmessage = async (ev: MessageEvent) => {
         if (subPageId > 0 && payload.navigate) {
           activePageId = subPageId;
         }
-        self.postMessage({ id, ok: true, subPageId, snapshot: buildSnapshot(session) });
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, subPageId, wal, snapshot: buildSnapshot(session) });
         break;
       }
       case 'setHyperlinkAndScreentip': {
@@ -570,7 +620,8 @@ self.onmessage = async (ev: MessageEvent) => {
           String(payload.subAddress ?? ''),
           String(payload.screentip ?? '')
         );
-        self.postMessage({ id, ok: true, snapshot: buildSnapshot(session) });
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, wal, snapshot: buildSnapshot(session) });
         break;
       }
       case 'applyTitleBlockBorder': {
@@ -580,7 +631,8 @@ self.onmessage = async (ev: MessageEvent) => {
           String(payload.author ?? 'Principal Architect'),
           String(payload.revision ?? 'Rev A')
         );
-        self.postMessage({ id, ok: true, bgPageId, snapshot: buildSnapshot(session) });
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, bgPageId, wal, snapshot: buildSnapshot(session) });
         break;
       }
       case 'compareWithVsdx': {
@@ -590,7 +642,8 @@ self.onmessage = async (ev: MessageEvent) => {
       }
       case 'importDataVisualizer': {
         const count = session.import_data_visualizer(activePageId, payload.bytes as Uint8Array);
-        self.postMessage({ id, ok: true, count, snapshot: buildSnapshot(session) });
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, count, wal, snapshot: buildSnapshot(session) });
         break;
       }
       case 'exportDataVisualizer': {
@@ -600,12 +653,14 @@ self.onmessage = async (ev: MessageEvent) => {
       }
       case 'importCloudDiscovery': {
         const count = session.import_cloud_discovery(activePageId, String(payload.json ?? ''));
-        self.postMessage({ id, ok: true, count, snapshot: buildSnapshot(session) });
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, count, wal, snapshot: buildSnapshot(session) });
         break;
       }
       case 'importEntraOrLdif': {
         const count = session.import_entra_or_ldif(activePageId, String(payload.text ?? ''));
-        self.postMessage({ id, ok: true, count, snapshot: buildSnapshot(session) });
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, count, wal, snapshot: buildSnapshot(session) });
         break;
       }
       case 'importSqliteRecordset': {
@@ -615,7 +670,8 @@ self.onmessage = async (ev: MessageEvent) => {
           String(payload.tableName ?? ''),
           String(payload.keyCol ?? 'Label')
         );
-        self.postMessage({ id, ok: true, count, snapshot: buildSnapshot(session) });
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, count, wal, snapshot: buildSnapshot(session) });
         break;
       }
       case 'drawRect': {
@@ -628,6 +684,85 @@ self.onmessage = async (ev: MessageEvent) => {
         );
         const wal = session.export_wal();
         self.postMessage({ id, ok: true, shapeId, wal, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'drawPrimitive': {
+        const shapeId = session.draw_primitive_2d(
+          activePageId,
+          String(payload.kind ?? 'rect'),
+          Number(payload.x1),
+          Number(payload.y1),
+          Number(payload.x2),
+          Number(payload.y2)
+        );
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, shapeId, wal, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'drawLine': {
+        const shapeId = session.draw_line(
+          activePageId,
+          Number(payload.x1),
+          Number(payload.y1),
+          Number(payload.x2),
+          Number(payload.y2)
+        );
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, shapeId, wal, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'drawArc': {
+        const shapeId = session.draw_arc(
+          activePageId,
+          Number(payload.x1),
+          Number(payload.y1),
+          Number(payload.x2),
+          Number(payload.y2),
+          Number(payload.bowIn ?? 0.35)
+        );
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, shapeId, wal, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'connectPointsOrShapes': {
+        const connId = session.connect_points_or_shapes(
+          activePageId,
+          Number(payload.x1),
+          Number(payload.y1),
+          Number(payload.x2),
+          Number(payload.y2),
+          Number(payload.fromId ?? 0),
+          Number(payload.toId ?? 0)
+        );
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, connId, wal, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'moveConnectorEndpoint': {
+        const moved = session.move_connector_endpoint(
+          activePageId,
+          Number(payload.shapeId),
+          Boolean(payload.isBegin),
+          Number(payload.xIn),
+          Number(payload.yIn),
+          Number(payload.targetShapeId ?? 0)
+        );
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, moved, wal, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'duplicateShapes': {
+        const createdIds = Array.from(
+          session.duplicate_shapes(
+            activePageId,
+            new Uint32Array(payload.shapeIds ?? []),
+            Number(payload.dxIn ?? 0.35),
+            Number(payload.dyIn ?? -0.35)
+          )
+        );
+        selectedShapeIds = createdIds;
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, createdIds, wal, snapshot: buildSnapshot(session) });
         break;
       }
       case 'deleteShape': {
@@ -699,7 +834,8 @@ self.onmessage = async (ev: MessageEvent) => {
           payload.heightIn,
           payload.jumpStyle
         );
-        self.postMessage({ id, ok: true, snapshot: buildSnapshot(session) });
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, wal, snapshot: buildSnapshot(session) });
         break;
       }
       case 'insertContainer': {
@@ -708,47 +844,56 @@ self.onmessage = async (ev: MessageEvent) => {
           payload.title,
           new Uint32Array(payload.memberIds ?? [])
         );
-        self.postMessage({ id, ok: true, containerId: cid, snapshot: buildSnapshot(session) });
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, containerId: cid, wal, snapshot: buildSnapshot(session) });
         break;
       }
       case 'insertCallout': {
         const cid = session.insert_callout(activePageId, payload.targetShapeId, payload.text);
-        self.postMessage({ id, ok: true, calloutId: cid, snapshot: buildSnapshot(session) });
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, calloutId: cid, wal, snapshot: buildSnapshot(session) });
         break;
       }
       case 'insertSwimlanes': {
         session.insert_swimlanes(activePageId, payload.lanes);
-        self.postMessage({ id, ok: true, snapshot: buildSnapshot(session) });
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, wal, snapshot: buildSnapshot(session) });
         break;
       }
       case 'insertRoom': {
         const roomId = session.insert_architectural_room(activePageId, payload.roomName);
-        self.postMessage({ id, ok: true, roomId, snapshot: buildSnapshot(session) });
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, roomId, wal, snapshot: buildSnapshot(session) });
         break;
       }
       case 'insertRack': {
         const rackId = session.insert_rack_with_equipment(activePageId);
-        self.postMessage({ id, ok: true, rackId, snapshot: buildSnapshot(session) });
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, rackId, wal, snapshot: buildSnapshot(session) });
         break;
       }
       case 'importOrgChartCsv': {
         const count = session.import_org_chart_csv(activePageId, String(payload.csv ?? ''));
-        self.postMessage({ id, ok: true, count, snapshot: buildSnapshot(session) });
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, count, wal, snapshot: buildSnapshot(session) });
         break;
       }
       case 'generateGanttDemo': {
         const count = session.generate_gantt_demo(activePageId);
-        self.postMessage({ id, ok: true, count, snapshot: buildSnapshot(session) });
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, count, wal, snapshot: buildSnapshot(session) });
         break;
       }
       case 'generateTimelineDemo': {
         const count = session.generate_timeline_demo(activePageId);
-        self.postMessage({ id, ok: true, count, snapshot: buildSnapshot(session) });
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, count, wal, snapshot: buildSnapshot(session) });
         break;
       }
       case 'reverseSql': {
         const count = session.reverse_engineer_sql(activePageId, payload.sql);
-        self.postMessage({ id, ok: true, count, snapshot: buildSnapshot(session) });
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, count, wal, snapshot: buildSnapshot(session) });
         break;
       }
       case 'forwardSql': {
@@ -758,7 +903,8 @@ self.onmessage = async (ev: MessageEvent) => {
       }
       case 'generatePert': {
         const count = session.generate_pert_demo(activePageId);
-        self.postMessage({ id, ok: true, count, snapshot: buildSnapshot(session) });
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, count, wal, snapshot: buildSnapshot(session) });
         break;
       }
       case 'linkCsvDataGraphics': {
@@ -767,7 +913,8 @@ self.onmessage = async (ev: MessageEvent) => {
           payload.csv,
           payload.keyCol
         );
-        self.postMessage({ id, ok: true, linked, snapshot: buildSnapshot(session) });
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, linked, wal, snapshot: buildSnapshot(session) });
         break;
       }
       case 'exportBomXlsx': {
@@ -783,17 +930,20 @@ self.onmessage = async (ev: MessageEvent) => {
           Boolean(payload.lock),
           payload.colorHex ?? ''
         );
-        self.postMessage({ id, ok: true, snapshot: buildSnapshot(session) });
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, wal, snapshot: buildSnapshot(session) });
         break;
       }
       case 'addComment': {
         session.add_comment(activePageId, payload.shapeId ?? 0, payload.author, payload.text);
-        self.postMessage({ id, ok: true, snapshot: buildSnapshot(session) });
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, wal, snapshot: buildSnapshot(session) });
         break;
       }
       case 'autoLayout': {
         session.apply_auto_layout(activePageId, payload.algorithm);
-        self.postMessage({ id, ok: true, snapshot: buildSnapshot(session) });
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, wal, snapshot: buildSnapshot(session) });
         break;
       }
       case 'validate': {
@@ -808,7 +958,8 @@ self.onmessage = async (ev: MessageEvent) => {
             new Uint32Array(payload.selectedIds ?? selectedShapeIds)
           )
         );
-        self.postMessage({ id, ok: true, macroReport, snapshot: buildSnapshot(session) });
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, macroReport, wal, snapshot: buildSnapshot(session) });
         break;
       }
       case 'selectPage': {
@@ -827,17 +978,63 @@ self.onmessage = async (ev: MessageEvent) => {
       }
       case 'addPage': {
         activePageId = session.add_page(payload.name);
-        self.postMessage({ id, ok: true, snapshot: buildSnapshot(session) });
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, wal, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'renamePage': {
+        const okRename = session.rename_page(Number(payload.pageId ?? activePageId), String(payload.name ?? 'Page'));
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, renamed: okRename, wal, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'duplicatePage': {
+        activePageId = session.duplicate_page(Number(payload.pageId ?? activePageId));
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, wal, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'deletePage': {
+        const targetPid = Number(payload.pageId ?? activePageId);
+        const deleted = session.delete_page(targetPid);
+        const snapRaw = JSON.parse(session.get_state_json(activePageId));
+        activePageId = snapRaw.activePageId;
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, deleted, wal, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'reorderShapes': {
+        const ids = new Uint32Array((payload.shapeIds ?? []).map(Number));
+        const moved = session.reorder_shapes(activePageId, ids, String(payload.mode ?? 'front'));
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, moved, wal, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'batchSetCells': {
+        const ids: number[] = (payload.shapeIds ?? []).map(Number);
+        const entries: Array<{ cell: string; formula: string }> = payload.entries ?? [];
+        let changed = 0;
+        for (const sid of ids) {
+          for (const entry of entries) {
+            if (session.set_cell_formula(activePageId, sid, entry.cell, entry.formula, Boolean(payload.forceSetf))) {
+              changed++;
+            }
+          }
+        }
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, changed, wal, snapshot: buildSnapshot(session) });
         break;
       }
       case 'undo': {
         session.undo();
-        self.postMessage({ id, ok: true, snapshot: buildSnapshot(session) });
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, wal, snapshot: buildSnapshot(session) });
         break;
       }
       case 'redo': {
         session.redo();
-        self.postMessage({ id, ok: true, snapshot: buildSnapshot(session) });
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, wal, snapshot: buildSnapshot(session) });
         break;
       }
       case 'replayWal': {

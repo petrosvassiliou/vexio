@@ -681,6 +681,177 @@ public:
         return VexioResult<uint32_t>{VEXIO_OK, importedCount};
     }
 
+    [[nodiscard]] VexioResult<winrt::hstring> ListStencilsJson() const {
+        if (m_ptr == nullptr) {
+            return VexioResult<winrt::hstring>{VEXIO_ERR_INVALID_ARG, std::nullopt};
+        }
+        OwnedBufferGuard jsonBuf;
+        const VexioStatus status = vexio_doc_list_stencils_json(m_ptr, jsonBuf.OutPtr());
+        if (status != VEXIO_OK) {
+            return VexioResult<winrt::hstring>{status, std::nullopt};
+        }
+        return VexioResult<winrt::hstring>{VEXIO_OK, jsonBuf.ToWinRtString()};
+    }
+
+    [[nodiscard]] VexioStatus LoadStarterTemplate(std::string_view templateIdUtf8) {
+        if (m_ptr == nullptr || templateIdUtf8.empty()) {
+            return VEXIO_ERR_INVALID_ARG;
+        }
+        const std::string tid{templateIdUtf8};
+        return vexio_doc_load_starter_template(m_ptr, tid.c_str());
+    }
+
+    [[nodiscard]] VexioResult<uint64_t> DropStencil(
+        uint32_t pageId,
+        std::string_view categoryUtf8,
+        std::string_view masterNameUtf8,
+        double xIn,
+        double yIn)
+    {
+        if (m_ptr == nullptr || masterNameUtf8.empty()) {
+            return VexioResult<uint64_t>{VEXIO_ERR_INVALID_ARG, std::nullopt};
+        }
+        const std::string cat{categoryUtf8};
+        const std::string master{masterNameUtf8};
+        uint64_t outId = 0;
+        const VexioStatus status = vexio_doc_drop_stencil(
+            m_ptr, pageId, cat.c_str(), master.c_str(), xIn, yIn, &outId);
+        if (status != VEXIO_OK) {
+            return VexioResult<uint64_t>{status, std::nullopt};
+        }
+        return VexioResult<uint64_t>{VEXIO_OK, outId};
+    }
+
+    [[nodiscard]] VexioResult<uint64_t> DrawPrimitive(
+        uint32_t pageId,
+        std::string_view kindUtf8,
+        double x1In,
+        double y1In,
+        double x2In,
+        double y2In)
+    {
+        if (m_ptr == nullptr || kindUtf8.empty()) {
+            return VexioResult<uint64_t>{VEXIO_ERR_INVALID_ARG, std::nullopt};
+        }
+        const std::string kind{kindUtf8};
+        uint64_t outId = 0;
+        const VexioStatus status = vexio_doc_draw_primitive(
+            m_ptr, pageId, kind.c_str(), x1In, y1In, x2In, y2In, &outId);
+        if (status != VEXIO_OK) {
+            return VexioResult<uint64_t>{status, std::nullopt};
+        }
+        return VexioResult<uint64_t>{VEXIO_OK, outId};
+    }
+
+    [[nodiscard]] VexioResult<uint64_t> ConnectShapes(
+        uint32_t pageId,
+        uint64_t fromShapeId,
+        uint64_t toShapeId)
+    {
+        if (m_ptr == nullptr) {
+            return VexioResult<uint64_t>{VEXIO_ERR_INVALID_ARG, std::nullopt};
+        }
+        uint64_t connId = 0;
+        const VexioStatus status = vexio_doc_connect_shapes(
+            m_ptr, pageId, fromShapeId, toShapeId, &connId);
+        if (status != VEXIO_OK) {
+            return VexioResult<uint64_t>{status, std::nullopt};
+        }
+        return VexioResult<uint64_t>{VEXIO_OK, connId};
+    }
+
+    [[nodiscard]] VexioResult<uint32_t> DeleteShapes(
+        uint32_t pageId,
+        std::span<const uint64_t> shapeIds)
+    {
+        if (m_ptr == nullptr || shapeIds.empty()) {
+            return VexioResult<uint32_t>{VEXIO_ERR_INVALID_ARG, std::nullopt};
+        }
+        uint32_t deleted = 0;
+        const VexioStatus status = vexio_doc_delete_shapes(
+            m_ptr, pageId, shapeIds.data(), shapeIds.size(), &deleted);
+        if (status != VEXIO_OK) {
+            return VexioResult<uint32_t>{status, std::nullopt};
+        }
+        return VexioResult<uint32_t>{VEXIO_OK, deleted};
+    }
+
+    [[nodiscard]] VexioResult<uint64_t> DuplicateShapes(
+        uint32_t pageId,
+        std::span<const uint64_t> shapeIds,
+        double dxIn,
+        double dyIn)
+    {
+        if (m_ptr == nullptr || shapeIds.empty()) {
+            return VexioResult<uint64_t>{VEXIO_ERR_INVALID_ARG, std::nullopt};
+        }
+        uint64_t firstId = 0;
+        const VexioStatus status = vexio_doc_duplicate_shapes(
+            m_ptr, pageId, shapeIds.data(), shapeIds.size(), dxIn, dyIn, &firstId);
+        if (status != VEXIO_OK) {
+            return VexioResult<uint64_t>{status, std::nullopt};
+        }
+        return VexioResult<uint64_t>{VEXIO_OK, firstId};
+    }
+
+    [[nodiscard]] VexioStatus ReorderShapes(
+        uint32_t pageId,
+        std::span<const uint64_t> shapeIds,
+        std::string_view modeUtf8)
+    {
+        if (m_ptr == nullptr || shapeIds.empty() || modeUtf8.empty()) {
+            return VEXIO_ERR_INVALID_ARG;
+        }
+        const std::string mode{modeUtf8};
+        return vexio_doc_reorder_shapes(m_ptr, pageId, shapeIds.data(), shapeIds.size(), mode.c_str());
+    }
+
+    [[nodiscard]] VexioStatus SetShapeText(
+        uint32_t pageId,
+        uint64_t shapeId,
+        std::string_view textUtf8)
+    {
+        if (m_ptr == nullptr) {
+            return VEXIO_ERR_INVALID_ARG;
+        }
+        const std::string txt{textUtf8};
+        return vexio_doc_set_shape_text(m_ptr, pageId, shapeId, txt.c_str());
+    }
+
+    [[nodiscard]] VexioResult<uint32_t> AddPage(std::string_view nameUtf8) {
+        if (m_ptr == nullptr || nameUtf8.empty()) {
+            return VexioResult<uint32_t>{VEXIO_ERR_INVALID_ARG, std::nullopt};
+        }
+        const std::string name{nameUtf8};
+        uint32_t outPid = 0;
+        const VexioStatus status = vexio_doc_add_page(m_ptr, name.c_str(), &outPid);
+        if (status != VEXIO_OK) {
+            return VexioResult<uint32_t>{status, std::nullopt};
+        }
+        return VexioResult<uint32_t>{VEXIO_OK, outPid};
+    }
+
+    [[nodiscard]] VexioStatus AutoLayout(uint32_t pageId, std::string_view algoUtf8) {
+        if (m_ptr == nullptr || algoUtf8.empty()) {
+            return VEXIO_ERR_INVALID_ARG;
+        }
+        const std::string algo{algoUtf8};
+        return vexio_doc_auto_layout(m_ptr, pageId, algo.c_str());
+    }
+
+    [[nodiscard]] VexioResult<winrt::hstring> ValidateJson(std::string_view rulesetUtf8) const {
+        if (m_ptr == nullptr || rulesetUtf8.empty()) {
+            return VexioResult<winrt::hstring>{VEXIO_ERR_INVALID_ARG, std::nullopt};
+        }
+        const std::string ruleset{rulesetUtf8};
+        OwnedBufferGuard jsonBuf;
+        const VexioStatus status = vexio_doc_validate_json(m_ptr, ruleset.c_str(), jsonBuf.OutPtr());
+        if (status != VEXIO_OK) {
+            return VexioResult<winrt::hstring>{status, std::nullopt};
+        }
+        return VexioResult<winrt::hstring>{VEXIO_OK, jsonBuf.ToWinRtString()};
+    }
+
 private:
     VexioDoc* m_ptr{nullptr};
 };
@@ -800,6 +971,48 @@ public:
 
     [[nodiscard]] explicit operator bool() const noexcept {
         return m_ptr != nullptr;
+    }
+
+    [[nodiscard]] VexioStatus Resize(uint32_t widthPx, uint32_t heightPx, float dpiScale) const noexcept {
+        if (m_ptr == nullptr) return VEXIO_ERR_INVALID_ARG;
+        return vexio_viewport_resize(m_ptr, std::max<uint32_t>(1u, widthPx), std::max<uint32_t>(1u, heightPx), std::clamp(dpiScale, 0.5f, 8.0f));
+    }
+
+    [[nodiscard]] VexioStatus SetTool(uint32_t toolCode) const noexcept {
+        if (m_ptr == nullptr) return VEXIO_ERR_INVALID_ARG;
+        return vexio_viewport_set_tool(m_ptr, toolCode);
+    }
+
+    [[nodiscard]] VexioStatus SetPage(const DocHandle& doc, uint32_t pageId) const noexcept {
+        if (m_ptr == nullptr || !doc) return VEXIO_ERR_INVALID_ARG;
+        return vexio_viewport_set_page(m_ptr, doc.Get(), pageId);
+    }
+
+    [[nodiscard]] VexioStatus SetZoom(const DocHandle& doc, double zoomScale, double panXIn = 0.0, double panYIn = 0.0) const noexcept {
+        if (m_ptr == nullptr || !doc) return VEXIO_ERR_INVALID_ARG;
+        return vexio_viewport_set_zoom(m_ptr, doc.Get(), zoomScale, panXIn, panYIn);
+    }
+
+    [[nodiscard]] VexioStatus RenderFrame(const DocHandle& doc) const noexcept {
+        if (m_ptr == nullptr || !doc) return VEXIO_ERR_INVALID_ARG;
+        return vexio_viewport_render_frame(m_ptr, doc.Get());
+    }
+
+    [[nodiscard]] VexioResult<OwnedBufferGuard> RenderRgba(const DocHandle& doc) const noexcept {
+        if (m_ptr == nullptr || !doc) {
+            return VexioResult<OwnedBufferGuard>{VEXIO_ERR_INVALID_ARG, std::nullopt};
+        }
+        OwnedBufferGuard buf;
+        const VexioStatus status = vexio_viewport_render_rgba(m_ptr, doc.Get(), buf.OutPtr());
+        if (status != VEXIO_OK) {
+            return VexioResult<OwnedBufferGuard>{status, std::nullopt};
+        }
+        return VexioResult<OwnedBufferGuard>{VEXIO_OK, std::move(buf)};
+    }
+
+    [[nodiscard]] uint64_t GetPrimarySelection() const noexcept {
+        if (m_ptr == nullptr) return 0;
+        return vexio_viewport_get_primary_selection(m_ptr);
     }
 
     [[nodiscard]] VexioResult<uint32_t> DispatchPointer(

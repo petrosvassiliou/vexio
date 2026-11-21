@@ -82,6 +82,9 @@ object NativeBridge {
     external fun nativeCreateBlankDocument(title: String): Long
 
     @JvmStatic
+    external fun nativeDestroyDocument(docPtr: Long)
+
+    @JvmStatic
     external fun nativeOpenDocument(enginePtr: Long, directBytes: ByteBuffer, ext: String): Long
 
     @JvmStatic
@@ -98,12 +101,43 @@ object NativeBridge {
     ): Long
 
     @JvmStatic
+    external fun nativeDestroyViewport(viewportPtr: Long)
+
+    @JvmStatic
     external fun nativeResizeViewport(
         viewportPtr: Long,
         width: Int,
         height: Int,
         density: Float
     )
+
+    @JvmStatic
+    external fun nativeSetViewportTool(viewportPtr: Long, toolCode: Int)
+
+    @JvmStatic
+    external fun nativeSetViewportPage(viewportPtr: Long, docPtr: Long, pageId: Int)
+
+    @JvmStatic
+    external fun nativeSetViewportZoom(
+        viewportPtr: Long,
+        docPtr: Long,
+        zoomScale: Double,
+        panXIn: Double,
+        panYIn: Double
+    )
+
+    @JvmStatic
+    external fun nativeRenderViewportFrame(viewportPtr: Long, docPtr: Long): Boolean
+
+    @JvmStatic
+    external fun nativeRenderViewportRgba(
+        viewportPtr: Long,
+        docPtr: Long,
+        outDirectRgba: ByteBuffer
+    ): Int
+
+    @JvmStatic
+    external fun nativeGetPrimarySelection(viewportPtr: Long): Long
 
     @JvmStatic
     external fun nativePushMotionBatch(
@@ -130,6 +164,59 @@ object NativeBridge {
         formula: String,
         forceSetf: Boolean
     ): Int
+
+    @JvmStatic
+    external fun nativeListStencilsJson(docPtr: Long): String
+
+    @JvmStatic
+    external fun nativeLoadStarterTemplate(docPtr: Long, templateId: String): Boolean
+
+    @JvmStatic
+    external fun nativeDropStencil(
+        docPtr: Long,
+        pageId: Int,
+        category: String,
+        masterName: String,
+        xIn: Double,
+        yIn: Double
+    ): Long
+
+    @JvmStatic
+    external fun nativeDrawPrimitive(
+        docPtr: Long,
+        pageId: Int,
+        kind: String,
+        x1In: Double,
+        y1In: Double,
+        x2In: Double,
+        y2In: Double
+    ): Long
+
+    @JvmStatic
+    external fun nativeDeleteShapes(docPtr: Long, pageId: Int, shapeIds: LongArray): Int
+
+    @JvmStatic
+    external fun nativeDuplicateShapes(
+        docPtr: Long,
+        pageId: Int,
+        shapeIds: LongArray,
+        dxIn: Double,
+        dyIn: Double
+    ): Long
+
+    @JvmStatic
+    external fun nativeReorderShapes(
+        docPtr: Long,
+        pageId: Int,
+        shapeIds: LongArray,
+        mode: String
+    ): Int
+
+    @JvmStatic
+    external fun nativeAddPage(docPtr: Long, name: String): Int
+
+    @JvmStatic
+    external fun nativeAutoLayout(docPtr: Long, pageId: Int, algo: String)
 
     @JvmStatic
     external fun nativeUndo(docPtr: Long): Boolean
@@ -425,15 +512,23 @@ class StylusPalmRejector(
 /**
  * Workstation authoring tools aligned 1:1 with Microsoft Visio shortcuts (`Ctrl+1`, `Ctrl+2`, `Ctrl+3`, etc.).
  */
-enum class VexioTool(val displayName: String, val shortcutHint: String) {
-    POINTER("Pointer", "Ctrl+1"),
-    TEXT_BLOCK("Text", "Ctrl+2"),
-    CONNECTOR("Dynamic Connector", "Ctrl+3"),
-    STYLUS_INK("USI Markup Ink", "Ctrl+4"),
-    FREEFORM("Freeform Curve", "Ctrl+5"),
-    RECTANGLE("Rectangle", "Ctrl+8"),
-    ELLIPSE("Ellipse", "Ctrl+9"),
-    PAN_HAND("Pan Canvas", "Space")
+enum class VexioTool(val displayName: String, val shortcutHint: String, val nativeCode: Int) {
+    POINTER("Select", "Ctrl+1", 0),
+    PAN_HAND("Pan", "Space", 1),
+    CONNECTOR("Connector", "Ctrl+3", 2),
+    LINE("Line", "L", 9),
+    ARC("Arc", "A", 10),
+    FREEFORM("Freeform Curve", "Ctrl+5", 11),
+    RECTANGLE("Rectangle", "Ctrl+8", 4),
+    ROUNDED_RECT("Rounded Rect", "R", 5),
+    ELLIPSE("Circle / Ellipse", "Ctrl+9", 6),
+    DIAMOND("Diamond", "D", 7),
+    TRIANGLE("Triangle", "T", 8),
+    HEXAGON("Hexagon", "X", 14),
+    STAR("Star", "S", 15),
+    TEXT_BLOCK("Text", "Ctrl+2", 3),
+    STYLUS_INK("Pen Ink", "Ctrl+4", 12),
+    HIGHLIGHTER("Highlighter", "Ctrl+7", 13)
 }
 
 /**
@@ -609,6 +704,18 @@ object Plan2SamplePayloads {
 }
 
 @Serializable
+data class NativeStencilMasterDto(
+    val name: String = "",
+    val prompt: String = "",
+    val category: String = "",
+    val widthIn: Double = 1.5,
+    val heightIn: Double = 1.0,
+    val fillFormula: String = "RGB(239,246,255)",
+    val lineFormula: String = "RGB(37,99,235)",
+    val svg: String = ""
+)
+
+@Serializable
 data class StencilMasterItem(
     val masterId: String,
     val title: String,
@@ -616,7 +723,9 @@ data class StencilMasterItem(
     val defaultWidthFormula: String,
     val defaultHeightFormula: String,
     val fillFormula: String,
-    val shapeKind: String
+    val shapeKind: String,
+    val prompt: String = "",
+    val svgPreview: String = ""
 )
 
 /**
@@ -631,7 +740,8 @@ data class CrossWindowShapePayload(
     val heightFormula: String,
     val fillFormula: String,
     val pinXFormula: String = "4.25 in",
-    val pinYFormula: String = "5.50 in"
+    val pinYFormula: String = "5.50 in",
+    val category: String = "Basic Flowchart"
 )
 
 data class ShapeSheetCellEntry(
@@ -659,6 +769,7 @@ data class WorkstationUiState(
     val documentTitle: String = "Architecture_Blueprint.vsdx",
     val documentUri: Uri? = null,
     val documentExtension: String = "vsdx",
+    val isDarkTheme: Boolean = false,
     val isDirty: Boolean = false,
     val canUndo: Boolean = false,
     val canRedo: Boolean = false,
@@ -667,24 +778,27 @@ data class WorkstationUiState(
     val zoomPercent: Int = 100,
     val activePageId: Int = 1,
     val pages: List<DiagramPageTab> = listOf(
-        DiagramPageTab(1, "Page-1: System Topology", "1 in = 1 in"),
-        DiagramPageTab(2, "Page-2: BPMN 2.0 Flow", "1 in = 1 in"),
-        DiagramPageTab(3, "Page-3: CAD Floorplan", "1/4 in = 1 ft")
+        DiagramPageTab(1, "Page-1", "1 in = 1 in"),
+        DiagramPageTab(2, "BPMN 2.0 Flow", "1 in = 1 in"),
+        DiagramPageTab(3, "CAD Floorplan", "1/4 in = 1 ft")
     ),
-    val selectedStencilCategory: String = "BPMN 2.0",
+    val selectedStencilCategory: String = "All",
+    val stencilCategories: List<String> = BuiltInStencilCatalog.categories,
+    val stencilMasters: List<StencilMasterItem> = BuiltInStencilCatalog.masters,
+    val canvasFallbackBitmap: Bitmap? = null,
     val selectedShapeId: Long = 1L,
     val selectedShapeIds: List<Long> = listOf(1L, 2L),
-    val selectedShapeName: String = "Sheet.1 (Gateway Node)",
+    val selectedShapeName: String = "Sheet.1 (Process)",
     val activeCellName: String = "Width",
     val formulaBarInput: String = "GUARD(2.50 in)",
     val forceSetfOverride: Boolean = false,
     val lastFormulaStatus: FormulaCommitStatus = FormulaCommitStatus.OK,
-    val statusBanner: String = "Vulkan Swapchain Ready • 120 Hz R*-Tree Spatial Index",
-    val isPlan2RibbonExpanded: Boolean = true,
-    val isShapeSheetDrawerExpanded: Boolean = true,
+    val statusBanner: String = "Ready • Light Mode • 17 Stencil Packs Loaded",
+    val isPlan2RibbonExpanded: Boolean = false,
+    val isShapeSheetDrawerExpanded: Boolean = false,
     val isInspectorExpanded: Boolean = true,
     val isStencilDrawerExpanded: Boolean = true,
-    val isToolbarFloating: Boolean = true,
+    val isToolbarFloating: Boolean = false,
     val isStylusActive: Boolean = false,
     val lastStylusPressure: Float = 0f,
     val lastStylusTiltDeg: Int = 0,
@@ -730,25 +844,60 @@ private fun defaultShapeSheetCells(): List<ShapeSheetCellEntry> = listOf(
 )
 
 /**
- * Built-in enterprise stencil catalog covering Flowchart, BPMN 2.0, UML 2.5, and CAD Architecture.
+ * Built-in enterprise stencil catalog covering all 17 Visio Professional categories
+ * (superseded dynamically at runtime by the 160-master SVG catalog from `libvexio_jni.so`).
  */
 object BuiltInStencilCatalog {
-    val categories: List<String> = listOf("BPMN 2.0", "Flowchart", "UML 2.5", "CAD & Rack")
+    val categories: List<String> = listOf(
+        "Basic Shapes",
+        "Arrows & Callouts",
+        "Basic Flowchart",
+        "Cross-Functional Swimlanes",
+        "BPMN 2.0",
+        "UML 2.5",
+        "Entity Relationship (ERD)",
+        "Network & Rack",
+        "AWS Cloud Architecture",
+        "Azure & M365 Cloud",
+        "Google Cloud & Kubernetes",
+        "Org Chart",
+        "Floor Plan & Architectural",
+        "Electrical IEEE / IEC",
+        "P&ID Process Engineering",
+        "Timeline, Gantt & Mind Map",
+        "Wireframe & UI Mockup"
+    )
 
     val masters: List<StencilMasterItem> = listOf(
-        StencilMasterItem("bpmn.task", "User Task", "BPMN 2.0", "1.75 in", "1.00 in", "RGB(232,240,254)", "RoundedRect"),
-        StencilMasterItem("bpmn.gateway.xor", "Exclusive Gateway", "BPMN 2.0", "GUARD(0.75 in)", "GUARD(0.75 in)", "RGB(254,247,224)", "Diamond"),
-        StencilMasterItem("bpmn.event.start", "Start Event", "BPMN 2.0", "GUARD(0.50 in)", "GUARD(0.50 in)", "RGB(230,244,234)", "Circle"),
-        StencilMasterItem("bpmn.swimlane", "Pool / Swimlane", "BPMN 2.0", "8.50 in", "2.50 in", "RGB(248,249,250)", "Swimlane"),
-        StencilMasterItem("flow.process", "Process Step", "Flowchart", "1.80 in", "0.90 in", "RGB(227,242,253)", "Rect"),
-        StencilMasterItem("flow.decision", "Decision", "Flowchart", "1.40 in", "1.00 in", "RGB(255,243,224)", "Diamond"),
-        StencilMasterItem("flow.database", "Data Store", "Flowchart", "1.50 in", "1.10 in", "RGB(237,231,246)", "Cylinder"),
-        StencilMasterItem("uml.class", "UML 2.5 Class", "UML 2.5", "2.40 in", "1.60 in", "RGB(243,229,245)", "ClassBox"),
-        StencilMasterItem("uml.component", "Component", "UML 2.5", "2.20 in", "1.20 in", "RGB(224,242,241)", "Component"),
-        StencilMasterItem("uml.lifeline", "Sequence Lifeline", "UML 2.5", "1.20 in", "4.00 in", "RGB(241,248,233)", "Lifeline"),
-        StencilMasterItem("cad.wall", "Structural Wall (Locked Scale)", "CAD & Rack", "12 ft", "6 in", "RGB(207,216,220)", "Wall"),
-        StencilMasterItem("cad.door", "Single Swing Door 36\"", "CAD & Rack", "3 ft", "3 ft", "RGB(255,255,255)", "DoorArc"),
-        StencilMasterItem("cad.rack42u", "42U Server Cabinet", "CAD & Rack", "GUARD(24 in)", "GUARD(78.75 in)", "RGB(224,230,237)", "Rack")
+        StencilMasterItem("Basic Shapes::Rectangle", "Rectangle", "Basic Shapes", "1.60 in", "1.00 in", "RGB(239,246,255)", "Rect"),
+        StencilMasterItem("Basic Shapes::Rounded Rectangle", "Rounded Rectangle", "Basic Shapes", "1.60 in", "1.00 in", "RGB(239,246,255)", "RoundedRect"),
+        StencilMasterItem("Basic Shapes::Circle", "Circle", "Basic Shapes", "1.10 in", "1.10 in", "RGB(236,253,245)", "Circle"),
+        StencilMasterItem("Basic Shapes::Diamond", "Diamond", "Basic Shapes", "1.30 in", "1.10 in", "RGB(255,251,235)", "Diamond"),
+        StencilMasterItem("Basic Shapes::Hexagon", "Hexagon", "Basic Shapes", "1.40 in", "1.10 in", "RGB(245,243,255)", "Hexagon"),
+        StencilMasterItem("Basic Shapes::5-Point Star", "5-Point Star", "Basic Shapes", "1.20 in", "1.20 in", "RGB(254,249,195)", "Star"),
+        StencilMasterItem("Arrows & Callouts::Block Arrow Right", "Block Arrow Right", "Arrows & Callouts", "1.75 in", "0.75 in", "RGB(219,234,254)", "Arrow"),
+        StencilMasterItem("Arrows & Callouts::Speech Callout", "Speech Callout", "Arrows & Callouts", "1.80 in", "1.10 in", "RGB(254,249,195)", "Callout"),
+        StencilMasterItem("Basic Flowchart::Process", "Process", "Basic Flowchart", "1.80 in", "0.90 in", "RGB(227,242,253)", "Rect"),
+        StencilMasterItem("Basic Flowchart::Decision", "Decision", "Basic Flowchart", "1.40 in", "1.00 in", "RGB(255,243,224)", "Diamond"),
+        StencilMasterItem("Basic Flowchart::Start / End", "Start / End", "Basic Flowchart", "1.60 in", "0.70 in", "RGB(230,244,234)", "Pill"),
+        StencilMasterItem("Basic Flowchart::Database", "Database", "Basic Flowchart", "1.30 in", "1.40 in", "RGB(237,231,246)", "Cylinder"),
+        StencilMasterItem("Cross-Functional Swimlanes::Horizontal Swimlane", "Horizontal Swimlane", "Cross-Functional Swimlanes", "8.50 in", "2.20 in", "RGB(248,250,252)", "Swimlane"),
+        StencilMasterItem("BPMN 2.0::User Task", "User Task", "BPMN 2.0", "1.75 in", "1.00 in", "RGB(232,240,254)", "RoundedRect"),
+        StencilMasterItem("BPMN 2.0::Exclusive Gateway", "Exclusive Gateway", "BPMN 2.0", "GUARD(0.75 in)", "GUARD(0.75 in)", "RGB(254,247,224)", "Diamond"),
+        StencilMasterItem("BPMN 2.0::Start Event", "Start Event", "BPMN 2.0", "GUARD(0.50 in)", "GUARD(0.50 in)", "RGB(230,244,234)", "Circle"),
+        StencilMasterItem("UML 2.5::Class", "Class", "UML 2.5", "2.40 in", "1.60 in", "RGB(243,229,245)", "ClassBox"),
+        StencilMasterItem("UML 2.5::Component", "Component", "UML 2.5", "2.20 in", "1.20 in", "RGB(224,242,241)", "Component"),
+        StencilMasterItem("Entity Relationship (ERD)::Entity", "Entity", "Entity Relationship (ERD)", "2.10 in", "1.40 in", "RGB(239,246,255)", "ClassBox"),
+        StencilMasterItem("Network & Rack::Server", "Server", "Network & Rack", "1.40 in", "1.20 in", "RGB(226,232,240)", "Rack"),
+        StencilMasterItem("AWS Cloud Architecture::EC2 Compute", "EC2 Compute", "AWS Cloud Architecture", "1.30 in", "1.30 in", "RGB(255,247,237)", "RoundedRect"),
+        StencilMasterItem("Azure & M365 Cloud::App Service", "App Service", "Azure & M365 Cloud", "1.30 in", "1.30 in", "RGB(239,246,255)", "RoundedRect"),
+        StencilMasterItem("Google Cloud & Kubernetes::GKE Cluster", "GKE Cluster", "Google Cloud & Kubernetes", "1.30 in", "1.30 in", "RGB(236,253,245)", "Hexagon"),
+        StencilMasterItem("Org Chart::Executive", "Executive", "Org Chart", "2.00 in", "1.00 in", "RGB(239,246,255)", "RoundedRect"),
+        StencilMasterItem("Floor Plan & Architectural::Exterior Wall", "Exterior Wall", "Floor Plan & Architectural", "12 ft", "6 in", "RGB(207,216,220)", "Wall"),
+        StencilMasterItem("Electrical IEEE / IEC::Resistor", "Resistor", "Electrical IEEE / IEC", "1.40 in", "0.55 in", "RGB(255,255,255)", "Electrical"),
+        StencilMasterItem("P&ID Process Engineering::Centrifugal Pump", "Centrifugal Pump", "P&ID Process Engineering", "1.20 in", "1.20 in", "RGB(240,249,255)", "Circle"),
+        StencilMasterItem("Timeline, Gantt & Mind Map::Central Idea", "Central Idea", "Timeline, Gantt & Mind Map", "2.00 in", "1.00 in", "RGB(245,243,255)", "Pill"),
+        StencilMasterItem("Wireframe & UI Mockup::Browser Window", "Browser Window", "Wireframe & UI Mockup", "3.20 in", "2.20 in", "RGB(248,250,252)", "ClassBox")
     )
 }
 
@@ -825,33 +974,144 @@ class VexioSessionViewModel(
         deletedShapeCount = 0
     }
 
+    private var viewportWidthPx: Int = 0
+    private var viewportHeightPx: Int = 0
+    private var directViewportRgbaBuffer: ByteBuffer? = null
+    private val lenientJson = Json { ignoreUnknownKeys = true }
+
+    @Synchronized
+    private fun presentViewportOrFallback() {
+        if (!NativeBridge.isNativeAvailable || viewportPtr == 0L || docPtr == 0L) return
+        val presentedGpu = NativeBridge.nativeRenderViewportFrame(viewportPtr, docPtr)
+        if (presentedGpu) {
+            if (_uiState.value.canvasFallbackBitmap != null) {
+                _uiState.update { it.copy(canvasFallbackBitmap = null) }
+            }
+            return
+        }
+        val w = viewportWidthPx.coerceIn(64, 2560)
+        val h = viewportHeightPx.coerceIn(64, 1600)
+        if (w <= 0 || h <= 0) return
+        val needed = w * h * 4
+        var buf = directViewportRgbaBuffer
+        if (buf == null || buf.capacity() < needed) {
+            buf = ByteBuffer.allocateDirect(needed).order(ByteOrder.nativeOrder())
+            directViewportRgbaBuffer = buf
+        }
+        buf.clear()
+        val rc = NativeBridge.nativeRenderViewportRgba(viewportPtr, docPtr, buf)
+        if (rc == 0) {
+            runCatching {
+                buf.rewind()
+                val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+                bmp.copyPixelsFromBuffer(buf)
+                _uiState.update { it.copy(canvasFallbackBitmap = bmp) }
+            }
+        }
+    }
+
+    @Synchronized
+    private fun loadDynamicStencilsFromNative() {
+        if (!NativeBridge.isNativeAvailable || docPtr == 0L) return
+        val rawJson = runCatching { NativeBridge.nativeListStencilsJson(docPtr) }.getOrDefault("{}")
+        if (rawJson.length < 10) return
+        val grouped = runCatching {
+            lenientJson.decodeFromString<Map<String, List<NativeStencilMasterDto>>>(rawJson)
+        }.getOrNull() ?: return
+        if (grouped.isEmpty()) return
+
+        val orderedCats = buildList {
+            for (canonical in BuiltInStencilCatalog.categories) {
+                if (grouped.containsKey(canonical)) add(canonical)
+            }
+            for (extra in grouped.keys.sorted()) {
+                if (extra !in this) add(extra)
+            }
+        }
+        val flatMasters = buildList {
+            for (cat in orderedCats) {
+                for (dto in grouped[cat].orEmpty()) {
+                    val cleanFill = dto.fillFormula.removePrefix("=")
+                    add(
+                        StencilMasterItem(
+                            masterId = "$cat::${dto.name}",
+                            title = dto.name,
+                            category = cat,
+                            defaultWidthFormula = "%.2f in".format(Locale.US, dto.widthIn),
+                            defaultHeightFormula = "%.2f in".format(Locale.US, dto.heightIn),
+                            fillFormula = cleanFill,
+                            shapeKind = inferShapeKind(dto.name),
+                            prompt = dto.prompt,
+                            svgPreview = dto.svg
+                        )
+                    )
+                }
+            }
+        }
+        if (flatMasters.isNotEmpty()) {
+            _uiState.update {
+                it.copy(
+                    stencilCategories = orderedCats,
+                    stencilMasters = flatMasters
+                )
+            }
+        }
+    }
+
+    private fun inferShapeKind(name: String): String {
+        val low = name.lowercase(Locale.US)
+        return when {
+            "circle" in low || "event" in low -> "Circle"
+            "diamond" in low || "decision" in low || "gateway" in low -> "Diamond"
+            "hexagon" in low -> "Hexagon"
+            "star" in low -> "Star"
+            "triangle" in low -> "Triangle"
+            "database" in low || "cylinder" in low || "rds" in low -> "Cylinder"
+            "class" in low || "entity" in low || "window" in low -> "ClassBox"
+            else -> "RoundedRect"
+        }
+    }
+
     @Synchronized
     fun initializeEngineAndBlankDocument(title: String) {
         if (NativeBridge.ensureLoaded()) {
             if (enginePtr == 0L) {
                 enginePtr = NativeBridge.nativeInitEngine()
             }
+            if (docPtr != 0L) {
+                NativeBridge.nativeDestroyDocument(docPtr)
+            }
             docPtr = NativeBridge.nativeCreateBlankDocument(title)
+            if (docPtr != 0L) {
+                NativeBridge.nativeLoadStarterTemplate(docPtr, "flowchart")
+                loadDynamicStencilsFromNative()
+            }
         }
         _uiState.update { state ->
             state.copy(
                 documentTitle = title,
                 isDirty = false,
                 statusBanner = if (NativeBridge.isNativeAvailable && enginePtr != 0L) {
-                    "Vexio Rust Engine Active • Vulkan Swapchain Ready"
+                    "Vexio Rust Engine Active • ${state.stencilMasters.size} Stencils Ready"
                 } else {
-                    "Vexio Workstation Active • Ready for Vulkan Surface"
+                    "Vexio Workstation Active • Ready"
                 }
             )
         }
         refreshSelectedShapeFormulas()
         captureBaselineSnapshot()
+        presentViewportOrFallback()
     }
 
     @Synchronized
     fun attachVulkanSurface(surface: Surface, width: Int, height: Int, density: Float) {
         if (width <= 0 || height <= 0 || !surface.isValid) return
+        viewportWidthPx = width
+        viewportHeightPx = height
         if (NativeBridge.isNativeAvailable && enginePtr != 0L && docPtr != 0L) {
+            if (viewportPtr != 0L) {
+                NativeBridge.nativeDestroyViewport(viewportPtr)
+            }
             viewportPtr = NativeBridge.nativeAttachVulkanSurface(
                 enginePtr = enginePtr,
                 docPtr = docPtr,
@@ -860,10 +1120,15 @@ class VexioSessionViewModel(
                 height = height,
                 density = density
             )
+            if (viewportPtr != 0L) {
+                NativeBridge.nativeSetViewportPage(viewportPtr, docPtr, _uiState.value.activePageId)
+                NativeBridge.nativeSetViewportTool(viewportPtr, _uiState.value.activeTool.nativeCode)
+                presentViewportOrFallback()
+            }
         }
         _uiState.update {
             it.copy(
-                statusBanner = "Vulkan ANativeWindow ${width}×${height} @ ${"%.2f".format(Locale.US, density)}x attached"
+                statusBanner = "Canvas ${width}×${height} @ ${"%.2f".format(Locale.US, density)}x Active"
             )
         }
     }
@@ -871,14 +1136,48 @@ class VexioSessionViewModel(
     @Synchronized
     fun resizeVulkanViewport(width: Int, height: Int, density: Float) {
         if (width <= 0 || height <= 0) return
+        viewportWidthPx = width
+        viewportHeightPx = height
         if (NativeBridge.isNativeAvailable && viewportPtr != 0L) {
             NativeBridge.nativeResizeViewport(viewportPtr, width, height, density)
+            presentViewportOrFallback()
         }
     }
 
     @Synchronized
     fun detachVulkanSurface() {
+        if (NativeBridge.isNativeAvailable && viewportPtr != 0L) {
+            NativeBridge.nativeDestroyViewport(viewportPtr)
+        }
         viewportPtr = 0L
+    }
+
+    fun toggleDarkTheme() {
+        _uiState.update {
+            val next = !it.isDarkTheme
+            it.copy(
+                isDarkTheme = next,
+                statusBanner = if (next) "Switched to Dark Mode" else "Switched to Light Mode (Default)"
+            )
+        }
+    }
+
+    @Synchronized
+    fun loadStarterTemplate(templateId: String) {
+        if (NativeBridge.isNativeAvailable && docPtr != 0L) {
+            NativeBridge.nativeLoadStarterTemplate(docPtr, templateId)
+            refreshSelectedShapeFormulas()
+            presentViewportOrFallback()
+        }
+        _uiState.update {
+            it.copy(
+                activePageId = 1,
+                selectedShapeId = 1L,
+                isDirty = true,
+                canUndo = true,
+                statusBanner = "Loaded '${templateId.replaceFirstChar { c -> c.uppercase() }}' starter diagram"
+            )
+        }
     }
 
     /**
@@ -1030,12 +1329,36 @@ class VexioSessionViewModel(
         }
 
         val nativeCursorCode = if (NativeBridge.isNativeAvailable && viewportPtr != 0L && docPtr != 0L) {
-            NativeBridge.nativePushMotionBatch(
+            val code = NativeBridge.nativePushMotionBatch(
                 viewportPtr = viewportPtr,
                 docPtr = docPtr,
                 directBatchBuffer = directMotionBatchBuffer,
                 count = sampleCount
             )
+            if (mappedAction == MotionBatchFormat.ACTION_UP ||
+                mappedAction == MotionBatchFormat.ACTION_DOWN ||
+                mappedAction == MotionBatchFormat.ACTION_MOVE
+            ) {
+                val primarySel = NativeBridge.nativeGetPrimarySelection(viewportPtr)
+                if (primarySel > 0L && primarySel != _uiState.value.selectedShapeId) {
+                    _uiState.update {
+                        it.copy(
+                            selectedShapeId = primarySel,
+                            selectedShapeIds = listOf(primarySel),
+                            selectedShapeName = "Sheet.$primarySel"
+                        )
+                    }
+                    if (mappedAction == MotionBatchFormat.ACTION_UP) {
+                        refreshSelectedShapeFormulas()
+                    }
+                }
+                if (mappedAction == MotionBatchFormat.ACTION_UP ||
+                    (buttonState and MotionEvent.BUTTON_PRIMARY) != 0
+                ) {
+                    presentViewportOrFallback()
+                }
+            }
+            code
         } else {
             inferFallbackCursorCode(_uiState.value.activeTool, mappedAction, buttonState)
         }
@@ -1066,10 +1389,6 @@ class VexioSessionViewModel(
         VexioTool.POINTER -> VexioCursorKind.ARROW.code
         VexioTool.TEXT_BLOCK -> VexioCursorKind.TEXT_IBEAM.code
         VexioTool.CONNECTOR -> VexioCursorKind.GLUE_SNAP.code
-        VexioTool.RECTANGLE,
-        VexioTool.ELLIPSE,
-        VexioTool.STYLUS_INK,
-        VexioTool.FREEFORM -> VexioCursorKind.CROSSHAIR.code
         VexioTool.PAN_HAND -> if ((buttonState and MotionEvent.BUTTON_PRIMARY) != 0 ||
             mappedAction == MotionBatchFormat.ACTION_MOVE
         ) {
@@ -1077,9 +1396,14 @@ class VexioSessionViewModel(
         } else {
             VexioCursorKind.GRAB_HAND.code
         }
+        else -> VexioCursorKind.CROSSHAIR.code
     }
 
+    @Synchronized
     fun selectTool(tool: VexioTool) {
+        if (NativeBridge.isNativeAvailable && viewportPtr != 0L) {
+            NativeBridge.nativeSetViewportTool(viewportPtr, tool.nativeCode)
+        }
         val defaultCursor = VexioCursorKind.fromNativeCode(
             inferFallbackCursorCode(tool, MotionBatchFormat.ACTION_HOVER_MOVE, 0)
         )
@@ -1092,39 +1416,70 @@ class VexioSessionViewModel(
         }
     }
 
+    @Synchronized
     fun adjustZoom(deltaPercent: Int) {
+        var nextPct = 100
         _uiState.update { state ->
             val clamped = (state.zoomPercent + deltaPercent).coerceIn(10, 1600)
+            nextPct = clamped
             state.copy(zoomPercent = clamped)
+        }
+        if (NativeBridge.isNativeAvailable && viewportPtr != 0L && docPtr != 0L) {
+            NativeBridge.nativeSetViewportZoom(viewportPtr, docPtr, nextPct / 100.0, 0.0, 0.0)
+            presentViewportOrFallback()
         }
     }
 
+    @Synchronized
     fun setZoomPercent(targetPercent: Int) {
-        _uiState.update { it.copy(zoomPercent = targetPercent.coerceIn(10, 1600)) }
+        val clamped = targetPercent.coerceIn(10, 1600)
+        _uiState.update { it.copy(zoomPercent = clamped) }
+        if (NativeBridge.isNativeAvailable && viewportPtr != 0L && docPtr != 0L) {
+            val scale = if (clamped == 100) 0.0 else clamped / 100.0
+            NativeBridge.nativeSetViewportZoom(viewportPtr, docPtr, scale, 0.0, 0.0)
+            presentViewportOrFallback()
+        }
     }
 
+    @Synchronized
     fun selectPage(pageId: Int) {
         _uiState.update { state ->
             if (state.pages.none { it.pageId == pageId }) state
             else state.copy(activePageId = pageId)
         }
+        if (NativeBridge.isNativeAvailable && viewportPtr != 0L && docPtr != 0L) {
+            NativeBridge.nativeSetViewportPage(viewportPtr, docPtr, pageId)
+            presentViewportOrFallback()
+        }
         refreshSelectedShapeFormulas()
     }
 
+    @Synchronized
     fun addNewPage() {
+        val nextNum = (_uiState.value.pages.maxOfOrNull { it.pageId } ?: 0) + 1
+        val proposedName = "Page-$nextNum"
+        val createdId = if (NativeBridge.isNativeAvailable && docPtr != 0L) {
+            val id = NativeBridge.nativeAddPage(docPtr, proposedName)
+            if (id > 0) id else nextNum
+        } else {
+            nextNum
+        }
         _uiState.update { state ->
-            val nextId = (state.pages.maxOfOrNull { it.pageId } ?: 0) + 1
             val newTab = DiagramPageTab(
-                pageId = nextId,
-                name = "Page-${nextId + 1}: Sheet",
+                pageId = createdId,
+                name = proposedName,
                 scaleLabel = "1 in = 1 in"
             )
             state.copy(
                 pages = state.pages + newTab,
-                activePageId = nextId,
+                activePageId = createdId,
                 isDirty = true,
                 statusBanner = "Added ${newTab.name}"
             )
+        }
+        if (NativeBridge.isNativeAvailable && viewportPtr != 0L && docPtr != 0L) {
+            NativeBridge.nativeSetViewportPage(viewportPtr, docPtr, createdId)
+            presentViewportOrFallback()
         }
     }
 
@@ -1260,6 +1615,7 @@ class VexioSessionViewModel(
                     statusBanner = "Updated ${state.selectedShapeName}!$cellName = $trimmed"
                 )
             }
+            presentViewportOrFallback()
         } else {
             val msg = when (status) {
                 FormulaCommitStatus.GUARDED_CELL_PROTECTED ->
@@ -1314,19 +1670,33 @@ class VexioSessionViewModel(
         heightFormula: String,
         fillFormula: String,
         pinXInches: Float,
-        pinYInches: Float
+        pinYInches: Float,
+        category: String = ""
     ) {
-        val shapeId = nextSyntheticShapeId++
-        val pinXStr = "${"%.2f".format(pinXInches)} in"
-        val pinYStr = "${"%.2f".format(pinYInches)} in"
         val pageId = _uiState.value.activePageId
+        val pinXStr = "${"%.2f".format(Locale.US, pinXInches)} in"
+        val pinYStr = "${"%.2f".format(Locale.US, pinYInches)} in"
 
+        var shapeId = 0L
         if (NativeBridge.isNativeAvailable && docPtr != 0L) {
-            NativeBridge.nativeSetCellFormula(docPtr, pageId, shapeId, "PinX", pinXStr, true)
-            NativeBridge.nativeSetCellFormula(docPtr, pageId, shapeId, "PinY", pinYStr, true)
-            NativeBridge.nativeSetCellFormula(docPtr, pageId, shapeId, "Width", widthFormula, true)
-            NativeBridge.nativeSetCellFormula(docPtr, pageId, shapeId, "Height", heightFormula, true)
-            NativeBridge.nativeSetCellFormula(docPtr, pageId, shapeId, "FillForegnd", fillFormula, true)
+            shapeId = NativeBridge.nativeDropStencil(
+                docPtr = docPtr,
+                pageId = pageId,
+                category = category,
+                masterName = title,
+                xIn = pinXInches.toDouble(),
+                yIn = pinYInches.toDouble()
+            )
+        }
+        if (shapeId <= 0L) {
+            shapeId = nextSyntheticShapeId++
+            if (NativeBridge.isNativeAvailable && docPtr != 0L) {
+                NativeBridge.nativeSetCellFormula(docPtr, pageId, shapeId, "PinX", pinXStr, true)
+                NativeBridge.nativeSetCellFormula(docPtr, pageId, shapeId, "PinY", pinYStr, true)
+                NativeBridge.nativeSetCellFormula(docPtr, pageId, shapeId, "Width", widthFormula, true)
+                NativeBridge.nativeSetCellFormula(docPtr, pageId, shapeId, "Height", heightFormula, true)
+                NativeBridge.nativeSetCellFormula(docPtr, pageId, shapeId, "FillForegnd", fillFormula, true)
+            }
         }
 
         val updatedCells = defaultShapeSheetCells().map { entry ->
@@ -1351,12 +1721,109 @@ class VexioSessionViewModel(
                 ?: widthFormula
             state.copy(
                 selectedShapeId = shapeId,
+                selectedShapeIds = listOf(shapeId),
                 selectedShapeName = "Sheet.$shapeId ($title)",
                 shapeSheetCells = updatedCells,
                 formulaBarInput = activeFormula,
                 isDirty = true,
                 canUndo = true,
                 statusBanner = "Dropped '$title' at ($pinXStr, $pinYStr)"
+            )
+        }
+        refreshSelectedShapeFormulas()
+        presentViewportOrFallback()
+    }
+
+    @Synchronized
+    fun drawQuickPrimitive(
+        kind: String,
+        centerXIn: Double = 5.5,
+        centerYIn: Double = 4.25
+    ) {
+        val pageId = _uiState.value.activePageId
+        val created = if (NativeBridge.isNativeAvailable && docPtr != 0L) {
+            NativeBridge.nativeDrawPrimitive(
+                docPtr = docPtr,
+                pageId = pageId,
+                kind = kind,
+                x1In = centerXIn - 0.75,
+                y1In = centerYIn - 0.45,
+                x2In = centerXIn + 0.75,
+                y2In = centerYIn + 0.45
+            )
+        } else {
+            nextSyntheticShapeId++
+        }
+        val resolvedId = if (created > 0L) created else nextSyntheticShapeId++
+        _uiState.update {
+            it.copy(
+                selectedShapeId = resolvedId,
+                selectedShapeIds = listOf(resolvedId),
+                selectedShapeName = "Sheet.$resolvedId ($kind)",
+                isDirty = true,
+                canUndo = true,
+                statusBanner = "Inserted $kind (Sheet.$resolvedId)"
+            )
+        }
+        refreshSelectedShapeFormulas()
+        presentViewportOrFallback()
+    }
+
+    @Synchronized
+    fun duplicateSelectedShapes(dxInches: Double = 0.35, dyInches: Double = -0.35) {
+        val state = _uiState.value
+        val targets = state.selectedShapeIds.ifEmpty { listOf(state.selectedShapeId) }.toLongArray()
+        val newId = if (NativeBridge.isNativeAvailable && docPtr != 0L) {
+            NativeBridge.nativeDuplicateShapes(docPtr, state.activePageId, targets, dxInches, dyInches)
+        } else {
+            nextSyntheticShapeId++
+        }
+        if (newId > 0L) {
+            _uiState.update {
+                it.copy(
+                    selectedShapeId = newId,
+                    selectedShapeIds = listOf(newId),
+                    selectedShapeName = "Sheet.$newId (Copy)",
+                    isDirty = true,
+                    canUndo = true,
+                    statusBanner = "Duplicated selection → Sheet.$newId"
+                )
+            }
+            refreshSelectedShapeFormulas()
+            presentViewportOrFallback()
+        }
+    }
+
+    @Synchronized
+    fun reorderSelectedShapes(mode: String) {
+        val state = _uiState.value
+        val targets = state.selectedShapeIds.ifEmpty { listOf(state.selectedShapeId) }.toLongArray()
+        if (NativeBridge.isNativeAvailable && docPtr != 0L) {
+            NativeBridge.nativeReorderShapes(docPtr, state.activePageId, targets, mode)
+            presentViewportOrFallback()
+        }
+        _uiState.update {
+            it.copy(
+                isDirty = true,
+                canUndo = true,
+                statusBanner = "Arranged selection ($mode)"
+            )
+        }
+    }
+
+    @Synchronized
+    fun autoLayoutActivePage(algo: String = "hierarchical_tb") {
+        val pageId = _uiState.value.activePageId
+        if (NativeBridge.isNativeAvailable && docPtr != 0L) {
+            NativeBridge.nativeAutoLayout(docPtr, pageId, algo)
+            refreshSelectedShapeFormulas()
+            presentViewportOrFallback()
+        }
+        _uiState.update {
+            it.copy(
+                isDirty = true,
+                canUndo = true,
+                statusBanner = "Applied Auto-Layout ($algo)"
             )
         }
     }
@@ -1367,8 +1834,9 @@ class VexioSessionViewModel(
             val undone = NativeBridge.nativeUndo(docPtr)
             if (undone) {
                 refreshSelectedShapeFormulas()
+                presentViewportOrFallback()
                 _uiState.update {
-                    it.copy(canRedo = true, statusBanner = "Undo applied via Rust WAL")
+                    it.copy(canRedo = true, statusBanner = "Undo applied")
                 }
                 return
             }
@@ -1406,8 +1874,9 @@ class VexioSessionViewModel(
             val redone = NativeBridge.nativeRedo(docPtr)
             if (redone) {
                 refreshSelectedShapeFormulas()
+                presentViewportOrFallback()
                 _uiState.update {
-                    it.copy(canUndo = true, statusBanner = "Redo applied via Rust WAL")
+                    it.copy(canUndo = true, statusBanner = "Redo applied")
                 }
                 return
             }
@@ -1442,6 +1911,11 @@ class VexioSessionViewModel(
     @Synchronized
     fun deleteSelectedShape() {
         val current = _uiState.value
+        if (NativeBridge.isNativeAvailable && docPtr != 0L) {
+            val targets = current.selectedShapeIds.ifEmpty { listOf(current.selectedShapeId) }.toLongArray()
+            NativeBridge.nativeDeleteShapes(docPtr, current.activePageId, targets)
+            presentViewportOrFallback()
+        }
         deletedShapeCount += 1
         tombstonedShapeIds.add(current.selectedShapeId)
         _uiState.update {

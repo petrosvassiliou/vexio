@@ -295,16 +295,212 @@ public final class VexioMetalNSView: NSView {
         session?.reloadSelectedShapeSheetCells()
     }
 
+    private var lastContextCanvasPoint: CGPoint = CGPoint(x: 4.5, y: 4.25)
+
+    private func canvasInchesPoint(from event: NSEvent) -> CGPoint {
+        guard let session else { return CGPoint(x: 4.5, y: 4.25) }
+        let pt = convert(event.locationInWindow, from: nil)
+        let xIn = max((pt.x - session.panOffset.width) / (96.0 * max(session.zoomScale, 0.1)), 0.35)
+        let rawTopDownY = max((pt.y - session.panOffset.height) / (96.0 * max(session.zoomScale, 0.1)), 0.35)
+        let yIn = min(max(8.5 - rawTopDownY, 0.45), 8.05)
+        return CGPoint(x: min(xIn, 10.5), y: yIn)
+    }
+
     override public func rightMouseDown(with event: NSEvent) {
-        forwardPointer(event: event, kind: 1)
-    }
-
-    override public func rightMouseDragged(with event: NSEvent) {
+        window?.makeFirstResponder(self)
+        lastContextCanvasPoint = canvasInchesPoint(from: event)
         forwardPointer(event: event, kind: 0)
+        super.rightMouseDown(with: event)
     }
 
-    override public func rightMouseUp(with event: NSEvent) {
-        forwardPointer(event: event, kind: 2)
+    override public func menu(for event: NSEvent) -> NSMenu? {
+        guard session != nil else { return nil }
+        lastContextCanvasPoint = canvasInchesPoint(from: event)
+
+        let menu = NSMenu(title: "Canvas Context Menu")
+
+        let dupItem = NSMenuItem(title: "Duplicate Selection", action: #selector(ctxDuplicateSelection(_:)), keyEquivalent: "d")
+        dupItem.target = self
+        menu.addItem(dupItem)
+
+        let copyItem = NSMenuItem(title: "Copy", action: #selector(ctxCopySelection(_:)), keyEquivalent: "c")
+        copyItem.target = self
+        menu.addItem(copyItem)
+
+        let pasteItem = NSMenuItem(title: "Paste Here", action: #selector(ctxPasteHere(_:)), keyEquivalent: "v")
+        pasteItem.target = self
+        menu.addItem(pasteItem)
+
+        let deleteItem = NSMenuItem(title: "Delete", action: #selector(ctxDeleteSelection(_:)), keyEquivalent: "\u{8}")
+        deleteItem.keyEquivalentModifierMask = []
+        deleteItem.target = self
+        menu.addItem(deleteItem)
+
+        menu.addItem(.separator())
+
+        let frontItem = NSMenuItem(title: "Bring to Front", action: #selector(ctxBringToFront(_:)), keyEquivalent: "")
+        frontItem.target = self
+        menu.addItem(frontItem)
+
+        let forwardItem = NSMenuItem(title: "Bring Forward", action: #selector(ctxBringForward(_:)), keyEquivalent: "")
+        forwardItem.target = self
+        menu.addItem(forwardItem)
+
+        let backwardItem = NSMenuItem(title: "Send Backward", action: #selector(ctxSendBackward(_:)), keyEquivalent: "")
+        backwardItem.target = self
+        menu.addItem(backwardItem)
+
+        let backItem = NSMenuItem(title: "Send to Back", action: #selector(ctxSendToBack(_:)), keyEquivalent: "")
+        backItem.target = self
+        menu.addItem(backItem)
+
+        menu.addItem(.separator())
+
+        // Insert Shape Here Submenu
+        let insertSubmenu = NSMenu(title: "Insert Shape Here")
+        let quickPrimitives: [(String, String)] = [
+            ("Rectangle", "rect"),
+            ("Rounded Rectangle", "round_rect"),
+            ("Circle / Ellipse", "ellipse"),
+            ("Diamond (Decision)", "diamond"),
+            ("Triangle", "triangle"),
+            ("Hexagon", "hexagon"),
+            ("5-Point Star", "star"),
+            ("Straight Line", "line"),
+            ("Text Block", "text"),
+        ]
+        for (label, kind) in quickPrimitives {
+            let item = NSMenuItem(title: label, action: #selector(ctxInsertPrimitive(_:)), keyEquivalent: "")
+            item.representedObject = kind
+            item.target = self
+            insertSubmenu.addItem(item)
+        }
+        let insertParent = NSMenuItem(title: "Insert Shape Here", action: nil, keyEquivalent: "")
+        insertParent.submenu = insertSubmenu
+        menu.addItem(insertParent)
+
+        // Connector Routing Submenu
+        let routingSubmenu = NSMenu(title: "Connector Routing")
+        for style in ConnectorRoutingStyle.allCases {
+            let item = NSMenuItem(title: style.rawValue, action: #selector(ctxSelectRouting(_:)), keyEquivalent: "")
+            item.representedObject = style.rawValue
+            item.state = (session?.connectorRouting == style) ? .on : .off
+            item.target = self
+            routingSubmenu.addItem(item)
+        }
+        let routingParent = NSMenuItem(title: "Connector Routing", action: nil, keyEquivalent: "")
+        routingParent.submenu = routingSubmenu
+        menu.addItem(routingParent)
+
+        // Auto-Layout Submenu
+        let layoutSubmenu = NSMenu(title: "Auto-Layout Page")
+        for preset in AutoLayoutPreset.allCases {
+            let item = NSMenuItem(title: preset.rawValue, action: #selector(ctxApplyLayout(_:)), keyEquivalent: "")
+            item.representedObject = preset.rawValue
+            item.target = self
+            layoutSubmenu.addItem(item)
+        }
+        let layoutParent = NSMenuItem(title: "Auto-Layout Page", action: nil, keyEquivalent: "")
+        layoutParent.submenu = layoutSubmenu
+        menu.addItem(layoutParent)
+
+        menu.addItem(.separator())
+
+        let inspectItem = NSMenuItem(title: "Inspect ShapeSheet Formula…", action: #selector(ctxInspectShapeSheet(_:)), keyEquivalent: "")
+        inspectItem.target = self
+        menu.addItem(inspectItem)
+
+        return menu
+    }
+
+    @objc private func ctxDuplicateSelection(_ sender: NSMenuItem) {
+        session?.duplicateSelectedShapes(undoManager: activeUndoManager)
+    }
+
+    @objc private func ctxCopySelection(_ sender: NSMenuItem) {
+        session?.copySelectionToClipboard()
+    }
+
+    @objc private func ctxPasteHere(_ sender: NSMenuItem) {
+        session?.pasteClipboardAt(canvasInches: lastContextCanvasPoint, undoManager: activeUndoManager)
+    }
+
+    @objc private func ctxDeleteSelection(_ sender: NSMenuItem) {
+        session?.deleteSelectedShapes(undoManager: activeUndoManager)
+    }
+
+    @objc private func ctxBringToFront(_ sender: NSMenuItem) {
+        session?.reorderSelectedShapes(mode: "front", undoManager: activeUndoManager)
+    }
+
+    @objc private func ctxBringForward(_ sender: NSMenuItem) {
+        session?.reorderSelectedShapes(mode: "forward", undoManager: activeUndoManager)
+    }
+
+    @objc private func ctxSendBackward(_ sender: NSMenuItem) {
+        session?.reorderSelectedShapes(mode: "backward", undoManager: activeUndoManager)
+    }
+
+    @objc private func ctxSendToBack(_ sender: NSMenuItem) {
+        session?.reorderSelectedShapes(mode: "back", undoManager: activeUndoManager)
+    }
+
+    @objc private func ctxInsertPrimitive(_ sender: NSMenuItem) {
+        guard let kind = sender.representedObject as? String else { return }
+        session?.drawQuickPrimitive(kind: kind, atCanvasInches: lastContextCanvasPoint, undoManager: activeUndoManager)
+    }
+
+    @objc private func ctxSelectRouting(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String,
+              let style = ConnectorRoutingStyle(rawValue: raw) else { return }
+        session?.setConnectorRoutingStyle(style, undoManager: activeUndoManager)
+    }
+
+    @objc private func ctxApplyLayout(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String,
+              let preset = AutoLayoutPreset(rawValue: raw) else { return }
+        session?.applyAutoLayout(preset, undoManager: activeUndoManager)
+    }
+
+    @objc private func ctxInspectShapeSheet(_ sender: NSMenuItem) {
+        withAnimation(LiquidGlassPhysics.panelExpansionSpring) {
+            session?.showShapeSheetDrawer = true
+        }
+    }
+
+    override public func keyDown(with event: NSEvent) {
+        guard let session else {
+            super.keyDown(with: event)
+            return
+        }
+        // Delete (51) or Forward Delete (117)
+        if event.keyCode == 51 || event.keyCode == 117 {
+            session.deleteSelectedShapes(undoManager: activeUndoManager)
+            return
+        }
+        // Escape returns to Select tool
+        if event.keyCode == 53 {
+            session.activeTool = .pointer
+            return
+        }
+        if event.modifierFlags.intersection([.command, .control]).isEmpty,
+           let chars = event.charactersIgnoringModifiers?.lowercased() {
+            switch chars {
+            case "v": session.activeTool = .pointer; return
+            case "h": session.activeTool = .pan; return
+            case "c": session.activeTool = .connector; return
+            case "l": session.activeTool = .line; return
+            case "a": session.activeTool = .arc; return
+            case "r": session.activeTool = .rectangle; return
+            case "o": session.activeTool = .ellipse; return
+            case "d": session.activeTool = .diamond; return
+            case "x": session.activeTool = .hexagon; return
+            case "s": session.activeTool = .star; return
+            case "t": session.activeTool = .text; return
+            default: break
+            }
+        }
+        super.keyDown(with: event)
     }
 
     override public func otherMouseDown(with event: NSEvent) {
@@ -410,19 +606,25 @@ public final class VexioMetalNSView: NSView {
 
     override public func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
         guard let session,
-              let masterId = sender.draggingPasteboard.string(forType: .string),
-              VexioDocumentSession.builtInStencilCatalog.contains(where: { $0.id == masterId })
+              let masterId = sender.draggingPasteboard.string(forType: .string)
+        else {
+            return false
+        }
+        session.ensureStencilsLoadedIfNeeded()
+        guard session.stencilCatalog.contains(where: { $0.id == masterId })
+            || VexioDocumentSession.builtInStencilCatalog.contains(where: { $0.id == masterId })
         else {
             return false
         }
 
         let dropPointInView = convert(sender.draggingLocation, from: nil)
-        let canvasXInches = max((dropPointInView.x - session.panOffset.width) / (96.0 * max(session.zoomScale, 0.1)), 0.25)
-        let canvasYInches = max((dropPointInView.y - session.panOffset.height) / (96.0 * max(session.zoomScale, 0.1)), 0.25)
+        let canvasXInches = max((dropPointInView.x - session.panOffset.width) / (96.0 * max(session.zoomScale, 0.1)), 0.35)
+        let rawTopDownY = max((dropPointInView.y - session.panOffset.height) / (96.0 * max(session.zoomScale, 0.1)), 0.35)
+        let canvasYInches = min(max(8.5 - rawTopDownY, 0.45), 8.05)
 
         session.instantiateStencilMaster(
             masterId: masterId,
-            atCanvasInches: CGPoint(x: canvasXInches, y: canvasYInches),
+            atCanvasInches: CGPoint(x: min(canvasXInches, 10.5), y: canvasYInches),
             undoManager: activeUndoManager
         )
         return true

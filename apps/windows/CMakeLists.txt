@@ -148,9 +148,17 @@ target_link_libraries(Vexio PRIVATE
 # Mark XAML & MSIX files with Visual Studio / MSBuild WinUI 3 item metadata
 set_property(SOURCE src/App.xaml PROPERTY VS_XAML_TYPE "ApplicationDefinition")
 set_property(SOURCE src/MainWindow.xaml PROPERTY VS_XAML_TYPE "Page")
+set_property(TARGET Vexio PROPERTY VS_PACKAGE_REFERENCES
+    "Microsoft.WindowsAppSDK_${WINDOWS_APP_SDK_VERSION};Microsoft.Windows.CppWinRT_${CPPWINRT_VERSION}"
+)
+set_property(TARGET Vexio PROPERTY VS_GLOBAL_UseWinUI "true")
+set_property(TARGET Vexio PROPERTY VS_GLOBAL_EnableMsixTooling "true")
+set_property(TARGET Vexio PROPERTY VS_GLOBAL_CppWinRTOptimized "true")
+set_property(TARGET Vexio PROPERTY VS_GLOBAL_CppWinRTRootNamespaceAutoMerge "true")
+set_property(TARGET Vexio PROPERTY VS_GLOBAL_RootNamespace "VexioWindows")
 set_property(TARGET Vexio PROPERTY VS_GLOBAL_WindowsAppSDKSelfContained "false")
 set_property(TARGET Vexio PROPERTY VS_GLOBAL_WindowsPackageType "MSIX")
-set_property(TARGET Vexio PROPERTY VS_GLOBAL_AppxPackage "true")
+set_property(TARGET Vexio PROPERTY VS_GLOBAL_AppxPackage "false")
 
 # Stage vexio_core.dll and Package.appxmanifest next to Vexio.exe for immediate launch & MSIX packaging
 add_custom_command(TARGET Vexio POST_BUILD

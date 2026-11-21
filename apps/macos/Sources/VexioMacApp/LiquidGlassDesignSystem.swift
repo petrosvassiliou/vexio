@@ -226,7 +226,7 @@ public struct VibrancySidebarContainer<Content: View>: NSViewRepresentable {
     }
 }
 
-// MARK: - Refractive Floating Tool Palette
+// MARK: - Refractive Floating Tool Palette (16 Visio Drawing & Diagramming Tools)
 
 public struct LiquidGlassFloatingPalette: View {
     @Binding var selectedTool: VexioCanvasTool
@@ -234,62 +234,70 @@ public struct LiquidGlassFloatingPalette: View {
     @State private var dragDisplacement: CGSize = .zero
     @State private var committedOffset: CGSize = .zero
 
+    private let paletteColumns = [
+        GridItem(.fixed(32), spacing: 4),
+        GridItem(.fixed(32), spacing: 4),
+    ]
+
     public init(selectedTool: Binding<VexioCanvasTool>) {
         self._selectedTool = selectedTool
     }
 
     public var body: some View {
-        VStack(spacing: 6) {
+        VStack(spacing: 5) {
             // Subtle tactile grab handle for repositioning over the Metal canvas
             Capsule()
                 .fill(Color.secondary.opacity(0.38))
-                .frame(width: 22, height: 4)
+                .frame(width: 24, height: 4)
                 .padding(.top, 6)
-                .padding(.bottom, 2)
-                .help("Drag floating Liquid Glass tool palette")
+                .padding(.bottom, 1)
+                .help("Drag floating Liquid Glass drawing tool palette")
 
-            ForEach(VexioCanvasTool.allCases) { tool in
-                let isSelected = (selectedTool == tool)
-                Button {
-                    withAnimation(LiquidGlassPhysics.standardSpring) {
-                        selectedTool = tool
-                    }
-                } label: {
-                    ZStack {
-                        if isSelected {
-                            RoundedRectangle(cornerRadius: 11, style: .continuous)
-                                .fill(
-                                    LinearGradient(
-                                        colors: [
-                                            Color.accentColor.opacity(0.88),
-                                            Color.accentColor.opacity(0.68),
-                                        ],
-                                        startPoint: .topLeading,
-                                        endPoint: .bottomTrailing
-                                    )
-                                )
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 11, style: .continuous)
-                                        .strokeBorder(Color.white.opacity(0.55), lineWidth: 0.9)
-                                )
-                                .shadow(color: Color.accentColor.opacity(0.35), radius: 6, x: 0, y: 3)
-                                .matchedGeometryEffect(id: "ActiveToolGlassLens", in: activeLensNamespace)
+            LazyVGrid(columns: paletteColumns, spacing: 4) {
+                ForEach(VexioCanvasTool.allCases) { tool in
+                    let isSelected = (selectedTool == tool)
+                    Button {
+                        withAnimation(LiquidGlassPhysics.standardSpring) {
+                            selectedTool = tool
                         }
+                    } label: {
+                        ZStack {
+                            if isSelected {
+                                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                                    .fill(
+                                        LinearGradient(
+                                            colors: [
+                                                Color.accentColor.opacity(0.90),
+                                                Color.accentColor.opacity(0.70),
+                                            ],
+                                            startPoint: .topLeading,
+                                            endPoint: .bottomTrailing
+                                        )
+                                    )
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 9, style: .continuous)
+                                            .strokeBorder(Color.white.opacity(0.55), lineWidth: 0.9)
+                                    )
+                                    .shadow(color: Color.accentColor.opacity(0.32), radius: 5, x: 0, y: 2)
+                                    .matchedGeometryEffect(id: "ActiveToolGlassLens", in: activeLensNamespace)
+                            }
 
-                        Image(systemName: tool.symbolName)
-                            .font(.system(size: 15, weight: isSelected ? .semibold : .medium))
-                            .foregroundStyle(isSelected ? Color.white : Color.primary)
-                            .frame(width: 36, height: 34)
+                            Image(systemName: tool.symbolName)
+                                .font(.system(size: 13.5, weight: isSelected ? .semibold : .medium))
+                                .foregroundStyle(isSelected ? Color.white : Color.primary)
+                                .frame(width: 32, height: 30)
+                        }
+                        .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
                     }
-                    .contentShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+                    .buttonStyle(.plain)
+                    .help("\(tool.rawValue) (\(tool.shortcutHint))")
                 }
-                .buttonStyle(.plain)
-                .help("\(tool.rawValue) (\(tool.shortcutHint))")
             }
         }
         .padding(.horizontal, 7)
         .padding(.bottom, 8)
-        .liquidGlassSurface(cornerRadius: 18, elevation: .floatingPalette)
+        .frame(width: 82)
+        .liquidGlassSurface(cornerRadius: 16, elevation: .floatingPalette)
         .offset(
             x: committedOffset.width + dragDisplacement.width,
             y: committedOffset.height + dragDisplacement.height
@@ -302,13 +310,238 @@ public struct LiquidGlassFloatingPalette: View {
                 .onEnded { value in
                     withAnimation(LiquidGlassPhysics.standardSpring) {
                         committedOffset = CGSize(
-                            width: min(max(committedOffset.width + value.translation.width, -20), 520),
-                            height: min(max(committedOffset.height + value.translation.height, -180), 280)
+                            width: min(max(committedOffset.width + value.translation.width, -12), 520),
+                            height: min(max(committedOffset.height + value.translation.height, -120), 260)
                         )
                         dragDisplacement = .zero
                     }
                 }
         )
+    }
+}
+
+// MARK: - Native Retina Vector Stencil Preview Renderer (Zero WKWebView)
+
+public struct StencilVectorPreviewCanvas: View {
+    public let svgMarkup: String
+    public let fallbackSymbol: String
+
+    public init(svgMarkup: String, fallbackSymbol: String) {
+        self.svgMarkup = svgMarkup
+        self.fallbackSymbol = fallbackSymbol
+    }
+
+    public var body: some View {
+        let parsedShapes = Self.extractShapePaths(from: svgMarkup)
+        if parsedShapes.isEmpty {
+            Image(systemName: fallbackSymbol)
+                .font(.system(size: 21, weight: .regular))
+                .foregroundStyle(Color.accentColor)
+                .frame(maxWidth: .infinity, minHeight: 44)
+        } else {
+            Canvas { context, size in
+                let srcW: CGFloat = 144.0
+                let srcH: CGFloat = 96.0
+                let scale = min((size.width - 4.0) / srcW, (size.height - 4.0) / srcH)
+                let offsetX = (size.width - srcW * scale) * 0.5
+                let offsetY = (size.height - srcH * scale) * 0.5
+
+                var transform = CGAffineTransform(translationX: offsetX, y: offsetY)
+                transform = transform.scaledBy(x: scale, y: scale)
+
+                for item in parsedShapes {
+                    let transformed = item.path.applying(transform)
+                    if let fill = item.fillColor {
+                        context.fill(transformed, with: .color(fill))
+                    }
+                    if let stroke = item.strokeColor {
+                        context.stroke(
+                            transformed,
+                            with: .color(stroke),
+                            style: StrokeStyle(
+                                lineWidth: max(item.strokeWidth * scale, 1.15),
+                                lineCap: .round,
+                                lineJoin: .round
+                            )
+                        )
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, minHeight: 44, maxHeight: 44)
+        }
+    }
+
+    private struct ParsedStencilPath {
+        let path: Path
+        let fillColor: Color?
+        let strokeColor: Color?
+        let strokeWidth: CGFloat
+    }
+
+    private static func extractAttribute(_ name: String, in tag: Substring) -> String? {
+        let needle = "\(name)=\""
+        guard let startRange = tag.range(of: needle) else { return nil }
+        let rest = tag[startRange.upperBound...]
+        guard let endQuote = rest.firstIndex(of: "\"") else { return nil }
+        return String(rest[..<endQuote])
+    }
+
+    private static func parseHexColor(_ raw: String?) -> Color? {
+        guard let raw else { return nil }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty || trimmed == "none" {
+            return nil
+        }
+        if trimmed.hasPrefix("url(") {
+            return Color(red: 0.90, green: 0.95, blue: 1.0)
+        }
+        var hex = trimmed
+        if hex.hasPrefix("#") {
+            hex.removeFirst()
+        }
+        guard hex.count == 6, let rgb = UInt32(hex, radix: 16) else {
+            return Color.accentColor.opacity(0.18)
+        }
+        let r = Double((rgb >> 16) & 0xFF) / 255.0
+        let g = Double((rgb >> 8) & 0xFF) / 255.0
+        let b = Double(rgb & 0xFF) / 255.0
+        return Color(red: r, green: g, blue: b)
+    }
+
+    private static func extractShapePaths(from svg: String) -> [ParsedStencilPath] {
+        guard let groupRange = svg.range(of: "data-shape-id=") else { return [] }
+        let body = svg[groupRange.lowerBound...]
+        var results: [ParsedStencilPath] = []
+
+        var cursor = body.startIndex
+        while cursor < body.endIndex,
+              let pathStart = body[cursor...].range(of: "<path ") {
+            let afterPath = body[pathStart.upperBound...]
+            guard let tagEnd = afterPath.firstIndex(of: ">") else { break }
+            let tagSlice = afterPath[..<tagEnd]
+            if let dStr = extractAttribute("d", in: tagSlice) {
+                let built = buildSwiftUIPath(from: dStr)
+                if !built.isEmpty {
+                    let fill = parseHexColor(extractAttribute("fill", in: tagSlice))
+                    let stroke = parseHexColor(extractAttribute("stroke", in: tagSlice))
+                    let sw = CGFloat(Double(extractAttribute("stroke-width", in: tagSlice) ?? "1.2") ?? 1.2)
+                    results.append(
+                        ParsedStencilPath(
+                            path: built,
+                            fillColor: fill,
+                            strokeColor: stroke,
+                            strokeWidth: sw
+                        )
+                    )
+                }
+            }
+            cursor = body.index(after: tagEnd)
+        }
+        return results
+    }
+
+    private static func buildSwiftUIPath(from d: String) -> Path {
+        var path = Path()
+        let tokens = tokenizePath(d)
+        var idx = 0
+        var current = CGPoint.zero
+
+        func nextCGFloat() -> CGFloat? {
+            guard idx < tokens.count, let val = Double(tokens[idx]) else { return nil }
+            idx += 1
+            return CGFloat(val)
+        }
+
+        while idx < tokens.count {
+            let cmd = tokens[idx]
+            idx += 1
+            switch cmd {
+            case "M":
+                if let x = nextCGFloat(), let y = nextCGFloat() {
+                    current = CGPoint(x: x, y: y)
+                    path.move(to: current)
+                }
+            case "L":
+                if let x = nextCGFloat(), let y = nextCGFloat() {
+                    current = CGPoint(x: x, y: y)
+                    path.addLine(to: current)
+                }
+            case "Q":
+                if let cx = nextCGFloat(), let cy = nextCGFloat(),
+                   let x = nextCGFloat(), let y = nextCGFloat() {
+                    current = CGPoint(x: x, y: y)
+                    path.addQuadCurve(to: current, control: CGPoint(x: cx, y: cy))
+                }
+            case "C":
+                if let c1x = nextCGFloat(), let c1y = nextCGFloat(),
+                   let c2x = nextCGFloat(), let c2y = nextCGFloat(),
+                   let x = nextCGFloat(), let y = nextCGFloat() {
+                    current = CGPoint(x: x, y: y)
+                    path.addCurve(
+                        to: current,
+                        control1: CGPoint(x: c1x, y: c1y),
+                        control2: CGPoint(x: c2x, y: c2y)
+                    )
+                }
+            case "A":
+                if let rx = nextCGFloat(), let ry = nextCGFloat(),
+                   let _ = nextCGFloat(), let _ = nextCGFloat(),
+                   let sweep = nextCGFloat(),
+                   let x = nextCGFloat(), let y = nextCGFloat() {
+                    let target = CGPoint(x: x, y: y)
+                    let midX = (current.x + target.x) * 0.5
+                    let midY = (current.y + target.y) * 0.5
+                    let dx = target.x - current.x
+                    let dy = target.y - current.y
+                    let chord = hypot(dx, dy)
+                    if chord > 0.001 {
+                        let radius = max((rx + ry) * 0.5, chord * 0.5)
+                        let sagitta = radius - sqrt(max(radius * radius - (chord * chord * 0.25), 0))
+                        let sign: CGFloat = sweep > 0.5 ? 1.0 : -1.0
+                        let nx = -dy / chord
+                        let ny = dx / chord
+                        let ctrl = CGPoint(
+                            x: midX + nx * sagitta * 2.0 * sign,
+                            y: midY + ny * sagitta * 2.0 * sign
+                        )
+                        path.addQuadCurve(to: target, control: ctrl)
+                    } else {
+                        path.addLine(to: target)
+                    }
+                    current = target
+                }
+            case "Z", "z":
+                path.closeSubpath()
+            default:
+                break
+            }
+        }
+        return path
+    }
+
+    private static func tokenizePath(_ d: String) -> [String] {
+        var out: [String] = []
+        var buffer = ""
+        for ch in d {
+            if ch.isWhitespace || ch == "," {
+                if !buffer.isEmpty {
+                    out.append(buffer)
+                    buffer.removeAll(keepingCapacity: true)
+                }
+            } else if ch.isLetter && ch != "e" && ch != "E" {
+                if !buffer.isEmpty {
+                    out.append(buffer)
+                    buffer.removeAll(keepingCapacity: true)
+                }
+                out.append(String(ch))
+            } else {
+                buffer.append(ch)
+            }
+        }
+        if !buffer.isEmpty {
+            out.append(buffer)
+        }
+        return out
     }
 }
 

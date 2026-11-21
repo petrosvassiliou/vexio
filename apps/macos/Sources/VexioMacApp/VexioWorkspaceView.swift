@@ -77,13 +77,13 @@ public struct VexioWorkspaceView: View {
             ZStack(alignment: .top) {
                 // Main Horizontal Split: Vibrancy Stencils | Live Metal Canvas + ShapeSheet | Vibrancy Inspector
                 HStack(spacing: 0) {
-                    if session.showStencilNavigator && !isCompactStageManagerWidth {
+                    if session.showStencilNavigator {
                         VexioStencilNavigatorSidebar(
                             session: session,
                             searchQuery: $stencilSearchQuery,
                             selectedCategory: $selectedStencilCategory
                         )
-                        .frame(width: 248)
+                        .frame(width: isCompactStageManagerWidth ? 236 : 268)
                         .transition(.move(edge: .leading).combined(with: .opacity))
 
                         Divider()
@@ -123,7 +123,7 @@ public struct VexioWorkspaceView: View {
                             },
                             onRequestDataVisualizerExport: triggerDataVisualizerXlsxExport
                         )
-                        .frame(width: isCompactStageManagerWidth ? 276 : 308)
+                        .frame(width: isCompactStageManagerWidth ? 268 : 304)
                         .transition(.move(edge: .trailing).combined(with: .opacity))
                     }
                 }
@@ -145,6 +145,7 @@ public struct VexioWorkspaceView: View {
             if let fileURL {
                 session.documentTitle = fileURL.deletingPathExtension().lastPathComponent
             }
+            session.ensureStencilsLoadedIfNeeded()
             session.reloadSelectedShapeSheetCells()
             syncFormulaBarFromSelection(cellName: activeFormulaCellName)
         }
@@ -334,6 +335,23 @@ public struct VexioWorkspaceView: View {
                                 )
                             }
                             .buttonStyle(.plain)
+                            .contextMenu {
+                                Button("Switch to \(page.title)") {
+                                    session.activePageId = page.id
+                                    session.reloadSelectedShapeSheetCells()
+                                }
+                                Divider()
+                                Button("Insert New Page") {
+                                    session.addNewPage()
+                                }
+                                Button("Create Linked Subprocess…") {
+                                    session.createSubprocessDrilldown(undoManager: undoManager)
+                                }
+                                Divider()
+                                Button("Auto-Layout Active Page") {
+                                    session.applyAutoLayout(.hierarchicalTopDown, undoManager: undoManager)
+                                }
+                            }
                         }
 
                         Button {
@@ -484,10 +502,15 @@ public struct VexioWorkspaceView: View {
 private struct VexioLiquidGlassTopToolbar: View {
     @ObservedObject var session: VexioDocumentSession
     @Environment(\.undoManager) private var undoManager
+    @AppStorage("vexio.appearanceMode") private var appearanceMode: String = "light"
 
     let onRequestExport: (VexioExportFormat) -> Void
     let onRequestDataVisualizerExport: () -> Void
     let onRequestOffscreenPreview: () -> Void
+
+    private var isDarkMode: Bool {
+        appearanceMode == "dark"
+    }
 
     var body: some View {
         HStack(spacing: 10) {
@@ -521,7 +544,7 @@ private struct VexioLiquidGlassTopToolbar: View {
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
-                .frame(maxWidth: 240, alignment: .leading)
+                .frame(maxWidth: 230, alignment: .leading)
 
                 Divider().frame(height: 18)
 
@@ -533,10 +556,36 @@ private struct VexioLiquidGlassTopToolbar: View {
                 }
             }
 
-            Spacer(minLength: 8)
+            Spacer(minLength: 6)
 
-            // Center: Shape Operations, Routing, Auto-Layout, Rotate & Validation
+            // Center: Starter Templates, Shape Operations, Routing, Auto-Layout, Rotate & Validation
             HStack(spacing: 8) {
+                Menu {
+                    Button("Flowchart Starter") {
+                        session.loadStarterTemplate("flowchart", undoManager: undoManager)
+                    }
+                    Button("BPMN 2.0 Process") {
+                        session.loadStarterTemplate("bpmn", undoManager: undoManager)
+                    }
+                    Button("Network & Cloud Topology") {
+                        session.loadStarterTemplate("network", undoManager: undoManager)
+                    }
+                    Button("Floor Plan & Architectural") {
+                        session.loadStarterTemplate("floorplan", undoManager: undoManager)
+                    }
+                    Button("Organization Chart") {
+                        session.loadStarterTemplate("orgchart", undoManager: undoManager)
+                    }
+                    Button("UML 2.5 Class Diagram") {
+                        session.loadStarterTemplate("uml", undoManager: undoManager)
+                    }
+                } label: {
+                    Label("Templates", systemImage: "doc.badge.gearshape")
+                        .font(.system(size: 12, weight: .medium))
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+
                 Menu {
                     ForEach(VexioBooleanOperation.allCases) { op in
                         Button {
@@ -601,10 +650,20 @@ private struct VexioLiquidGlassTopToolbar: View {
                 .fixedSize()
             }
 
-            Spacer(minLength: 8)
+            Spacer(minLength: 6)
 
-            // Right: Preview, Export, ShapeSheet toggle, Inspector toggle
+            // Right: Appearance toggle (Light default), Preview, Export, ShapeSheet toggle, Inspector toggle
             HStack(spacing: 6) {
+                LiquidGlassIconButton(
+                    systemImage: isDarkMode ? "sun.max.fill" : "moon.stars",
+                    title: isDarkMode ? "Switch to Light Mode (Default)" : "Switch to Dark Mode",
+                    isActive: !isDarkMode
+                ) {
+                    let next = isDarkMode ? "light" : "dark"
+                    appearanceMode = next
+                    NSApp.appearance = NSAppearance(named: next == "dark" ? .darkAqua : .aqua)
+                }
+
                 LiquidGlassIconButton(
                     systemImage: "eye",
                     title: "Render Offline Quick Look RGBA Preview"
@@ -658,7 +717,7 @@ private struct VexioLiquidGlassTopToolbar: View {
     }
 }
 
-// MARK: - Left-Hand Vibrancy Stencil Navigator with Search & Drag-and-Drop
+// MARK: - Left-Hand Vibrancy Stencil Navigator (All 17 Visio Categories, Crisp Vector Previews & Context Menus)
 
 private struct VexioStencilNavigatorSidebar: View {
     @ObservedObject var session: VexioDocumentSession
@@ -666,44 +725,66 @@ private struct VexioStencilNavigatorSidebar: View {
     @Binding var selectedCategory: String
     @Environment(\.undoManager) private var undoManager
 
-    private let categories = [
-        "All",
+    @State private var expandedCategories: Set<String> = [
+        "Basic Shapes",
         "Basic Flowchart",
+        "Arrows & Callouts",
         "BPMN 2.0",
-        "UML 2.5",
-        "Network & Cloud",
-        "Floor Plan & CAD",
     ]
 
-    private var filteredMasters: [VexioStencilMaster] {
-        VexioDocumentSession.builtInStencilCatalog.filter { master in
-            let matchesCategory = (selectedCategory == "All") || (master.category == selectedCategory)
-            let trimmed = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
-            let matchesSearch = trimmed.isEmpty
-                || master.name.localizedCaseInsensitiveContains(trimmed)
+    private var visibleCategories: [String] {
+        if selectedCategory != "All" && session.stencilCategories.contains(selectedCategory) {
+            return [selectedCategory]
+        }
+        return session.stencilCategories
+    }
+
+    private func masters(in category: String) -> [VexioStencilMaster] {
+        let trimmed = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        return session.stencilCatalog.filter { master in
+            guard master.category == category else { return false }
+            guard !trimmed.isEmpty else { return true }
+            return master.name.localizedCaseInsensitiveContains(trimmed)
                 || master.category.localizedCaseInsensitiveContains(trimmed)
-            return matchesCategory && matchesSearch
+                || master.prompt.localizedCaseInsensitiveContains(trimmed)
         }
     }
 
     var body: some View {
         VibrancySidebarContainer(material: .sidebar, blendingMode: .behindWindow) {
-            VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 8) {
                 Spacer().frame(height: 54)
 
-                Text("STENCILS & MASTERS")
-                    .font(.system(size: 10.5, weight: .bold))
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 12)
+                HStack {
+                    Text("STENCILS (\(session.stencilCategories.count) PACKS)")
+                        .font(.system(size: 10.5, weight: .bold))
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button(expandedCategories.count >= session.stencilCategories.count ? "Collapse" : "Expand All") {
+                        withAnimation(LiquidGlassPhysics.standardSpring) {
+                            if expandedCategories.count >= session.stencilCategories.count {
+                                expandedCategories = ["Basic Shapes", "Basic Flowchart"]
+                            } else {
+                                expandedCategories = Set(session.stencilCategories)
+                            }
+                        }
+                    }
+                    .buttonStyle(.borderless)
+                    .font(.system(size: 10.5, weight: .medium))
+                }
+                .padding(.horizontal, 12)
 
                 // Search Field
                 HStack(spacing: 6) {
                     Image(systemName: "magnifyingglass")
                         .foregroundStyle(.secondary)
                         .font(.system(size: 12))
-                    TextField("Search BPMN, UML, CAD…", text: $searchQuery)
-                        .textFieldStyle(.plain)
-                        .font(.system(size: 12))
+                    TextField(
+                        "Search \(session.stencilCatalog.count) shapes in \(session.stencilCategories.count) packs…",
+                        text: $searchQuery
+                    )
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 11.5))
                     if !searchQuery.isEmpty {
                         Button {
                             searchQuery = ""
@@ -723,20 +804,23 @@ private struct VexioStencilNavigatorSidebar: View {
                 )
                 .padding(.horizontal, 12)
 
-                // Category Filter Pills
+                // Category Filter Pills (All + 17 Visio Packs)
                 ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 6) {
-                        ForEach(categories, id: \.self) { cat in
+                    HStack(spacing: 5) {
+                        ForEach(["All"] + session.stencilCategories, id: \.self) { cat in
                             let active = (selectedCategory == cat)
                             Button {
                                 withAnimation(LiquidGlassPhysics.standardSpring) {
                                     selectedCategory = cat
+                                    if cat != "All" {
+                                        expandedCategories.insert(cat)
+                                    }
                                 }
                             } label: {
                                 Text(cat)
-                                    .font(.system(size: 11, weight: active ? .semibold : .regular))
+                                    .font(.system(size: 10.5, weight: active ? .semibold : .regular))
                                     .padding(.horizontal, 8)
-                                    .padding(.vertical, 4)
+                                    .padding(.vertical, 3.5)
                                     .background(
                                         Capsule()
                                             .fill(active ? Color.accentColor.opacity(0.22) : Color.primary.opacity(0.05))
@@ -748,58 +832,66 @@ private struct VexioStencilNavigatorSidebar: View {
                     .padding(.horizontal, 12)
                 }
 
-                // Draggable Stencil Grid
+                // Collapsible 17-Category Stencil Accordions with Crisp Vector Previews
                 ScrollView {
-                    LazyVGrid(
-                        columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)],
-                        spacing: 8
-                    ) {
-                        ForEach(filteredMasters) { master in
-                            VStack(spacing: 6) {
-                                ZStack(alignment: .topTrailing) {
-                                    Image(systemName: master.symbolName)
-                                        .font(.system(size: 22, weight: .regular))
-                                        .foregroundStyle(Color.accentColor)
-                                        .frame(maxWidth: .infinity, minHeight: 36)
+                    LazyVStack(alignment: .leading, spacing: 8) {
+                        let isSearching = !searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        ForEach(visibleCategories, id: \.self) { category in
+                            let catMasters = masters(in: category)
+                            if !catMasters.isEmpty {
+                                let isExpanded = isSearching
+                                    || selectedCategory == category
+                                    || expandedCategories.contains(category)
 
-                                    if master.isGuardedAspect {
-                                        Image(systemName: "lock.shield.fill")
-                                            .font(.system(size: 9))
-                                            .foregroundStyle(.orange)
-                                            .help("GUARD(Aspect) Master")
+                                VStack(alignment: .leading, spacing: 6) {
+                                    Button {
+                                        withAnimation(LiquidGlassPhysics.standardSpring) {
+                                            if expandedCategories.contains(category) {
+                                                expandedCategories.remove(category)
+                                            } else {
+                                                expandedCategories.insert(category)
+                                            }
+                                        }
+                                    } label: {
+                                        HStack(spacing: 6) {
+                                            Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                                                .font(.system(size: 9.5, weight: .bold))
+                                                .foregroundStyle(.secondary)
+                                                .frame(width: 11)
+                                            Text(category)
+                                                .font(.system(size: 11.5, weight: .semibold))
+                                                .foregroundStyle(.primary)
+                                                .lineLimit(1)
+                                            Spacer()
+                                            Text("\(catMasters.count)")
+                                                .font(.system(size: 10, weight: .medium, design: .monospaced))
+                                                .foregroundStyle(.secondary)
+                                                .padding(.horizontal, 5)
+                                                .padding(.vertical, 1)
+                                                .background(Capsule().fill(Color.primary.opacity(0.07)))
+                                        }
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 5)
+                                        .background(
+                                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                                .fill(Color.primary.opacity(0.04))
+                                        )
+                                        .contentShape(Rectangle())
+                                    }
+                                    .buttonStyle(.plain)
+
+                                    if isExpanded {
+                                        LazyVGrid(
+                                            columns: [GridItem(.flexible(), spacing: 7), GridItem(.flexible(), spacing: 7)],
+                                            spacing: 7
+                                        ) {
+                                            ForEach(catMasters) { master in
+                                                stencilCard(for: master)
+                                            }
+                                        }
                                     }
                                 }
-
-                                Text(master.name)
-                                    .font(.system(size: 11, weight: .medium))
-                                    .lineLimit(1)
-
-                                Text(master.category)
-                                    .font(.system(size: 9.5))
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(1)
                             }
-                            .padding(8)
-                            .background(
-                                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                    .fill(Color.primary.opacity(0.05))
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                    .strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.8)
-                            )
-                            .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                            .onTapGesture(count: 2) {
-                                session.instantiateStencilMaster(
-                                    masterId: master.id,
-                                    atCanvasInches: CGPoint(x: 4.25, y: 5.50),
-                                    undoManager: undoManager
-                                )
-                            }
-                            .onDrag {
-                                NSItemProvider(object: master.id as NSString)
-                            }
-                            .help("Drag onto canvas or double-click to instantiate '\(master.name)'")
                         }
                     }
                     .padding(.horizontal, 12)
@@ -807,6 +899,81 @@ private struct VexioStencilNavigatorSidebar: View {
                 }
             }
         }
+    }
+
+    @ViewBuilder
+    private func stencilCard(for master: VexioStencilMaster) -> some View {
+        VStack(spacing: 5) {
+            ZStack(alignment: .topTrailing) {
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .fill(Color.white.opacity(0.92))
+                    .frame(height: 48)
+                    .overlay(
+                        StencilVectorPreviewCanvas(
+                            svgMarkup: master.svgPreview,
+                            fallbackSymbol: master.symbolName
+                        )
+                        .padding(3)
+                    )
+
+                if master.isGuardedAspect {
+                    Image(systemName: "lock.shield.fill")
+                        .font(.system(size: 8.5))
+                        .foregroundStyle(.orange)
+                        .padding(3)
+                        .help("GUARD(Aspect) Master")
+                }
+            }
+
+            Text(master.name)
+                .font(.system(size: 10.5, weight: .medium))
+                .lineLimit(1)
+        }
+        .padding(6)
+        .background(
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .fill(Color.primary.opacity(0.045))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .strokeBorder(Color.primary.opacity(0.09), lineWidth: 0.8)
+        )
+        .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+        .onTapGesture {
+            session.instantiateStencilMaster(
+                masterId: master.id,
+                atCanvasInches: CGPoint(x: 4.50, y: 4.50),
+                undoManager: undoManager
+            )
+        }
+        .onDrag {
+            NSItemProvider(object: master.id as NSString)
+        }
+        .contextMenu {
+            Button("Add '\(master.name)' to Center of Page") {
+                session.instantiateStencilMaster(
+                    masterId: master.id,
+                    atCanvasInches: CGPoint(x: 5.50, y: 4.25),
+                    undoManager: undoManager
+                )
+            }
+            Button("Add '\(master.name)' at Last Cursor Position") {
+                let target = session.cursorCanvasInches == .zero
+                    ? CGPoint(x: 4.25, y: 4.25)
+                    : session.cursorCanvasInches
+                session.instantiateStencilMaster(
+                    masterId: master.id,
+                    atCanvasInches: target,
+                    undoManager: undoManager
+                )
+            }
+            Divider()
+            Button("Copy Shape Name") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(master.name, forType: .string)
+            }
+        }
+        .help(master.prompt.isEmpty ? "Click or drag '\(master.name)' onto canvas" : "\(master.name) — \(master.prompt)")
     }
 }
 

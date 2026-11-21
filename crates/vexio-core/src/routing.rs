@@ -226,9 +226,13 @@ pub fn route_page_connectors(doc: &mut VisioDocument, page_id: u32) {
             }
         }
 
+        if s.sheet.get_bool("User.Preserve1DGeometry").unwrap_or(false) {
+            continue;
+        }
+
         let style_code = s.sheet.get_f64("ShapeRouteStyle").unwrap_or(16.0) as i32;
         let mode = match style_code {
-            1 | 2 => ConnectorRouteMode::Straight,
+            0 | 1 | 2 => ConnectorRouteMode::Straight,
             6 | 7 => ConnectorRouteMode::Curved,
             _ => ConnectorRouteMode::Orthogonal,
         };

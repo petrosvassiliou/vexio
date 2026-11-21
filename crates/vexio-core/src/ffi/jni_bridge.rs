@@ -5,18 +5,23 @@
 
 #![cfg(not(target_arch = "wasm32"))]
 
-use crate::ffi::c_abi::{VexioDoc, VexioEngine, VexioViewport};
-use crate::workspace::DocumentSession;
+use crate::ffi::c_abi::{
+    NativeCanvasTool, VexioDoc, VexioEngine, VexioPointerEvent, VexioViewport,
+    build_native_state_json, build_stencils_catalog_json,
+};
+use crate::journal::JournalError;
+use crate::workspace::{CoreError, DocumentSession};
 use jni::JNIEnv;
-use jni::objects::{JByteArray, JByteBuffer, JClass, JObject, JString};
-use jni::sys::{jboolean, jfloat, jint, jlong, jstring, JNI_FALSE, JNI_TRUE};
+use jni::objects::{JByteArray, JByteBuffer, JClass, JLongArray, JObject, JString};
+use jni::sys::{jboolean, jdouble, jfloat, jint, jlong, jstring, JNI_FALSE, JNI_TRUE};
+use std::panic::{AssertUnwindSafe, catch_unwind};
 
 #[no_mangle]
 pub extern "system" fn Java_com_vexio_core_NativeBridge_nativeInitEngine(
     _env: JNIEnv<'_>,
     _class: JClass<'_>,
 ) -> jlong {
-    Box::into_raw(Box::new(VexioEngine { initialized: true })) as jlong
+    catch_unwind(|| Box::into_raw(Box::new(VexioEngine { initialized: true })) as jlong).unwrap_or(0)
 }
 
 #[no_mangle]
@@ -25,10 +30,12 @@ pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeDestroyEngi
     _class: JClass<'_>,
     engine_ptr: jlong,
 ) {
-    if engine_ptr != 0 {
-        // SAFETY: `engine_ptr` was allocated via `Box::into_raw` in `nativeInitEngine`.
-        drop(unsafe { Box::from_raw(engine_ptr as *mut VexioEngine) });
-    }
+    let _ = catch_unwind(AssertUnwindSafe(|| {
+        if engine_ptr != 0 {
+            // SAFETY: `engine_ptr` was allocated via `Box::into_raw` in `nativeInitEngine`.
+            drop(unsafe { Box::from_raw(engine_ptr as *mut VexioEngine) });
+        }
+    }));
 }
 
 #[no_mangle]
@@ -37,13 +44,30 @@ pub extern "system" fn Java_com_vexio_core_NativeBridge_nativeCreateBlankDocumen
     _class: JClass<'local>,
     title: JString<'local>,
 ) -> jlong {
-    let t: String = env
-        .get_string(&title)
-        .map(|s| s.into())
-        .unwrap_or_else(|_| "Untitled".into());
-    Box::into_raw(Box::new(VexioDoc {
-        session: DocumentSession::new_blank(&t),
-    })) as jlong
+    catch_unwind(AssertUnwindSafe(|| {
+        let t: String = env
+            .get_string(&title)
+            .map(|s| s.into())
+            .unwrap_or_else(|_| "Untitled".into());
+        Box::into_raw(Box::new(VexioDoc {
+            session: DocumentSession::new_blank(&t),
+        })) as jlong
+    }))
+    .unwrap_or(0)
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeDestroyDocument(
+    _env: JNIEnv<'_>,
+    _class: JClass<'_>,
+    doc_ptr: jlong,
+) {
+    let _ = catch_unwind(AssertUnwindSafe(|| {
+        if doc_ptr != 0 {
+            // SAFETY: `doc_ptr` was allocated via `Box::into_raw` in `nativeCreateBlankDocument` or `nativeOpenDocument`.
+            drop(unsafe { Box::from_raw(doc_ptr as *mut VexioDoc) });
+        }
+    }));
 }
 
 #[no_mangle]
@@ -54,26 +78,29 @@ pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeOpenDocumen
     direct_bytes: JByteBuffer<'local>,
     ext: JString<'local>,
 ) -> jlong {
-    if engine_ptr == 0 {
-        return 0;
-    }
-    let Ok(ptr) = env.get_direct_buffer_address(&direct_bytes) else {
-        return 0;
-    };
-    let Ok(cap) = env.get_direct_buffer_capacity(&direct_bytes) else {
-        return 0;
-    };
-    let Ok(ext_str) = env.get_string(&ext).map(String::from) else {
-        return 0;
-    };
-    // SAFETY: `ptr` and `cap` come from a valid JVM `DirectByteBuffer` pinned for this JNI call.
-    let slice = unsafe { std::slice::from_raw_parts(ptr, cap) };
-    let mut session = DocumentSession::new_blank("Imported");
-    if session.open_bytes(slice, &ext_str).is_ok() {
-        Box::into_raw(Box::new(VexioDoc { session })) as jlong
-    } else {
-        0
-    }
+    catch_unwind(AssertUnwindSafe(|| {
+        if engine_ptr == 0 {
+            return 0;
+        }
+        let Ok(ptr) = env.get_direct_buffer_address(&direct_bytes) else {
+            return 0;
+        };
+        let Ok(cap) = env.get_direct_buffer_capacity(&direct_bytes) else {
+            return 0;
+        };
+        let Ok(ext_str) = env.get_string(&ext).map(String::from) else {
+            return 0;
+        };
+        // SAFETY: `ptr` and `cap` come from a valid JVM `DirectByteBuffer` pinned for this JNI call.
+        let slice = unsafe { std::slice::from_raw_parts(ptr, cap) };
+        let mut session = DocumentSession::new_blank("Imported");
+        if session.open_bytes(slice, &ext_str).is_ok() {
+            Box::into_raw(Box::new(VexioDoc { session })) as jlong
+        } else {
+            0
+        }
+    }))
+    .unwrap_or(0)
 }
 
 #[no_mangle]
@@ -83,43 +110,102 @@ pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeSaveDocumen
     doc_ptr: jlong,
     ext: JString<'local>,
 ) -> JByteArray<'local> {
-    if doc_ptr == 0 {
-        return JByteArray::default();
-    }
-    // SAFETY: `doc_ptr` created by `nativeCreateBlankDocument` or `nativeOpenDocument`.
-    let doc = unsafe { &*(doc_ptr as *const VexioDoc) };
-    let Ok(ext_s) = env.get_string(&ext).map(String::from) else {
-        return JByteArray::default();
-    };
-    match doc.session.save_format(&ext_s) {
-        Ok(bytes) => env.byte_array_from_slice(&bytes).unwrap_or_default(),
-        Err(_) => JByteArray::default(),
-    }
+    catch_unwind(AssertUnwindSafe(|| {
+        if doc_ptr == 0 {
+            return JByteArray::default();
+        }
+        // SAFETY: `doc_ptr` created by `nativeCreateBlankDocument` or `nativeOpenDocument`.
+        let doc = unsafe { &*(doc_ptr as *const VexioDoc) };
+        let Ok(ext_s) = env.get_string(&ext).map(String::from) else {
+            return JByteArray::default();
+        };
+        match doc.session.save_format(&ext_s) {
+            Ok(bytes) => env.byte_array_from_slice(&bytes).unwrap_or_default(),
+            Err(_) => JByteArray::default(),
+        }
+    }))
+    .unwrap_or_default()
 }
 
 #[no_mangle]
-pub extern "system" fn Java_com_vexio_core_NativeBridge_nativeAttachVulkanSurface<'local>(
-    _env: JNIEnv<'local>,
+pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeAttachVulkanSurface<'local>(
+    env: JNIEnv<'local>,
     _class: JClass<'local>,
     engine_ptr: jlong,
     doc_ptr: jlong,
-    _surface: JObject<'local>,
+    surface: JObject<'local>,
     width: jint,
     height: jint,
     density: jfloat,
 ) -> jlong {
-    if engine_ptr == 0 || doc_ptr == 0 {
-        return 0;
-    }
-    let vp = VexioViewport {
-        page_id: 1,
-        camera: vexio_render::ViewportCamera::new(
-            width.max(1) as u32,
-            height.max(1) as u32,
-            density.max(0.5) as f64,
-        ),
-    };
-    Box::into_raw(Box::new(vp)) as jlong
+    catch_unwind(AssertUnwindSafe(|| {
+        if engine_ptr == 0 || doc_ptr == 0 {
+            return 0;
+        }
+        // SAFETY: `doc_ptr` verified non-zero handle.
+        let doc = unsafe { &*(doc_ptr as *const VexioDoc) };
+        let w = width.max(1) as u32;
+        let h = height.max(1) as u32;
+        let dpi = density.max(0.5);
+        #[allow(unused_mut)]
+        let mut vp = VexioViewport::new_base(&doc.session.doc, 1, w, h, dpi);
+
+        #[cfg(target_os = "android")]
+        {
+            if !surface.is_null() {
+                #[link(name = "android")]
+                extern "C" {
+                    fn ANativeWindow_fromSurface(
+                        env: *mut jni::sys::JNIEnv,
+                        surface: jni::sys::jobject,
+                    ) -> *mut std::ffi::c_void;
+                    fn ANativeWindow_release(window: *mut std::ffi::c_void);
+                }
+                // SAFETY: Valid JNIEnv raw pointer and non-null `android.view.Surface` jobject.
+                let native_win =
+                    unsafe { ANativeWindow_fromSurface(env.get_native_interface(), surface.as_raw()) };
+                if !native_win.is_null() {
+                    // SAFETY: `native_win` was acquired via `ANativeWindow_fromSurface` and is retained on `vp`
+                    // (or released immediately if `wgpu` surface creation fails).
+                    match unsafe {
+                        vexio_render::WgpuCanvasRenderer::new_android_native_window(
+                            native_win, w, h, dpi,
+                        )
+                    } {
+                        Ok(mut renderer) => {
+                            renderer.camera = vp.camera;
+                            let _ = renderer.render_surface_frame(&doc.session.doc, vp.page_id);
+                            vp.gpu_renderer = Some(renderer);
+                            vp.android_native_window = native_win;
+                        }
+                        Err(_) => {
+                            // SAFETY: Release acquired `ANativeWindow*` when falling back to software viewport.
+                            unsafe { ANativeWindow_release(native_win) };
+                        }
+                    }
+                }
+            }
+        }
+        #[cfg(not(target_os = "android"))]
+        let _ = (&env, &surface);
+
+        Box::into_raw(Box::new(vp)) as jlong
+    }))
+    .unwrap_or(0)
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeDestroyViewport(
+    _env: JNIEnv<'_>,
+    _class: JClass<'_>,
+    viewport_ptr: jlong,
+) {
+    let _ = catch_unwind(AssertUnwindSafe(|| {
+        if viewport_ptr != 0 {
+            // SAFETY: `viewport_ptr` created by `nativeAttachVulkanSurface`.
+            drop(unsafe { Box::from_raw(viewport_ptr as *mut VexioViewport) });
+        }
+    }));
 }
 
 #[no_mangle]
@@ -131,13 +217,175 @@ pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeResizeViewp
     height: jint,
     density: jfloat,
 ) {
-    if viewport_ptr != 0 {
-        // SAFETY: `viewport_ptr` created in `nativeAttachVulkanSurface`.
+    let _ = catch_unwind(AssertUnwindSafe(|| {
+        if viewport_ptr != 0 {
+            // SAFETY: `viewport_ptr` created in `nativeAttachVulkanSurface`.
+            let vp = unsafe { &mut *(viewport_ptr as *mut VexioViewport) };
+            let w = width.max(1) as u32;
+            let h = height.max(1) as u32;
+            let dpi = density.max(0.5) as f64;
+            vp.camera.width_px = w;
+            vp.camera.height_px = h;
+            vp.camera.dpi_scale = dpi;
+            if let Some(r) = &mut vp.gpu_renderer {
+                r.resize_surface(w, h, dpi);
+            }
+        }
+    }));
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeSetViewportTool(
+    _env: JNIEnv<'_>,
+    _class: JClass<'_>,
+    viewport_ptr: jlong,
+    tool_code: jint,
+) {
+    let _ = catch_unwind(AssertUnwindSafe(|| {
+        if viewport_ptr != 0 {
+            // SAFETY: Valid `VexioViewport` pointer.
+            let vp = unsafe { &mut *(viewport_ptr as *mut VexioViewport) };
+            vp.active_tool = NativeCanvasTool::from_code(tool_code.max(0) as u32);
+            vp.drag_state = None;
+        }
+    }));
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeSetViewportPage(
+    _env: JNIEnv<'_>,
+    _class: JClass<'_>,
+    viewport_ptr: jlong,
+    doc_ptr: jlong,
+    page_id: jint,
+) {
+    let _ = catch_unwind(AssertUnwindSafe(|| {
+        if viewport_ptr != 0 && doc_ptr != 0 {
+            // SAFETY: Valid `VexioViewport` and `VexioDoc` pointers.
+            let vp = unsafe { &mut *(viewport_ptr as *mut VexioViewport) };
+            let doc = unsafe { &*(doc_ptr as *const VexioDoc) };
+            vp.page_id = page_id.max(1) as u32;
+            vp.selected_ids.clear();
+            if let Some(p) = doc.session.doc.page(vp.page_id) {
+                vp.camera.fit_to_page(p.width_in(), p.height_in());
+            }
+            vp.present_if_attached(&doc.session.doc);
+        }
+    }));
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeSetViewportZoom(
+    _env: JNIEnv<'_>,
+    _class: JClass<'_>,
+    viewport_ptr: jlong,
+    doc_ptr: jlong,
+    zoom_scale: jdouble,
+    pan_x_in: jdouble,
+    pan_y_in: jdouble,
+) {
+    let _ = catch_unwind(AssertUnwindSafe(|| {
+        if viewport_ptr != 0 && doc_ptr != 0 {
+            // SAFETY: Valid `VexioViewport` and `VexioDoc` pointers.
+            let vp = unsafe { &mut *(viewport_ptr as *mut VexioViewport) };
+            let doc = unsafe { &*(doc_ptr as *const VexioDoc) };
+            if zoom_scale <= 0.0 {
+                if let Some(p) = doc.session.doc.page(vp.page_id) {
+                    vp.camera.fit_to_page(p.width_in(), p.height_in());
+                }
+            } else {
+                vp.camera.zoom_ppi = 96.0 * zoom_scale.clamp(0.1, 16.0);
+                if pan_x_in.is_finite() && pan_y_in.is_finite() && (pan_x_in != 0.0 || pan_y_in != 0.0) {
+                    vp.camera.center_x_in = pan_x_in;
+                    vp.camera.center_y_in = pan_y_in;
+                }
+            }
+            vp.present_if_attached(&doc.session.doc);
+        }
+    }));
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeRenderViewportFrame(
+    _env: JNIEnv<'_>,
+    _class: JClass<'_>,
+    viewport_ptr: jlong,
+    doc_ptr: jlong,
+) -> jboolean {
+    catch_unwind(AssertUnwindSafe(|| {
+        if viewport_ptr == 0 || doc_ptr == 0 {
+            return JNI_FALSE;
+        }
+        // SAFETY: Valid `VexioViewport` and `VexioDoc` pointers.
         let vp = unsafe { &mut *(viewport_ptr as *mut VexioViewport) };
-        vp.camera.width_px = width.max(1) as u32;
-        vp.camera.height_px = height.max(1) as u32;
-        vp.camera.dpi_scale = density.max(0.5) as f64;
-    }
+        let doc = unsafe { &*(doc_ptr as *const VexioDoc) };
+        if vp.present_if_attached(&doc.session.doc) {
+            JNI_TRUE
+        } else {
+            JNI_FALSE
+        }
+    }))
+    .unwrap_or(JNI_FALSE)
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeRenderViewportRgba<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    viewport_ptr: jlong,
+    doc_ptr: jlong,
+    out_direct_rgba: JByteBuffer<'local>,
+) -> jint {
+    catch_unwind(AssertUnwindSafe(|| {
+        if viewport_ptr == 0 || doc_ptr == 0 {
+            return 1;
+        }
+        let Ok(dst_ptr) = env.get_direct_buffer_address(&out_direct_rgba) else {
+            return 1;
+        };
+        let Ok(cap) = env.get_direct_buffer_capacity(&out_direct_rgba) else {
+            return 1;
+        };
+        // SAFETY: Valid `VexioViewport` and `VexioDoc` pointers.
+        let vp = unsafe { &*(viewport_ptr as *const VexioViewport) };
+        let doc = unsafe { &*(doc_ptr as *const VexioDoc) };
+        let needed = (vp.camera.width_px as usize) * (vp.camera.height_px as usize) * 4;
+        if needed == 0 || cap < needed {
+            return 1;
+        }
+        let Ok(rgba) = vexio_render::render_page_software_rgba_with_selection(
+            &doc.session.doc,
+            vp.page_id,
+            &vp.camera,
+            true,
+            &vp.selected_ids,
+        ) else {
+            return 5;
+        };
+        // SAFETY: `dst_ptr` has `cap >= needed == rgba.len()`.
+        unsafe {
+            std::ptr::copy_nonoverlapping(rgba.as_ptr(), dst_ptr, needed);
+        }
+        0
+    }))
+    .unwrap_or(99)
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeGetPrimarySelection(
+    _env: JNIEnv<'_>,
+    _class: JClass<'_>,
+    viewport_ptr: jlong,
+) -> jlong {
+    catch_unwind(AssertUnwindSafe(|| {
+        if viewport_ptr == 0 {
+            return 0;
+        }
+        // SAFETY: Valid `VexioViewport` pointer.
+        let vp = unsafe { &*(viewport_ptr as *const VexioViewport) };
+        vp.selected_ids.first().copied().unwrap_or(0) as jlong
+    }))
+    .unwrap_or(0)
 }
 
 #[no_mangle]
@@ -149,40 +397,110 @@ pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativePushMotionB
     direct_batch: JByteBuffer<'local>,
     count: jint,
 ) -> jint {
-    if viewport_ptr == 0 || doc_ptr == 0 || count <= 0 {
-        return 1000; // PointerIcon.TYPE_ARROW
-    }
-    let Ok(ptr) = env.get_direct_buffer_address(&direct_batch) else {
-        return 1000;
-    };
-    let Ok(cap) = env.get_direct_buffer_capacity(&direct_batch) else {
-        return 1000;
-    };
-    // Each packed stylus/motion sample is 32 bytes (`MotionBatchFormat`):
-    // [x: f32, y: f32, pressure: f32, tiltRad: f32, orientationRad: f32, packedFlags: u32, timestampMicros: i64]
-    if cap < 32 {
-        return 1000;
-    }
-    // SAFETY: `ptr` has at least 32 bytes in the direct ByteBuffer.
-    let buf = unsafe { std::slice::from_raw_parts(ptr, cap) };
-    let last_off = ((count as usize - 1) * 32).min(cap - 32);
-    let x_px = f32::from_le_bytes(buf[last_off..last_off + 4].try_into().unwrap()) as f64;
-    let y_px = f32::from_le_bytes(buf[last_off + 4..last_off + 8].try_into().unwrap()) as f64;
+    catch_unwind(AssertUnwindSafe(|| {
+        if viewport_ptr == 0 || doc_ptr == 0 || count <= 0 {
+            return 0; // VexioCursorKind.ARROW
+        }
+        let Ok(ptr) = env.get_direct_buffer_address(&direct_batch) else {
+            return 0;
+        };
+        let Ok(cap) = env.get_direct_buffer_capacity(&direct_batch) else {
+            return 0;
+        };
+        if cap < 32 {
+            return 0;
+        }
+        // SAFETY: `ptr` has `cap` bytes in the direct ByteBuffer, and `viewport_ptr`/`doc_ptr` are valid handles.
+        let buf = unsafe { std::slice::from_raw_parts(ptr, cap) };
+        let vp = unsafe { &mut *(viewport_ptr as *mut VexioViewport) };
+        let doc = unsafe { &mut *(doc_ptr as *mut VexioDoc) };
 
-    // SAFETY: `viewport_ptr` and `doc_ptr` verified non-zero handles.
-    let vp = unsafe { &*(viewport_ptr as *const VexioViewport) };
-    let doc = unsafe { &*(doc_ptr as *const VexioDoc) };
-    let page_pt = vp.camera.screen_to_page_in(x_px, y_px);
-    let visuals = vexio_shapesheet::ReactiveEngine::evaluate_page_visuals(&doc.session.doc, vp.page_id);
-    let index = vexio_render::SpatialIndex::build(&visuals);
-    if !index
-        .hit_test_point(page_pt[0], page_pt[1], 0.1)
-        .is_empty()
-    {
-        1013 // Android PointerIcon.TYPE_ALL_SCROLL (Move)
-    } else {
-        1000 // Android PointerIcon.TYPE_ARROW
-    }
+        let max_samples = (cap / 32).min(count as usize);
+        let mut last_c_cursor = 0u32;
+        for idx in 0..max_samples {
+            let off = idx * 32;
+            let x_px = f32::from_le_bytes(buf[off..off + 4].try_into().unwrap()) as f64;
+            let y_px = f32::from_le_bytes(buf[off + 4..off + 8].try_into().unwrap()) as f64;
+            let pressure = f32::from_le_bytes(buf[off + 8..off + 12].try_into().unwrap());
+            let tilt_rad = f32::from_le_bytes(buf[off + 12..off + 16].try_into().unwrap());
+            let orient_rad = f32::from_le_bytes(buf[off + 16..off + 20].try_into().unwrap());
+            let flags = u32::from_le_bytes(buf[off + 20..off + 24].try_into().unwrap());
+            let ts_us = u64::from_le_bytes(buf[off + 24..off + 32].try_into().unwrap());
+
+            let action = flags & 0xFF;
+            let tool_type = (flags >> 8) & 0x0F;
+            let kind = match action {
+                0 => 1, // ACTION_DOWN -> Down
+                2 | 3 => 2, // ACTION_UP / CANCEL -> Up
+                5 => 3, // ACTION_SCROLL -> Wheel
+                1 | 4 | 6 => {
+                    if tool_type == 2 {
+                        4 // StylusMove
+                    } else {
+                        0 // Move
+                    }
+                }
+                _ => 0,
+            };
+            let mut buttons = 0u32;
+            if (flags & (1 << 12)) != 0 || action == 0 || action == 1 {
+                buttons |= 1;
+            }
+            if (flags & (1 << 13)) != 0 {
+                buttons |= 2;
+            }
+            if (flags & (1 << 14)) != 0 {
+                buttons |= 4;
+            }
+            let mut modifiers = 0u32;
+            if (flags & (1 << 20)) != 0 {
+                modifiers |= 1;
+            }
+            if (flags & (1 << 21)) != 0 {
+                modifiers |= 2;
+            }
+            if (flags & (1 << 22)) != 0 {
+                modifiers |= 4;
+            }
+            if (flags & (1 << 23)) != 0 {
+                modifiers |= 8;
+            }
+
+            let ev = VexioPointerEvent {
+                kind,
+                buttons,
+                modifiers,
+                x_px,
+                y_px,
+                pressure,
+                tilt_x_deg: (tilt_rad * orient_rad.cos()).to_degrees(),
+                tilt_y_deg: if action == 5 {
+                    tilt_rad
+                } else {
+                    (tilt_rad * orient_rad.sin()).to_degrees()
+                },
+                timestamp_us: ts_us,
+            };
+            last_c_cursor = vp.dispatch_pointer_internal(&mut doc.session, ev);
+        }
+
+        // Map internal C cursor code to `VexioCursorKind` in `NativeBridge.kt`:
+        // 0=ARROW, 1=CROSSHAIR, 2=MOVE_ALL, 7=TEXT_IBEAM, 8=GRAB_HAND, 9=GRABBING_HAND
+        match last_c_cursor {
+            1 => 2, // MOVE_ALL
+            2 => 1, // CROSSHAIR
+            3 => {
+                if vp.drag_state.is_some() {
+                    9 // GRABBING_HAND
+                } else {
+                    8 // GRAB_HAND
+                }
+            }
+            7 => 7, // TEXT_IBEAM
+            _ => 0, // ARROW
+        }
+    }))
+    .unwrap_or(0)
 }
 
 #[no_mangle]
@@ -194,24 +512,27 @@ pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeGetCellForm
     shape_id: jlong,
     cell_name: JString<'local>,
 ) -> jstring {
-    if doc_ptr == 0 {
-        return env.new_string("").unwrap().into_raw();
-    }
-    // SAFETY: Valid `VexioDoc` pointer.
-    let doc = unsafe { &*(doc_ptr as *const VexioDoc) };
-    let cname: String = env
-        .get_string(&cell_name)
-        .map(Into::into)
-        .unwrap_or_default();
-    let formula = doc
-        .session
-        .doc
-        .page(page_id as u32)
-        .and_then(|p| p.find_shape(shape_id as u64))
-        .and_then(|s| s.sheet.get_cell(&cname))
-        .map(|c| c.formula.clone())
-        .unwrap_or_default();
-    env.new_string(formula).unwrap().into_raw()
+    catch_unwind(AssertUnwindSafe(|| {
+        if doc_ptr == 0 {
+            return env.new_string("").unwrap().into_raw();
+        }
+        // SAFETY: Valid `VexioDoc` pointer.
+        let doc = unsafe { &*(doc_ptr as *const VexioDoc) };
+        let cname: String = env
+            .get_string(&cell_name)
+            .map(Into::into)
+            .unwrap_or_default();
+        let formula = doc
+            .session
+            .doc
+            .page(page_id as u32)
+            .and_then(|p| p.find_shape(shape_id as u64))
+            .and_then(|s| s.sheet.get_cell(&cname))
+            .map(|c| c.formula.clone())
+            .unwrap_or_default();
+        env.new_string(formula).unwrap().into_raw()
+    }))
+    .unwrap_or_else(|_| std::ptr::null_mut())
 }
 
 #[no_mangle]
@@ -225,23 +546,347 @@ pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeSetCellForm
     formula: JString<'local>,
     force_setf: jboolean,
 ) -> jint {
-    if doc_ptr == 0 {
-        return 1;
-    }
-    // SAFETY: Valid `VexioDoc` pointer.
-    let doc = unsafe { &mut *(doc_ptr as *mut VexioDoc) };
-    let cname: String = env.get_string(&cell_name).map(Into::into).unwrap_or_default();
-    let fstr: String = env.get_string(&formula).map(Into::into).unwrap_or_default();
-    match doc.session.set_cell_formula(
-        page_id as u32,
-        shape_id as u64,
-        &cname,
-        &fstr,
-        force_setf == JNI_TRUE,
-    ) {
-        Ok(()) => 0,
-        Err(_) => 2,
-    }
+    catch_unwind(AssertUnwindSafe(|| {
+        if doc_ptr == 0 {
+            return -1;
+        }
+        // SAFETY: Valid `VexioDoc` pointer.
+        let doc = unsafe { &mut *(doc_ptr as *mut VexioDoc) };
+        let cname: String = env.get_string(&cell_name).map(Into::into).unwrap_or_default();
+        let fstr: String = env.get_string(&formula).map(Into::into).unwrap_or_default();
+        match doc.session.set_cell_formula(
+            page_id as u32,
+            shape_id as u64,
+            &cname,
+            &fstr,
+            force_setf == JNI_TRUE,
+        ) {
+            Ok(()) => 0,                                                       // FormulaCommitStatus.OK
+            Err(CoreError::Journal(JournalError::CellGuarded(_))) => 1,        // GUARDED_CELL_PROTECTED
+            Err(_) => 2,                                                       // SYNTAX_ERROR
+        }
+    }))
+    .unwrap_or(-1)
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeListStencilsJson<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    doc_ptr: jlong,
+) -> jstring {
+    catch_unwind(AssertUnwindSafe(|| {
+        if doc_ptr == 0 {
+            return env.new_string("{}").unwrap().into_raw();
+        }
+        let json = build_stencils_catalog_json();
+        env.new_string(json).unwrap().into_raw()
+    }))
+    .unwrap_or_else(|_| std::ptr::null_mut())
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeLoadStarterTemplate<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    doc_ptr: jlong,
+    template_id: JString<'local>,
+) -> jboolean {
+    catch_unwind(AssertUnwindSafe(|| {
+        if doc_ptr == 0 {
+            return JNI_FALSE;
+        }
+        let Ok(tid) = env.get_string(&template_id).map(String::from) else {
+            return JNI_FALSE;
+        };
+        // SAFETY: Valid `VexioDoc` pointer.
+        let doc = unsafe { &mut *(doc_ptr as *mut VexioDoc) };
+        doc.session.load_starter_template(&tid);
+        JNI_TRUE
+    }))
+    .unwrap_or(JNI_FALSE)
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeGetStateJson<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    doc_ptr: jlong,
+    active_page_id: jint,
+) -> jstring {
+    catch_unwind(AssertUnwindSafe(|| {
+        if doc_ptr == 0 {
+            return env.new_string("{}").unwrap().into_raw();
+        }
+        // SAFETY: Valid `VexioDoc` pointer.
+        let doc = unsafe { &*(doc_ptr as *const VexioDoc) };
+        let json = build_native_state_json(&doc.session, active_page_id.max(1) as u32);
+        env.new_string(json).unwrap().into_raw()
+    }))
+    .unwrap_or_else(|_| std::ptr::null_mut())
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeDropStencil<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    doc_ptr: jlong,
+    page_id: jint,
+    category: JString<'local>,
+    master_name: JString<'local>,
+    x_in: jdouble,
+    y_in: jdouble,
+) -> jlong {
+    catch_unwind(AssertUnwindSafe(|| {
+        if doc_ptr == 0 {
+            return 0;
+        }
+        let cat: String = env.get_string(&category).map(Into::into).unwrap_or_default();
+        let Ok(master) = env.get_string(&master_name).map(String::from) else {
+            return 0;
+        };
+        // SAFETY: Valid `VexioDoc` pointer.
+        let doc = unsafe { &mut *(doc_ptr as *mut VexioDoc) };
+        doc.session
+            .drop_builtin_shape(page_id.max(1) as u32, &cat, &master, x_in, y_in)
+            .unwrap_or(0) as jlong
+    }))
+    .unwrap_or(0)
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeDrawPrimitive<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    doc_ptr: jlong,
+    page_id: jint,
+    kind: JString<'local>,
+    x1_in: jdouble,
+    y1_in: jdouble,
+    x2_in: jdouble,
+    y2_in: jdouble,
+) -> jlong {
+    catch_unwind(AssertUnwindSafe(|| {
+        if doc_ptr == 0 {
+            return 0;
+        }
+        let Ok(k) = env.get_string(&kind).map(String::from) else {
+            return 0;
+        };
+        // SAFETY: Valid `VexioDoc` pointer.
+        let doc = unsafe { &mut *(doc_ptr as *mut VexioDoc) };
+        doc.session
+            .draw_primitive_2d(page_id.max(1) as u32, &k, x1_in, y1_in, x2_in, y2_in)
+            .unwrap_or(0) as jlong
+    }))
+    .unwrap_or(0)
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeConnectShapes(
+    _env: JNIEnv<'_>,
+    _class: JClass<'_>,
+    doc_ptr: jlong,
+    page_id: jint,
+    from_shape_id: jlong,
+    to_shape_id: jlong,
+) -> jlong {
+    catch_unwind(AssertUnwindSafe(|| {
+        if doc_ptr == 0 || from_shape_id <= 0 || to_shape_id <= 0 {
+            return 0;
+        }
+        // SAFETY: Valid `VexioDoc` pointer.
+        let doc = unsafe { &mut *(doc_ptr as *mut VexioDoc) };
+        doc.session
+            .connect_shapes(page_id.max(1) as u32, from_shape_id as u64, to_shape_id as u64)
+            .unwrap_or(0) as jlong
+    }))
+    .unwrap_or(0)
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeDeleteShapes<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    doc_ptr: jlong,
+    page_id: jint,
+    shape_ids: JLongArray<'local>,
+) -> jint {
+    catch_unwind(AssertUnwindSafe(|| {
+        if doc_ptr == 0 {
+            return 0;
+        }
+        let Ok(len) = env.get_array_length(&shape_ids) else {
+            return 0;
+        };
+        let mut raw_ids = vec![0i64; len as usize];
+        if env.get_long_array_region(&shape_ids, 0, &mut raw_ids).is_err() {
+            return 0;
+        }
+        let ids: Vec<u64> = raw_ids.into_iter().filter(|&x| x > 0).map(|x| x as u64).collect();
+        // SAFETY: Valid `VexioDoc` pointer.
+        let doc = unsafe { &mut *(doc_ptr as *mut VexioDoc) };
+        doc.session
+            .delete_shapes(page_id.max(1) as u32, &ids)
+            .unwrap_or(0) as jint
+    }))
+    .unwrap_or(0)
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeDuplicateShapes<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    doc_ptr: jlong,
+    page_id: jint,
+    shape_ids: JLongArray<'local>,
+    dx_in: jdouble,
+    dy_in: jdouble,
+) -> jlong {
+    catch_unwind(AssertUnwindSafe(|| {
+        if doc_ptr == 0 {
+            return 0;
+        }
+        let Ok(len) = env.get_array_length(&shape_ids) else {
+            return 0;
+        };
+        let mut raw_ids = vec![0i64; len as usize];
+        if env.get_long_array_region(&shape_ids, 0, &mut raw_ids).is_err() {
+            return 0;
+        }
+        let ids: Vec<u64> = raw_ids.into_iter().filter(|&x| x > 0).map(|x| x as u64).collect();
+        // SAFETY: Valid `VexioDoc` pointer.
+        let doc = unsafe { &mut *(doc_ptr as *mut VexioDoc) };
+        doc.session
+            .duplicate_shapes(page_id.max(1) as u32, &ids, dx_in, dy_in)
+            .ok()
+            .and_then(|v| v.first().copied())
+            .unwrap_or(0) as jlong
+    }))
+    .unwrap_or(0)
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeReorderShapes<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    doc_ptr: jlong,
+    page_id: jint,
+    shape_ids: JLongArray<'local>,
+    mode: JString<'local>,
+) -> jint {
+    catch_unwind(AssertUnwindSafe(|| {
+        if doc_ptr == 0 {
+            return 0;
+        }
+        let Ok(len) = env.get_array_length(&shape_ids) else {
+            return 0;
+        };
+        let mut raw_ids = vec![0i64; len as usize];
+        if env.get_long_array_region(&shape_ids, 0, &mut raw_ids).is_err() {
+            return 0;
+        }
+        let ids: Vec<u64> = raw_ids.into_iter().filter(|&x| x > 0).map(|x| x as u64).collect();
+        let mode_str: String = env.get_string(&mode).map(Into::into).unwrap_or_else(|_| "front".into());
+        // SAFETY: Valid `VexioDoc` pointer.
+        let doc = unsafe { &mut *(doc_ptr as *mut VexioDoc) };
+        doc.session
+            .reorder_shapes(page_id.max(1) as u32, &ids, &mode_str)
+            .unwrap_or(0) as jint
+    }))
+    .unwrap_or(0)
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeSetShapeText<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    doc_ptr: jlong,
+    page_id: jint,
+    shape_id: jlong,
+    text: JString<'local>,
+) -> jboolean {
+    catch_unwind(AssertUnwindSafe(|| {
+        if doc_ptr == 0 || shape_id <= 0 {
+            return JNI_FALSE;
+        }
+        let Ok(txt) = env.get_string(&text).map(String::from) else {
+            return JNI_FALSE;
+        };
+        // SAFETY: Valid `VexioDoc` pointer.
+        let doc = unsafe { &mut *(doc_ptr as *mut VexioDoc) };
+        if doc
+            .session
+            .set_shape_text(page_id.max(1) as u32, shape_id as u64, &txt)
+            .is_ok()
+        {
+            JNI_TRUE
+        } else {
+            JNI_FALSE
+        }
+    }))
+    .unwrap_or(JNI_FALSE)
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeAddPage<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    doc_ptr: jlong,
+    name: JString<'local>,
+) -> jint {
+    catch_unwind(AssertUnwindSafe(|| {
+        if doc_ptr == 0 {
+            return 0;
+        }
+        let Ok(nm) = env.get_string(&name).map(String::from) else {
+            return 0;
+        };
+        // SAFETY: Valid `VexioDoc` pointer.
+        let doc = unsafe { &mut *(doc_ptr as *mut VexioDoc) };
+        doc.session.add_page(&nm).unwrap_or(0) as jint
+    }))
+    .unwrap_or(0)
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeAutoLayout<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    doc_ptr: jlong,
+    page_id: jint,
+    algo: JString<'local>,
+) {
+    let _ = catch_unwind(AssertUnwindSafe(|| {
+        if doc_ptr == 0 {
+            return;
+        }
+        let alg: String = env.get_string(&algo).map(Into::into).unwrap_or_else(|_| "tb".into());
+        // SAFETY: Valid `VexioDoc` pointer.
+        let doc = unsafe { &mut *(doc_ptr as *mut VexioDoc) };
+        doc.session.layout(page_id.max(1) as u32, &alg);
+    }));
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeValidateJson<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    doc_ptr: jlong,
+    ruleset: JString<'local>,
+) -> jstring {
+    catch_unwind(AssertUnwindSafe(|| {
+        if doc_ptr == 0 {
+            return env.new_string("[]").unwrap().into_raw();
+        }
+        let rs: String = env.get_string(&ruleset).map(Into::into).unwrap_or_else(|_| "bpmn".into());
+        // SAFETY: Valid `VexioDoc` pointer.
+        let doc = unsafe { &*(doc_ptr as *const VexioDoc) };
+        let issues = doc.session.validate(&rs);
+        let json = serde_json::to_string(&issues).unwrap_or_else(|_| "[]".into());
+        env.new_string(json).unwrap().into_raw()
+    }))
+    .unwrap_or_else(|_| std::ptr::null_mut())
 }
 
 #[no_mangle]
@@ -250,16 +895,19 @@ pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeUndo(
     _class: JClass<'_>,
     doc_ptr: jlong,
 ) -> jboolean {
-    if doc_ptr == 0 {
-        return JNI_FALSE;
-    }
-    // SAFETY: Valid `VexioDoc` pointer.
-    let doc = unsafe { &mut *(doc_ptr as *mut VexioDoc) };
-    if doc.session.journal.undo(&mut doc.session.doc).unwrap_or(false) {
-        JNI_TRUE
-    } else {
-        JNI_FALSE
-    }
+    catch_unwind(AssertUnwindSafe(|| {
+        if doc_ptr == 0 {
+            return JNI_FALSE;
+        }
+        // SAFETY: Valid `VexioDoc` pointer.
+        let doc = unsafe { &mut *(doc_ptr as *mut VexioDoc) };
+        if doc.session.journal.undo(&mut doc.session.doc).unwrap_or(false) {
+            JNI_TRUE
+        } else {
+            JNI_FALSE
+        }
+    }))
+    .unwrap_or(JNI_FALSE)
 }
 
 #[no_mangle]
@@ -268,16 +916,19 @@ pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeRedo(
     _class: JClass<'_>,
     doc_ptr: jlong,
 ) -> jboolean {
-    if doc_ptr == 0 {
-        return JNI_FALSE;
-    }
-    // SAFETY: Valid `VexioDoc` pointer.
-    let doc = unsafe { &mut *(doc_ptr as *mut VexioDoc) };
-    if doc.session.journal.redo(&mut doc.session.doc).unwrap_or(false) {
-        JNI_TRUE
-    } else {
-        JNI_FALSE
-    }
+    catch_unwind(AssertUnwindSafe(|| {
+        if doc_ptr == 0 {
+            return JNI_FALSE;
+        }
+        // SAFETY: Valid `VexioDoc` pointer.
+        let doc = unsafe { &mut *(doc_ptr as *mut VexioDoc) };
+        if doc.session.journal.redo(&mut doc.session.doc).unwrap_or(false) {
+            JNI_TRUE
+        } else {
+            JNI_FALSE
+        }
+    }))
+    .unwrap_or(JNI_FALSE)
 }
 
 #[no_mangle]
@@ -290,31 +941,37 @@ pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeRenderPrevi
     height: jint,
     out_direct_rgba: JByteBuffer<'local>,
 ) -> jint {
-    if doc_ptr == 0 || width <= 0 || height <= 0 {
-        return 1;
-    }
-    let Ok(dst_ptr) = env.get_direct_buffer_address(&out_direct_rgba) else {
-        return 1;
-    };
-    let Ok(cap) = env.get_direct_buffer_capacity(&out_direct_rgba) else {
-        return 1;
-    };
-    let needed = (width as usize) * (height as usize) * 4;
-    if cap < needed {
-        return 1;
-    }
-    // SAFETY: Valid `VexioDoc` pointer and verified `DirectByteBuffer` capacity.
-    let doc = unsafe { &*(doc_ptr as *const VexioDoc) };
-    let Ok(rgba) =
-        vexio_render::render_page_rgba_auto(&doc.session.doc, page_id as u32, width as u32, height as u32)
-    else {
-        return 5;
-    };
-    // SAFETY: `dst_ptr` has `cap >= needed == rgba.len()`.
-    unsafe {
-        std::ptr::copy_nonoverlapping(rgba.as_ptr(), dst_ptr, needed);
-    }
-    0
+    catch_unwind(AssertUnwindSafe(|| {
+        if doc_ptr == 0 || width <= 0 || height <= 0 {
+            return 1;
+        }
+        let Ok(dst_ptr) = env.get_direct_buffer_address(&out_direct_rgba) else {
+            return 1;
+        };
+        let Ok(cap) = env.get_direct_buffer_capacity(&out_direct_rgba) else {
+            return 1;
+        };
+        let needed = (width as usize) * (height as usize) * 4;
+        if cap < needed {
+            return 1;
+        }
+        // SAFETY: Valid `VexioDoc` pointer and verified `DirectByteBuffer` capacity.
+        let doc = unsafe { &*(doc_ptr as *const VexioDoc) };
+        let Ok(rgba) = vexio_render::render_page_rgba_auto(
+            &doc.session.doc,
+            page_id as u32,
+            width as u32,
+            height as u32,
+        ) else {
+            return 5;
+        };
+        // SAFETY: `dst_ptr` has `cap >= needed == rgba.len()`.
+        unsafe {
+            std::ptr::copy_nonoverlapping(rgba.as_ptr(), dst_ptr, needed);
+        }
+        0
+    }))
+    .unwrap_or(99)
 }
 
 #[no_mangle]
@@ -323,11 +980,11 @@ pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeBooleanOp<'
     _class: JClass<'local>,
     doc_ptr: jlong,
     page_id: jint,
-    shape_ids: jni::objects::JLongArray<'local>,
+    shape_ids: JLongArray<'local>,
     op: JString<'local>,
-    offset_in: jni::sys::jdouble,
+    offset_in: jdouble,
 ) -> jint {
-    let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+    let res = catch_unwind(AssertUnwindSafe(|| {
         if doc_ptr == 0 {
             return 0;
         }
@@ -355,13 +1012,21 @@ pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeBooleanOp<'
         };
         // SAFETY: `doc_ptr` verified non-zero handle allocated by `nativeCreateBlankDocument` or `nativeOpenDocument`.
         let doc = unsafe { &mut *(doc_ptr as *mut VexioDoc) };
-        let created = crate::boolean_ops::apply_boolean_operation(
+        let mut created_len = 0usize;
+        let _ = doc.session.journal.record_mutation(
             &mut doc.session.doc,
-            page_id as u32,
-            &ids,
-            kind,
+            format!("Boolean {op_str}"),
+            |doc_mut| {
+                created_len = crate::boolean_ops::apply_boolean_operation(
+                    doc_mut,
+                    page_id as u32,
+                    &ids,
+                    kind,
+                )
+                .len();
+            },
         );
-        created.len() as jint
+        created_len as jint
     }));
     res.unwrap_or(0)
 }
@@ -374,7 +1039,7 @@ pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeApplyTheme<
     theme_slug: JString<'local>,
     variant_index: jint,
 ) -> jint {
-    let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+    let res = catch_unwind(AssertUnwindSafe(|| {
         if doc_ptr == 0 {
             return 0;
         }
@@ -383,11 +1048,18 @@ pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeApplyTheme<
         };
         // SAFETY: `doc_ptr` verified non-zero handle.
         let doc = unsafe { &mut *(doc_ptr as *mut VexioDoc) };
-        crate::themes_styles::apply_document_theme_variant(
-            &mut doc.session.doc,
-            &slug,
-            variant_index.clamp(0, 3) as u8,
-        ) as jint
+        let mut count = 0usize;
+        let _ = doc
+            .session
+            .journal
+            .record_mutation(&mut doc.session.doc, "Apply Theme", |doc_mut| {
+                count = crate::themes_styles::apply_document_theme_variant(
+                    doc_mut,
+                    &slug,
+                    variant_index.clamp(0, 3) as u8,
+                );
+            });
+        count as jint
     }));
     res.unwrap_or(0)
 }
@@ -401,7 +1073,7 @@ pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeApplyVisual
     shape_id: jlong,
     preset: JString<'local>,
 ) -> jboolean {
-    let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+    let res = catch_unwind(AssertUnwindSafe(|| {
         if doc_ptr == 0 || shape_id <= 0 {
             return JNI_FALSE;
         }
@@ -411,16 +1083,20 @@ pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeApplyVisual
         // SAFETY: `doc_ptr` verified non-zero handle.
         let doc = unsafe { &mut *(doc_ptr as *mut VexioDoc) };
         let spec = crate::ffi::c_abi::visual_preset_spec_from_slug(&preset_str, shape_id as u64);
-        if crate::themes_styles::apply_visual_effects_to_shape(
+        let mut applied = false;
+        let _ = doc.session.journal.record_mutation(
             &mut doc.session.doc,
-            page_id as u32,
-            shape_id as u64,
-            &spec,
-        ) {
-            JNI_TRUE
-        } else {
-            JNI_FALSE
-        }
+            "Apply Visual Preset",
+            |doc_mut| {
+                applied = crate::themes_styles::apply_visual_effects_to_shape(
+                    doc_mut,
+                    page_id as u32,
+                    shape_id as u64,
+                    &spec,
+                );
+            },
+        );
+        if applied { JNI_TRUE } else { JNI_FALSE }
     }));
     res.unwrap_or(JNI_FALSE)
 }
@@ -434,20 +1110,28 @@ pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeCreateSubpr
     shape_id: jlong,
     sub_name: JString<'local>,
 ) -> jint {
-    let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+    let res = catch_unwind(AssertUnwindSafe(|| {
         if doc_ptr == 0 || shape_id <= 0 {
             return 0;
         }
         let name: String = env.get_string(&sub_name).map(Into::into).unwrap_or_default();
         // SAFETY: `doc_ptr` verified non-zero handle.
         let doc = unsafe { &mut *(doc_ptr as *mut VexioDoc) };
-        crate::enterprise_plan2::create_or_link_subprocess_page(
+        let mut pid = 0u32;
+        let _ = doc.session.journal.record_mutation(
             &mut doc.session.doc,
-            page_id as u32,
-            shape_id as u64,
-            &name,
-        )
-        .unwrap_or(0) as jint
+            "Create Subprocess",
+            |doc_mut| {
+                pid = crate::enterprise_plan2::create_or_link_subprocess_page(
+                    doc_mut,
+                    page_id as u32,
+                    shape_id as u64,
+                    &name,
+                )
+                .unwrap_or(0);
+            },
+        );
+        pid as jint
     }));
     res.unwrap_or(0)
 }
@@ -459,7 +1143,7 @@ pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeCompareDocu
     base_doc_ptr: jlong,
     rev_doc_ptr: jlong,
 ) -> jstring {
-    let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+    let res = catch_unwind(AssertUnwindSafe(|| {
         if base_doc_ptr == 0 || rev_doc_ptr == 0 {
             return env.new_string("{}").unwrap().into_raw();
         }
@@ -481,7 +1165,7 @@ pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeApplyCrdtJs
     replica_id: JString<'local>,
     ops_json: JString<'local>,
 ) -> jint {
-    let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+    let res = catch_unwind(AssertUnwindSafe(|| {
         if doc_ptr == 0 {
             return 0;
         }
@@ -507,7 +1191,7 @@ pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeImportDataV
     page_id: jint,
     csv_or_xlsx: JByteArray<'local>,
 ) -> jint {
-    let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+    let res = catch_unwind(AssertUnwindSafe(|| {
         if doc_ptr == 0 {
             return 0;
         }
@@ -516,12 +1200,20 @@ pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeImportDataV
         };
         // SAFETY: `doc_ptr` verified non-zero handle.
         let doc = unsafe { &mut *(doc_ptr as *mut VexioDoc) };
-        crate::plan2_connectors::import_data_visualizer_csv_or_xlsx(
+        let mut count = 0usize;
+        let _ = doc.session.journal.record_mutation(
             &mut doc.session.doc,
-            page_id as u32,
-            &bytes,
-        )
-        .unwrap_or(0) as jint
+            "Import Data Visualizer",
+            |doc_mut| {
+                count = crate::plan2_connectors::import_data_visualizer_csv_or_xlsx(
+                    doc_mut,
+                    page_id as u32,
+                    &bytes,
+                )
+                .unwrap_or(0);
+            },
+        );
+        count as jint
     }));
     res.unwrap_or(0)
 }
@@ -534,7 +1226,7 @@ pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeImportCloud
     page_id: jint,
     discovery_json: JString<'local>,
 ) -> jint {
-    let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+    let res = catch_unwind(AssertUnwindSafe(|| {
         if doc_ptr == 0 {
             return 0;
         }
@@ -543,12 +1235,20 @@ pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeImportCloud
         };
         // SAFETY: `doc_ptr` verified non-zero handle.
         let doc = unsafe { &mut *(doc_ptr as *mut VexioDoc) };
-        crate::plan2_connectors::import_cloud_discovery_json(
+        let mut count = 0usize;
+        let _ = doc.session.journal.record_mutation(
             &mut doc.session.doc,
-            page_id as u32,
-            &json_str,
-        )
-        .unwrap_or(0) as jint
+            "Import Cloud Discovery",
+            |doc_mut| {
+                count = crate::plan2_connectors::import_cloud_discovery_json(
+                    doc_mut,
+                    page_id as u32,
+                    &json_str,
+                )
+                .unwrap_or(0);
+            },
+        );
+        count as jint
     }));
     res.unwrap_or(0)
 }
@@ -561,7 +1261,7 @@ pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeImportEntra
     page_id: jint,
     text: JString<'local>,
 ) -> jint {
-    let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+    let res = catch_unwind(AssertUnwindSafe(|| {
         if doc_ptr == 0 {
             return 0;
         }
@@ -570,12 +1270,20 @@ pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeImportEntra
         };
         // SAFETY: `doc_ptr` verified non-zero handle.
         let doc = unsafe { &mut *(doc_ptr as *mut VexioDoc) };
-        crate::plan2_connectors::import_entra_or_ldif_org_chart(
+        let mut count = 0usize;
+        let _ = doc.session.journal.record_mutation(
             &mut doc.session.doc,
-            page_id as u32,
-            &txt,
-        )
-        .unwrap_or(0) as jint
+            "Import Directory Org Chart",
+            |doc_mut| {
+                count = crate::plan2_connectors::import_entra_or_ldif_org_chart(
+                    doc_mut,
+                    page_id as u32,
+                    &txt,
+                )
+                .unwrap_or(0);
+            },
+        );
+        count as jint
     }));
     res.unwrap_or(0)
 }

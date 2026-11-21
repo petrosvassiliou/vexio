@@ -166,37 +166,86 @@ public enum VexioExportFormat: String, CaseIterable, Identifiable, Sendable {
 }
 
 public enum VexioCanvasTool: String, CaseIterable, Identifiable, Sendable {
-    case pointer = "Pointer"
+    case pointer = "Select"
+    case pan = "Pan"
     case connector = "Connector"
-    case text = "Text"
-    case rectangle = "Rectangle"
-    case ellipse = "Ellipse"
+    case line = "Line"
+    case arc = "Arc"
     case freeform = "Freeform"
-    case ink = "Ink"
+    case rectangle = "Rectangle"
+    case roundedRect = "Rounded Rect"
+    case ellipse = "Circle / Ellipse"
+    case diamond = "Diamond"
+    case triangle = "Triangle"
+    case hexagon = "Hexagon"
+    case star = "Star"
+    case text = "Text"
+    case ink = "Pen Ink"
+    case highlighter = "Highlighter"
 
     public var id: String { rawValue }
+
+    /// Matches `NativeCanvasTool` C-ABI discriminant (`0..15`) in `vexio_viewport_set_tool`.
+    public var engineToolCode: UInt32 {
+        switch self {
+        case .pointer: return 0
+        case .pan: return 1
+        case .connector: return 2
+        case .text: return 3
+        case .rectangle: return 4
+        case .roundedRect: return 5
+        case .ellipse: return 6
+        case .diamond: return 7
+        case .triangle: return 8
+        case .line: return 9
+        case .arc: return 10
+        case .freeform: return 11
+        case .ink: return 12
+        case .highlighter: return 13
+        case .hexagon: return 14
+        case .star: return 15
+        }
+    }
 
     public var symbolName: String {
         switch self {
         case .pointer: return "cursorarrow"
+        case .pan: return "hand.raised"
         case .connector: return "point.topleft.down.curvedto.point.bottomright.up"
-        case .text: return "character.textbox"
-        case .rectangle: return "rectangle"
-        case .ellipse: return "oval"
+        case .line: return "line.diagonal"
+        case .arc: return "scribble"
         case .freeform: return "scribble.variable"
+        case .rectangle: return "rectangle"
+        case .roundedRect: return "rectangle.roundedtop"
+        case .ellipse: return "oval"
+        case .diamond: return "diamond"
+        case .triangle: return "triangle"
+        case .hexagon: return "hexagon"
+        case .star: return "star"
+        case .text: return "character.textbox"
         case .ink: return "pencil.tip.crop.circle"
+        case .highlighter: return "highlighter"
         }
     }
 
     public var shortcutHint: String {
         switch self {
         case .pointer: return "⌘1"
+        case .pan: return "H"
         case .connector: return "⌘2"
-        case .text: return "⌘3"
-        case .rectangle: return "⌘4"
-        case .ellipse: return "⌘5"
+        case .line: return "L"
+        case .arc: return "A"
         case .freeform: return "⌘6"
+        case .rectangle: return "⌘4"
+        case .roundedRect: return "⇧⌘4"
+        case .ellipse: return "⌘5"
+        case .diamond: return "D"
+        case .triangle: return "T"
+        case .hexagon: return "X"
+        case .star: return "S"
+        case .text: return "⌘3"
         case .ink: return "⌘7"
+        case .highlighter: return "⇧⌘7"
         }
     }
 }
@@ -224,6 +273,15 @@ public enum AutoLayoutPreset: String, CaseIterable, Identifiable, Sendable {
     case compactOrthogonal = "Compact Orthogonal Grid"
 
     public var id: String { rawValue }
+
+    public var engineAlgorithmSlug: String {
+        switch self {
+        case .hierarchicalTopDown: return "hierarchical_tb"
+        case .swimlaneLeftRight: return "hierarchical_lr"
+        case .radialCluster: return "radial"
+        case .compactOrthogonal: return "force_directed"
+        }
+    }
 }
 
 public struct VexioPageSummary: Identifiable, Equatable, Sendable {
@@ -240,15 +298,52 @@ public struct VexioPageSummary: Identifiable, Equatable, Sendable {
     }
 }
 
+public struct NativeStencilMasterPayload: Decodable, Sendable {
+    public let name: String
+    public let prompt: String
+    public let category: String
+    public let widthIn: Double
+    public let heightIn: Double
+    public let fillFormula: String
+    public let lineFormula: String
+    public let svg: String
+}
+
 public struct VexioStencilMaster: Identifiable, Equatable, Hashable, Sendable {
     public let id: String
     public let category: String
     public let name: String
+    public let prompt: String
     public let symbolName: String
     public let defaultWidthFormula: String
     public let defaultHeightFormula: String
     public let defaultFillFormula: String
     public let isGuardedAspect: Bool
+    public let svgPreview: String
+
+    public init(
+        id: String,
+        category: String,
+        name: String,
+        prompt: String = "",
+        symbolName: String,
+        defaultWidthFormula: String,
+        defaultHeightFormula: String,
+        defaultFillFormula: String,
+        isGuardedAspect: Bool,
+        svgPreview: String = ""
+    ) {
+        self.id = id
+        self.category = category
+        self.name = name
+        self.prompt = prompt
+        self.symbolName = symbolName
+        self.defaultWidthFormula = defaultWidthFormula
+        self.defaultHeightFormula = defaultHeightFormula
+        self.defaultFillFormula = defaultFillFormula
+        self.isGuardedAspect = isGuardedAspect
+        self.svgPreview = svgPreview
+    }
 }
 
 public enum ShapeSheetSectionCategory: String, CaseIterable, Identifiable, Sendable {
@@ -746,6 +841,45 @@ private final class NativeDocumentCore: @unchecked Sendable {
         }
     }
 
+    func setViewportTool(toolCode: UInt32) {
+        lock.lock()
+        defer { lock.unlock() }
+        if let activeViewport = viewport {
+            _ = vexio_viewport_set_tool(activeViewport, toolCode)
+        }
+    }
+
+    func setViewportPage(pageId: UInt32) {
+        lock.lock()
+        defer { lock.unlock() }
+        if let activeViewport = viewport {
+            _ = vexio_viewport_set_page(activeViewport, doc, pageId)
+        }
+    }
+
+    func setViewportZoom(zoomScale: Double, panXIn: Double, panYIn: Double) {
+        lock.lock()
+        defer { lock.unlock() }
+        if let activeViewport = viewport {
+            _ = vexio_viewport_set_zoom(activeViewport, doc, zoomScale, panXIn, panYIn)
+        }
+    }
+
+    func renderViewportFrame() {
+        lock.lock()
+        defer { lock.unlock() }
+        if let activeViewport = viewport {
+            _ = vexio_viewport_render_frame(activeViewport, doc)
+        }
+    }
+
+    func primarySelection() -> UInt64 {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let activeViewport = viewport else { return 0 }
+        return vexio_viewport_get_primary_selection(activeViewport)
+    }
+
     func dispatchPointer(_ pointerEvent: VexioPointerEvent) throws -> UInt32 {
         lock.lock()
         defer { lock.unlock() }
@@ -761,6 +895,160 @@ private final class NativeDocumentCore: @unchecked Sendable {
             throw err
         }
         return cursorKind
+    }
+
+    func listStencilsJSON() throws -> String {
+        lock.lock()
+        defer { lock.unlock() }
+
+        var outJSON = VexioOwnedBuffer(ptr: nil, len: 0, cap: 0)
+        let status = vexio_doc_list_stencils_json(doc, &outJSON)
+        if let err = VexioBridgeError.from(status: status, context: "list_stencils_json") {
+            vexio_buffer_free(outJSON)
+            throw err
+        }
+        return Self.consumeOwnedBufferAsUTF8(outJSON)
+    }
+
+    func loadStarterTemplate(templateId: String) throws {
+        lock.lock()
+        defer { lock.unlock() }
+
+        let status = templateId.withCString { tidCStr in
+            vexio_doc_load_starter_template(doc, tidCStr)
+        }
+        if let err = VexioBridgeError.from(status: status, context: "load_starter_template(\(templateId))") {
+            throw err
+        }
+    }
+
+    func dropStencil(
+        pageId: UInt32,
+        category: String,
+        masterName: String,
+        xIn: Double,
+        yIn: Double
+    ) throws -> UInt64 {
+        lock.lock()
+        defer { lock.unlock() }
+
+        var outShapeId: UInt64 = 0
+        let status: VexioStatus = withUnsafeMutablePointer(to: &outShapeId) { outPtr in
+            category.withCString { catCStr in
+                masterName.withCString { nameCStr in
+                    vexio_doc_drop_stencil(doc, pageId, catCStr, nameCStr, xIn, yIn, outPtr)
+                }
+            }
+        }
+        if let err = VexioBridgeError.from(status: status, context: "drop_stencil(\(masterName))") {
+            throw err
+        }
+        return outShapeId
+    }
+
+    func drawPrimitive(
+        pageId: UInt32,
+        kind: String,
+        x1In: Double,
+        y1In: Double,
+        x2In: Double,
+        y2In: Double
+    ) throws -> UInt64 {
+        lock.lock()
+        defer { lock.unlock() }
+
+        var outShapeId: UInt64 = 0
+        let status: VexioStatus = withUnsafeMutablePointer(to: &outShapeId) { outPtr in
+            kind.withCString { kindCStr in
+                vexio_doc_draw_primitive(doc, pageId, kindCStr, x1In, y1In, x2In, y2In, outPtr)
+            }
+        }
+        if let err = VexioBridgeError.from(status: status, context: "draw_primitive(\(kind))") {
+            throw err
+        }
+        return outShapeId
+    }
+
+    func deleteShapes(pageId: UInt32, shapeIds: [UInt64]) throws -> UInt32 {
+        guard !shapeIds.isEmpty else { return 0 }
+        lock.lock()
+        defer { lock.unlock() }
+
+        var deletedCount: UInt32 = 0
+        let status: VexioStatus = withUnsafeMutablePointer(to: &deletedCount) { outPtr in
+            shapeIds.withUnsafeBufferPointer { idsBuf in
+                vexio_doc_delete_shapes(doc, pageId, idsBuf.baseAddress, idsBuf.count, outPtr)
+            }
+        }
+        if let err = VexioBridgeError.from(status: status, context: "delete_shapes") {
+            throw err
+        }
+        return deletedCount
+    }
+
+    func duplicateShapes(
+        pageId: UInt32,
+        shapeIds: [UInt64],
+        dxIn: Double,
+        dyIn: Double
+    ) throws -> UInt64 {
+        guard !shapeIds.isEmpty else { return 0 }
+        lock.lock()
+        defer { lock.unlock() }
+
+        var firstId: UInt64 = 0
+        let status: VexioStatus = withUnsafeMutablePointer(to: &firstId) { outPtr in
+            shapeIds.withUnsafeBufferPointer { idsBuf in
+                vexio_doc_duplicate_shapes(doc, pageId, idsBuf.baseAddress, idsBuf.count, dxIn, dyIn, outPtr)
+            }
+        }
+        if let err = VexioBridgeError.from(status: status, context: "duplicate_shapes") {
+            throw err
+        }
+        return firstId
+    }
+
+    func reorderShapes(pageId: UInt32, shapeIds: [UInt64], mode: String) throws {
+        guard !shapeIds.isEmpty else { return }
+        lock.lock()
+        defer { lock.unlock() }
+
+        let status: VexioStatus = shapeIds.withUnsafeBufferPointer { idsBuf in
+            mode.withCString { modeCStr in
+                vexio_doc_reorder_shapes(doc, pageId, idsBuf.baseAddress, idsBuf.count, modeCStr)
+            }
+        }
+        if let err = VexioBridgeError.from(status: status, context: "reorder_shapes(\(mode))") {
+            throw err
+        }
+    }
+
+    func addPage(name: String) throws -> UInt32 {
+        lock.lock()
+        defer { lock.unlock() }
+
+        var outPageId: UInt32 = 0
+        let status: VexioStatus = withUnsafeMutablePointer(to: &outPageId) { outPtr in
+            name.withCString { nameCStr in
+                vexio_doc_add_page(doc, nameCStr, outPtr)
+            }
+        }
+        if let err = VexioBridgeError.from(status: status, context: "add_page(\(name))") {
+            throw err
+        }
+        return outPageId
+    }
+
+    func autoLayout(pageId: UInt32, algo: String) throws {
+        lock.lock()
+        defer { lock.unlock() }
+
+        let status = algo.withCString { algoCStr in
+            vexio_doc_auto_layout(doc, pageId, algoCStr)
+        }
+        if let err = VexioBridgeError.from(status: status, context: "auto_layout(\(algo))") {
+            throw err
+        }
     }
 
     func renderPreviewRGBA(pageId: UInt32, widthPx: UInt32, heightPx: UInt32) throws -> CGImage {
@@ -1076,14 +1364,32 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
 
     // Published Workstation UI State
     @Published public var documentTitle: String = "Untitled Diagram"
-    @Published public var activeTool: VexioCanvasTool = .pointer
-    @Published public var activePageId: UInt32 = 1
+    @Published public var activeTool: VexioCanvasTool = .pointer {
+        didSet {
+            core.setViewportTool(toolCode: activeTool.engineToolCode)
+            core.renderViewportFrame()
+        }
+    }
+    @Published public var activePageId: UInt32 = 1 {
+        didSet {
+            core.setViewportPage(pageId: activePageId)
+            core.renderViewportFrame()
+        }
+    }
     @Published public var selectedShapeId: UInt64 = 1
     @Published public var selectedShapeIds: [UInt64] = [1, 2]
-    @Published public var nextAllocatedShapeId: UInt64 = 3
+    @Published public var nextAllocatedShapeId: UInt64 = 10
 
-    @Published public var zoomScale: CGFloat = 1.0
-    @Published public var panOffset: CGSize = .zero
+    @Published public var zoomScale: CGFloat = 1.0 {
+        didSet {
+            syncViewportCamera()
+        }
+    }
+    @Published public var panOffset: CGSize = .zero {
+        didSet {
+            syncViewportCamera()
+        }
+    }
     @Published public var cursorCanvasInches: CGPoint = .zero
     @Published public var activeCursorKind: UInt32 = 0
 
@@ -1091,6 +1397,11 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
     @Published public var showStencilNavigator: Bool = true
     @Published public var showInspectorSidebar: Bool = true
     @Published public var showShapeSheetDrawer: Bool = false
+
+    @Published public var stencilCatalog: [VexioStencilMaster] = VexioDocumentSession.builtInStencilCatalog
+    @Published public var stencilCategories: [String] = VexioDocumentSession.canonicalCategoryOrder
+    private var hasLoadedDynamicStencils: Bool = false
+    private var clipboardShapeIds: [UInt64] = []
 
     // Phase 7 Plan 2 Published State
     @Published public var selectedThemeSlug: String = "modern"
@@ -1129,21 +1440,53 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
     @Published public var lastBannerError: VexioBridgeError?
     @Published public var statusMessage: String = "Ready — Metal wgpu Surface Active"
 
-    // Built-in Visio Parity Stencil Catalog
-    public static let builtInStencilCatalog: [VexioStencilMaster] = [
-        VexioStencilMaster(id: "flow.process", category: "Basic Flowchart", name: "Process", symbolName: "rectangle", defaultWidthFormula: "1.5 in", defaultHeightFormula: "0.875 in", defaultFillFormula: "RGB(235,244,255)", isGuardedAspect: false),
-        VexioStencilMaster(id: "flow.decision", category: "Basic Flowchart", name: "Decision", symbolName: "diamond", defaultWidthFormula: "1.25 in", defaultHeightFormula: "1.0 in", defaultFillFormula: "RGB(255,246,229)", isGuardedAspect: false),
-        VexioStencilMaster(id: "flow.terminator", category: "Basic Flowchart", name: "Start / End", symbolName: "capsule", defaultWidthFormula: "1.5 in", defaultHeightFormula: "0.625 in", defaultFillFormula: "RGB(231,250,239)", isGuardedAspect: false),
-        VexioStencilMaster(id: "flow.database", category: "Basic Flowchart", name: "Data Store", symbolName: "cylinder.split.1x2", defaultWidthFormula: "1.25 in", defaultHeightFormula: "1.375 in", defaultFillFormula: "RGB(240,238,255)", isGuardedAspect: true),
-        VexioStencilMaster(id: "bpmn.task", category: "BPMN 2.0", name: "BPMN User Task", symbolName: "person.crop.rectangle", defaultWidthFormula: "1.625 in", defaultHeightFormula: "1.0 in", defaultFillFormula: "RGB(238,247,255)", isGuardedAspect: false),
-        VexioStencilMaster(id: "bpmn.gateway", category: "BPMN 2.0", name: "Exclusive Gateway", symbolName: "xmark.diamond", defaultWidthFormula: "GUARD(0.625 in)", defaultHeightFormula: "GUARD(0.625 in)", defaultFillFormula: "RGB(255,248,225)", isGuardedAspect: true),
-        VexioStencilMaster(id: "bpmn.event", category: "BPMN 2.0", name: "Intermediate Event", symbolName: "smallcircle.filled.circle", defaultWidthFormula: "GUARD(0.5 in)", defaultHeightFormula: "GUARD(0.5 in)", defaultFillFormula: "RGB(255,255,255)", isGuardedAspect: true),
-        VexioStencilMaster(id: "bpmn.swimlane", category: "BPMN 2.0", name: "Pool / Swimlane", symbolName: "rectangle.split.3x1", defaultWidthFormula: "7.5 in", defaultHeightFormula: "2.25 in", defaultFillFormula: "RGB(248,250,252)", isGuardedAspect: false),
-        VexioStencilMaster(id: "uml.class", category: "UML 2.5", name: "Class Classifier", symbolName: "list.bullet.rectangle", defaultWidthFormula: "1.875 in", defaultHeightFormula: "1.5 in", defaultFillFormula: "RGB(245,243,255)", isGuardedAspect: false),
-        VexioStencilMaster(id: "uml.component", category: "UML 2.5", name: "Component", symbolName: "shippingbox", defaultWidthFormula: "1.75 in", defaultHeightFormula: "1.125 in", defaultFillFormula: "RGB(236,253,245)", isGuardedAspect: false),
-        VexioStencilMaster(id: "net.server", category: "Network & Cloud", name: "Compute Cluster", symbolName: "server.rack", defaultWidthFormula: "1.25 in", defaultHeightFormula: "1.25 in", defaultFillFormula: "RGB(238,242,255)", isGuardedAspect: true),
-        VexioStencilMaster(id: "cad.wall", category: "Floor Plan & CAD", name: "Structural Wall", symbolName: "ruler", defaultWidthFormula: "4.0 ft", defaultHeightFormula: "GUARD(6 in)", defaultFillFormula: "RGB(226,232,240)", isGuardedAspect: false),
+    nonisolated public static let canonicalCategoryOrder: [String] = [
+        "Basic Shapes",
+        "Arrows & Callouts",
+        "Basic Flowchart",
+        "Cross-Functional Swimlanes",
+        "BPMN 2.0",
+        "UML 2.5",
+        "Entity Relationship (ERD)",
+        "Network & Rack",
+        "AWS Cloud Architecture",
+        "Azure & M365 Cloud",
+        "Google Cloud & Kubernetes",
+        "Org Chart",
+        "Floor Plan & Architectural",
+        "Electrical IEEE / IEC",
+        "P&ID Process Engineering",
+        "Timeline, Gantt & Mind Map",
+        "Wireframe & UI Mockup",
     ]
+
+    // Fallback Stencil Seed (superseded immediately by 160-master C-ABI catalog on load)
+    nonisolated public static let builtInStencilCatalog: [VexioStencilMaster] = [
+        VexioStencilMaster(id: "Basic Flowchart::Process", category: "Basic Flowchart", name: "Process", symbolName: "rectangle", defaultWidthFormula: "1.5 in", defaultHeightFormula: "0.875 in", defaultFillFormula: "RGB(235,244,255)", isGuardedAspect: false),
+        VexioStencilMaster(id: "Basic Flowchart::Decision", category: "Basic Flowchart", name: "Decision", symbolName: "diamond", defaultWidthFormula: "1.25 in", defaultHeightFormula: "1.0 in", defaultFillFormula: "RGB(255,246,229)", isGuardedAspect: false),
+        VexioStencilMaster(id: "Basic Flowchart::Start / End", category: "Basic Flowchart", name: "Start / End", symbolName: "capsule", defaultWidthFormula: "1.5 in", defaultHeightFormula: "0.625 in", defaultFillFormula: "RGB(231,250,239)", isGuardedAspect: false),
+        VexioStencilMaster(id: "Basic Flowchart::Database", category: "Basic Flowchart", name: "Database", symbolName: "cylinder.split.1x2", defaultWidthFormula: "1.25 in", defaultHeightFormula: "1.375 in", defaultFillFormula: "RGB(240,238,255)", isGuardedAspect: true),
+    ]
+
+    nonisolated public static func symbolName(forCategory category: String, masterName: String) -> String {
+        let lower = masterName.lowercased()
+        if lower.contains("decision") || lower.contains("gateway") || lower.contains("diamond") { return "diamond" }
+        if lower.contains("start") || lower.contains("end") || lower.contains("terminator") || lower.contains("pill") { return "capsule" }
+        if lower.contains("database") || lower.contains("rds") || lower.contains("sql") || lower.contains("storage") { return "cylinder.split.1x2" }
+        if lower.contains("circle") || lower.contains("event") || lower.contains("node") { return "circle" }
+        if lower.contains("star") { return "star" }
+        if lower.contains("hexagon") { return "hexagon" }
+        if lower.contains("triangle") { return "triangle" }
+        if lower.contains("arrow") { return "arrow.right" }
+        if lower.contains("callout") || lower.contains("note") || lower.contains("comment") { return "bubble.left" }
+        if lower.contains("server") || lower.contains("rack") || lower.contains("vm") || lower.contains("ec2") { return "server.rack" }
+        if lower.contains("cloud") || category.contains("Cloud") { return "cloud" }
+        if lower.contains("user") || lower.contains("actor") || lower.contains("person") || category.contains("Org") { return "person.crop.rectangle" }
+        if lower.contains("wall") || lower.contains("door") || category.contains("Floor") { return "ruler" }
+        if category.contains("Electrical") || category.contains("P&ID") { return "bolt.horizontal.circle" }
+        if category.contains("Wireframe") { return "macwindow" }
+        return "square.on.square"
+    }
 
     public static let canonicalCellManifest: [(ShapeSheetSectionCategory, String, String)] = [
         (.shapeTransform, "PinX", "4.25 in"),
@@ -1174,6 +1517,7 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
         }
         self.sourceFormatExtension = "vsdx"
         self.documentTitle = blankTitle
+        ensureStencilsLoadedIfNeeded()
         seedInitialShapeIfNeeded()
         reloadSelectedShapeSheetCells()
     }
@@ -1191,6 +1535,55 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
         }
         self.core = try NativeDocumentCore(fileData: bytes, formatExtension: ext)
         self.sourceFormatExtension = ext
+    }
+
+    public func ensureStencilsLoadedIfNeeded() {
+        guard !hasLoadedDynamicStencils else { return }
+        hasLoadedDynamicStencils = true
+        guard let rawJSON = try? core.listStencilsJSON(),
+              let jsonData = rawJSON.data(using: .utf8),
+              let grouped = try? JSONDecoder().decode([String: [NativeStencilMasterPayload]].self, from: jsonData),
+              !grouped.isEmpty
+        else {
+            return
+        }
+
+        var orderedCategories: [String] = []
+        for canonical in Self.canonicalCategoryOrder where grouped[canonical] != nil {
+            orderedCategories.append(canonical)
+        }
+        for extra in grouped.keys.sorted() where !orderedCategories.contains(extra) {
+            orderedCategories.append(extra)
+        }
+
+        var flatMasters: [VexioStencilMaster] = []
+        for cat in orderedCategories {
+            guard let list = grouped[cat] else { continue }
+            for item in list {
+                let fillClean = item.fillFormula.hasPrefix("=")
+                    ? String(item.fillFormula.dropFirst())
+                    : item.fillFormula
+                flatMasters.append(
+                    VexioStencilMaster(
+                        id: "\(cat)::\(item.name)",
+                        category: cat,
+                        name: item.name,
+                        prompt: item.prompt,
+                        symbolName: Self.symbolName(forCategory: cat, masterName: item.name),
+                        defaultWidthFormula: String(format: "%.3f in", item.widthIn),
+                        defaultHeightFormula: String(format: "%.3f in", item.heightIn),
+                        defaultFillFormula: fillClean,
+                        isGuardedAspect: abs(item.widthIn - item.heightIn) < 0.01 && item.widthIn <= 0.85,
+                        svgPreview: item.svg
+                    )
+                )
+            }
+        }
+
+        if !flatMasters.isEmpty {
+            stencilCategories = orderedCategories
+            stencilCatalog = flatMasters
+        }
     }
 
     nonisolated public func snapshot(contentType: UTType) throws -> VexioDocumentSnapshot {
@@ -1215,6 +1608,13 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
 
     // MARK: - Metal Viewport & Pointer Dispatch
 
+    private func syncViewportCamera() {
+        let panXIn = -Double(panOffset.width) / (96.0 * Double(max(zoomScale, 0.1)))
+        let panYIn = Double(panOffset.height) / (96.0 * Double(max(zoomScale, 0.1)))
+        core.setViewportZoom(zoomScale: Double(zoomScale), panXIn: panXIn, panYIn: panYIn)
+        core.renderViewportFrame()
+    }
+
     public func attachMetalLayer(
         _ metalLayer: CAMetalLayer,
         widthPx: UInt32,
@@ -1229,6 +1629,9 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
                 heightPx: heightPx,
                 dpiScale: dpiScale
             )
+            core.setViewportPage(pageId: activePageId)
+            core.setViewportTool(toolCode: activeTool.engineToolCode)
+            core.renderViewportFrame()
             lastBannerError = nil
         } catch let bridgeErr as VexioBridgeError {
             lastBannerError = bridgeErr
@@ -1252,6 +1655,11 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
         do {
             let cursorCode = try core.dispatchPointer(pointerEvent)
             activeCursorKind = cursorCode
+            let primary = core.primarySelection()
+            if primary != 0 && primary != selectedShapeId {
+                selectedShapeId = primary
+                selectedShapeIds = [primary]
+            }
             return resolveNSCursor(for: cursorCode)
         } catch let bridgeErr as VexioBridgeError {
             lastBannerError = bridgeErr
@@ -1263,12 +1671,14 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
 
     public func resolveNSCursor(for engineCursorCode: UInt32) -> NSCursor {
         switch activeTool {
-        case .connector, .rectangle, .ellipse, .freeform, .ink:
-            if engineCursorCode == 0 {
+        case .pan:
+            return engineCursorCode == 3 ? .closedHand : .openHand
+        case .connector, .line, .arc, .freeform, .rectangle, .roundedRect, .ellipse, .diamond, .triangle, .hexagon, .star, .ink, .highlighter:
+            if engineCursorCode == 0 || engineCursorCode == 2 {
                 return .crosshair
             }
         case .text:
-            if engineCursorCode == 0 {
+            if engineCursorCode == 0 || engineCursorCode == 7 {
                 return .iBeam
             }
         case .pointer:
@@ -1277,12 +1687,11 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
 
         switch engineCursorCode {
         case 1: return .pointingHand
-        case 2: return .openHand
+        case 2: return .crosshair
         case 3: return .closedHand
         case 4: return .crosshair
-        case 5: return .iBeam
+        case 5, 7: return .iBeam
         case 6: return .resizeLeftRight
-        case 7: return .resizeUpDown
         case 8: return .crosshair
         case 9: return .dragLink
         case 10: return .operationNotAllowed
@@ -1349,44 +1758,45 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
     }
 
     private func seedInitialShapeIfNeeded() {
-        upsertPageInCore(pageId: 1, title: "Page-1")
-        upsertPageInCore(pageId: 2, title: "Architecture Backdrop")
-        upsertShapeInCore(pageId: activePageId, shapeId: 1, name: "Process.1")
-        upsertShapeInCore(pageId: activePageId, shapeId: 2, name: "Process.2")
-
-        for (_, cellName, defaultFormula) in Self.canonicalCellManifest {
-            try? core.setCellFormula(
-                pageId: activePageId,
-                shapeId: 1,
-                cellName: cellName,
-                formula: defaultFormula,
-                forceSetF: true
-            )
+        if (try? core.loadStarterTemplate(templateId: "flowchart")) != nil {
+            selectedShapeId = 1
+            selectedShapeIds = [1]
+        } else {
+            upsertPageInCore(pageId: 1, title: "Page-1")
+            upsertShapeInCore(pageId: activePageId, shapeId: 1, name: "Process.1")
+            for (_, cellName, defaultFormula) in Self.canonicalCellManifest {
+                try? core.setCellFormula(
+                    pageId: activePageId,
+                    shapeId: 1,
+                    cellName: cellName,
+                    formula: defaultFormula,
+                    forceSetF: true
+                )
+            }
         }
-
-        let companionCells: [(String, String)] = [
-            ("PinX", "5.10 in"),
-            ("PinY", "5.20 in"),
-            ("Width", "1.50 in"),
-            ("Height", "1.00 in"),
-            ("FillForegnd", "RGB(231,250,239)"),
-            ("LineColor", "RGB(16,185,129)"),
-            ("LineWeight", "1.25 pt"),
-        ]
-        for (cell, expr) in companionCells {
-            try? core.setCellFormula(
-                pageId: activePageId,
-                shapeId: 2,
-                cellName: cell,
-                formula: expr,
-                forceSetF: true
-            )
-        }
-
         baselineComparisonSnapshot = try? core.saveFormat("vsdx")
     }
 
+    public func loadStarterTemplate(_ templateId: String, undoManager: UndoManager?) {
+        do {
+            try core.loadStarterTemplate(templateId: templateId)
+            activePageId = 1
+            selectedShapeId = 1
+            selectedShapeIds = [1]
+            registerJournalUndoStep(actionName: "Load Template \(templateId)", undoManager: undoManager)
+            reloadSelectedShapeSheetCells()
+            core.renderViewportFrame()
+            statusMessage = "Loaded '\(templateId.capitalized)' starter diagram"
+        } catch let bridgeErr as VexioBridgeError {
+            lastBannerError = bridgeErr
+            statusMessage = bridgeErr.localizedDescription
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
     public func reloadSelectedShapeSheetCells() {
+        ensureStencilsLoadedIfNeeded()
         if baselineComparisonSnapshot == nil {
             if (try? core.getCellFormula(pageId: activePageId, shapeId: selectedShapeId, cellName: "PinX")) == nil,
                (try? core.getCellFormula(pageId: 0, shapeId: selectedShapeId, cellName: "PinX")) != nil {
@@ -1471,6 +1881,7 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
             statusMessage = "Updated Sheet.\(selectedShapeId)!\(cellName) = \(formula)"
             registerJournalUndoStep(actionName: "Edit \(cellName)", undoManager: undoManager)
             reloadSelectedShapeSheetCells()
+            core.renderViewportFrame()
         } catch let bridgeErr as VexioBridgeError {
             lastBannerError = bridgeErr
             statusMessage = bridgeErr.localizedDescription
@@ -1497,6 +1908,7 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
                 target.performRedo(undoManager: undoManager)
             }
             reloadSelectedShapeSheetCells()
+            core.renderViewportFrame()
         } catch let bridgeErr as VexioBridgeError {
             lastBannerError = bridgeErr
             statusMessage = bridgeErr.localizedDescription
@@ -1514,6 +1926,7 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
                 target.performUndo(undoManager: undoManager)
             }
             reloadSelectedShapeSheetCells()
+            core.renderViewportFrame()
         } catch let bridgeErr as VexioBridgeError {
             lastBannerError = bridgeErr
             statusMessage = bridgeErr.localizedDescription
@@ -1522,58 +1935,183 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
         }
     }
 
-    // MARK: - Stencil Instantiation, Trackpad Gestures & Validation
+    // MARK: - Stencil Instantiation, Primitive Drawing, Context-Menu Actions & Validation
 
     public func instantiateStencilMaster(
         masterId: String,
         atCanvasInches point: CGPoint,
         undoManager: UndoManager?
     ) {
-        guard let master = Self.builtInStencilCatalog.first(where: { $0.id == masterId }) else {
+        ensureStencilsLoadedIfNeeded()
+        guard let master = stencilCatalog.first(where: { $0.id == masterId })
+            ?? Self.builtInStencilCatalog.first(where: { $0.id == masterId })
+        else {
             return
         }
-        let shapeId = nextAllocatedShapeId
-        nextAllocatedShapeId += 1
-        let previousShapeId = selectedShapeId
-        selectedShapeId = shapeId
-        selectedShapeIds = previousShapeId != shapeId ? [previousShapeId, shapeId] : [shapeId]
 
-        upsertPageInCore(
+        let safeX = min(max(Double(point.x), 0.5), 10.5)
+        let safeY = min(max(Double(point.y), 0.5), 8.0)
+
+        if let createdId = try? core.dropStencil(
             pageId: activePageId,
-            title: pages.first(where: { $0.id == activePageId })?.title ?? "Page-\(activePageId)"
-        )
-        upsertShapeInCore(pageId: activePageId, shapeId: shapeId, name: "\(master.name).\(shapeId)")
-
-        let pinX = String(format: "%.3f in", point.x)
-        let pinY = String(format: "%.3f in", point.y)
-
-        let cellsToInitialize: [(String, String)] = [
-            ("PinX", pinX),
-            ("PinY", pinY),
-            ("Width", master.defaultWidthFormula),
-            ("Height", master.defaultHeightFormula),
-            ("LocPinX", "Width*0.5"),
-            ("LocPinY", "Height*0.5"),
-            ("Angle", "0 deg"),
-            ("FillForegnd", master.defaultFillFormula),
-            ("LineWeight", "1.25 pt"),
-            ("LineColor", "RGB(28,100,242)"),
-            ("LockAspect", master.isGuardedAspect ? "GUARD(1)" : "0"),
-        ]
-
-        for (cell, expr) in cellsToInitialize {
-            try? core.setCellFormula(
-                pageId: activePageId,
-                shapeId: shapeId,
-                cellName: cell,
-                formula: expr,
-                forceSetF: true
-            )
+            category: master.category,
+            masterName: master.name,
+            xIn: safeX,
+            yIn: safeY
+        ), createdId != 0 {
+            selectedShapeId = createdId
+            selectedShapeIds = [createdId]
+            registerJournalUndoStep(actionName: "Drop \(master.name)", undoManager: undoManager)
+            reloadSelectedShapeSheetCells()
+            core.renderViewportFrame()
+            statusMessage = String(format: "Dropped '%@' as Sheet.%llu at (%.2f in, %.2f in)", master.name, createdId, safeX, safeY)
+            return
         }
 
+        let shapeId = nextAllocatedShapeId
+        nextAllocatedShapeId += 1
+        selectedShapeId = shapeId
+        selectedShapeIds = [shapeId]
+        upsertShapeInCore(pageId: activePageId, shapeId: shapeId, name: "\(master.name).\(shapeId)")
+        try? core.setCellFormula(pageId: activePageId, shapeId: shapeId, cellName: "PinX", formula: String(format: "%.3f in", safeX), forceSetF: true)
+        try? core.setCellFormula(pageId: activePageId, shapeId: shapeId, cellName: "PinY", formula: String(format: "%.3f in", safeY), forceSetF: true)
+        try? core.setCellFormula(pageId: activePageId, shapeId: shapeId, cellName: "Width", formula: master.defaultWidthFormula, forceSetF: true)
+        try? core.setCellFormula(pageId: activePageId, shapeId: shapeId, cellName: "Height", formula: master.defaultHeightFormula, forceSetF: true)
+        try? core.setCellFormula(pageId: activePageId, shapeId: shapeId, cellName: "FillForegnd", formula: master.defaultFillFormula, forceSetF: true)
         registerJournalUndoStep(actionName: "Drop \(master.name)", undoManager: undoManager)
         reloadSelectedShapeSheetCells()
-        statusMessage = "Dropped '\(master.name)' as Sheet.\(shapeId) at (\(pinX), \(pinY))"
+        core.renderViewportFrame()
+        statusMessage = "Dropped '\(master.name)' as Sheet.\(shapeId)"
+    }
+
+    public func drawQuickPrimitive(
+        kind: String,
+        atCanvasInches point: CGPoint,
+        undoManager: UndoManager?
+    ) {
+        let cx = min(max(Double(point.x), 1.0), 10.0)
+        let cy = min(max(Double(point.y), 1.0), 7.5)
+        let x1 = cx - 0.75
+        let y1 = cy - 0.45
+        let x2 = cx + 0.75
+        let y2 = cy + 0.45
+        do {
+            let sid = try core.drawPrimitive(
+                pageId: activePageId,
+                kind: kind,
+                x1In: x1,
+                y1In: y1,
+                x2In: x2,
+                y2In: y2
+            )
+            if sid != 0 {
+                selectedShapeId = sid
+                selectedShapeIds = [sid]
+            }
+            registerJournalUndoStep(actionName: "Insert \(kind.capitalized)", undoManager: undoManager)
+            reloadSelectedShapeSheetCells()
+            core.renderViewportFrame()
+            statusMessage = "Inserted \(kind) (Sheet.\(selectedShapeId))"
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    public func duplicateSelectedShapes(
+        dxInches: Double = 0.35,
+        dyInches: Double = -0.35,
+        undoManager: UndoManager?
+    ) {
+        let targets = selectedShapeIds.isEmpty ? [selectedShapeId] : selectedShapeIds
+        do {
+            let newFirst = try core.duplicateShapes(
+                pageId: activePageId,
+                shapeIds: targets,
+                dxIn: dxInches,
+                dyIn: dyInches
+            )
+            if newFirst != 0 {
+                selectedShapeId = newFirst
+                selectedShapeIds = [newFirst]
+            }
+            registerJournalUndoStep(actionName: "Duplicate Shape", undoManager: undoManager)
+            reloadSelectedShapeSheetCells()
+            core.renderViewportFrame()
+            statusMessage = "Duplicated selection → Sheet.\(selectedShapeId)"
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    public func copySelectionToClipboard() {
+        clipboardShapeIds = selectedShapeIds.isEmpty ? [selectedShapeId] : selectedShapeIds
+        statusMessage = "Copied \(clipboardShapeIds.count) shape(s)"
+    }
+
+    public func pasteClipboardAt(canvasInches point: CGPoint, undoManager: UndoManager?) {
+        let sourceIds = clipboardShapeIds.isEmpty
+            ? (selectedShapeIds.isEmpty ? [selectedShapeId] : selectedShapeIds)
+            : clipboardShapeIds
+        do {
+            let pastedId = try core.duplicateShapes(
+                pageId: activePageId,
+                shapeIds: sourceIds,
+                dxIn: 0.40,
+                dyIn: -0.40
+            )
+            if pastedId != 0 {
+                selectedShapeId = pastedId
+                selectedShapeIds = [pastedId]
+                try? core.setCellFormula(
+                    pageId: activePageId,
+                    shapeId: pastedId,
+                    cellName: "PinX",
+                    formula: String(format: "%.3f in", min(max(Double(point.x), 0.5), 10.5)),
+                    forceSetF: false
+                )
+                try? core.setCellFormula(
+                    pageId: activePageId,
+                    shapeId: pastedId,
+                    cellName: "PinY",
+                    formula: String(format: "%.3f in", min(max(Double(point.y), 0.5), 8.0)),
+                    forceSetF: false
+                )
+            }
+            registerJournalUndoStep(actionName: "Paste Shape", undoManager: undoManager)
+            reloadSelectedShapeSheetCells()
+            core.renderViewportFrame()
+            statusMessage = "Pasted Sheet.\(selectedShapeId)"
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    public func deleteSelectedShapes(undoManager: UndoManager?) {
+        let targets = selectedShapeIds.isEmpty ? [selectedShapeId] : selectedShapeIds
+        do {
+            let deleted = try core.deleteShapes(pageId: activePageId, shapeIds: targets)
+            if deleted > 0 {
+                selectedShapeIds = []
+                registerJournalUndoStep(actionName: "Delete Shape", undoManager: undoManager)
+                reloadSelectedShapeSheetCells()
+                core.renderViewportFrame()
+                statusMessage = "Deleted \(deleted) shape(s)"
+            }
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    public func reorderSelectedShapes(mode: String, undoManager: UndoManager?) {
+        let targets = selectedShapeIds.isEmpty ? [selectedShapeId] : selectedShapeIds
+        do {
+            try core.reorderShapes(pageId: activePageId, shapeIds: targets, mode: mode)
+            registerJournalUndoStep(actionName: "Arrange \(mode.capitalized)", undoManager: undoManager)
+            core.renderViewportFrame()
+            statusMessage = "Arranged selection (\(mode))"
+        } catch {
+            statusMessage = error.localizedDescription
+        }
     }
 
     public func rotateSelectedShape(byDegrees deltaDegrees: Double, undoManager: UndoManager?) {
@@ -1603,33 +2141,36 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
     }
 
     public func addNewPage() {
+        let proposedTitle = "Page-\((pages.map(\.id).max() ?? 0) + 1)"
+        if let createdPageId = try? core.addPage(name: proposedTitle), createdPageId != 0 {
+            let page = VexioPageSummary(id: createdPageId, title: proposedTitle)
+            pages.append(page)
+            activePageId = createdPageId
+            reloadSelectedShapeSheetCells()
+            core.renderViewportFrame()
+            statusMessage = "Created \(page.title)"
+            return
+        }
         let nextId = (pages.map(\.id).max() ?? 0) + 1
         let page = VexioPageSummary(id: nextId, title: "Page-\(nextId)")
         upsertPageInCore(pageId: nextId, title: page.title)
-        upsertShapeInCore(pageId: nextId, shapeId: 1, name: "Process.1")
         pages.append(page)
         activePageId = nextId
-        selectedShapeId = 1
-        selectedShapeIds = [1]
         reloadSelectedShapeSheetCells()
+        core.renderViewportFrame()
         statusMessage = "Created \(page.title)"
     }
 
     public func applyAutoLayout(_ preset: AutoLayoutPreset, undoManager: UndoManager?) {
-        let stepOffset: String
-        switch preset {
-        case .hierarchicalTopDown: stepOffset = "5.50 in"
-        case .swimlaneLeftRight: stepOffset = "4.25 in"
-        case .radialCluster: stepOffset = "4.75 in"
-        case .compactOrthogonal: stepOffset = "5.00 in"
+        do {
+            try core.autoLayout(pageId: activePageId, algo: preset.engineAlgorithmSlug)
+            registerJournalUndoStep(actionName: "Auto-Layout \(preset.rawValue)", undoManager: undoManager)
+            reloadSelectedShapeSheetCells()
+            core.renderViewportFrame()
+            statusMessage = "Applied \(preset.rawValue) layout"
+        } catch {
+            statusMessage = error.localizedDescription
         }
-        try? setCellFormula(
-            cellName: "PinY",
-            formula: stepOffset,
-            mode: .respectGuard,
-            undoManager: undoManager
-        )
-        statusMessage = "Applied \(preset.rawValue) layout"
     }
 
     public func runDiagramValidation(standard: ValidationStandardKind) {

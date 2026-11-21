@@ -6,17 +6,29 @@
 
 namespace winrt::VexioWindows::implementation {
 
-enum class ActiveCanvasTool : uint8_t {
-    Pointer,
-    Text,
-    Connector,
-    Rectangle,
-    InkPen,
-    InkHighlighter,
+enum class ActiveCanvasTool : uint32_t {
+    Pointer        = 0,
+    Pan            = 1,
+    Connector      = 2,
+    Text           = 3,
+    Rectangle      = 4,
+    RoundedRect    = 5,
+    Ellipse        = 6,
+    Diamond        = 7,
+    Triangle       = 8,
+    Line           = 9,
+    Arc            = 10,
+    Freeform       = 11,
+    InkPen         = 12,
+    InkHighlighter = 13,
+    Hexagon        = 14,
+    Star           = 15,
 };
 
 struct StencilMasterDescriptor {
     std::string id;
+    std::string categoryUtf8;
+    std::string masterNameUtf8;
     std::wstring packName;
     std::wstring displayName;
     std::wstring categoryTag;
@@ -24,6 +36,7 @@ struct StencilMasterDescriptor {
     std::string defaultHeightFormula;
     std::string defaultFillFormula;
     std::string stereotypeOrRuleType;
+    std::string svgMarkup;
 };
 
 struct PageTabModel {
@@ -97,6 +110,7 @@ struct MainWindow : MainWindowT<MainWindow> {
     void OnRedoClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
     void OnTiledPrintClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
     void OnTouchMouseModeToggle(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
+    void OnThemeModeToggleClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
 
     void OnNewBlankDocClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
     void OnNewBpmnTemplateClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
@@ -112,6 +126,11 @@ struct MainWindow : MainWindowT<MainWindow> {
     void OnPasteShapeClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
     void OnCutShapeClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
     void OnCopyShapeClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
+    void OnDuplicateShapeClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
+    void OnDeleteShapeClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
+    void OnBringFrontClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
+    void OnSendBackClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
+    void OnRailToolClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
     void OnPointerToolClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
     void OnTextToolClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
     void OnConnectorToolClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
@@ -213,6 +232,7 @@ struct MainWindow : MainWindowT<MainWindow> {
     void OnCanvasPointerMoved(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::Input::PointerRoutedEventArgs const& e);
     void OnCanvasPointerReleased(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::Input::PointerRoutedEventArgs const& e);
     void OnCanvasPointerWheelChanged(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::Input::PointerRoutedEventArgs const& e);
+    void OnCanvasRightTapped(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::Input::RightTappedRoutedEventArgs const& e);
     void OnCanvasDragOver(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::DragEventArgs const& e);
     void OnCanvasDrop(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::DragEventArgs const& e);
 
@@ -253,6 +273,7 @@ private:
 
     // DirectX 12 SwapChain Binding & Input Translation
     void AttachOrResizeDx12SwapChain();
+    void PresentViewportFrame();
     void DispatchCanvasPointerEvent(uint32_t kindOverride,
                                     winrt::Microsoft::UI::Xaml::Input::PointerRoutedEventArgs const& e);
     void ApplyCanvasCursor(uint32_t cursorKind);
@@ -312,6 +333,8 @@ private:
     winrt::Windows::Storage::StorageFile m_currentStorageFile{nullptr};
     bool         m_isDirty{false};
     bool         m_isInitialized{false};
+    bool         m_usingHeadlessFallback{false};
+    bool         m_lightThemeActive{true};
 
     uint32_t     m_activePageId{1};
     uint64_t     m_selectedShapeId{1};
@@ -336,13 +359,14 @@ private:
     double m_splitterStartHeight{248.0};
 
     // Catalogs & Models
+    std::vector<std::wstring>            m_stencilPackNames{};
     std::vector<StencilMasterDescriptor> m_allMasters{};
     std::vector<StencilMasterDescriptor> m_filteredMasters{};
     std::vector<PageTabModel>            m_pages{};
     std::vector<ExternalDataRecord>      m_externalRecords{};
     std::vector<DiagramLayerModel>       m_layers{};
     std::vector<ShapeSheetCellRow>       m_currentSectionRows{};
-    std::string                          m_clipboardMasterId{"flow.process"};
+    std::string                          m_clipboardMasterId{"Basic Shapes::Rectangle"};
 };
 
 } // namespace winrt::VexioWindows::implementation

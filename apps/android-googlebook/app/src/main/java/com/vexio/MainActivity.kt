@@ -93,7 +93,7 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            VexioMaterial3ExpressiveTheme {
+            VexioMaterial3ExpressiveTheme(darkTheme = uiState.isDarkTheme) {
                 GooglebookWorkstationScreen(
                     viewModel = sessionViewModel,
                     onOpenDocumentRequested = ::triggerOpenSafPicker,

@@ -11,7 +11,6 @@ import android.view.MotionEvent
 import android.view.SurfaceHolder
 import android.view.SurfaceView
 import android.view.View
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.expandVertically
@@ -19,12 +18,13 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.draganddrop.dragAndDropSource
 import androidx.compose.foundation.draganddrop.dragAndDropTarget
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -54,20 +54,37 @@ import androidx.compose.material.icons.filled.AccountTree
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Architecture
 import androidx.compose.material.icons.filled.Brush
+import androidx.compose.material.icons.filled.ChangeHistory
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.CropSquare
+import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material.icons.filled.Diamond
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.FlipToBack
+import androidx.compose.material.icons.filled.FlipToFront
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Functions
+import androidx.compose.material.icons.filled.Gesture
 import androidx.compose.material.icons.filled.GridOn
+import androidx.compose.material.icons.filled.Hexagon
+import androidx.compose.material.icons.filled.HorizontalRule
+import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.NearMe
 import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.PanTool
 import androidx.compose.material.icons.filled.Print
 import androidx.compose.material.icons.filled.RadioButtonUnchecked
+import androidx.compose.material.icons.filled.RoundedCorner
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Schema
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.filled.TableChart
 import androidx.compose.material.icons.filled.TextFields
 import androidx.compose.material.icons.filled.Timeline
@@ -87,8 +104,6 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationRail
-import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.VerticalDivider
@@ -112,8 +127,15 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusTarget
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.vector.PathParser
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.isAltPressed
@@ -125,6 +147,7 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
@@ -135,7 +158,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.input.motionprediction.MotionEventPredictor
 import com.vexio.MainActivity
-import com.vexio.core.BuiltInStencilCatalog
 import com.vexio.core.CrossWindowShapePayload
 import com.vexio.core.FormulaCommitStatus
 import com.vexio.core.Plan2SamplePayloads
@@ -324,7 +346,17 @@ fun GooglebookWorkstationScreen(
                         onPrintRequested()
                         true
                     }
-                    // Ctrl + 1 / 2 / 3 / 4 / 8 / 9 -> Visio Authoring Tool Parity
+                    // Ctrl + D -> Duplicate Selected Shape
+                    ctrlOrMeta && !shift && keyEvent.key == Key.D -> {
+                        viewModel.duplicateSelectedShapes()
+                        true
+                    }
+                    // Escape -> Return to Select Tool
+                    !ctrlOrMeta && keyEvent.key == Key.Escape -> {
+                        viewModel.selectTool(VexioTool.POINTER)
+                        true
+                    }
+                    // Ctrl + 1..9 -> Visio Authoring Tool Parity
                     ctrlOrMeta && keyEvent.key == Key.One -> {
                         viewModel.selectTool(VexioTool.POINTER)
                         true
@@ -343,6 +375,10 @@ fun GooglebookWorkstationScreen(
                     }
                     ctrlOrMeta && keyEvent.key == Key.Five -> {
                         viewModel.selectTool(VexioTool.FREEFORM)
+                        true
+                    }
+                    ctrlOrMeta && keyEvent.key == Key.Seven -> {
+                        viewModel.selectTool(VexioTool.HIGHLIGHTER)
                         true
                     }
                     ctrlOrMeta && keyEvent.key == Key.Eight -> {
@@ -382,11 +418,13 @@ fun GooglebookWorkstationScreen(
                 uiState = uiState,
                 posture = posture,
                 onNewWindowClick = { launchNewDocumentWindow(context, template = "blank") },
+                onLoadTemplate = viewModel::loadStarterTemplate,
                 onOpenClick = onOpenDocumentRequested,
                 onSaveClick = onSaveDocumentRequested,
                 onPrintClick = onPrintRequested,
                 onUndoClick = viewModel::performUndo,
                 onRedoClick = viewModel::performRedo,
+                onToggleTheme = viewModel::toggleDarkTheme,
                 onTogglePlan2Ribbon = {
                     viewModel.togglePlan2Ribbon()
                     if (navBackStack.lastOrNull() != WorkstationNavKey.Plan2Operations) {
@@ -398,17 +436,23 @@ fun GooglebookWorkstationScreen(
                 onToggleInspector = viewModel::toggleInspectorPane
             )
 
-            // 2. Live Visio ShapeSheet Formula Bar (GUARD-aware + SETF override)
-            ShapeSheetFormulaBar(
-                uiState = uiState,
-                formulaFocusRequester = formulaFocusRequester,
-                onFormulaChanged = viewModel::updateFormulaBarInput,
-                onForceSetfToggled = viewModel::setForceSetfOverride,
-                onCommitFormula = { viewModel.commitCellFormula() }
-            )
+            // 2. Developer ShapeSheet Formula Bar (Hidden by default until user toggles ShapeSheet / Shift+F5)
+            androidx.compose.animation.AnimatedVisibility(
+                visible = uiState.isShapeSheetDrawerExpanded,
+                enter = expandVertically(VexioExpressiveMotion.spatialSpring()) + fadeIn(),
+                exit = shrinkVertically(VexioExpressiveMotion.spatialSpring()) + fadeOut()
+            ) {
+                ShapeSheetFormulaBar(
+                    uiState = uiState,
+                    formulaFocusRequester = formulaFocusRequester,
+                    onFormulaChanged = viewModel::updateFormulaBarInput,
+                    onForceSetfToggled = viewModel::setForceSetfOverride,
+                    onCommitFormula = { viewModel.commitCellFormula() }
+                )
+            }
 
-            // 2b. Material 3 Expressive Plan 2 Enterprise Control Strip
-            AnimatedVisibility(
+            // 2b. Material 3 Expressive Plan 2 Enterprise Control Strip (Collapsible)
+            androidx.compose.animation.AnimatedVisibility(
                 visible = uiState.isPlan2RibbonExpanded,
                 enter = expandVertically(VexioExpressiveMotion.spatialSpring()) + fadeIn(),
                 exit = shrinkVertically(VexioExpressiveMotion.spatialSpring()) + fadeOut()
@@ -462,39 +506,39 @@ fun GooglebookWorkstationScreen(
                     .fillMaxWidth()
                     .animateContentSize(VexioExpressiveMotion.sizeReflowSpring)
             ) {
-                // Left Navigation Rail: Stencil Categories
-                StencilCategoryNavigationRail(
-                    selectedCategory = uiState.selectedStencilCategory,
-                    isDrawerExpanded = uiState.isStencilDrawerExpanded,
-                    onCategorySelected = { category ->
-                        viewModel.selectStencilCategory(category)
-                        if (!uiState.isStencilDrawerExpanded) {
-                            viewModel.toggleStencilDrawer()
-                        }
-                        navBackStack.add(WorkstationNavKey.StencilDrawer(category))
-                    }
-                )
-
-                // Supporting Pane A: Stencil Master Drawer (Cross-Window Drag Source)
-                val showStencilDrawer = uiState.isStencilDrawerExpanded &&
-                    posture != AdaptiveWorkstationPosture.COMPACT_CONVERTIBLE
-                if (showStencilDrawer) {
+                // Supporting Pane A: All 17 Visio Stencil Categories Navigator (Never gated off when toggled open)
+                if (uiState.isStencilDrawerExpanded) {
                     StencilMasterDrawerPane(
-                        windowInstanceId = uiState.windowInstanceId,
-                        selectedCategory = uiState.selectedStencilCategory,
+                        uiState = uiState,
+                        posture = posture,
+                        onSelectCategory = { cat ->
+                            viewModel.selectStencilCategory(cat)
+                            navBackStack.add(WorkstationNavKey.StencilDrawer(cat))
+                        },
                         onMasterClicked = { master ->
                             viewModel.instantiateMasterDrop(
                                 title = master.title,
                                 widthFormula = master.defaultWidthFormula,
                                 heightFormula = master.defaultHeightFormula,
                                 fillFormula = master.fillFormula,
-                                pinXInches = 4.25f,
-                                pinYInches = 5.50f
+                                pinXInches = 4.50f,
+                                pinYInches = 4.50f,
+                                category = master.category
                             )
+                        },
+                        onOpenNewWindowRequested = {
+                            launchNewDocumentWindow(context, template = "blank")
                         }
                     )
                     VerticalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 }
+
+                // Always-Visible Basic Drawing & Diagramming Tool Rail (All 16 Tools)
+                PersistentDrawingToolRail(
+                    activeTool = uiState.activeTool,
+                    onSelectTool = viewModel::selectTool
+                )
+                VerticalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
                 // Primary Center Pane: Vulkan SurfaceView + Expressive Morphing Toolbar + ShapeSheet Grid
                 Column(
@@ -502,8 +546,8 @@ fun GooglebookWorkstationScreen(
                         .weight(1f)
                         .fillMaxHeight()
                 ) {
-                    // Docked Expressive Toolbar mode when user toggles floating pill -> docked squircle bar
-                    AnimatedVisibility(
+                    // Docked Expressive Quick Toolbar
+                    androidx.compose.animation.AnimatedVisibility(
                         visible = !uiState.isToolbarFloating,
                         enter = expandVertically(VexioExpressiveMotion.spatialSpring()) + fadeIn(),
                         exit = shrinkVertically(VexioExpressiveMotion.spatialSpring()) + fadeOut()
@@ -516,7 +560,7 @@ fun GooglebookWorkstationScreen(
                             onToggleFloating = viewModel::toggleToolbarDockMode,
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 12.dp, vertical = 6.dp)
+                                .padding(horizontal = 10.dp, vertical = 5.dp)
                         )
                     }
 
@@ -547,12 +591,12 @@ fun GooglebookWorkstationScreen(
                                 onToggleFloating = viewModel::toggleToolbarDockMode,
                                 modifier = Modifier
                                     .align(Alignment.TopCenter)
-                                    .padding(top = 14.dp)
+                                    .padding(top = 12.dp)
                             )
                         }
 
                         // USI / Active Stylus Live Telemetry Pill Badge
-                        AnimatedVisibility(
+                        androidx.compose.animation.AnimatedVisibility(
                             visible = uiState.isStylusActive,
                             enter = fadeIn(),
                             exit = fadeOut(),
@@ -588,7 +632,7 @@ fun GooglebookWorkstationScreen(
                     }
 
                     // Bottom Collapsible ShapeSheet Live Cell Table (Shift+F5)
-                    AnimatedVisibility(
+                    androidx.compose.animation.AnimatedVisibility(
                         visible = uiState.isShapeSheetDrawerExpanded,
                         enter = expandVertically(VexioExpressiveMotion.spatialSpring()) + fadeIn(),
                         exit = shrinkVertically(VexioExpressiveMotion.spatialSpring()) + fadeOut()
@@ -603,9 +647,9 @@ fun GooglebookWorkstationScreen(
                     }
                 }
 
-                // Supporting Pane B: Inspector & BPMN 2.0 / UML 2.5 Validation Pane
+                // Supporting Pane B: Inspector & Validation Pane
                 val showInspectorPane = uiState.isInspectorExpanded &&
-                    posture == AdaptiveWorkstationPosture.ULTRAWIDE_DESKTOP
+                    posture != AdaptiveWorkstationPosture.COMPACT_CONVERTIBLE
                 if (showInspectorPane) {
                     VerticalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                     ShapeInspectorPane(
@@ -636,6 +680,8 @@ fun GooglebookWorkstationScreen(
                 posture = posture,
                 onSelectPage = viewModel::selectPage,
                 onAddPage = viewModel::addNewPage,
+                onCreateSubprocess = { viewModel.createOrLinkSubprocess() },
+                onAutoLayoutPage = { viewModel.autoLayoutActivePage() },
                 onZoomReset = { viewModel.setZoomPercent(100) }
             )
         }
@@ -647,16 +693,20 @@ private fun WorkstationHeaderBar(
     uiState: WorkstationUiState,
     posture: AdaptiveWorkstationPosture,
     onNewWindowClick: () -> Unit,
+    onLoadTemplate: (String) -> Unit,
     onOpenClick: () -> Unit,
     onSaveClick: () -> Unit,
     onPrintClick: () -> Unit,
     onUndoClick: () -> Unit,
     onRedoClick: () -> Unit,
+    onToggleTheme: () -> Unit,
     onTogglePlan2Ribbon: () -> Unit,
     onToggleStencilDrawer: () -> Unit,
     onToggleShapeSheet: () -> Unit,
     onToggleInspector: () -> Unit
 ) {
+    var templatesMenuExpanded by remember { mutableStateOf(false) }
+
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainerLow,
         tonalElevation = 2.dp,
@@ -714,6 +764,40 @@ private fun WorkstationHeaderBar(
                 }
             }
 
+            // Starter Templates Menu
+            Box {
+                FilledTonalButton(
+                    onClick = { templatesMenuExpanded = true },
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 5.dp),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text("Templates ▾", style = MaterialTheme.typography.labelMedium)
+                }
+                DropdownMenu(
+                    expanded = templatesMenuExpanded,
+                    onDismissRequest = { templatesMenuExpanded = false }
+                ) {
+                    listOf(
+                        "Flowchart Starter" to "flowchart",
+                        "BPMN 2.0 Process" to "bpmn",
+                        "Network & Cloud" to "network",
+                        "Floor Plan & CAD" to "floorplan",
+                        "Organization Chart" to "orgchart",
+                        "UML 2.5 Class Diagram" to "uml"
+                    ).forEach { (label, slug) ->
+                        DropdownMenuItem(
+                            text = { Text(label) },
+                            onClick = {
+                                templatesMenuExpanded = false
+                                onLoadTemplate(slug)
+                            }
+                        )
+                    }
+                }
+            }
+
+            Spacer(Modifier.width(4.dp))
+
             // Undo / Redo
             IconButton(onClick = onUndoClick, enabled = uiState.canUndo) {
                 Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = "Undo (Ctrl+Z)")
@@ -733,20 +817,28 @@ private fun WorkstationHeaderBar(
                 Icon(Icons.Default.Print, contentDescription = "Print Vector PDF (Ctrl+P)")
             }
 
+            // Light Mode (Default) / Dark Mode Switch
+            IconButton(onClick = onToggleTheme) {
+                Icon(
+                    imageVector = if (uiState.isDarkTheme) Icons.Default.LightMode else Icons.Default.DarkMode,
+                    contentDescription = if (uiState.isDarkTheme) "Switch to Light Mode (Default)" else "Switch to Dark Mode"
+                )
+            }
+
             Spacer(Modifier.width(4.dp))
 
             // Multi-Instance Side-by-Side Window Launcher Button
             FilledTonalButton(
                 onClick = onNewWindowClick,
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
                 shape = RoundedCornerShape(14.dp)
             ) {
                 Icon(
                     imageVector = Icons.Default.OpenInNew,
                     contentDescription = null,
-                    modifier = Modifier.size(16.dp)
+                    modifier = Modifier.size(15.dp)
                 )
-                Spacer(Modifier.width(6.dp))
+                Spacer(Modifier.width(5.dp))
                 Text(
                     text = if (posture == AdaptiveWorkstationPosture.COMPACT_CONVERTIBLE) {
                         "Window"
@@ -759,17 +851,17 @@ private fun WorkstationHeaderBar(
 
             Spacer(Modifier.width(6.dp))
 
-            // Pane Toggles (Plan 2 Ribbon, Stencils, ShapeSheet Shift+F5, Inspector)
-            FilledTonalIconButton(onClick = onTogglePlan2Ribbon) {
-                Icon(Icons.Default.Architecture, contentDescription = "Toggle Plan 2 Operations Ribbon")
-            }
+            // Pane Toggles (Stencils, Plan 2 Ribbon, ShapeSheet Shift+F5, Inspector)
             FilledTonalIconButton(onClick = onToggleStencilDrawer) {
-                Icon(Icons.Default.Schema, contentDescription = "Toggle Stencil Drawer")
+                Icon(Icons.Default.Schema, contentDescription = "Toggle 17-Pack Stencil Navigator")
+            }
+            FilledTonalIconButton(onClick = onTogglePlan2Ribbon) {
+                Icon(Icons.Default.Architecture, contentDescription = "Toggle Advanced Operations Ribbon")
             }
             FilledTonalIconButton(onClick = onToggleShapeSheet) {
-                Icon(Icons.Default.TableChart, contentDescription = "Toggle ShapeSheet (Shift+F5)")
+                Icon(Icons.Default.TableChart, contentDescription = "Toggle ShapeSheet Formula Studio (Shift+F5)")
             }
-            if (posture == AdaptiveWorkstationPosture.ULTRAWIDE_DESKTOP) {
+            if (posture != AdaptiveWorkstationPosture.COMPACT_CONVERTIBLE) {
                 FilledTonalIconButton(onClick = onToggleInspector) {
                     Icon(Icons.Default.ViewSidebar, contentDescription = "Toggle Inspector Pane")
                 }
@@ -1240,87 +1332,74 @@ private fun ShapeSheetFormulaBar(
     }
 }
 
-@Composable
-private fun StencilCategoryNavigationRail(
-    selectedCategory: String,
-    isDrawerExpanded: Boolean,
-    onCategorySelected: (String) -> Unit
-) {
-    NavigationRail(
-        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-        modifier = Modifier.fillMaxHeight()
-    ) {
-        Spacer(Modifier.height(8.dp))
-        BuiltInStencilCatalog.categories.forEach { category ->
-            val icon = when (category) {
-                "BPMN 2.0" -> Icons.Default.AccountTree
-                "Flowchart" -> Icons.Default.Schema
-                "UML 2.5" -> Icons.Default.Timeline
-                else -> Icons.Default.Architecture
-            }
-            val selected = isDrawerExpanded && selectedCategory == category
-            NavigationRailItem(
-                selected = selected,
-                onClick = { onCategorySelected(category) },
-                icon = { Icon(icon, contentDescription = category) },
-                label = {
-                    Text(
-                        text = category.substringBefore(' '),
-                        style = MaterialTheme.typography.labelSmall
-                    )
-                }
-            )
-        }
-    }
+private fun resolveToolIcon(tool: VexioTool): ImageVector = when (tool) {
+    VexioTool.POINTER -> Icons.Default.NearMe
+    VexioTool.PAN_HAND -> Icons.Default.PanTool
+    VexioTool.CONNECTOR -> Icons.Default.Timeline
+    VexioTool.LINE -> Icons.Default.HorizontalRule
+    VexioTool.ARC -> Icons.Default.Gesture
+    VexioTool.FREEFORM -> Icons.Default.Architecture
+    VexioTool.RECTANGLE -> Icons.Default.CropSquare
+    VexioTool.ROUNDED_RECT -> Icons.Default.RoundedCorner
+    VexioTool.ELLIPSE -> Icons.Default.RadioButtonUnchecked
+    VexioTool.DIAMOND -> Icons.Default.Diamond
+    VexioTool.TRIANGLE -> Icons.Default.ChangeHistory
+    VexioTool.HEXAGON -> Icons.Default.Hexagon
+    VexioTool.STAR -> Icons.Default.StarBorder
+    VexioTool.TEXT_BLOCK -> Icons.Default.TextFields
+    VexioTool.STYLUS_INK -> Icons.Default.Brush
+    VexioTool.HIGHLIGHTER -> Icons.Default.Edit
 }
 
+/**
+ * Always-visible vertical Basic Drawing & Diagramming Tool Rail exposing all 16 Visio tools.
+ */
 @Composable
-private fun StencilMasterDrawerPane(
-    windowInstanceId: String,
-    selectedCategory: String,
-    onMasterClicked: (StencilMasterItem) -> Unit
+private fun PersistentDrawingToolRail(
+    activeTool: VexioTool,
+    onSelectTool: (VexioTool) -> Unit
 ) {
-    val categoryMasters = remember(selectedCategory) {
-        BuiltInStencilCatalog.masters.filter { it.category == selectedCategory }
-    }
-
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainerLow,
         modifier = Modifier
-            .width(236.dp)
+            .width(50.dp)
             .fillMaxHeight()
     ) {
-        Column(modifier = Modifier.fillMaxSize()) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 14.dp, vertical = 10.dp)
-            ) {
-                Text(
-                    text = "$selectedCategory Stencils",
-                    style = MaterialTheme.typography.titleSmall,
-                    modifier = Modifier.weight(1f)
-                )
-                Text(
-                    text = "Drag ⇄",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.primary
-                )
-            }
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-
-            LazyColumn(
-                contentPadding = PaddingValues(10.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.fillMaxSize()
-            ) {
-                items(categoryMasters, key = { it.masterId }) { master ->
-                    DraggableStencilMasterCard(
-                        windowInstanceId = windowInstanceId,
-                        master = master,
-                        onClick = { onMasterClicked(master) }
-                    )
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(3.dp),
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(vertical = 6.dp, horizontal = 4.dp)
+        ) {
+            VexioTool.entries.forEach { tool ->
+                val selected = activeTool == tool
+                val btnShape = rememberExpressiveToolButtonShape(isSelected = selected)
+                Surface(
+                    shape = btnShape,
+                    color = if (selected) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        Color.Transparent
+                    },
+                    modifier = Modifier
+                        .size(38.dp)
+                        .clip(btnShape)
+                        .clickable { onSelectTool(tool) }
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = resolveToolIcon(tool),
+                            contentDescription = "${tool.displayName} (${tool.shortcutHint})",
+                            tint = if (selected) {
+                                MaterialTheme.colorScheme.onPrimary
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                            modifier = Modifier.size(19.dp)
+                        )
+                    }
                 }
             }
         }
@@ -1328,15 +1407,339 @@ private fun StencilMasterDrawerPane(
 }
 
 /**
- * Stencil Master card acting as a cross-window Drag & Drop source (`DRAG_FLAG_GLOBAL`) so users
- * can drag masters directly across side-by-side Vexio windows on Googlebook OS.
+ * Collapsible 17-Category Visio Professional Stencil Navigator with live search,
+ * category filter chips, crisp multi-geometry SVG previews, cross-window Drag & Drop,
+ * and stencil context menus.
+ */
+@Composable
+private fun StencilMasterDrawerPane(
+    uiState: WorkstationUiState,
+    posture: AdaptiveWorkstationPosture,
+    onSelectCategory: (String) -> Unit,
+    onMasterClicked: (StencilMasterItem) -> Unit,
+    onOpenNewWindowRequested: () -> Unit
+) {
+    var searchQuery by remember { mutableStateOf("") }
+    var expandedCategories by remember {
+        mutableStateOf(
+            setOf(
+                "Basic Shapes",
+                "Basic Flowchart",
+                "Arrows & Callouts",
+                "BPMN 2.0"
+            )
+        )
+    }
+
+    val drawerWidth = if (posture == AdaptiveWorkstationPosture.COMPACT_CONVERTIBLE) 224.dp else 268.dp
+    val trimmedQuery = searchQuery.trim()
+    val visibleCategories = remember(uiState.selectedStencilCategory, uiState.stencilCategories) {
+        if (uiState.selectedStencilCategory != "All" &&
+            uiState.selectedStencilCategory in uiState.stencilCategories
+        ) {
+            listOf(uiState.selectedStencilCategory)
+        } else {
+            uiState.stencilCategories
+        }
+    }
+
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        modifier = Modifier
+            .width(drawerWidth)
+            .fillMaxHeight()
+    ) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            // Header + Expand All / Collapse Toggle
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 8.dp)
+            ) {
+                Text(
+                    text = "Stencils (${uiState.stencilCategories.size} Packs)",
+                    style = MaterialTheme.typography.titleSmall,
+                    modifier = Modifier.weight(1f)
+                )
+                val allExpanded = expandedCategories.size >= uiState.stencilCategories.size
+                Text(
+                    text = if (allExpanded) "Collapse" else "Expand All",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .clickable {
+                            expandedCategories = if (allExpanded) {
+                                setOf("Basic Shapes", "Basic Flowchart")
+                            } else {
+                                uiState.stencilCategories.toSet()
+                            }
+                        }
+                        .padding(horizontal = 6.dp, vertical = 3.dp)
+                )
+            }
+
+            // Search Field
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 10.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(MaterialTheme.colorScheme.surfaceContainerLowest)
+                    .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(10.dp))
+                    .padding(horizontal = 8.dp, vertical = 6.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Search,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(15.dp)
+                )
+                Spacer(Modifier.width(6.dp))
+                Box(modifier = Modifier.weight(1f)) {
+                    if (searchQuery.isEmpty()) {
+                        Text(
+                            text = "Search ${uiState.stencilMasters.size} shapes in ${uiState.stencilCategories.size} packs…",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    BasicTextField(
+                        value = searchQuery,
+                        onValueChange = { searchQuery = it },
+                        singleLine = true,
+                        textStyle = MaterialTheme.typography.labelMedium.copy(
+                            color = MaterialTheme.colorScheme.onSurface
+                        ),
+                        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+                if (searchQuery.isNotEmpty()) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Clear Search",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier
+                            .size(15.dp)
+                            .clickable { searchQuery = "" }
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(6.dp))
+
+            // Horizontal Category Filter Pills (All + 17 Packs)
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(5.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+                    .padding(horizontal = 10.dp, vertical = 2.dp)
+            ) {
+                (listOf("All") + uiState.stencilCategories).forEach { cat ->
+                    val active = uiState.selectedStencilCategory == cat
+                    Surface(
+                        shape = CircleShape,
+                        color = if (active) {
+                            MaterialTheme.colorScheme.primaryContainer
+                        } else {
+                            MaterialTheme.colorScheme.surfaceContainer
+                        },
+                        border = BorderStroke(
+                            width = 1.dp,
+                            color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant
+                        ),
+                        modifier = Modifier
+                            .clip(CircleShape)
+                            .clickable {
+                                onSelectCategory(cat)
+                                if (cat != "All") {
+                                    expandedCategories = expandedCategories + cat
+                                }
+                            }
+                    ) {
+                        Text(
+                            text = cat,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (active) {
+                                MaterialTheme.colorScheme.onPrimaryContainer
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                            modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp)
+                        )
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(4.dp))
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
+            // 17-Category Accordion List
+            LazyColumn(
+                contentPadding = PaddingValues(10.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxSize()
+            ) {
+                visibleCategories.forEach { category ->
+                    val mastersInCat = uiState.stencilMasters.filter { m ->
+                        m.category == category && (
+                            trimmedQuery.isEmpty() ||
+                                m.title.contains(trimmedQuery, ignoreCase = true) ||
+                                m.category.contains(trimmedQuery, ignoreCase = true) ||
+                                m.prompt.contains(trimmedQuery, ignoreCase = true)
+                            )
+                    }
+                    if (mastersInCat.isNotEmpty()) {
+                        val isExpanded = trimmedQuery.isNotEmpty() ||
+                            uiState.selectedStencilCategory == category ||
+                            category in expandedCategories
+
+                        item(key = "header::$category") {
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = MaterialTheme.colorScheme.surfaceContainer,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .clickable {
+                                        expandedCategories = if (category in expandedCategories) {
+                                            expandedCategories - category
+                                        } else {
+                                            expandedCategories + category
+                                        }
+                                    }
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = if (isExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(16.dp),
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                    Spacer(Modifier.width(6.dp))
+                                    Text(
+                                        text = category,
+                                        style = MaterialTheme.typography.labelLarge,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    Badge(
+                                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                                    ) {
+                                        Text(
+                                            text = "${mastersInCat.size}",
+                                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        if (isExpanded) {
+                            items(mastersInCat, key = { it.masterId }) { master ->
+                                DraggableStencilMasterCard(
+                                    windowInstanceId = uiState.windowInstanceId,
+                                    master = master,
+                                    onClick = { onMasterClicked(master) },
+                                    onOpenNewWindowRequested = onOpenNewWindowRequested
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private data class ParsedComposeSvgPath(
+    val path: Path,
+    val fillColor: Color?,
+    val strokeColor: Color?,
+    val strokeWidthPx: Float
+)
+
+private fun extractSvgAttr(name: String, tagSlice: String): String? {
+    val needle = "$name=\""
+    val start = tagSlice.indexOf(needle)
+    if (start < 0) return null
+    val valStart = start + needle.length
+    val valEnd = tagSlice.indexOf('"', valStart)
+    if (valEnd < 0) return null
+    return tagSlice.substring(valStart, valEnd)
+}
+
+private fun parseSvgHexColor(raw: String?, fallback: Color): Color? {
+    val trimmed = raw?.trim().orEmpty()
+    if (trimmed.isEmpty() || trimmed == "none") return null
+    if (trimmed.startsWith("url(")) return fallback.copy(alpha = 0.16f)
+    val hex = trimmed.removePrefix("#")
+    if (hex.length == 6) {
+        val rgb = hex.toLongOrNull(16)
+        if (rgb != null) {
+            return Color(0xFF000000L or rgb)
+        }
+    }
+    return fallback
+}
+
+private fun parseStencilSvgPaths(svg: String, defaultAccent: Color): List<ParsedComposeSvgPath> {
+    if (svg.isBlank()) return emptyList()
+    val groupIdx = svg.indexOf("data-shape-id=")
+    if (groupIdx < 0) return emptyList()
+    val body = svg.substring(groupIdx)
+    val list = mutableListOf<ParsedComposeSvgPath>()
+    var cursor = 0
+    while (cursor < body.length) {
+        val pStart = body.indexOf("<path ", cursor)
+        if (pStart < 0) break
+        val pEnd = body.indexOf('>', pStart)
+        if (pEnd < 0) break
+        val tag = body.substring(pStart + 6, pEnd)
+        val d = extractSvgAttr("d", tag)
+        if (!d.isNullOrBlank()) {
+            val parsedPath = runCatching { PathParser().parsePathString(d).toPath() }.getOrNull()
+            if (parsedPath != null) {
+                val fill = parseSvgHexColor(extractSvgAttr("fill", tag), defaultAccent)
+                val stroke = parseSvgHexColor(extractSvgAttr("stroke", tag), defaultAccent)
+                val sw = extractSvgAttr("stroke-width", tag)?.toFloatOrNull() ?: 1.3f
+                list.add(ParsedComposeSvgPath(parsedPath, fill, stroke, sw))
+            }
+        }
+        cursor = pEnd + 1
+    }
+    return list
+}
+
+/**
+ * Stencil Master card acting as a cross-window Drag & Drop source (`DRAG_FLAG_GLOBAL`),
+ * rendering crisp multi-geometry SVG vector previews via Compose `PathParser`, and exposing
+ * right-click / long-press context menus.
  */
 @Composable
 private fun DraggableStencilMasterCard(
     windowInstanceId: String,
     master: StencilMasterItem,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onOpenNewWindowRequested: () -> Unit
 ) {
+    var cardMenuExpanded by remember { mutableStateOf(false) }
+    val primaryStroke = MaterialTheme.colorScheme.primary
+    val parsedSvgPaths = remember(master.svgPreview, primaryStroke) {
+        parseStencilSvgPaths(master.svgPreview, primaryStroke)
+    }
+
     val jsonPayload = remember(windowInstanceId, master) {
         Json.encodeToString(
             CrossWindowShapePayload(
@@ -1345,136 +1748,209 @@ private fun DraggableStencilMasterCard(
                 title = master.title,
                 widthFormula = master.defaultWidthFormula,
                 heightFormula = master.defaultHeightFormula,
-                fillFormula = master.fillFormula
+                fillFormula = master.fillFormula,
+                category = master.category
             )
         )
     }
 
-    Surface(
-        shape = RoundedCornerShape(14.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerLowest,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-        modifier = Modifier
-            .fillMaxWidth()
-            .dragAndDropSource {
-                detectTapGestures(
-                    onTap = { onClick() },
-                    onLongPress = {
+    Box {
+        Surface(
+            shape = RoundedCornerShape(12.dp),
+            color = MaterialTheme.colorScheme.surfaceContainerLowest,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .combinedClickable(
+                    onClick = onClick,
+                    onLongClick = { cardMenuExpanded = true }
+                )
+                .dragAndDropSource(
+                    transferData = { _: Offset ->
                         val item = ClipData.Item(jsonPayload)
                         val clipData = ClipData(
                             master.title,
                             arrayOf(VEXIO_MASTER_CLIP_MIME, ClipDescription.MIMETYPE_TEXT_PLAIN),
                             item
                         )
-                        startTransfer(
-                            DragAndDropTransferData(
-                                clipData = clipData,
-                                flags = View.DRAG_FLAG_GLOBAL or View.DRAG_FLAG_GLOBAL_URI_READ
-                            )
+                        DragAndDropTransferData(
+                            clipData = clipData,
+                            flags = View.DRAG_FLAG_GLOBAL or View.DRAG_FLAG_GLOBAL_URI_READ
                         )
                     }
                 )
-            }
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)
         ) {
-            Surface(
-                shape = RoundedCornerShape(8.dp),
-                color = Color(0xFFF8FAFC),
-                border = BorderStroke(1.dp, Color(0xFFCBD5E1)),
-                modifier = Modifier.size(width = 50.dp, height = 36.dp)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)
             ) {
-                val primaryStroke = MaterialTheme.colorScheme.primary
-                val fillTint = primaryStroke.copy(alpha = 0.14f)
-                androidx.compose.foundation.Canvas(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(6.dp)
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = Color(0xFFFFFFFF),
+                    border = BorderStroke(1.dp, Color(0xFFCBD5E1)),
+                    modifier = Modifier.size(width = 56.dp, height = 40.dp)
                 ) {
-                    val w = size.width
-                    val h = size.height
-                    val strokeStyle = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.8.dp.toPx())
-                    val low = master.title.lowercase()
-                    when {
-                        master.shapeKind == "Circle" || "event" in low -> {
-                            val r = minOf(w, h) * 0.44f
-                            drawCircle(color = fillTint, radius = r)
-                            drawCircle(color = primaryStroke, radius = r, style = strokeStyle)
-                            if ("intermediate" in low) {
-                                drawCircle(color = primaryStroke, radius = r * 0.72f, style = strokeStyle)
+                    val fillTint = primaryStroke.copy(alpha = 0.14f)
+                    androidx.compose.foundation.Canvas(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(3.dp)
+                    ) {
+                        val w = size.width
+                        val h = size.height
+                        if (parsedSvgPaths.isNotEmpty()) {
+                            val srcW = 144f
+                            val srcH = 96f
+                            val scale = minOf(w / srcW, h / srcH)
+                            val offX = (w - srcW * scale) * 0.5f
+                            val offY = (h - srcH * scale) * 0.5f
+                            androidx.compose.ui.graphics.drawscope.withTransform({
+                                translate(left = offX, top = offY)
+                                scale(scaleX = scale, scaleY = scale, pivot = Offset.Zero)
+                            }) {
+                                parsedSvgPaths.forEach { seg ->
+                                    if (seg.fillColor != null) {
+                                        drawPath(seg.path, color = seg.fillColor)
+                                    }
+                                    if (seg.strokeColor != null) {
+                                        drawPath(
+                                            seg.path,
+                                            color = seg.strokeColor,
+                                            style = Stroke(width = (seg.strokeWidthPx).coerceAtLeast(1.6f))
+                                        )
+                                    }
+                                }
                             }
-                        }
-                        master.shapeKind == "Diamond" || "gateway" in low || "decision" in low -> {
-                            val p = androidx.compose.ui.graphics.Path().apply {
-                                moveTo(w * 0.5f, 0f)
-                                lineTo(w, h * 0.5f)
-                                lineTo(w * 0.5f, h)
-                                lineTo(0f, h * 0.5f)
-                                close()
-                            }
-                            drawPath(p, color = fillTint)
-                            drawPath(p, color = primaryStroke, style = strokeStyle)
-                            if ("exclusive" in low) {
-                                drawLine(primaryStroke, androidx.compose.ui.geometry.Offset(w * 0.38f, h * 0.36f), androidx.compose.ui.geometry.Offset(w * 0.62f, h * 0.64f), strokeWidth = strokeStyle.width)
-                                drawLine(primaryStroke, androidx.compose.ui.geometry.Offset(w * 0.62f, h * 0.36f), androidx.compose.ui.geometry.Offset(w * 0.38f, h * 0.64f), strokeWidth = strokeStyle.width)
-                            } else if ("parallel" in low) {
-                                drawLine(primaryStroke, androidx.compose.ui.geometry.Offset(w * 0.5f, h * 0.28f), androidx.compose.ui.geometry.Offset(w * 0.5f, h * 0.72f), strokeWidth = strokeStyle.width)
-                                drawLine(primaryStroke, androidx.compose.ui.geometry.Offset(w * 0.32f, h * 0.5f), androidx.compose.ui.geometry.Offset(w * 0.68f, h * 0.5f), strokeWidth = strokeStyle.width)
-                            }
-                        }
-                        "class" in low || "interface" in low || "entity" in low -> {
-                            drawRect(color = fillTint)
-                            drawRect(color = primaryStroke, style = strokeStyle)
-                            drawLine(primaryStroke, androidx.compose.ui.geometry.Offset(0f, h * 0.32f), androidx.compose.ui.geometry.Offset(w, h * 0.32f), strokeWidth = strokeStyle.width * 0.8f)
-                            drawLine(primaryStroke, androidx.compose.ui.geometry.Offset(0f, h * 0.66f), androidx.compose.ui.geometry.Offset(w, h * 0.66f), strokeWidth = strokeStyle.width * 0.8f)
-                        }
-                        "data" in low -> {
-                            val p = androidx.compose.ui.graphics.Path().apply {
-                                moveTo(w * 0.16f, 0f)
-                                lineTo(w, 0f)
-                                lineTo(w * 0.84f, h)
-                                lineTo(0f, h)
-                                close()
-                            }
-                            drawPath(p, color = fillTint)
-                            drawPath(p, color = primaryStroke, style = strokeStyle)
-                        }
-                        else -> {
-                            val cr = androidx.compose.ui.geometry.CornerRadius(if ("start" in low || "pill" in low) h * 0.5f else 3.dp.toPx())
-                            drawRoundRect(color = fillTint, cornerRadius = cr)
-                            drawRoundRect(color = primaryStroke, cornerRadius = cr, style = strokeStyle)
-                            if ("subprocess" in low) {
-                                drawLine(primaryStroke, androidx.compose.ui.geometry.Offset(w * 0.15f, 0f), androidx.compose.ui.geometry.Offset(w * 0.15f, h), strokeWidth = strokeStyle.width * 0.8f)
-                                drawLine(primaryStroke, androidx.compose.ui.geometry.Offset(w * 0.85f, 0f), androidx.compose.ui.geometry.Offset(w * 0.85f, h), strokeWidth = strokeStyle.width * 0.8f)
+                        } else {
+                            val strokeStyle = Stroke(width = 1.7.dp.toPx())
+                            val low = master.title.lowercase()
+                            when {
+                                master.shapeKind == "Circle" || "event" in low || "pump" in low -> {
+                                    val r = minOf(w, h) * 0.42f
+                                    drawCircle(color = fillTint, radius = r)
+                                    drawCircle(color = primaryStroke, radius = r, style = strokeStyle)
+                                }
+                                master.shapeKind == "Diamond" || "gateway" in low || "decision" in low -> {
+                                    val p = Path().apply {
+                                        moveTo(w * 0.5f, 0f)
+                                        lineTo(w, h * 0.5f)
+                                        lineTo(w * 0.5f, h)
+                                        lineTo(0f, h * 0.5f)
+                                        close()
+                                    }
+                                    drawPath(p, color = fillTint)
+                                    drawPath(p, color = primaryStroke, style = strokeStyle)
+                                }
+                                master.shapeKind == "Hexagon" || "cluster" in low -> {
+                                    val p = Path().apply {
+                                        moveTo(w * 0.22f, 0f)
+                                        lineTo(w * 0.78f, 0f)
+                                        lineTo(w, h * 0.5f)
+                                        lineTo(w * 0.78f, h)
+                                        lineTo(w * 0.22f, h)
+                                        lineTo(0f, h * 0.5f)
+                                        close()
+                                    }
+                                    drawPath(p, color = fillTint)
+                                    drawPath(p, color = primaryStroke, style = strokeStyle)
+                                }
+                                master.shapeKind == "Star" || "star" in low -> {
+                                    val p = Path().apply {
+                                        moveTo(w * 0.5f, 0f)
+                                        lineTo(w * 0.63f, h * 0.36f)
+                                        lineTo(w, h * 0.38f)
+                                        lineTo(w * 0.70f, h * 0.62f)
+                                        lineTo(w * 0.81f, h)
+                                        lineTo(w * 0.5f, h * 0.77f)
+                                        lineTo(w * 0.19f, h)
+                                        lineTo(w * 0.30f, h * 0.62f)
+                                        lineTo(0f, h * 0.38f)
+                                        lineTo(w * 0.37f, h * 0.36f)
+                                        close()
+                                    }
+                                    drawPath(p, color = fillTint)
+                                    drawPath(p, color = primaryStroke, style = strokeStyle)
+                                }
+                                master.shapeKind == "Arrow" || "arrow" in low -> {
+                                    val p = Path().apply {
+                                        moveTo(0f, h * 0.28f)
+                                        lineTo(w * 0.62f, h * 0.28f)
+                                        lineTo(w * 0.62f, 0f)
+                                        lineTo(w, h * 0.5f)
+                                        lineTo(w * 0.62f, h)
+                                        lineTo(w * 0.62f, h * 0.72f)
+                                        lineTo(0f, h * 0.72f)
+                                        close()
+                                    }
+                                    drawPath(p, color = fillTint)
+                                    drawPath(p, color = primaryStroke, style = strokeStyle)
+                                }
+                                master.shapeKind == "ClassBox" || "class" in low || "entity" in low || "window" in low -> {
+                                    drawRect(color = fillTint)
+                                    drawRect(color = primaryStroke, style = strokeStyle)
+                                    drawLine(primaryStroke, Offset(0f, h * 0.32f), Offset(w, h * 0.32f), strokeWidth = strokeStyle.width * 0.8f)
+                                }
+                                master.shapeKind == "Cylinder" || "database" in low -> {
+                                    drawRoundRect(color = fillTint, cornerRadius = CornerRadius(6.dp.toPx()))
+                                    drawRoundRect(color = primaryStroke, cornerRadius = CornerRadius(6.dp.toPx()), style = strokeStyle)
+                                    drawLine(primaryStroke, Offset(0f, h * 0.28f), Offset(w, h * 0.28f), strokeWidth = strokeStyle.width * 0.8f)
+                                }
+                                else -> {
+                                    val cr = CornerRadius(if (master.shapeKind == "Pill" || "start" in low) h * 0.5f else 4.dp.toPx())
+                                    drawRoundRect(color = fillTint, cornerRadius = cr)
+                                    drawRoundRect(color = primaryStroke, cornerRadius = cr, style = strokeStyle)
+                                }
                             }
                         }
                     }
                 }
+                Spacer(Modifier.width(10.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = master.title,
+                        style = MaterialTheme.typography.labelLarge,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = master.category,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
             }
-            Spacer(Modifier.width(10.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = master.title,
-                    style = MaterialTheme.typography.labelLarge,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Text(
-                    text = "${master.defaultWidthFormula} × ${master.defaultHeightFormula}",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
+        }
+
+        DropdownMenu(
+            expanded = cardMenuExpanded,
+            onDismissRequest = { cardMenuExpanded = false }
+        ) {
+            DropdownMenuItem(
+                text = { Text("Add '${master.title}' to Page") },
+                leadingIcon = { Icon(Icons.Default.Add, contentDescription = null) },
+                onClick = {
+                    cardMenuExpanded = false
+                    onClick()
+                }
+            )
+            DropdownMenuItem(
+                text = { Text("Open New Side-by-Side Window") },
+                leadingIcon = { Icon(Icons.Default.OpenInNew, contentDescription = null) },
+                onClick = {
+                    cardMenuExpanded = false
+                    onOpenNewWindowRequested()
+                }
+            )
         }
     }
 }
 
 /**
  * Material 3 Expressive Toolbar that morphs smoothly between a floating capsule pill (`28.dp`)
- * and a docked desktop squircle bar (`16.dp`), with individual tool buttons morphing between
- * circular pills and active expressive squircles via `spring(dampingRatio = 0.68f, stiffness = 380f)`.
+ * and a docked desktop squircle bar (`16.dp`), exposing all 16 Visio drawing & authoring tools.
  */
 @Composable
 private fun ExpressiveMorphingToolbar(
@@ -1486,18 +1962,6 @@ private fun ExpressiveMorphingToolbar(
     modifier: Modifier = Modifier
 ) {
     val toolbarShape = rememberMorphingToolbarShape(isFloatingPill = isFloating)
-    val tools = remember {
-        listOf(
-            VexioTool.POINTER to Icons.Default.NearMe,
-            VexioTool.RECTANGLE to Icons.Default.CropSquare,
-            VexioTool.ELLIPSE to Icons.Default.RadioButtonUnchecked,
-            VexioTool.FREEFORM to Icons.Default.Architecture,
-            VexioTool.CONNECTOR to Icons.Default.Timeline,
-            VexioTool.TEXT_BLOCK to Icons.Default.TextFields,
-            VexioTool.STYLUS_INK to Icons.Default.Brush,
-            VexioTool.PAN_HAND to Icons.Default.PanTool
-        )
-    }
 
     Surface(
         shape = toolbarShape,
@@ -1510,12 +1974,12 @@ private fun ExpressiveMorphingToolbar(
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            horizontalArrangement = Arrangement.spacedBy(3.dp),
             modifier = Modifier
                 .horizontalScroll(rememberScrollState())
-                .padding(horizontal = 10.dp, vertical = 6.dp)
+                .padding(horizontal = 10.dp, vertical = 5.dp)
         ) {
-            tools.forEach { (tool, icon) ->
+            VexioTool.entries.forEach { tool ->
                 val isSelected = uiState.activeTool == tool
                 val itemShape = rememberExpressiveToolButtonShape(isSelected = isSelected)
                 val scale by rememberExpressiveScaleState(emphasized = isSelected)
@@ -1549,18 +2013,18 @@ private fun ExpressiveMorphingToolbar(
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.padding(
-                            horizontal = if (isSelected) 12.dp else 9.dp,
-                            vertical = 7.dp
+                            horizontal = if (isSelected) 11.dp else 8.dp,
+                            vertical = 6.dp
                         )
                     ) {
                         Icon(
-                            imageVector = icon,
+                            imageVector = resolveToolIcon(tool),
                             contentDescription = "${tool.displayName} (${tool.shortcutHint})",
                             tint = contentColor,
-                            modifier = Modifier.size(18.dp)
+                            modifier = Modifier.size(17.dp)
                         )
                         if (isSelected) {
-                            Spacer(Modifier.width(6.dp))
+                            Spacer(Modifier.width(5.dp))
                             Text(
                                 text = tool.displayName,
                                 style = MaterialTheme.typography.labelMedium,
@@ -1573,19 +2037,19 @@ private fun ExpressiveMorphingToolbar(
 
             VerticalDivider(
                 modifier = Modifier
-                    .height(24.dp)
+                    .height(22.dp)
                     .padding(horizontal = 4.dp),
                 color = MaterialTheme.colorScheme.outlineVariant
             )
 
             IconButton(
                 onClick = { onZoomDelta(-15) },
-                modifier = Modifier.size(32.dp)
+                modifier = Modifier.size(30.dp)
             ) {
                 Icon(
                     imageVector = Icons.Default.ZoomOut,
                     contentDescription = "Zoom Out",
-                    modifier = Modifier.size(18.dp)
+                    modifier = Modifier.size(17.dp)
                 )
             }
             Text(
@@ -1595,23 +2059,23 @@ private fun ExpressiveMorphingToolbar(
             )
             IconButton(
                 onClick = { onZoomDelta(15) },
-                modifier = Modifier.size(32.dp)
+                modifier = Modifier.size(30.dp)
             ) {
                 Icon(
                     imageVector = Icons.Default.ZoomIn,
                     contentDescription = "Zoom In",
-                    modifier = Modifier.size(18.dp)
+                    modifier = Modifier.size(17.dp)
                 )
             }
 
             IconButton(
                 onClick = onToggleFloating,
-                modifier = Modifier.size(32.dp)
+                modifier = Modifier.size(30.dp)
             ) {
                 Icon(
                     imageVector = Icons.Default.Tune,
                     contentDescription = if (isFloating) "Dock Toolbar" else "Float Pill Toolbar",
-                    modifier = Modifier.size(17.dp)
+                    modifier = Modifier.size(16.dp)
                 )
             }
         }
@@ -1621,10 +2085,11 @@ private fun ExpressiveMorphingToolbar(
 /**
  * Vulkan `SurfaceView` Canvas container equipped with:
  * - Zero-flicker `SurfaceHolder.Callback` (`nativeAttachVulkanSurface` / `nativeResizeViewport`)
+ * - Software RGBA viewport fallback `Image` when Vulkan swapchain is absent
  * - Hardware mouse cursor binding (`PointerIcon.getSystemIcon`)
  * - Unbuffered low-latency USI active stylus dispatch + `MotionEventPredictor` + Palm Rejection
  * - Cross-Window Drag & Drop target accepting Vexio Master JSON payloads & `.vsdx`/`.vsd`/`.dwg`/`.dxf` URIs
- * - Hardware mouse secondary-button (right-click) context menu
+ * - Full desktop hardware mouse secondary-button (right-click) context menu
  */
 @Composable
 private fun VulkanCanvasDropZone(
@@ -1641,6 +2106,7 @@ private fun VulkanCanvasDropZone(
     var isDragHovering by remember { mutableStateOf(false) }
     var contextMenuVisible by remember { mutableStateOf(false) }
     var contextMenuOffsetDp by remember { mutableStateOf(DpOffset.Zero) }
+    var lastRightClickPageIn by remember { mutableStateOf(5.5 to 4.25) }
 
     val hardwarePointerIcon = remember(uiState.activeCursor) {
         resolveHardwarePointerIcon(context, uiState.activeCursor)
@@ -1666,7 +2132,6 @@ private fun VulkanCanvasDropZone(
                 val clipData = dragEvent.clipData ?: return false
                 if (clipData.itemCount == 0) return false
 
-                // Request cross-window URI read permission if dropped from Files app or another Vexio window
                 val activity = context as? Activity
                 val dragPermissions = activity?.requestDragAndDropPermissions(dragEvent)
 
@@ -1693,7 +2158,6 @@ private fun VulkanCanvasDropZone(
                             Json.decodeFromString<CrossWindowShapePayload>(rawText)
                         }.getOrNull()
                         if (payload != null) {
-                            // Convert physical drop coordinates into canonical Visio page inches (96 logical dpi)
                             val dpi = 96f * density * (viewModel.uiState.value.zoomPercent / 100f)
                             val pinXIn = (dragEvent.x / dpi.coerceAtLeast(1f)).coerceIn(0.5f, 10.5f)
                             val pinYIn = (8.5f - (dragEvent.y / dpi.coerceAtLeast(1f))).coerceIn(0.5f, 8.0f)
@@ -1703,13 +2167,13 @@ private fun VulkanCanvasDropZone(
                                 heightFormula = payload.heightFormula,
                                 fillFormula = payload.fillFormula,
                                 pinXInches = pinXIn,
-                                pinYInches = pinYIn
+                                pinYInches = pinYIn,
+                                category = payload.category
                             )
                             return true
                         }
                     }
                 } finally {
-                    // Note: if URI opening is asynchronous, MainActivity copies bytes immediately on drop
                     if (clipData.getItemAt(0).uri == null) {
                         dragPermissions?.release()
                     }
@@ -1760,7 +2224,6 @@ private fun VulkanCanvasDropZone(
                             width: Int,
                             height: Int
                         ) {
-                            // Live zero-flicker freeform Googlebook OS window resize
                             viewModel.resizeVulkanViewport(
                                 width = width,
                                 height = height,
@@ -1773,8 +2236,20 @@ private fun VulkanCanvasDropZone(
                         }
                     })
 
+                    fun showCanvasContextMenuAt(xPx: Float, yPx: Float) {
+                        val pxToDp = ctx.resources.displayMetrics.density.coerceAtLeast(1f)
+                        contextMenuOffsetDp = DpOffset(
+                            x = (xPx / pxToDp).dp,
+                            y = (yPx / pxToDp).dp
+                        )
+                        val dpi = (96f * pxToDp * (viewModel.uiState.value.zoomPercent / 100f)).coerceAtLeast(1f)
+                        val xIn = (xPx / dpi).toDouble().coerceIn(1.0, 10.0)
+                        val yIn = (8.5 - (yPx / dpi).toDouble()).coerceIn(1.0, 7.5)
+                        lastRightClickPageIn = xIn to yIn
+                        contextMenuVisible = true
+                    }
+
                     setOnTouchListener { view, motionEvent ->
-                        // Request unbuffered sub-frame dispatch for USI / active stylus strokes
                         if (motionEvent.actionMasked == MotionEvent.ACTION_DOWN) {
                             val tool = motionEvent.getToolType(0)
                             if (tool == MotionEvent.TOOL_TYPE_STYLUS ||
@@ -1783,12 +2258,8 @@ private fun VulkanCanvasDropZone(
                                 view.requestUnbufferedDispatch(motionEvent)
                             }
                             if ((motionEvent.buttonState and MotionEvent.BUTTON_SECONDARY) != 0) {
-                                val pxToDp = ctx.resources.displayMetrics.density
-                                contextMenuOffsetDp = DpOffset(
-                                    x = (motionEvent.x / pxToDp).dp,
-                                    y = (motionEvent.y / pxToDp).dp
-                                )
-                                contextMenuVisible = true
+                                showCanvasContextMenuAt(motionEvent.x, motionEvent.y)
+                                return@setOnTouchListener true
                             }
                         }
                         val handled = viewModel.dispatchMotionEvent(motionEvent, predictor)
@@ -1800,6 +2271,12 @@ private fun VulkanCanvasDropZone(
                     }
 
                     setOnGenericMotionListener { view, motionEvent ->
+                        if (motionEvent.actionMasked == MotionEvent.ACTION_BUTTON_PRESS &&
+                            motionEvent.actionButton == MotionEvent.BUTTON_SECONDARY
+                        ) {
+                            showCanvasContextMenuAt(motionEvent.x, motionEvent.y)
+                            return@setOnGenericMotionListener true
+                        }
                         val handled = viewModel.dispatchMotionEvent(motionEvent, predictor)
                         view.pointerIcon = resolveHardwarePointerIcon(
                             ctx,
@@ -1814,6 +2291,17 @@ private fun VulkanCanvasDropZone(
             },
             modifier = Modifier.fillMaxSize()
         )
+
+        // Software RGBA Viewport Fallback Overlay (active when device lacks Vulkan swapchain)
+        val fallbackBitmap = uiState.canvasFallbackBitmap
+        if (fallbackBitmap != null) {
+            Image(
+                bitmap = fallbackBitmap.asImageBitmap(),
+                contentDescription = "Diagram Canvas",
+                contentScale = ContentScale.FillBounds,
+                modifier = Modifier.fillMaxSize()
+            )
+        }
 
         // Cross-window Drag & Drop active highlight overlay
         if (isDragHovering) {
@@ -1847,20 +2335,101 @@ private fun VulkanCanvasDropZone(
             }
         }
 
-        // Hardware Mouse Right-Click Context Menu
+        // Full Desktop Right-Click Context Menu
         DropdownMenu(
             expanded = contextMenuVisible,
             onDismissRequest = { contextMenuVisible = false },
             offset = contextMenuOffsetDp
         ) {
             DropdownMenuItem(
-                text = { Text("Edit ShapeSheet (Shift+F5)") },
-                leadingIcon = { Icon(Icons.Default.TableChart, contentDescription = null) },
+                text = { Text("Duplicate Selection (Ctrl+D)") },
+                leadingIcon = { Icon(Icons.Default.ContentCopy, contentDescription = null) },
                 onClick = {
                     contextMenuVisible = false
-                    if (!uiState.isShapeSheetDrawerExpanded) {
-                        viewModel.toggleShapeSheetDrawer()
-                    }
+                    viewModel.duplicateSelectedShapes()
+                }
+            )
+            DropdownMenuItem(
+                text = { Text("Delete Selected Shape (Del)") },
+                leadingIcon = { Icon(Icons.Default.DeleteOutline, contentDescription = null) },
+                onClick = {
+                    contextMenuVisible = false
+                    viewModel.deleteSelectedShape()
+                }
+            )
+            HorizontalDivider()
+            DropdownMenuItem(
+                text = { Text("Bring to Front") },
+                leadingIcon = { Icon(Icons.Default.FlipToFront, contentDescription = null) },
+                onClick = {
+                    contextMenuVisible = false
+                    viewModel.reorderSelectedShapes("front")
+                }
+            )
+            DropdownMenuItem(
+                text = { Text("Send to Back") },
+                leadingIcon = { Icon(Icons.Default.FlipToBack, contentDescription = null) },
+                onClick = {
+                    contextMenuVisible = false
+                    viewModel.reorderSelectedShapes("back")
+                }
+            )
+            HorizontalDivider()
+            DropdownMenuItem(
+                text = { Text("Insert Rectangle Here") },
+                leadingIcon = { Icon(Icons.Default.CropSquare, contentDescription = null) },
+                onClick = {
+                    contextMenuVisible = false
+                    viewModel.drawQuickPrimitive("rect", lastRightClickPageIn.first, lastRightClickPageIn.second)
+                }
+            )
+            DropdownMenuItem(
+                text = { Text("Insert Circle / Ellipse Here") },
+                leadingIcon = { Icon(Icons.Default.RadioButtonUnchecked, contentDescription = null) },
+                onClick = {
+                    contextMenuVisible = false
+                    viewModel.drawQuickPrimitive("ellipse", lastRightClickPageIn.first, lastRightClickPageIn.second)
+                }
+            )
+            DropdownMenuItem(
+                text = { Text("Insert Diamond Here") },
+                leadingIcon = { Icon(Icons.Default.Diamond, contentDescription = null) },
+                onClick = {
+                    contextMenuVisible = false
+                    viewModel.drawQuickPrimitive("diamond", lastRightClickPageIn.first, lastRightClickPageIn.second)
+                }
+            )
+            DropdownMenuItem(
+                text = { Text("Insert Hexagon Here") },
+                leadingIcon = { Icon(Icons.Default.Hexagon, contentDescription = null) },
+                onClick = {
+                    contextMenuVisible = false
+                    viewModel.drawQuickPrimitive("hexagon", lastRightClickPageIn.first, lastRightClickPageIn.second)
+                }
+            )
+            DropdownMenuItem(
+                text = { Text("Insert 5-Point Star Here") },
+                leadingIcon = { Icon(Icons.Default.StarBorder, contentDescription = null) },
+                onClick = {
+                    contextMenuVisible = false
+                    viewModel.drawQuickPrimitive("star", lastRightClickPageIn.first, lastRightClickPageIn.second)
+                }
+            )
+            DropdownMenuItem(
+                text = { Text("Insert Straight Line Here") },
+                leadingIcon = { Icon(Icons.Default.HorizontalRule, contentDescription = null) },
+                onClick = {
+                    contextMenuVisible = false
+                    viewModel.drawQuickPrimitive("line", lastRightClickPageIn.first, lastRightClickPageIn.second)
+                }
+            )
+            HorizontalDivider()
+            DropdownMenuItem(
+                text = { Text("Auto-Layout Active Page") },
+                leadingIcon = { Icon(Icons.Default.Schema, contentDescription = null) },
+                onClick = {
+                    contextMenuVisible = false
+                    viewModel.autoLayoutActivePage()
                 }
             )
             DropdownMenuItem(
@@ -1872,11 +2441,13 @@ private fun VulkanCanvasDropZone(
                 }
             )
             DropdownMenuItem(
-                text = { Text("Boolean Union (Selected Shapes)") },
-                leadingIcon = { Icon(Icons.Default.Architecture, contentDescription = null) },
+                text = { Text("Inspect ShapeSheet (Shift+F5)") },
+                leadingIcon = { Icon(Icons.Default.TableChart, contentDescription = null) },
                 onClick = {
                     contextMenuVisible = false
-                    viewModel.performBooleanOp(VexioBooleanOp.UNION)
+                    if (!uiState.isShapeSheetDrawerExpanded) {
+                        viewModel.toggleShapeSheetDrawer()
+                    }
                 }
             )
             DropdownMenuItem(
@@ -1885,14 +2456,6 @@ private fun VulkanCanvasDropZone(
                 onClick = {
                     contextMenuVisible = false
                     onOpenNewWindowRequested()
-                }
-            )
-            DropdownMenuItem(
-                text = { Text("Delete Selected Shape (Del)") },
-                leadingIcon = { Icon(Icons.Default.DeleteOutline, contentDescription = null) },
-                onClick = {
-                    contextMenuVisible = false
-                    viewModel.deleteSelectedShape()
                 }
             )
         }
@@ -2176,6 +2739,8 @@ private fun WorkstationBottomStatusBar(
     posture: AdaptiveWorkstationPosture,
     onSelectPage: (Int) -> Unit,
     onAddPage: () -> Unit,
+    onCreateSubprocess: () -> Unit,
+    onAutoLayoutPage: () -> Unit,
     onZoomReset: () -> Unit
 ) {
     Surface(
@@ -2188,7 +2753,7 @@ private fun WorkstationBottomStatusBar(
                 .fillMaxWidth()
                 .padding(horizontal = 10.dp, vertical = 4.dp)
         ) {
-            // Page Tabs
+            // Page Tabs with Context Menus
             Row(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 modifier = Modifier
@@ -2197,27 +2762,71 @@ private fun WorkstationBottomStatusBar(
             ) {
                 uiState.pages.forEach { tab ->
                     val active = tab.pageId == uiState.activePageId
-                    Surface(
-                        shape = RoundedCornerShape(10.dp),
-                        color = if (active) {
-                            MaterialTheme.colorScheme.primaryContainer
-                        } else {
-                            MaterialTheme.colorScheme.surfaceContainerLow
-                        },
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(10.dp))
-                            .clickable { onSelectPage(tab.pageId) }
-                    ) {
-                        Text(
-                            text = "${tab.name} (${tab.scaleLabel})",
-                            style = MaterialTheme.typography.labelMedium,
+                    var pageMenuExpanded by remember(tab.pageId) { mutableStateOf(false) }
+
+                    Box {
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
                             color = if (active) {
-                                MaterialTheme.colorScheme.onPrimaryContainer
+                                MaterialTheme.colorScheme.primaryContainer
                             } else {
-                                MaterialTheme.colorScheme.onSurfaceVariant
+                                MaterialTheme.colorScheme.surfaceContainerLow
                             },
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
-                        )
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(10.dp))
+                                .combinedClickable(
+                                    onClick = { onSelectPage(tab.pageId) },
+                                    onLongClick = { pageMenuExpanded = true }
+                                )
+                        ) {
+                            Text(
+                                text = "${tab.name} (${tab.scaleLabel})",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = if (active) {
+                                    MaterialTheme.colorScheme.onPrimaryContainer
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                },
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                            )
+                        }
+
+                        DropdownMenu(
+                            expanded = pageMenuExpanded,
+                            onDismissRequest = { pageMenuExpanded = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Switch to ${tab.name}") },
+                                onClick = {
+                                    pageMenuExpanded = false
+                                    onSelectPage(tab.pageId)
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Insert New Page") },
+                                leadingIcon = { Icon(Icons.Default.Add, contentDescription = null) },
+                                onClick = {
+                                    pageMenuExpanded = false
+                                    onAddPage()
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Create Subprocess Page") },
+                                leadingIcon = { Icon(Icons.Default.AccountTree, contentDescription = null) },
+                                onClick = {
+                                    pageMenuExpanded = false
+                                    onCreateSubprocess()
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Auto-Layout Active Page") },
+                                leadingIcon = { Icon(Icons.Default.Schema, contentDescription = null) },
+                                onClick = {
+                                    pageMenuExpanded = false
+                                    onAutoLayoutPage()
+                                }
+                            )
+                        }
                     }
                 }
                 Surface(

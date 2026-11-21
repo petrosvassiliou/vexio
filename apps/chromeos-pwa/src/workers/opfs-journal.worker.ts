@@ -65,7 +65,6 @@ export type OpfsWorkerResponse =
     }
   | { id: number; ok: false; error: string };
 
-const openSyncHandles = new Map<string, FileSystemSyncAccessHandle>();
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 
@@ -74,17 +73,24 @@ async function getSubDir(name: OpfsFolder): Promise<FileSystemDirectoryHandle> {
   return root.getDirectoryHandle(name, { create: true });
 }
 
-async function getSyncHandle(folder: OpfsFolder, fileName: string): Promise<FileSystemSyncAccessHandle> {
+async function withSyncHandle<R>(
+  folder: OpfsFolder,
+  fileName: string,
+  fn: (handle: FileSystemSyncAccessHandle) => R
+): Promise<R> {
   const safeName = fileName.replace(/[^a-zA-Z0-9._-]/g, '_');
-  const key = `${folder}/${safeName}`;
-  const cached = openSyncHandles.get(key);
-  if (cached) return cached;
-
   const dir = await getSubDir(folder);
   const fileHandle = (await dir.getFileHandle(safeName, { create: true })) as SyncCapableFileHandle;
   const syncHandle = await fileHandle.createSyncAccessHandle();
-  openSyncHandles.set(key, syncHandle);
-  return syncHandle;
+  try {
+    return fn(syncHandle);
+  } finally {
+    try {
+      syncHandle.close();
+    } catch {
+      // Ignore close error
+    }
+  }
 }
 
 function writeSyncAtomic(handle: FileSystemSyncAccessHandle, data: Uint8Array): number {
@@ -104,8 +110,7 @@ function readSyncAll(handle: FileSystemSyncAccessHandle): Uint8Array {
 }
 
 async function readJsonIndex<T>(folder: OpfsFolder, fileName: string): Promise<T[]> {
-  const handle = await getSyncHandle(folder, fileName);
-  const bytes = readSyncAll(handle);
+  const bytes = await withSyncHandle(folder, fileName, (h) => readSyncAll(h));
   if (bytes.byteLength === 0) return [];
   try {
     const parsed = JSON.parse(textDecoder.decode(bytes));
@@ -116,8 +121,9 @@ async function readJsonIndex<T>(folder: OpfsFolder, fileName: string): Promise<T
 }
 
 async function writeJsonIndex<T>(folder: OpfsFolder, fileName: string, items: T[]): Promise<void> {
-  const handle = await getSyncHandle(folder, fileName);
-  writeSyncAtomic(handle, textEncoder.encode(JSON.stringify(items)));
+  await withSyncHandle(folder, fileName, (h) =>
+    writeSyncAtomic(h, textEncoder.encode(JSON.stringify(items)))
+  );
 }
 
 self.onmessage = async (ev: MessageEvent<OpfsWorkerRequest>) => {
@@ -125,14 +131,14 @@ self.onmessage = async (ev: MessageEvent<OpfsWorkerRequest>) => {
   try {
     switch (req.op) {
       case 'writeWal': {
-        const h = await getSyncHandle('wal', `${req.docId}.wal`);
-        const byteLength = writeSyncAtomic(h, req.bytes);
+        const byteLength = await withSyncHandle('wal', `${req.docId}.wal`, (h) =>
+          writeSyncAtomic(h, req.bytes)
+        );
         self.postMessage({ id: req.id, ok: true, byteLength } satisfies OpfsWorkerResponse);
         break;
       }
       case 'readWal': {
-        const h = await getSyncHandle('wal', `${req.docId}.wal`);
-        const bytes = readSyncAll(h);
+        const bytes = await withSyncHandle('wal', `${req.docId}.wal`, (h) => readSyncAll(h));
         self.postMessage(
           { id: req.id, ok: true, bytes } satisfies OpfsWorkerResponse,
           { transfer: [bytes.buffer] }
@@ -140,14 +146,14 @@ self.onmessage = async (ev: MessageEvent<OpfsWorkerRequest>) => {
         break;
       }
       case 'writeAutosave': {
-        const h = await getSyncHandle('autosave', `${req.docId}.vsdx`);
-        const byteLength = writeSyncAtomic(h, req.vsdxBytes);
+        const byteLength = await withSyncHandle('autosave', `${req.docId}.vsdx`, (h) =>
+          writeSyncAtomic(h, req.vsdxBytes)
+        );
         self.postMessage({ id: req.id, ok: true, byteLength } satisfies OpfsWorkerResponse);
         break;
       }
       case 'readAutosave': {
-        const h = await getSyncHandle('autosave', `${req.docId}.vsdx`);
-        const bytes = readSyncAll(h);
+        const bytes = await withSyncHandle('autosave', `${req.docId}.vsdx`, (h) => readSyncAll(h));
         self.postMessage(
           { id: req.id, ok: true, bytes } satisfies OpfsWorkerResponse,
           { transfer: [bytes.buffer] }
@@ -155,8 +161,9 @@ self.onmessage = async (ev: MessageEvent<OpfsWorkerRequest>) => {
         break;
       }
       case 'cacheStencil': {
-        const h = await getSyncHandle('stencils', req.name);
-        const byteLength = writeSyncAtomic(h, req.vssxBytes);
+        const byteLength = await withSyncHandle('stencils', req.name, (h) =>
+          writeSyncAtomic(h, req.vssxBytes)
+        );
         self.postMessage({ id: req.id, ok: true, byteLength } satisfies OpfsWorkerResponse);
         break;
       }
@@ -171,8 +178,11 @@ self.onmessage = async (ev: MessageEvent<OpfsWorkerRequest>) => {
         break;
       }
       case 'saveVersion': {
-        const vHandle = await getSyncHandle('versions', `${req.docId}__${req.versionId}.vsdx`);
-        const byteLength = writeSyncAtomic(vHandle, req.vsdxBytes);
+        const byteLength = await withSyncHandle(
+          'versions',
+          `${req.docId}__${req.versionId}.vsdx`,
+          (h) => writeSyncAtomic(h, req.vsdxBytes)
+        );
         const indexName = `${req.docId}__index.json`;
         const existing = await readJsonIndex<OpfsVersionMeta>('versions', indexName);
         const meta: OpfsVersionMeta = {
@@ -193,8 +203,11 @@ self.onmessage = async (ev: MessageEvent<OpfsWorkerRequest>) => {
         break;
       }
       case 'loadVersion': {
-        const vHandle = await getSyncHandle('versions', `${req.docId}__${req.versionId}.vsdx`);
-        const bytes = readSyncAll(vHandle);
+        const bytes = await withSyncHandle(
+          'versions',
+          `${req.docId}__${req.versionId}.vsdx`,
+          (h) => readSyncAll(h)
+        );
         self.postMessage(
           { id: req.id, ok: true, bytes } satisfies OpfsWorkerResponse,
           { transfer: [bytes.buffer] }
@@ -202,8 +215,9 @@ self.onmessage = async (ev: MessageEvent<OpfsWorkerRequest>) => {
         break;
       }
       case 'saveWorkspace': {
-        const wHandle = await getSyncHandle('workspaces', `${req.docId}.vsdx`);
-        const byteLength = writeSyncAtomic(wHandle, req.vsdxBytes);
+        const byteLength = await withSyncHandle('workspaces', `${req.docId}.vsdx`, (h) =>
+          writeSyncAtomic(h, req.vsdxBytes)
+        );
         const existing = await readJsonIndex<OpfsWorkspaceMeta>('workspaces', '__index.json');
         const meta: OpfsWorkspaceMeta = {
           docId: req.docId,
@@ -222,8 +236,9 @@ self.onmessage = async (ev: MessageEvent<OpfsWorkerRequest>) => {
         break;
       }
       case 'loadWorkspace': {
-        const wHandle = await getSyncHandle('workspaces', `${req.docId}.vsdx`);
-        const bytes = readSyncAll(wHandle);
+        const bytes = await withSyncHandle('workspaces', `${req.docId}.vsdx`, (h) =>
+          readSyncAll(h)
+        );
         self.postMessage(
           { id: req.id, ok: true, bytes } satisfies OpfsWorkerResponse,
           { transfer: [bytes.buffer] }
@@ -239,3 +254,4 @@ self.onmessage = async (ev: MessageEvent<OpfsWorkerRequest>) => {
     } satisfies OpfsWorkerResponse);
   }
 };
+
