@@ -140,9 +140,11 @@ void MainWindow::ConfigureCustomTitleBar() {
 
     if (const HWND hwnd = GetNativeWindowHandle(); hwnd != nullptr) {
         const WindowId windowId = GetWindowIdFromWindow(hwnd);
-        if (const AppWindow appWindow = AppWindow::GetFromWindowId(windowId)) {
+        if (const Microsoft::UI::Windowing::AppWindow appWindow =
+                Microsoft::UI::Windowing::AppWindow::GetFromWindowId(windowId))
+        {
             appWindow.Resize(Windows::Graphics::SizeInt32{1600, 980});
-            if (AppWindowTitleBar::IsCustomizationSupported()) {
+            if (Microsoft::UI::Windowing::AppWindowTitleBar::IsCustomizationSupported()) {
                 auto titleBar = appWindow.TitleBar();
                 titleBar.ButtonBackgroundColor(Colors::Transparent());
                 titleBar.ButtonInactiveBackgroundColor(Colors::Transparent());
@@ -800,18 +802,15 @@ void MainWindow::RefreshStencilList() {
         swatch.Background(SolidColorBrush{Windows::UI::ColorHelper::FromArgb(0xFF, 0xF8, 0xFA, 0xFC)});
         swatch.BorderBrush(SolidColorBrush{Windows::UI::ColorHelper::FromArgb(0xFF, 0xCB, 0xD5, 0xE1)});
         swatch.BorderThickness(Thickness{1, 1, 1, 1});
-        auto geom = Markup::XamlBindingHelper::ConvertValue(
-            xaml_typename<Media::Geometry>(),
-            box_value(hstring{pathMarkup})).try_as<Media::Geometry>();
-        Shapes::Path vectorPreview{};
-        if (geom) {
-            vectorPreview.Data(geom);
+        if (auto vectorPreview = Markup::XamlReader::Load(hstring{
+                std::format(
+                    L"<Path xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\" Data=\"{}\" Stretch=\"Uniform\" StrokeThickness=\"1.6\" Margin=\"5,4,5,4\" />",
+                    pathMarkup)
+            }).try_as<Shapes::Path>())
+        {
+            vectorPreview.Stroke(SolidColorBrush{strokeCol});
+            swatch.Child(vectorPreview);
         }
-        vectorPreview.Stroke(SolidColorBrush{strokeCol});
-        vectorPreview.StrokeThickness(1.6);
-        vectorPreview.Stretch(Media::Stretch::Uniform);
-        vectorPreview.Margin(Thickness{5, 4, 5, 4});
-        swatch.Child(vectorPreview);
         Grid::SetColumn(swatch, 0);
 
         StackPanel meta{};
