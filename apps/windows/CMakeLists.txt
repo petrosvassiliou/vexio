@@ -65,8 +65,16 @@ configure_file(
 # Imported target for Rust Core (vexio_core.dll.lib)
 add_library(vexio_core SHARED IMPORTED GLOBAL)
 set_target_properties(vexio_core PROPERTIES
-    IMPORTED_IMPLIB "${VEXIO_CORE_IMPLIB}"
-    IMPORTED_LOCATION "${VEXIO_CORE_DLL}"
+    IMPORTED_IMPLIB "${VEXIO_RUST_TARGET_DIR}/release/vexio_core.dll.lib"
+    IMPORTED_LOCATION "${VEXIO_RUST_TARGET_DIR}/release/vexio_core.dll"
+    IMPORTED_IMPLIB_DEBUG "${VEXIO_RUST_TARGET_DIR}/debug/vexio_core.dll.lib"
+    IMPORTED_LOCATION_DEBUG "${VEXIO_RUST_TARGET_DIR}/debug/vexio_core.dll"
+    IMPORTED_IMPLIB_RELEASE "${VEXIO_RUST_TARGET_DIR}/release/vexio_core.dll.lib"
+    IMPORTED_LOCATION_RELEASE "${VEXIO_RUST_TARGET_DIR}/release/vexio_core.dll"
+    IMPORTED_IMPLIB_RELWITHDEBINFO "${VEXIO_RUST_TARGET_DIR}/release/vexio_core.dll.lib"
+    IMPORTED_LOCATION_RELWITHDEBINFO "${VEXIO_RUST_TARGET_DIR}/release/vexio_core.dll"
+    IMPORTED_IMPLIB_MINSIZEREL "${VEXIO_RUST_TARGET_DIR}/release/vexio_core.dll.lib"
+    IMPORTED_LOCATION_MINSIZEREL "${VEXIO_RUST_TARGET_DIR}/release/vexio_core.dll"
     INTERFACE_INCLUDE_DIRECTORIES "${VEXIO_INCLUDE_DIR}"
 )
 
@@ -188,7 +196,7 @@ set_target_properties(Vexio PROPERTIES
 # Stage vexio_core.dll and Package.appxmanifest next to Vexio.exe for immediate launch & MSIX packaging
 add_custom_command(TARGET Vexio POST_BUILD
     COMMAND "${CMAKE_COMMAND}" -E copy_if_different
-            "${VEXIO_CORE_DLL}"
+            "$<TARGET_FILE:vexio_core>"
             "$<TARGET_FILE_DIR:Vexio>/vexio_core.dll"
     COMMAND "${CMAKE_COMMAND}" -E copy_if_different
             "${CMAKE_CURRENT_SOURCE_DIR}/Package.appxmanifest"
