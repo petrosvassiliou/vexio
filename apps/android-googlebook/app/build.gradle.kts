@@ -17,8 +17,8 @@ android {
         applicationId = "com.vexio.googlebook"
         minSdk = 29
         targetSdk = 36
-        versionCode = 100
-        versionName = "1.0.0"
+        versionCode = 10
+        versionName = "0.1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -29,6 +29,12 @@ android {
 
         vectorDrawables {
             useSupportLibrary = true
+        }
+    }
+
+    testOptions {
+        unitTests {
+            isReturnDefaultValues = true
         }
     }
 

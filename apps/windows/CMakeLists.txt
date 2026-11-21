@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.26)
 
 project(VexioWindows
-    VERSION 1.0.0
+    VERSION 0.1.0
     DESCRIPTION "Vexio Native Windows Workstation (WinUI 3 + DirectX 12)"
     LANGUAGES CXX
 )

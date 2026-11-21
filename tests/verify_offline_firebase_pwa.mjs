@@ -7,10 +7,12 @@
  */
 
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
+const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const DIST_DIR = resolve(REPO_ROOT, 'apps/chromeos-pwa/dist');
 const HOSTING_ORIGIN = 'http://127.0.0.1:5000';
 const AUTH_ORIGIN = 'http://127.0.0.1:9099';
 const FIRESTORE_ORIGIN = 'http://127.0.0.1:8080';
@@ -21,7 +23,7 @@ process.env.NO_PROXY = '127.0.0.1,localhost';
 process.env.no_proxy = '127.0.0.1,localhost';
 
 async function main() {
-  console.log('=== [1/5] Verifying Firebase Hosting COOP/COEP SharedArrayBuffer Headers ===');
+  console.log('=== [1/6] Verifying Firebase Hosting COOP/COEP SharedArrayBuffer Headers ===');
   const rootRes = await fetch(`${HOSTING_ORIGIN}/`);
   assert.equal(rootRes.status, 200, 'Hosting root / must return 200 OK');
   assert.equal(
@@ -41,7 +43,7 @@ async function main() {
   );
   console.log('  ✓ COOP: same-origin, COEP: require-corp, CORP: same-origin verified.');
 
-  console.log('=== [2/5] Verifying WASM SIMD Binary MIME Type & Immutable Caching ===');
+  console.log('=== [2/6] Verifying WASM SIMD Binary MIME Type & Immutable Caching ===');
   const wasmRes = await fetch(`${HOSTING_ORIGIN}/wasm/vexio_core_bg.wasm`);
   assert.equal(wasmRes.status, 200, 'WASM binary must be served at /wasm/vexio_core_bg.wasm');
   assert.match(
@@ -62,7 +64,7 @@ async function main() {
   );
   console.log(`  ✓ WASM SIMD binary verified (${(wasmBytes.byteLength / 1024).toFixed(1)} KB, application/wasm, immutable).`);
 
-  console.log('=== [3/5] Verifying ChromeOS Manifest (WCO + File Handlers) & 12-Pack SW Precache ===');
+  console.log('=== [3/6] Verifying ChromeOS Manifest, <500 KB Code-Split Chunks & 12-Pack SW Precache ===');
   const manifestRes = await fetch(`${HOSTING_ORIGIN}/manifest.webmanifest`);
   assert.equal(manifestRes.status, 200);
   const manifest = await manifestRes.json();
@@ -72,11 +74,25 @@ async function main() {
     assert(acceptedExts.includes(reqExt), `manifest file_handlers missing ${reqExt}`);
   }
 
+  const assetsDir = resolve(DIST_DIR, 'assets');
+  const jsAssets = readdirSync(assetsDir).filter((f) => f.endsWith('.js'));
+  assert(jsAssets.length >= 4, 'Vite Rollup code-splitting must produce multiple modular JS chunks');
+  for (const jsFile of jsAssets) {
+    const sizeBytes = statSync(resolve(assetsDir, jsFile)).size;
+    assert(
+      sizeBytes < 500 * 1024,
+      `JS chunk ${jsFile} (${(sizeBytes / 1024).toFixed(1)} KB) exceeded 500 KB budget!`
+    );
+  }
+
   const swRes = await fetch(`${HOSTING_ORIGIN}/sw.js`);
   assert.equal(swRes.status, 200);
   assert.match(swRes.headers.get('cache-control') ?? '', /no-cache/i);
   const swText = await swRes.text();
   assert(swText.includes('/wasm/vexio_core_bg.wasm'), 'sw.js must precache /wasm/vexio_core_bg.wasm');
+  for (const jsFile of jsAssets) {
+    assert(swText.includes(`/assets/${jsFile}`), `sw.js must precache code-split chunk ${jsFile}`);
+  }
   for (const stFile of [
     'basic_flowchart.vssx',
     'bpmn_2_0.vssx',
@@ -93,15 +109,11 @@ async function main() {
   ]) {
     assert(swText.includes(`/stencils/${stFile}`), `sw.js missing precached stencil ${stFile}`);
   }
-  console.log('  ✓ ChromeOS WCO, File Handlers (.vsdx/.vsd/.dwg/.dxf/.emf/.wmf/.ldif), and all 12 precached .vssx Stencil Packs verified.');
+  console.log(`  ✓ ChromeOS WCO, File Handlers, ${jsAssets.length} code-split chunks (<500 KB each), and 12 .vssx Stencil Packs verified.`);
 
   console.log('=== [4/6] Verifying 100% Unauthenticated Offline Rust WASM SIMD Engine & Core Tools ===');
-  const distWasmJs = pathToFileURL(
-    resolve('/home/antigravity/apps/chromeos-pwa/dist/wasm/vexio_core.js')
-  ).href;
-  const localWasmBytes = readFileSync(
-    resolve('/home/antigravity/apps/chromeos-pwa/dist/wasm/vexio_core_bg.wasm')
-  );
+  const distWasmJs = pathToFileURL(resolve(DIST_DIR, 'wasm/vexio_core.js')).href;
+  const localWasmBytes = readFileSync(resolve(DIST_DIR, 'wasm/vexio_core_bg.wasm'));
   const wasmMod = await import(distWasmJs);
   wasmMod.initSync({ module: localWasmBytes });
 

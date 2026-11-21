@@ -43,6 +43,8 @@ namespace {
     if (ext == "vstx" || ext == "vstm") return L"OpenXML Template Package";
     if (ext == "vsd")  return L"Legacy OLE2 Binary VSD";
     if (ext == "vdx")  return L"DatadiagramML XML VDX";
+    if (ext == "emf" || ext == "wmf") return L"Windows Vector Metafile";
+    if (ext == "ldif") return L"LDAP / Entra Directory Org Chart";
     if (ext == "dwg")  return L"Offline Native CAD DWG";
     if (ext == "dxf")  return L"Offline Native CAD DXF";
     return L"Vexio Vector Document";
@@ -112,6 +114,7 @@ MainWindow::MainWindow()
     InitializeStencilCatalog();
     InitializeExternalDataAndLayers();
     SeedActiveShapeDefaultCells();
+    RefreshBaselineSnapshot();
 
     m_isInitialized = true;
 
@@ -602,6 +605,7 @@ void MainWindow::InstantiateMasterOnCanvas(StencilMasterDescriptor const& master
     }
 
     const uint64_t newShapeId = m_nextShapeId++;
+    m_previousSelectedShapeId = m_selectedShapeId;
     m_selectedShapeId = newShapeId;
 
     (void)m_doc.SetCellFormula(m_activePageId, newShapeId, "PinX",            std::format("{:.3f} in", pinXInches), true);
@@ -1549,15 +1553,88 @@ void MainWindow::OnDrawingScaleChanged(IInspectable const&, SelectionChangedEven
     }
 }
 
-void MainWindow::OnThemeChanged(IInspectable const&, SelectionChangedEventArgs const&) {
-    if (!m_isInitialized) return;
-    const std::array<const char*, 4> themePalettes{
-        "RGB(59,130,246)", "RGB(2,132,199)", "RGB(71,85,105)", "RGB(5,150,105)"
+void MainWindow::ApplySelectedThemeAndVariant() {
+    if (!m_isInitialized || !m_doc) {
+        return;
+    }
+
+    constexpr std::array<std::string_view, 6> kThemeSlugs{
+        "modern", "professional", "vibrant", "blueprint", "monochrome", "hand_drawn"
     };
-    const int32_t idx = std::clamp(ThemeSelectorCombo().SelectedIndex(), 0, 3);
-    (void)m_doc.SetCellFormula(m_activePageId, m_selectedShapeId, "FillForegnd", themePalettes[idx], true);
-    SyncInspectorFromShapeSheet();
-    AttachOrResizeDx12SwapChain();
+    constexpr std::array<std::wstring_view, 6> kThemeNames{
+        L"Modern", L"Professional", L"Vibrant", L"Blueprint", L"Monochrome", L"Hand Drawn"
+    };
+
+    const int32_t themeIdx   = std::clamp(ThemeSelectorCombo().SelectedIndex(), 0, 5);
+    const int32_t variantIdx = std::clamp(ThemeVariantCombo().SelectedIndex(), 0, 3);
+
+    const VexioStatus status = m_doc.ApplyTheme(
+        kThemeSlugs[static_cast<size_t>(themeIdx)],
+        static_cast<uint8_t>(variantIdx));
+
+    if (status == VEXIO_OK) {
+        MarkDocumentDirty(true);
+        SyncInspectorFromShapeSheet();
+        RefreshShapeSheetSectionRows();
+        AttachOrResizeDx12SwapChain();
+        OnRefreshPanZoomPreviewClick(nullptr, nullptr);
+        ShowBanner(
+            InfoBarSeverity::Informational,
+            L"Document Theme & Variant Applied",
+            std::format(L"Applied {} theme (Variant {}) across document styles.",
+                        kThemeNames[static_cast<size_t>(themeIdx)],
+                        variantIdx + 1));
+    } else {
+        ShowBanner(InfoBarSeverity::Error, L"Theme Update Failed", vexio::win::DescribeStatus(status));
+    }
+}
+
+void MainWindow::OnThemeChanged(IInspectable const&, SelectionChangedEventArgs const&) {
+    ApplySelectedThemeAndVariant();
+}
+
+void MainWindow::OnThemeVariantChanged(IInspectable const&, SelectionChangedEventArgs const&) {
+    ApplySelectedThemeAndVariant();
+}
+
+void MainWindow::ApplyVisualPresetSlug(std::string_view presetSlugUtf8, std::wstring_view displayLabel) {
+    if (!m_doc) {
+        return;
+    }
+
+    const VexioStatus status = m_doc.ApplyVisualPreset(m_activePageId, m_selectedShapeId, presetSlugUtf8);
+    if (status == VEXIO_OK) {
+        MarkDocumentDirty(true);
+        SyncInspectorFromShapeSheet();
+        RefreshShapeSheetSectionRows();
+        AttachOrResizeDx12SwapChain();
+        OnRefreshPanZoomPreviewClick(nullptr, nullptr);
+        ShowBanner(
+            InfoBarSeverity::Success,
+            L"Visual Effect Preset Applied",
+            std::format(L"Applied {} ({}) to Sheet.{}.",
+                        displayLabel,
+                        vexio::win::ToHString(presetSlugUtf8).c_str(),
+                        m_selectedShapeId));
+    } else {
+        ShowBanner(InfoBarSeverity::Warning, L"Visual Effect Preset Not Applied", vexio::win::DescribeStatus(status));
+    }
+}
+
+void MainWindow::OnVisualPresetGradLinearClick(IInspectable const&, RoutedEventArgs const&) {
+    ApplyVisualPresetSlug("grad_linear", L"Linear Gradient");
+}
+
+void MainWindow::OnVisualPresetShadowSoftClick(IInspectable const&, RoutedEventArgs const&) {
+    ApplyVisualPresetSlug("shadow_soft", L"Soft Drop Shadow");
+}
+
+void MainWindow::OnVisualPresetBevel3dClick(IInspectable const&, RoutedEventArgs const&) {
+    ApplyVisualPresetSlug("bevel_3d", L"3D Bevel & Extrusion");
+}
+
+void MainWindow::OnVisualPresetSketchyClick(IInspectable const&, RoutedEventArgs const&) {
+    ApplyVisualPresetSlug("sketchy", L"Sketchy Hand-Drawn Outline");
 }
 
 void MainWindow::OnLineJumpStyleChanged(IInspectable const&, SelectionChangedEventArgs const&) {
@@ -1614,6 +1691,26 @@ void MainWindow::OnPushTwoWaySyncClick(IInspectable const&, RoutedEventArgs cons
                L"Pushed modified Prop.* Shape Data values back to linked external table.");
 }
 
+void MainWindow::OnImportDataVisualizerClick(IInspectable const&, RoutedEventArgs const&) {
+    ImportDataVisualizerPickerAsync();
+}
+
+void MainWindow::OnExportDataVisualizerClick(IInspectable const&, RoutedEventArgs const&) {
+    ExportDataVisualizerXlsxAsync();
+}
+
+void MainWindow::OnImportCloudDiscoveryClick(IInspectable const&, RoutedEventArgs const&) {
+    ShowCloudDiscoveryDialogAsync();
+}
+
+void MainWindow::OnImportEntraOrLdifClick(IInspectable const&, RoutedEventArgs const&) {
+    ShowEntraOrLdifDialogAsync();
+}
+
+void MainWindow::OnExportPowerBiClick(IInspectable const&, RoutedEventArgs const&) {
+    SaveDocumentAsync(true, "pbi.json");
+}
+
 void MainWindow::OnApplyDataBarsClick(IInspectable const&, RoutedEventArgs const&) {
     (void)m_doc.SetCellFormula(m_activePageId, m_selectedShapeId, "User.DataGraphicMode", "\"DataBar:Prop.Cost\"", true);
     ShowBanner(InfoBarSeverity::Informational, L"Data Graphic Applied", L"Bound Data Bar callout to Prop.Cost.");
@@ -1651,24 +1748,64 @@ void MainWindow::OnCheckDiagramClick(IInspectable const&, RoutedEventArgs const&
 }
 
 void MainWindow::OnCreateSubprocessPageClick(IInspectable const&, RoutedEventArgs const&) {
-    const uint32_t subId = static_cast<uint32_t>(m_pages.size() + 1);
-    m_pages.push_back(PageTabModel{subId, std::format(L"Subprocess-{}", subId), false, 1u});
-    (void)m_doc.SetCellFormula(m_activePageId, m_selectedShapeId, "Hyperlink.Subprocess.SubAddress",
-                               std::format("\"Subprocess-{}\"", subId), true);
-    m_activePageId = subId;
+    if (!m_doc) {
+        return;
+    }
+
+    const uint32_t candidateIndex = static_cast<uint32_t>(m_pages.size() + 1);
+    const std::string subNameUtf8 = std::format("Subprocess-{}", candidateIndex);
+    const auto subRes = m_doc.CreateSubprocess(m_activePageId, m_selectedShapeId, subNameUtf8);
+
+    if (!subRes.ok()) {
+        ShowBanner(InfoBarSeverity::Error, L"Subprocess Creation Failed", subRes.message());
+        return;
+    }
+
+    const uint32_t subPageId = *subRes.value;
+    const std::wstring subNameWide = vexio::win::ToHString(subNameUtf8).c_str();
+
+    bool foundExisting = false;
+    for (auto const& page : m_pages) {
+        if (page.pageId == subPageId) {
+            foundExisting = true;
+            break;
+        }
+    }
+    if (!foundExisting) {
+        m_pages.push_back(PageTabModel{subPageId, subNameWide, false, 1u});
+    }
+
+    const uint64_t parentShapeId = m_selectedShapeId;
+    m_activePageId = subPageId;
     MarkDocumentDirty(true);
     RebuildPageTabsStrip();
-    ShowBanner(InfoBarSeverity::Success, L"Subprocess Linked",
-               std::format(L"Created Subprocess-{} and bound Hyperlink.SubAddress on Sheet.{}.", subId, m_selectedShapeId));
+    SyncInspectorFromShapeSheet();
+    RefreshShapeSheetSectionRows();
+    AttachOrResizeDx12SwapChain();
+
+    ShowBanner(
+        InfoBarSeverity::Success,
+        L"Subprocess Drill-Down Created",
+        std::format(L"Created {} (Page #{}) and bound drill-down hyperlink on Sheet.{}.",
+                    subNameWide, subPageId, parentShapeId));
 }
 
 void MainWindow::OnLinkSubprocessClick(IInspectable const&, RoutedEventArgs const&) {
-    if (!m_pages.empty()) {
-        (void)m_doc.SetCellFormula(m_activePageId, m_selectedShapeId, "Hyperlink.Subprocess.SubAddress",
-                                   std::format("\"{}\"", vexio::win::ToUtf8(m_pages.front().name)), true);
-        ShowBanner(InfoBarSeverity::Informational, L"Linked Existing Page",
-                   std::format(L"Bound Sheet.{} drill-down link to {}.", m_selectedShapeId, m_pages.front().name));
+    if (!m_pages.empty() && m_doc) {
+        const std::string targetNameUtf8 = vexio::win::ToUtf8(m_pages.front().name);
+        const auto linkRes = m_doc.CreateSubprocess(m_activePageId, m_selectedShapeId, targetNameUtf8);
+        if (linkRes.ok()) {
+            MarkDocumentDirty(true);
+            SyncInspectorFromShapeSheet();
+            RefreshShapeSheetSectionRows();
+            ShowBanner(InfoBarSeverity::Informational, L"Linked Existing Page",
+                       std::format(L"Bound Sheet.{} drill-down hyperlink to {}.", m_selectedShapeId, m_pages.front().name));
+        }
     }
+}
+
+void MainWindow::OnExportPowerAutomateClick(IInspectable const&, RoutedEventArgs const&) {
+    SaveDocumentAsync(true, "flow.json");
 }
 
 void MainWindow::OnConvertInkToShapesClick(IInspectable const&, RoutedEventArgs const&) {
@@ -1694,20 +1831,105 @@ void MainWindow::OnToggleMarkupOverlayClick(IInspectable const&, RoutedEventArgs
     RefreshLayersList();
 }
 
+void MainWindow::OnCompareDiagramClick(IInspectable const&, RoutedEventArgs const&) {
+    ShowDiagramCompareDialogAsync();
+}
+
+void MainWindow::OnExportPptxClick(IInspectable const&, RoutedEventArgs const&) {
+    FileBackstageFlyout().Hide();
+    SaveDocumentAsync(true, "pptx");
+}
+
+void MainWindow::OnExportDocxClick(IInspectable const&, RoutedEventArgs const&) {
+    FileBackstageFlyout().Hide();
+    SaveDocumentAsync(true, "docx");
+}
+
+void MainWindow::ExecuteBooleanOp(std::string_view opSlugUtf8, std::wstring_view displayLabel, double offsetIn) {
+    if (!m_doc) {
+        return;
+    }
+
+    std::vector<uint64_t> targetIds{};
+    if (opSlugUtf8 == "offset") {
+        targetIds.push_back(m_selectedShapeId);
+    } else if (m_previousSelectedShapeId != 0 && m_previousSelectedShapeId != m_selectedShapeId) {
+        targetIds.push_back(m_previousSelectedShapeId);
+        targetIds.push_back(m_selectedShapeId);
+    } else if (m_selectedShapeId != 1u) {
+        targetIds.push_back(1u);
+        targetIds.push_back(m_selectedShapeId);
+    } else {
+        targetIds.push_back(m_selectedShapeId);
+    }
+
+    const VexioStatus status = m_doc.BooleanOp(m_activePageId, targetIds, opSlugUtf8, offsetIn);
+    if (status == VEXIO_OK) {
+        MarkDocumentDirty(true);
+        SyncInspectorFromShapeSheet();
+        RefreshShapeSheetSectionRows();
+        AttachOrResizeDx12SwapChain();
+        OnRefreshPanZoomPreviewClick(nullptr, nullptr);
+        ShowBanner(
+            InfoBarSeverity::Success,
+            L"Boolean Geometry Operation Complete",
+            std::format(L"Executed {} across {} shape contour(s) on Page #{}.",
+                        displayLabel, targetIds.size(), m_activePageId));
+    } else {
+        ShowBanner(InfoBarSeverity::Warning, L"Boolean Operation Requires Valid Contours", vexio::win::DescribeStatus(status));
+    }
+}
+
 void MainWindow::OnBooleanUnionClick(IInspectable const&, RoutedEventArgs const&) {
-    ShowBanner(InfoBarSeverity::Success, L"Boolean Union Complete", L"Merged selected geometry paths into composite ShapeSheet Geometry1.");
+    ExecuteBooleanOp("union", L"Boolean Union");
+}
+
+void MainWindow::OnBooleanCombineClick(IInspectable const&, RoutedEventArgs const&) {
+    ExecuteBooleanOp("combine", L"Boolean Combine");
 }
 
 void MainWindow::OnBooleanFragmentClick(IInspectable const&, RoutedEventArgs const&) {
-    ShowBanner(InfoBarSeverity::Success, L"Boolean Fragment Complete", L"Split intersecting regions into closed ShapeSheet faces.");
+    ExecuteBooleanOp("fragment", L"Boolean Fragment");
+}
+
+void MainWindow::OnBooleanIntersectClick(IInspectable const&, RoutedEventArgs const&) {
+    ExecuteBooleanOp("intersect", L"Boolean Intersect");
 }
 
 void MainWindow::OnBooleanSubtractClick(IInspectable const&, RoutedEventArgs const&) {
-    ShowBanner(InfoBarSeverity::Success, L"Boolean Subtract Complete", L"Subtracted secondary geometry contour from primary shape.");
+    ExecuteBooleanOp("subtract", L"Boolean Subtract");
+}
+
+void MainWindow::OnBooleanTrimClick(IInspectable const&, RoutedEventArgs const&) {
+    ExecuteBooleanOp("trim", L"Boolean Trim");
+}
+
+void MainWindow::OnBooleanJoinClick(IInspectable const&, RoutedEventArgs const&) {
+    ExecuteBooleanOp("join", L"Boolean Join");
+}
+
+void MainWindow::OnBooleanOffsetClick(IInspectable const&, RoutedEventArgs const&) {
+    ExecuteBooleanOp("offset", L"Boolean Offset (+0.18 in)", 0.18);
 }
 
 void MainWindow::OnOpenMacroEditorClick(IInspectable const&, RoutedEventArgs const&) {
     ShowMacroEditorDialogAsync();
+}
+
+void MainWindow::RefreshBaselineSnapshot() {
+    if (!m_engine || !m_doc) {
+        return;
+    }
+
+    const auto snapshotRes = m_doc.SaveFormat("vsdx");
+    if (snapshotRes.ok()) {
+        auto reopened = vexio::win::DocHandle::OpenBytes(m_engine, snapshotRes.value->Bytes(), "vsdx");
+        if (reopened.ok()) {
+            m_baselineDoc = std::move(*reopened.value);
+            return;
+        }
+    }
+    m_baselineDoc = vexio::win::DocHandle::CreateBlank("Baseline.vsdx");
 }
 
 // ===========================================================================
@@ -1721,7 +1943,9 @@ void MainWindow::OnNewBlankDocClick(IInspectable const&, RoutedEventArgs const&)
     m_activeFormatExt = "vsdx";
     m_activePageId = 1;
     m_selectedShapeId = 1;
+    m_previousSelectedShapeId = 1;
     SeedActiveShapeDefaultCells();
+    RefreshBaselineSnapshot();
     MarkDocumentDirty(false);
     SyncInspectorFromShapeSheet();
     RefreshShapeSheetSectionRows();
@@ -1820,11 +2044,13 @@ fire_and_forget MainWindow::OpenStorageFileAsync(StorageFile file) {
         }
 
         self->m_doc = std::move(*openRes.value);
+        self->RefreshBaselineSnapshot();
         self->m_currentStorageFile = file;
         self->m_documentDisplayName = file.Name().c_str();
         self->m_activeFormatExt = ext;
         self->m_activePageId = 1;
         self->m_selectedShapeId = 1;
+        self->m_previousSelectedShapeId = 1;
 
         self->DocumentFormatBadgeText().Text(hstring{FormatBadgeForExtension(ext)});
         self->MarkDocumentDirty(false);
@@ -1850,7 +2076,10 @@ fire_and_forget MainWindow::PromptOpenFilePickerAsync() {
     picker.ViewMode(PickerViewMode::List);
     picker.SuggestedStartLocation(PickerLocationId::DocumentsLibrary);
 
-    for (wchar_t const* ext : {L".vsdx", L".vsdm", L".vssx", L".vssm", L".vstx", L".vstm", L".vsd", L".vdx", L".dwg", L".dxf"}) {
+    for (wchar_t const* ext : {
+        L".vsdx", L".vsdm", L".vssx", L".vssm", L".vstx", L".vstm",
+        L".vsd", L".vdx", L".emf", L".wmf", L".ldif", L".dwg", L".dxf"
+    }) {
         picker.FileTypeFilter().Append(ext);
     }
 
@@ -1878,6 +2107,8 @@ fire_and_forget MainWindow::SaveDocumentAsync(bool forceSaveAs, std::string forc
         }
         picker.SuggestedStartLocation(PickerLocationId::DocumentsLibrary);
 
+        const std::wstring stemName = std::filesystem::path{m_documentDisplayName}.stem().wstring();
+
         if (forcedExtensionUtf8 == "pdf") {
             picker.FileTypeChoices().Insert(L"Archival Vector PDF/A", single_threaded_vector<hstring>({L".pdf"}));
             picker.SuggestedFileName(L"Diagram_Export");
@@ -1887,6 +2118,18 @@ fire_and_forget MainWindow::SaveDocumentAsync(bool forceSaveAs, std::string forc
         } else if (forcedExtensionUtf8 == "dxf") {
             picker.FileTypeChoices().Insert(L"AutoCAD DXF Exchange", single_threaded_vector<hstring>({L".dxf"}));
             picker.SuggestedFileName(L"Diagram_CAD");
+        } else if (forcedExtensionUtf8 == "pptx") {
+            picker.FileTypeChoices().Insert(L"PowerPoint Presentation (.pptx)", single_threaded_vector<hstring>({L".pptx"}));
+            picker.SuggestedFileName(hstring{stemName + L"_Deck"});
+        } else if (forcedExtensionUtf8 == "docx") {
+            picker.FileTypeChoices().Insert(L"Word Process Specification (.docx)", single_threaded_vector<hstring>({L".docx"}));
+            picker.SuggestedFileName(hstring{stemName + L"_ProcessSpec"});
+        } else if (forcedExtensionUtf8 == "flow.json") {
+            picker.FileTypeChoices().Insert(L"Power Automate Workflow JSON (.flow.json)", single_threaded_vector<hstring>({L".json"}));
+            picker.SuggestedFileName(hstring{stemName + L".flow"});
+        } else if (forcedExtensionUtf8 == "pbi.json") {
+            picker.FileTypeChoices().Insert(L"Power BI Visio Visual JSON (.pbi.json)", single_threaded_vector<hstring>({L".json"}));
+            picker.SuggestedFileName(hstring{stemName + L".pbi"});
         } else {
             picker.FileTypeChoices().Insert(L"Visio Drawing (.vsdx)", single_threaded_vector<hstring>({L".vsdx"}));
             picker.FileTypeChoices().Insert(L"Visio Macro-Enabled Drawing (.vsdm)", single_threaded_vector<hstring>({L".vsdm"}));
@@ -1894,7 +2137,7 @@ fire_and_forget MainWindow::SaveDocumentAsync(bool forceSaveAs, std::string forc
             picker.FileTypeChoices().Insert(L"Visio Template (.vstx)", single_threaded_vector<hstring>({L".vstx"}));
             picker.FileTypeChoices().Insert(L"Legacy Visio 2003-2010 (.vsd)", single_threaded_vector<hstring>({L".vsd"}));
             picker.FileTypeChoices().Insert(L"DatadiagramML XML (.vdx)", single_threaded_vector<hstring>({L".vdx"}));
-            picker.SuggestedFileName(hstring{std::filesystem::path{m_documentDisplayName}.stem().wstring()});
+            picker.SuggestedFileName(hstring{stemName});
         }
 
         targetFile = co_await picker.PickSaveFileAsync();
@@ -1925,12 +2168,365 @@ fire_and_forget MainWindow::SaveDocumentAsync(bool forceSaveAs, std::string forc
             strongSelf->m_documentDisplayName = targetFile.Name().c_str();
             strongSelf->m_activeFormatExt = ext;
             strongSelf->DocumentFormatBadgeText().Text(hstring{FormatBadgeForExtension(ext)});
+            strongSelf->RefreshBaselineSnapshot();
             strongSelf->MarkDocumentDirty(false);
         }
         strongSelf->ShowBanner(
             InfoBarSeverity::Success,
             L"Saved Deterministic Package",
             std::format(L"Wrote {} ({} bytes) losslessly.", targetFile.Name().c_str(), payload.size()));
+    }
+}
+
+// ===========================================================================
+// Plan 2 Data Visualizer, Cloud Discovery, Entra/LDIF & Diagram Compare Dialogs
+// ===========================================================================
+fire_and_forget MainWindow::ImportDataVisualizerPickerAsync() {
+    const HWND hwnd = GetNativeWindowHandle();
+    if (hwnd == nullptr || !m_doc) co_return;
+
+    FileOpenPicker picker{};
+    if (auto initWithWin = picker.try_as<::IInitializeWithWindow>()) {
+        (void)initWithWin->Initialize(hwnd);
+    }
+    picker.ViewMode(PickerViewMode::List);
+    picker.SuggestedStartLocation(PickerLocationId::DocumentsLibrary);
+    picker.FileTypeFilter().Append(L".xlsx");
+    picker.FileTypeFilter().Append(L".csv");
+
+    const auto weakSelf = get_weak();
+    StorageFile picked = co_await picker.PickSingleFileAsync();
+    if (!picked) co_return;
+
+    try {
+        const IBuffer buffer = co_await FileIO::ReadBufferAsync(picked);
+        auto self = weakSelf.get();
+        if (!self || !self->m_doc) co_return;
+
+        const std::span<const uint8_t> rawBytes{buffer.data(), buffer.Length()};
+        const auto importRes = self->m_doc.ImportDataVisualizer(self->m_activePageId, rawBytes);
+        if (!importRes.ok()) {
+            self->ShowBanner(InfoBarSeverity::Error, L"Data Visualizer Import Failed", importRes.message());
+            co_return;
+        }
+
+        const uint32_t stepCount = *importRes.value;
+        for (auto& page : self->m_pages) {
+            if (page.pageId == self->m_activePageId) {
+                page.shapeCount = stepCount;
+                break;
+            }
+        }
+        self->StatusShapeCountText().Text(hstring{
+            std::format(L"Shapes: {} • Selected: Sheet.{}", stepCount, self->m_selectedShapeId)
+        });
+        self->MarkDocumentDirty(true);
+        self->SyncInspectorFromShapeSheet();
+        self->RefreshShapeSheetSectionRows();
+        self->AttachOrResizeDx12SwapChain();
+        self->OnRefreshPanZoomPreviewClick(nullptr, nullptr);
+        self->ShowBanner(
+            InfoBarSeverity::Success,
+            L"Data Visualizer Flowchart Generated",
+            std::format(L"Imported {} process step(s) with cross-functional swimlanes from {}.",
+                        stepCount, picked.Name().c_str()));
+    } catch (...) {
+        if (auto self = weakSelf.get()) {
+            self->ShowBanner(InfoBarSeverity::Error, L"Data Visualizer I/O Error", L"Unable to read selected .xlsx/.csv dataset.");
+        }
+    }
+}
+
+fire_and_forget MainWindow::ExportDataVisualizerXlsxAsync() {
+    const HWND hwnd = GetNativeWindowHandle();
+    if (hwnd == nullptr || !m_doc) co_return;
+
+    FileSavePicker picker{};
+    if (auto initWithWin = picker.try_as<::IInitializeWithWindow>()) {
+        (void)initWithWin->Initialize(hwnd);
+    }
+    picker.SuggestedStartLocation(PickerLocationId::DocumentsLibrary);
+    picker.FileTypeChoices().Insert(
+        L"Excel Data Visualizer Workbook (.xlsx)",
+        single_threaded_vector<hstring>({L".xlsx"}));
+    picker.SuggestedFileName(hstring{
+        std::filesystem::path{m_documentDisplayName}.stem().wstring() + L"_DataVisualizer"
+    });
+
+    const auto weakSelf = get_weak();
+    StorageFile targetFile = co_await picker.PickSaveFileAsync();
+    if (!targetFile) co_return;
+
+    auto self = weakSelf.get();
+    if (!self || !self->m_doc) co_return;
+
+    const auto exportRes = self->m_doc.ExportDataVisualizerXlsx(self->m_activePageId);
+    if (!exportRes.ok()) {
+        self->ShowBanner(InfoBarSeverity::Error, L"Data Visualizer Export Failed", exportRes.message());
+        co_return;
+    }
+
+    const std::vector<uint8_t> xlsxPayload = exportRes.value->ToVector();
+    CachedFileManager::DeferUpdates(targetFile);
+    co_await FileIO::WriteBytesAsync(targetFile, xlsxPayload);
+    (void)co_await CachedFileManager::CompleteUpdatesAsync(targetFile);
+
+    if (auto strongSelf = weakSelf.get()) {
+        strongSelf->ShowBanner(
+            InfoBarSeverity::Success,
+            L"Data Visualizer Workbook Exported",
+            std::format(L"Exported bidirectional Data Visualizer table to {} ({} bytes).",
+                        targetFile.Name().c_str(), xlsxPayload.size()));
+    }
+}
+
+fire_and_forget MainWindow::ShowCloudDiscoveryDialogAsync() {
+    TextBox jsonBox{};
+    jsonBox.AcceptsReturn(true);
+    jsonBox.Height(240.0);
+    jsonBox.FontFamily(FontFamily{L"Consolas"});
+    jsonBox.FontSize(12.0);
+    jsonBox.Text(
+        L"{\n"
+        L"  \"provider\": \"aws\",\n"
+        L"  \"resources\": [\n"
+        L"    { \"id\": \"vpc-prod\", \"name\": \"Production VPC\", \"type\": \"aws.vpc\", \"region\": \"us-east-1\" },\n"
+        L"    { \"id\": \"alb-edge\", \"name\": \"Edge Ingress ALB\", \"type\": \"aws.alb\", \"parent\": \"vpc-prod\" },\n"
+        L"    { \"id\": \"eks-app\",  \"name\": \"Core EKS Cluster\", \"type\": \"aws.eks\", \"parent\": \"vpc-prod\", \"dependsOn\": [\"alb-edge\"] },\n"
+        L"    { \"id\": \"rds-main\", \"name\": \"Aurora PostgreSQL\", \"type\": \"aws.rds\", \"parent\": \"vpc-prod\", \"dependsOn\": [\"eks-app\"] }\n"
+        L"  ]\n"
+        L"}");
+
+    ContentDialog dlg{};
+    dlg.XamlRoot(RootWorkstationGrid().XamlRoot());
+    dlg.Title(box_value(L"Cloud Infrastructure Discovery (AWS / Azure / GCP / Terraform)"));
+    dlg.Content(jsonBox);
+    dlg.PrimaryButtonText(L"Import Topology");
+    dlg.SecondaryButtonText(L"Load .json File...");
+    dlg.CloseButtonText(L"Cancel");
+    dlg.DefaultButton(ContentDialogButton::Primary);
+
+    const auto weakSelf = get_weak();
+    const ContentDialogResult result = co_await dlg.ShowAsync();
+
+    auto self = weakSelf.get();
+    if (!self || !self->m_doc || result == ContentDialogResult::None) {
+        co_return;
+    }
+
+    std::string discoveryUtf8{};
+    if (result == ContentDialogResult::Secondary) {
+        const HWND hwnd = self->GetNativeWindowHandle();
+        if (hwnd == nullptr) co_return;
+        FileOpenPicker picker{};
+        if (auto initWithWin = picker.try_as<::IInitializeWithWindow>()) {
+            (void)initWithWin->Initialize(hwnd);
+        }
+        picker.SuggestedStartLocation(PickerLocationId::DocumentsLibrary);
+        picker.FileTypeFilter().Append(L".json");
+        StorageFile picked = co_await picker.PickSingleFileAsync();
+        if (!picked) co_return;
+        const hstring fileText = co_await FileIO::ReadTextAsync(picked);
+        self = weakSelf.get();
+        if (!self || !self->m_doc) co_return;
+        discoveryUtf8 = vexio::win::ToUtf8(fileText);
+    } else {
+        discoveryUtf8 = vexio::win::ToUtf8(jsonBox.Text());
+    }
+
+    const auto importRes = self->m_doc.ImportCloudDiscovery(self->m_activePageId, discoveryUtf8);
+    if (importRes.ok()) {
+        self->MarkDocumentDirty(true);
+        self->SyncInspectorFromShapeSheet();
+        self->RefreshShapeSheetSectionRows();
+        self->AttachOrResizeDx12SwapChain();
+        self->OnRefreshPanZoomPreviewClick(nullptr, nullptr);
+        self->ShowBanner(
+            InfoBarSeverity::Success,
+            L"Cloud Architecture Imported",
+            std::format(L"Generated {} cloud resource shape(s) and VPC containers on Page #{}.",
+                        *importRes.value, self->m_activePageId));
+    } else {
+        self->ShowBanner(InfoBarSeverity::Error, L"Cloud Discovery Import Failed", importRes.message());
+    }
+}
+
+fire_and_forget MainWindow::ShowEntraOrLdifDialogAsync() {
+    TextBox ldifBox{};
+    ldifBox.AcceptsReturn(true);
+    ldifBox.Height(240.0);
+    ldifBox.FontFamily(FontFamily{L"Consolas"});
+    ldifBox.FontSize(12.0);
+    ldifBox.Text(
+        L"dn: cn=Elena Vance,ou=Leadership,dc=vexio,dc=io\n"
+        L"cn: Elena Vance\n"
+        L"title: Chief Technology Officer\n"
+        L"department: Executive\n"
+        L"mail: elena.vance@vexio.io\n\n"
+        L"dn: cn=Marcus Lin,ou=Platform,dc=vexio,dc=io\n"
+        L"cn: Marcus Lin\n"
+        L"title: VP Graphics & Core Rust\n"
+        L"department: Engineering\n"
+        L"manager: cn=Elena Vance,ou=Leadership,dc=vexio,dc=io\n\n"
+        L"dn: cn=Priya Nair,ou=Desktop,dc=vexio,dc=io\n"
+        L"cn: Priya Nair\n"
+        L"title: Principal Windows Architect\n"
+        L"department: Engineering\n"
+        L"manager: cn=Marcus Lin,ou=Platform,dc=vexio,dc=io\n");
+
+    ContentDialog dlg{};
+    dlg.XamlRoot(RootWorkstationGrid().XamlRoot());
+    dlg.Title(box_value(L"Microsoft Entra ID (Graph JSON) / RFC-2849 LDIF Org Chart Importer"));
+    dlg.Content(ldifBox);
+    dlg.PrimaryButtonText(L"Build Org Chart");
+    dlg.SecondaryButtonText(L"Load .ldif / .json...");
+    dlg.CloseButtonText(L"Cancel");
+    dlg.DefaultButton(ContentDialogButton::Primary);
+
+    const auto weakSelf = get_weak();
+    const ContentDialogResult result = co_await dlg.ShowAsync();
+
+    auto self = weakSelf.get();
+    if (!self || !self->m_doc || result == ContentDialogResult::None) {
+        co_return;
+    }
+
+    std::string directoryUtf8{};
+    if (result == ContentDialogResult::Secondary) {
+        const HWND hwnd = self->GetNativeWindowHandle();
+        if (hwnd == nullptr) co_return;
+        FileOpenPicker picker{};
+        if (auto initWithWin = picker.try_as<::IInitializeWithWindow>()) {
+            (void)initWithWin->Initialize(hwnd);
+        }
+        picker.SuggestedStartLocation(PickerLocationId::DocumentsLibrary);
+        picker.FileTypeFilter().Append(L".ldif");
+        picker.FileTypeFilter().Append(L".json");
+        picker.FileTypeFilter().Append(L".txt");
+        StorageFile picked = co_await picker.PickSingleFileAsync();
+        if (!picked) co_return;
+        const hstring fileText = co_await FileIO::ReadTextAsync(picked);
+        self = weakSelf.get();
+        if (!self || !self->m_doc) co_return;
+        directoryUtf8 = vexio::win::ToUtf8(fileText);
+    } else {
+        directoryUtf8 = vexio::win::ToUtf8(ldifBox.Text());
+    }
+
+    const auto importRes = self->m_doc.ImportEntraOrLdif(self->m_activePageId, directoryUtf8);
+    if (importRes.ok()) {
+        self->MarkDocumentDirty(true);
+        self->SyncInspectorFromShapeSheet();
+        self->RefreshShapeSheetSectionRows();
+        self->AttachOrResizeDx12SwapChain();
+        self->OnRefreshPanZoomPreviewClick(nullptr, nullptr);
+        self->ShowBanner(
+            InfoBarSeverity::Success,
+            L"Directory Org Chart Constructed",
+            std::format(L"Imported {} reporting node(s) with hierarchical org connectors on Page #{}.",
+                        *importRes.value, self->m_activePageId));
+    } else {
+        self->ShowBanner(InfoBarSeverity::Error, L"Entra / LDIF Import Failed", importRes.message());
+    }
+}
+
+fire_and_forget MainWindow::ShowDiagramCompareDialogAsync() {
+    if (!m_doc) co_return;
+    if (!m_baselineDoc) {
+        RefreshBaselineSnapshot();
+    }
+
+    const uint64_t nowMs = static_cast<uint64_t>(
+        std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count());
+
+    const auto diffRes = m_doc.CompareWith(m_baselineDoc);
+    const auto crdtRes = m_doc.FlushCrdtJson(m_baselineDoc, "winui3-workstation", nowMs);
+
+    const std::wstring diffJson = diffRes.ok()
+        ? std::wstring{diffRes.value->c_str()}
+        : std::wstring{diffRes.message()};
+    const std::string crdtOpsUtf8 = crdtRes.ok()
+        ? vexio::win::ToUtf8(*crdtRes.value)
+        : std::string{"[]"};
+
+    TextBox reportBox{};
+    reportBox.IsReadOnly(true);
+    reportBox.AcceptsReturn(true);
+    reportBox.TextWrapping(TextWrapping::Wrap);
+    reportBox.Height(280.0);
+    reportBox.FontFamily(FontFamily{L"Consolas"});
+    reportBox.FontSize(11.5);
+    reportBox.Text(hstring{std::format(
+        L"=== Structural Visual Diff Report (Active vs. Baseline) ===\n{}\n\n"
+        L"=== Pending CRDT Operations Batch (winui3-workstation) ===\n{}",
+        diffJson,
+        vexio::win::ToHString(crdtOpsUtf8).c_str())});
+
+    ContentDialog dlg{};
+    dlg.XamlRoot(RootWorkstationGrid().XamlRoot());
+    dlg.Title(box_value(L"Diagram Compare (Visual Diff & CRDT Delta Inspector)"));
+    dlg.Content(reportBox);
+    dlg.PrimaryButtonText(L"Compare Against File...");
+    dlg.SecondaryButtonText(L"Sync Baseline (CRDT)");
+    dlg.CloseButtonText(L"Close");
+    dlg.DefaultButton(ContentDialogButton::Close);
+
+    const auto weakSelf = get_weak();
+    const ContentDialogResult res = co_await dlg.ShowAsync();
+
+    auto self = weakSelf.get();
+    if (!self || !self->m_doc) co_return;
+
+    if (res == ContentDialogResult::Secondary) {
+        const VexioStatus crdtStatus = self->m_baselineDoc.ApplyCrdtJson("winui3-workstation", crdtOpsUtf8);
+        if (crdtStatus != VEXIO_OK) {
+            self->RefreshBaselineSnapshot();
+        }
+        self->ShowBanner(
+            InfoBarSeverity::Success,
+            L"Baseline Synchronized via CRDT",
+            L"Applied deterministic LWW-Element-Set CRDT operations to local baseline replica.");
+    } else if (res == ContentDialogResult::Primary) {
+        const HWND hwnd = self->GetNativeWindowHandle();
+        if (hwnd == nullptr) co_return;
+
+        FileOpenPicker picker{};
+        if (auto initWithWin = picker.try_as<::IInitializeWithWindow>()) {
+            (void)initWithWin->Initialize(hwnd);
+        }
+        picker.SuggestedStartLocation(PickerLocationId::DocumentsLibrary);
+        for (wchar_t const* ext : {L".vsdx", L".vsdm", L".vsd", L".vdx", L".dwg", L".dxf"}) {
+            picker.FileTypeFilter().Append(ext);
+        }
+
+        StorageFile baselineFile = co_await picker.PickSingleFileAsync();
+        if (!baselineFile) co_return;
+
+        const IBuffer buf = co_await FileIO::ReadBufferAsync(baselineFile);
+        self = weakSelf.get();
+        if (!self || !self->m_doc) co_return;
+
+        const std::span<const uint8_t> bytes{buf.data(), buf.Length()};
+        const std::string ext = NormalizeExtensionWithoutDot(baselineFile.FileType());
+        auto openedBase = vexio::win::DocHandle::OpenBytes(self->m_engine, bytes, ext);
+        if (!openedBase.ok()) {
+            self->ShowBanner(InfoBarSeverity::Error, L"Compare Baseline Open Failed", openedBase.message());
+            co_return;
+        }
+
+        const auto fileDiffRes = self->m_doc.CompareWith(*openedBase.value);
+        if (fileDiffRes.ok()) {
+            self->m_baselineDoc = std::move(*openedBase.value);
+            self->ShowBanner(
+                InfoBarSeverity::Informational,
+                L"External Diagram Diff Computed",
+                std::format(L"Compared active document against {} ({} UTF-8 bytes in JSON diff report).",
+                            baselineFile.Name().c_str(),
+                            vexio::win::ToUtf8(*fileDiffRes.value).size()));
+        } else {
+            self->ShowBanner(InfoBarSeverity::Error, L"Diagram Compare Failed", fileDiffRes.message());
+        }
     }
 }
 

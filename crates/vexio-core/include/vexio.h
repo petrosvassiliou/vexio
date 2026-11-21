@@ -72,13 +72,20 @@ VexioStatus vexio_render_preview_rgba(const VexioDoc* doc, uint32_t page_id, uin
 VexioStatus vexio_doc_undo(VexioDoc* doc);
 VexioStatus vexio_doc_redo(VexioDoc* doc);
 
-/* Phase 7: Boolean Shape Ops, Themes/Variants, Subprocess Drill-Down, Diagram Compare & CRDT */
+/* Phase 7: Boolean Shape Ops, Themes/Variants, Visual Presets, Subprocess, Compare, Plan 2 Connectors & CRDT */
 VexioStatus vexio_doc_boolean_op(VexioDoc* doc, uint32_t page_id, const uint64_t* shape_ids_ptr, size_t shape_ids_len, const char* op_utf8, double offset_in);
 VexioStatus vexio_doc_apply_theme(VexioDoc* doc, const char* theme_slug_utf8, uint8_t variant_index);
+VexioStatus vexio_doc_apply_visual_preset(VexioDoc* doc, uint32_t page_id, uint64_t shape_id, const char* preset_utf8);
 VexioStatus vexio_doc_create_subprocess(VexioDoc* doc, uint32_t page_id, uint64_t shape_id, const char* sub_name_utf8, uint32_t* out_sub_page_id);
 VexioStatus vexio_doc_compare(const VexioDoc* base_doc, const VexioDoc* rev_doc, VexioOwnedBuffer* out_json);
 VexioStatus vexio_doc_apply_crdt_json(VexioDoc* doc, const char* replica_id_utf8, const char* ops_json_utf8);
+VexioStatus vexio_doc_flush_crdt_json(const VexioDoc* prev_doc, const VexioDoc* curr_doc, const char* replica_id_utf8, uint64_t now_ms, VexioOwnedBuffer* out_ops_json);
+VexioStatus vexio_doc_import_data_visualizer(VexioDoc* doc, uint32_t page_id, VexioByteSlice csv_or_xlsx, uint32_t* out_step_count);
+VexioStatus vexio_doc_export_data_visualizer_xlsx(const VexioDoc* doc, uint32_t page_id, VexioOwnedBuffer* out_xlsx);
+VexioStatus vexio_doc_import_cloud_discovery(VexioDoc* doc, uint32_t page_id, const char* discovery_json_utf8, uint32_t* out_count);
+VexioStatus vexio_doc_import_entra_or_ldif(VexioDoc* doc, uint32_t page_id, const char* text_utf8, uint32_t* out_count);
 
 #ifdef __cplusplus
 }
 #endif
+

@@ -164,8 +164,48 @@ public struct VexioGlobalMenuCommands: Commands {
                 .disabled(session == nil)
         }
 
-        // Shape & ShapeSheet Protection Menu
+        // Shape, Boolean Operations, Visual Presets & ShapeSheet Protection Menu
         CommandMenu("Shape") {
+            Menu("Shape Operations") {
+                Button("Union") {
+                    session?.applyBooleanOperation(.union, undoManager: NSApp.keyWindow?.undoManager)
+                }
+                Button("Combine") {
+                    session?.applyBooleanOperation(.combine, undoManager: NSApp.keyWindow?.undoManager)
+                }
+                Button("Fragment") {
+                    session?.applyBooleanOperation(.fragment, undoManager: NSApp.keyWindow?.undoManager)
+                }
+                Button("Intersect") {
+                    session?.applyBooleanOperation(.intersect, undoManager: NSApp.keyWindow?.undoManager)
+                }
+                Button("Subtract") {
+                    session?.applyBooleanOperation(.subtract, undoManager: NSApp.keyWindow?.undoManager)
+                }
+                Button("Trim") {
+                    session?.applyBooleanOperation(.trim, undoManager: NSApp.keyWindow?.undoManager)
+                }
+                Button("Join") {
+                    session?.applyBooleanOperation(.join, undoManager: NSApp.keyWindow?.undoManager)
+                }
+                Divider()
+                Button("Offset (+0.125 in)") {
+                    session?.applyBooleanOperation(.offset, offsetInches: 0.125, undoManager: NSApp.keyWindow?.undoManager)
+                }
+            }
+            .disabled(session == nil)
+
+            Menu("Visual Effects") {
+                ForEach(VexioVisualEffectPreset.allCases) { preset in
+                    Button(preset.displayName) {
+                        session?.applyVisualPreset(preset, undoManager: NSApp.keyWindow?.undoManager)
+                    }
+                }
+            }
+            .disabled(session == nil)
+
+            Divider()
+
             Button("Rotate 90° Clockwise") {
                 session?.rotateSelectedShape(byDegrees: 90.0, undoManager: NSApp.keyWindow?.undoManager)
             }
@@ -216,12 +256,69 @@ public struct VexioGlobalMenuCommands: Commands {
             .disabled(session == nil)
         }
 
-        // Enterprise Diagramming & Validation Menu
+        // Enterprise Diagramming, Themes, Subprocess, Compare, Connectors & Validation Menu
         CommandMenu("Diagram") {
             Button("Insert New Page") {
                 session?.addNewPage()
             }
             .keyboardShortcut("n", modifiers: [.command, .shift])
+            .disabled(session == nil)
+
+            Button("Create Subprocess…") {
+                session?.createSubprocessDrilldown(undoManager: NSApp.keyWindow?.undoManager)
+            }
+            .keyboardShortcut("p", modifiers: [.command, .shift])
+            .disabled(session == nil)
+
+            Divider()
+
+            Menu("Themes & Variants (6×4)") {
+                ForEach(VexioThemePreset.allCases) { theme in
+                    Menu(theme.displayName) {
+                        ForEach(0..<4, id: \.self) { variantIdx in
+                            Button("Variant \(variantIdx + 1)") {
+                                session?.applyThemeAndVariant(
+                                    themeSlug: theme.rawValue,
+                                    variantIndex: UInt8(variantIdx),
+                                    undoManager: NSApp.keyWindow?.undoManager
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+            .disabled(session == nil)
+
+            Divider()
+
+            Button("Pin Baseline Snapshot for Compare") {
+                session?.captureComparisonBaseline()
+            }
+            .disabled(session == nil)
+
+            Button("Diagram Compare with Snapshot") {
+                session?.compareWithSnapshot()
+            }
+            .keyboardShortcut("d", modifiers: [.command, .shift])
+            .disabled(session == nil)
+
+            Divider()
+
+            Menu("Plan 2 Data & Cloud Connectors") {
+                Button("Import Data Visualizer Swimlane Flow") {
+                    session?.importDataVisualizerSample(undoManager: NSApp.keyWindow?.undoManager)
+                }
+                Button("Import Cloud Discovery Topology (AWS / Azure / GCP)") {
+                    session?.importCloudTopologySample(undoManager: NSApp.keyWindow?.undoManager)
+                }
+                Button("Import Entra ID / LDAP (.ldif) Org Chart") {
+                    session?.importEntraLdifSample(undoManager: NSApp.keyWindow?.undoManager)
+                }
+                Divider()
+                Button("Merge Remote CRDT Co-Authoring Batch") {
+                    session?.applyRemoteCrdtBatch()
+                }
+            }
             .disabled(session == nil)
 
             Divider()

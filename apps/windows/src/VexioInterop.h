@@ -458,6 +458,229 @@ public:
         return vexio_doc_redo(m_ptr);
     }
 
+    // -----------------------------------------------------------------------
+    // Phase 7/8 Plan 2 Operations: Boolean Geometry, Themes, Visual Presets,
+    // Subprocess Drill-Down, Visual Diff Compare, CRDT Sync & Cloud/Data Importers
+    // -----------------------------------------------------------------------
+    [[nodiscard]] VexioStatus BooleanOp(
+        uint32_t pageId,
+        std::span<const uint64_t> shapeIds,
+        std::string_view opUtf8,
+        double offsetIn = 0.18)
+    {
+        if (m_ptr == nullptr || shapeIds.empty() || opUtf8.empty()) {
+            return VEXIO_ERR_INVALID_ARG;
+        }
+
+        const std::string opNullTerminated{opUtf8};
+        return vexio_doc_boolean_op(
+            m_ptr,
+            pageId,
+            shapeIds.data(),
+            shapeIds.size(),
+            opNullTerminated.c_str(),
+            offsetIn);
+    }
+
+    [[nodiscard]] VexioStatus ApplyTheme(
+        std::string_view themeSlugUtf8,
+        uint8_t variantIndex)
+    {
+        if (m_ptr == nullptr || themeSlugUtf8.empty()) {
+            return VEXIO_ERR_INVALID_ARG;
+        }
+
+        const std::string slugNullTerminated{themeSlugUtf8};
+        return vexio_doc_apply_theme(
+            m_ptr,
+            slugNullTerminated.c_str(),
+            variantIndex);
+    }
+
+    [[nodiscard]] VexioStatus ApplyVisualPreset(
+        uint32_t pageId,
+        uint64_t shapeId,
+        std::string_view presetUtf8)
+    {
+        if (m_ptr == nullptr || presetUtf8.empty()) {
+            return VEXIO_ERR_INVALID_ARG;
+        }
+
+        const std::string presetNullTerminated{presetUtf8};
+        return vexio_doc_apply_visual_preset(
+            m_ptr,
+            pageId,
+            shapeId,
+            presetNullTerminated.c_str());
+    }
+
+    [[nodiscard]] VexioResult<uint32_t> CreateSubprocess(
+        uint32_t pageId,
+        uint64_t shapeId,
+        std::string_view subNameUtf8)
+    {
+        if (m_ptr == nullptr || subNameUtf8.empty()) {
+            return VexioResult<uint32_t>{VEXIO_ERR_INVALID_ARG, std::nullopt};
+        }
+
+        const std::string subNameNullTerminated{subNameUtf8};
+        uint32_t subPageId = 0;
+        const VexioStatus status = vexio_doc_create_subprocess(
+            m_ptr,
+            pageId,
+            shapeId,
+            subNameNullTerminated.c_str(),
+            &subPageId);
+
+        if (status != VEXIO_OK) {
+            return VexioResult<uint32_t>{status, std::nullopt};
+        }
+        return VexioResult<uint32_t>{VEXIO_OK, subPageId};
+    }
+
+    [[nodiscard]] VexioResult<winrt::hstring> CompareWith(const DocHandle& baselineDoc) const {
+        if (m_ptr == nullptr || !baselineDoc) {
+            return VexioResult<winrt::hstring>{VEXIO_ERR_INVALID_ARG, std::nullopt};
+        }
+
+        OwnedBufferGuard jsonBuf;
+        const VexioStatus status = vexio_doc_compare(
+            baselineDoc.Get(),
+            m_ptr,
+            jsonBuf.OutPtr());
+
+        if (status != VEXIO_OK) {
+            return VexioResult<winrt::hstring>{status, std::nullopt};
+        }
+        return VexioResult<winrt::hstring>{VEXIO_OK, jsonBuf.ToWinRtString()};
+    }
+
+    [[nodiscard]] VexioStatus ApplyCrdtJson(
+        std::string_view replicaIdUtf8,
+        std::string_view opsJsonUtf8)
+    {
+        if (m_ptr == nullptr || replicaIdUtf8.empty()) {
+            return VEXIO_ERR_INVALID_ARG;
+        }
+
+        const std::string replicaNullTerminated{replicaIdUtf8};
+        const std::string opsNullTerminated{opsJsonUtf8};
+        return vexio_doc_apply_crdt_json(
+            m_ptr,
+            replicaNullTerminated.c_str(),
+            opsNullTerminated.c_str());
+    }
+
+    [[nodiscard]] VexioResult<winrt::hstring> FlushCrdtJson(
+        const DocHandle& prevDoc,
+        std::string_view replicaIdUtf8,
+        uint64_t nowMs) const
+    {
+        if (m_ptr == nullptr || !prevDoc || replicaIdUtf8.empty()) {
+            return VexioResult<winrt::hstring>{VEXIO_ERR_INVALID_ARG, std::nullopt};
+        }
+
+        const std::string replicaNullTerminated{replicaIdUtf8};
+        OwnedBufferGuard opsBuf;
+        const VexioStatus status = vexio_doc_flush_crdt_json(
+            prevDoc.Get(),
+            m_ptr,
+            replicaNullTerminated.c_str(),
+            nowMs,
+            opsBuf.OutPtr());
+
+        if (status != VEXIO_OK) {
+            return VexioResult<winrt::hstring>{status, std::nullopt};
+        }
+        return VexioResult<winrt::hstring>{VEXIO_OK, opsBuf.ToWinRtString()};
+    }
+
+    [[nodiscard]] VexioResult<uint32_t> ImportDataVisualizer(
+        uint32_t pageId,
+        std::span<const uint8_t> csvOrXlsxBytes)
+    {
+        if (m_ptr == nullptr || csvOrXlsxBytes.empty()) {
+            return VexioResult<uint32_t>{VEXIO_ERR_INVALID_ARG, std::nullopt};
+        }
+
+        const VexioByteSlice slice{
+            csvOrXlsxBytes.data(),
+            csvOrXlsxBytes.size()
+        };
+        uint32_t stepCount = 0;
+        const VexioStatus status = vexio_doc_import_data_visualizer(
+            m_ptr,
+            pageId,
+            slice,
+            &stepCount);
+
+        if (status != VEXIO_OK) {
+            return VexioResult<uint32_t>{status, std::nullopt};
+        }
+        return VexioResult<uint32_t>{VEXIO_OK, stepCount};
+    }
+
+    [[nodiscard]] VexioResult<OwnedBufferGuard> ExportDataVisualizerXlsx(uint32_t pageId) const {
+        if (m_ptr == nullptr) {
+            return VexioResult<OwnedBufferGuard>{VEXIO_ERR_INVALID_ARG, std::nullopt};
+        }
+
+        OwnedBufferGuard xlsxBuf;
+        const VexioStatus status = vexio_doc_export_data_visualizer_xlsx(
+            m_ptr,
+            pageId,
+            xlsxBuf.OutPtr());
+
+        if (status != VEXIO_OK) {
+            return VexioResult<OwnedBufferGuard>{status, std::nullopt};
+        }
+        return VexioResult<OwnedBufferGuard>{VEXIO_OK, std::move(xlsxBuf)};
+    }
+
+    [[nodiscard]] VexioResult<uint32_t> ImportCloudDiscovery(
+        uint32_t pageId,
+        std::string_view discoveryJsonUtf8)
+    {
+        if (m_ptr == nullptr || discoveryJsonUtf8.empty()) {
+            return VexioResult<uint32_t>{VEXIO_ERR_INVALID_ARG, std::nullopt};
+        }
+
+        const std::string jsonNullTerminated{discoveryJsonUtf8};
+        uint32_t importedCount = 0;
+        const VexioStatus status = vexio_doc_import_cloud_discovery(
+            m_ptr,
+            pageId,
+            jsonNullTerminated.c_str(),
+            &importedCount);
+
+        if (status != VEXIO_OK) {
+            return VexioResult<uint32_t>{status, std::nullopt};
+        }
+        return VexioResult<uint32_t>{VEXIO_OK, importedCount};
+    }
+
+    [[nodiscard]] VexioResult<uint32_t> ImportEntraOrLdif(
+        uint32_t pageId,
+        std::string_view textUtf8)
+    {
+        if (m_ptr == nullptr || textUtf8.empty()) {
+            return VexioResult<uint32_t>{VEXIO_ERR_INVALID_ARG, std::nullopt};
+        }
+
+        const std::string textNullTerminated{textUtf8};
+        uint32_t importedCount = 0;
+        const VexioStatus status = vexio_doc_import_entra_or_ldif(
+            m_ptr,
+            pageId,
+            textNullTerminated.c_str(),
+            &importedCount);
+
+        if (status != VEXIO_OK) {
+            return VexioResult<uint32_t>{status, std::nullopt};
+        }
+        return VexioResult<uint32_t>{VEXIO_OK, importedCount};
+    }
+
 private:
     VexioDoc* m_ptr{nullptr};
 };

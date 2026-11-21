@@ -46,6 +46,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Redo
 import androidx.compose.material.icons.automirrored.filled.Undo
@@ -137,11 +138,15 @@ import com.vexio.MainActivity
 import com.vexio.core.BuiltInStencilCatalog
 import com.vexio.core.CrossWindowShapePayload
 import com.vexio.core.FormulaCommitStatus
+import com.vexio.core.Plan2SamplePayloads
 import com.vexio.core.ShapeSheetCellEntry
 import com.vexio.core.StencilMasterItem
+import com.vexio.core.VexioBooleanOp
 import com.vexio.core.VexioCursorKind
 import com.vexio.core.VexioSessionViewModel
+import com.vexio.core.VexioThemePreset
 import com.vexio.core.VexioTool
+import com.vexio.core.VexioVisualPreset
 import com.vexio.core.WorkstationUiState
 import com.vexio.ui.theme.LocalVexioSemanticColors
 import com.vexio.ui.theme.VexioExpressiveMotion
@@ -156,7 +161,7 @@ const val EXTRA_DOCUMENT_TEMPLATE = "vexio.template"
 const val VEXIO_MASTER_CLIP_MIME = "application/vnd.vexio.master+json"
 
 private val SUPPORTED_DIAGRAM_EXTENSIONS = setOf(
-    "vsdx", "vsdm", "vssx", "vstx", "vsd", "dwg", "dxf"
+    "vsdx", "vsdm", "vssx", "vstx", "vsd", "vdx", "dwg", "dxf"
 )
 
 /**
@@ -168,6 +173,7 @@ sealed interface WorkstationNavKey {
     data class StencilDrawer(val category: String) : WorkstationNavKey
     data object InspectorPane : WorkstationNavKey
     data object ShapeSheetStudio : WorkstationNavKey
+    data object Plan2Operations : WorkstationNavKey
 }
 
 enum class AdaptiveWorkstationPosture {
@@ -335,6 +341,10 @@ fun GooglebookWorkstationScreen(
                         viewModel.selectTool(VexioTool.STYLUS_INK)
                         true
                     }
+                    ctrlOrMeta && keyEvent.key == Key.Five -> {
+                        viewModel.selectTool(VexioTool.FREEFORM)
+                        true
+                    }
                     ctrlOrMeta && keyEvent.key == Key.Eight -> {
                         viewModel.selectTool(VexioTool.RECTANGLE)
                         true
@@ -377,6 +387,12 @@ fun GooglebookWorkstationScreen(
                 onPrintClick = onPrintRequested,
                 onUndoClick = viewModel::performUndo,
                 onRedoClick = viewModel::performRedo,
+                onTogglePlan2Ribbon = {
+                    viewModel.togglePlan2Ribbon()
+                    if (navBackStack.lastOrNull() != WorkstationNavKey.Plan2Operations) {
+                        navBackStack.add(WorkstationNavKey.Plan2Operations)
+                    }
+                },
                 onToggleStencilDrawer = viewModel::toggleStencilDrawer,
                 onToggleShapeSheet = viewModel::toggleShapeSheetDrawer,
                 onToggleInspector = viewModel::toggleInspectorPane
@@ -390,6 +406,52 @@ fun GooglebookWorkstationScreen(
                 onForceSetfToggled = viewModel::setForceSetfOverride,
                 onCommitFormula = { viewModel.commitCellFormula() }
             )
+
+            // 2b. Material 3 Expressive Plan 2 Enterprise Control Strip
+            AnimatedVisibility(
+                visible = uiState.isPlan2RibbonExpanded,
+                enter = expandVertically(VexioExpressiveMotion.spatialSpring()) + fadeIn(),
+                exit = shrinkVertically(VexioExpressiveMotion.spatialSpring()) + fadeOut()
+            ) {
+                Plan2ExpressiveControlStrip(
+                    uiState = uiState,
+                    onBooleanOp = { op -> viewModel.performBooleanOp(op) },
+                    onSelectTheme = { slug, variant -> viewModel.applyDocumentTheme(slug, variant) },
+                    onToggleVisualPreset = { preset -> viewModel.applyVisualPreset(preset.slug) },
+                    onCreateSubprocess = { viewModel.createOrLinkSubprocess() },
+                    onCompareDiagram = { viewModel.compareWithBaseline() },
+                    onImportDataVisualizer = {
+                        viewModel.importDataVisualizer(
+                            Plan2SamplePayloads.dataVisualizerCsv.toByteArray(Charsets.UTF_8)
+                        )
+                    },
+                    onImportCloudDiscovery = {
+                        viewModel.importCloudDiscovery(Plan2SamplePayloads.cloudDiscoveryJson)
+                    },
+                    onImportEntraOrgChart = {
+                        viewModel.importEntraOrLdifOrgChart(Plan2SamplePayloads.entraOrgChartLdif)
+                    },
+                    onSyncCrdtPeerDelta = {
+                        val nextLogical = uiState.crdtLogicalClock + 1
+                        val crdtDeltaJson = """
+                            [
+                              {
+                                "SetCell": {
+                                  "ts": { "wall_ms": ${1_760_000_000_000L + nextLogical}, "logical": $nextLogical, "replica_id": "${uiState.crdtReplicaId}" },
+                                  "page_id": ${uiState.activePageId},
+                                  "shape_id": ${uiState.selectedShapeId},
+                                  "cell_name": "PinX",
+                                  "formula": "5.00 in",
+                                  "force_setf": false
+                                }
+                              }
+                            ]
+                        """.trimIndent()
+                        viewModel.applyCrdtBatchJson(crdtDeltaJson, uiState.crdtReplicaId)
+                    },
+                    onExportPlan2Format = { fmt -> viewModel.exportPlan2Artifact(fmt) }
+                )
+            }
 
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
@@ -590,6 +652,7 @@ private fun WorkstationHeaderBar(
     onPrintClick: () -> Unit,
     onUndoClick: () -> Unit,
     onRedoClick: () -> Unit,
+    onTogglePlan2Ribbon: () -> Unit,
     onToggleStencilDrawer: () -> Unit,
     onToggleShapeSheet: () -> Unit,
     onToggleInspector: () -> Unit
@@ -696,7 +759,10 @@ private fun WorkstationHeaderBar(
 
             Spacer(Modifier.width(6.dp))
 
-            // Pane Toggles (Stencils, ShapeSheet Shift+F5, Inspector)
+            // Pane Toggles (Plan 2 Ribbon, Stencils, ShapeSheet Shift+F5, Inspector)
+            FilledTonalIconButton(onClick = onTogglePlan2Ribbon) {
+                Icon(Icons.Default.Architecture, contentDescription = "Toggle Plan 2 Operations Ribbon")
+            }
             FilledTonalIconButton(onClick = onToggleStencilDrawer) {
                 Icon(Icons.Default.Schema, contentDescription = "Toggle Stencil Drawer")
             }
@@ -709,6 +775,298 @@ private fun WorkstationHeaderBar(
                 }
             }
         }
+    }
+}
+
+/**
+ * Material 3 Expressive Plan 2 Enterprise Control Strip surfacing:
+ * - Constructive 2D Boolean Operations pill group (`Union`, `Combine`, `Fragment`, `Intersect`, `Subtract`, `Trim`, `Join`, `Offset`)
+ * - `6×4` Themes & Variants selector + Visual Effects presets (`grad_linear`, `shadow_soft`, `bevel_3d`, `sketchy`)
+ * - Subprocess Drill-Down & Diagram Compare actions
+ * - Data Visualizer, Cloud Discovery, Entra/LDIF Org Chart, HLC CRDT sync, and `.pptx`/`.docx`/Power Automate/Power BI exports
+ */
+@Composable
+private fun Plan2ExpressiveControlStrip(
+    uiState: WorkstationUiState,
+    onBooleanOp: (VexioBooleanOp) -> Unit,
+    onSelectTheme: (String, Int) -> Unit,
+    onToggleVisualPreset: (VexioVisualPreset) -> Unit,
+    onCreateSubprocess: () -> Unit,
+    onCompareDiagram: () -> Unit,
+    onImportDataVisualizer: () -> Unit,
+    onImportCloudDiscovery: () -> Unit,
+    onImportEntraOrgChart: () -> Unit,
+    onSyncCrdtPeerDelta: () -> Unit,
+    onExportPlan2Format: (String) -> Unit
+) {
+    var themeMenuExpanded by remember { mutableStateOf(false) }
+    var exportMenuExpanded by remember { mutableStateOf(false) }
+    val activeThemeDisplay = remember(uiState.activeThemeSlug) {
+        VexioThemePreset.fromSlug(uiState.activeThemeSlug)?.displayName ?: "Modern"
+    }
+
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+                .padding(horizontal = 12.dp, vertical = 6.dp)
+        ) {
+            // 1. Boolean Operations Pill Group
+            Surface(
+                shape = RoundedCornerShape(14.dp),
+                color = MaterialTheme.colorScheme.surfaceContainer,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(3.dp),
+                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
+                ) {
+                    Text(
+                        text = "Boolean",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(horizontal = 4.dp)
+                    )
+                    VexioBooleanOp.entries.forEach { op ->
+                        val active = uiState.lastBooleanOp == op.slug
+                        ExpressivePlan2ActionPill(
+                            label = op.displayName,
+                            selected = active,
+                            onClick = { onBooleanOp(op) }
+                        )
+                    }
+                }
+            }
+
+            // 2. 6×4 Theme & Effects Selector Group
+            Surface(
+                shape = RoundedCornerShape(14.dp),
+                color = MaterialTheme.colorScheme.surfaceContainer,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
+                ) {
+                    Box {
+                        ExpressivePlan2ActionPill(
+                            label = "Theme: $activeThemeDisplay",
+                            selected = true,
+                            onClick = { themeMenuExpanded = true }
+                        )
+                        DropdownMenu(
+                            expanded = themeMenuExpanded,
+                            onDismissRequest = { themeMenuExpanded = false }
+                        ) {
+                            VexioThemePreset.entries.forEach { preset ->
+                                DropdownMenuItem(
+                                    text = { Text("${preset.displayName} (4 Variants)") },
+                                    leadingIcon = {
+                                        if (preset.slug == uiState.activeThemeSlug) {
+                                            Icon(Icons.Default.Check, contentDescription = null)
+                                        }
+                                    },
+                                    onClick = {
+                                        themeMenuExpanded = false
+                                        onSelectTheme(preset.slug, uiState.activeThemeVariant)
+                                    }
+                                )
+                            }
+                        }
+                    }
+
+                    (0..3).forEach { variantIdx ->
+                        ExpressivePlan2ActionPill(
+                            label = "V${variantIdx + 1}",
+                            selected = uiState.activeThemeVariant == variantIdx,
+                            onClick = { onSelectTheme(uiState.activeThemeSlug, variantIdx) }
+                        )
+                    }
+
+                    VerticalDivider(
+                        modifier = Modifier
+                            .height(18.dp)
+                            .padding(horizontal = 2.dp),
+                        color = MaterialTheme.colorScheme.outlineVariant
+                    )
+
+                    VexioVisualPreset.entries.forEach { preset ->
+                        ExpressivePlan2ActionPill(
+                            label = preset.displayName,
+                            selected = preset.slug in uiState.activeVisualPresets,
+                            onClick = { onToggleVisualPreset(preset) }
+                        )
+                    }
+                }
+            }
+
+            // 3. Subprocess Drill-Down & Diagram Compare Actions
+            Surface(
+                shape = RoundedCornerShape(14.dp),
+                color = MaterialTheme.colorScheme.surfaceContainer,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
+                ) {
+                    val subLabel = if (uiState.subprocessLinks.isNotEmpty()) {
+                        "Subprocess (+) [${uiState.subprocessLinks.size}]"
+                    } else {
+                        "Subprocess (+)"
+                    }
+                    ExpressivePlan2ActionPill(
+                        label = subLabel,
+                        selected = uiState.subprocessLinks.containsKey(uiState.selectedShapeId),
+                        onClick = onCreateSubprocess
+                    )
+
+                    val compareSummary = uiState.lastCompareSummary
+                    val compareLabel = if (compareSummary != null) {
+                        "Compare +${compareSummary.addedCount}/~${compareSummary.modifiedCount}/-${compareSummary.removedCount}"
+                    } else {
+                        "Diagram Compare"
+                    }
+                    ExpressivePlan2ActionPill(
+                        label = compareLabel,
+                        selected = compareSummary != null,
+                        onClick = onCompareDiagram
+                    )
+                }
+            }
+
+            // 4. Data Visualizer, Cloud Discovery, Entra/LDIF Org, CRDT Sync & Plan 2 Exports
+            Surface(
+                shape = RoundedCornerShape(14.dp),
+                color = MaterialTheme.colorScheme.surfaceContainer,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
+                ) {
+                    ExpressivePlan2ActionPill(
+                        label = "Data Visualizer",
+                        selected = uiState.lastDataVisualizerShapeCount > 0,
+                        onClick = onImportDataVisualizer
+                    )
+                    ExpressivePlan2ActionPill(
+                        label = "Cloud Discovery",
+                        selected = uiState.lastCloudDiscoveryShapeCount > 0,
+                        onClick = onImportCloudDiscovery
+                    )
+                    ExpressivePlan2ActionPill(
+                        label = "Entra / LDIF Org",
+                        selected = uiState.lastOrgChartShapeCount > 0,
+                        onClick = onImportEntraOrgChart
+                    )
+                    ExpressivePlan2ActionPill(
+                        label = "CRDT Sync (L${uiState.crdtLogicalClock})",
+                        selected = uiState.crdtAppliedOpsCount > 0,
+                        onClick = onSyncCrdtPeerDelta
+                    )
+
+                    Box {
+                        ExpressivePlan2ActionPill(
+                            label = uiState.lastPlan2ExportFormat?.let { "Exported .$it" } ?: "Plan 2 Export ▾",
+                            selected = uiState.lastPlan2ExportFormat != null,
+                            onClick = { exportMenuExpanded = true }
+                        )
+                        DropdownMenu(
+                            expanded = exportMenuExpanded,
+                            onDismissRequest = { exportMenuExpanded = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("PowerPoint Slide Deck (.pptx)") },
+                                onClick = {
+                                    exportMenuExpanded = false
+                                    onExportPlan2Format("pptx")
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Word Process Spec (.docx)") },
+                                onClick = {
+                                    exportMenuExpanded = false
+                                    onExportPlan2Format("docx")
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Power Automate Workflow (flow.json)") },
+                                onClick = {
+                                    exportMenuExpanded = false
+                                    onExportPlan2Format("flow.json")
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Power BI Visual Mapping (pbi.json)") },
+                                onClick = {
+                                    exportMenuExpanded = false
+                                    onExportPlan2Format("pbi.json")
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ExpressivePlan2ActionPill(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    val pillShape = rememberExpressiveToolButtonShape(isSelected = selected)
+    val scale by rememberExpressiveScaleState(emphasized = selected)
+    val bgColor by animateColorAsState(
+        targetValue = if (selected) {
+            MaterialTheme.colorScheme.secondaryContainer
+        } else {
+            MaterialTheme.colorScheme.surfaceContainerLowest
+        },
+        animationSpec = VexioExpressiveMotion.crispEffectsSpring(),
+        label = "Plan2PillBg"
+    )
+    val fgColor by animateColorAsState(
+        targetValue = if (selected) {
+            MaterialTheme.colorScheme.onSecondaryContainer
+        } else {
+            MaterialTheme.colorScheme.onSurfaceVariant
+        },
+        animationSpec = VexioExpressiveMotion.crispEffectsSpring(),
+        label = "Plan2PillFg"
+    )
+
+    Surface(
+        shape = pillShape,
+        color = bgColor,
+        border = BorderStroke(
+            width = 1.dp,
+            color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant
+        ),
+        modifier = Modifier
+            .scale(scale)
+            .clip(pillShape)
+            .clickable(onClick = onClick)
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelMedium,
+            color = fgColor,
+            modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp)
+        )
     }
 }
 
@@ -1078,6 +1436,7 @@ private fun ExpressiveMorphingToolbar(
             VexioTool.POINTER to Icons.Default.NearMe,
             VexioTool.RECTANGLE to Icons.Default.CropSquare,
             VexioTool.ELLIPSE to Icons.Default.RadioButtonUnchecked,
+            VexioTool.FREEFORM to Icons.Default.Architecture,
             VexioTool.CONNECTOR to Icons.Default.Timeline,
             VexioTool.TEXT_BLOCK to Icons.Default.TextFields,
             VexioTool.STYLUS_INK to Icons.Default.Brush,
@@ -1450,6 +1809,22 @@ private fun VulkanCanvasDropZone(
                 }
             )
             DropdownMenuItem(
+                text = { Text("Link Subprocess Page (+)") },
+                leadingIcon = { Icon(Icons.Default.AccountTree, contentDescription = null) },
+                onClick = {
+                    contextMenuVisible = false
+                    viewModel.createOrLinkSubprocess()
+                }
+            )
+            DropdownMenuItem(
+                text = { Text("Boolean Union (Selected Shapes)") },
+                leadingIcon = { Icon(Icons.Default.Architecture, contentDescription = null) },
+                onClick = {
+                    contextMenuVisible = false
+                    viewModel.performBooleanOp(VexioBooleanOp.UNION)
+                }
+            )
+            DropdownMenuItem(
                 text = { Text("Open New Diagram Window (Ctrl+N)") },
                 leadingIcon = { Icon(Icons.Default.OpenInNew, contentDescription = null) },
                 onClick = {
@@ -1583,6 +1958,7 @@ private fun ShapeInspectorPane(
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .verticalScroll(rememberScrollState())
                 .padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
@@ -1644,6 +2020,45 @@ private fun ShapeInspectorPane(
                 }
             }
 
+            // Plan 2 Enterprise Telemetry Card (6×4 Theme, Visual Presets, Subprocesses, Compare & CRDT)
+            Surface(
+                shape = RoundedCornerShape(14.dp),
+                color = MaterialTheme.colorScheme.surfaceContainer,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                    modifier = Modifier.padding(12.dp)
+                ) {
+                    Text(
+                        text = "Visio Plan 2 Telemetry",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        text = "Theme: ${uiState.activeThemeSlug} (Variant ${uiState.activeThemeVariant + 1}/4)",
+                        style = MaterialTheme.typography.labelSmall
+                    )
+                    Text(
+                        text = "Effects: ${uiState.activeVisualPresets.joinToString(", ").ifEmpty { "Standard" }}",
+                        style = MaterialTheme.typography.labelSmall
+                    )
+                    Text(
+                        text = "Subprocess Links: ${uiState.subprocessLinks.size} • CRDT Ops: ${uiState.crdtAppliedOpsCount} (L${uiState.crdtLogicalClock})",
+                        style = MaterialTheme.typography.labelSmall
+                    )
+                    val compare = uiState.lastCompareSummary
+                    if (compare != null) {
+                        Text(
+                            text = "Diff: +${compare.addedCount} added / ~${compare.modifiedCount} mod / -${compare.removedCount} del",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.secondary
+                        )
+                    }
+                }
+            }
+
             // BPMN 2.0 / UML 2.5 Structural Validation Diagnostic Card
             Surface(
                 shape = RoundedCornerShape(14.dp),
@@ -1691,7 +2106,7 @@ private fun ShapeInspectorPane(
                         style = MaterialTheme.typography.labelLarge
                     )
                     Text("Ctrl+N  New Side-by-Side Window", style = MaterialTheme.typography.labelSmall)
-                    Text("Ctrl+1/2/3  Pointer / Text / Connector", style = MaterialTheme.typography.labelSmall)
+                    Text("Ctrl+1..5  Pointer / Text / Conn / Ink / Freeform", style = MaterialTheme.typography.labelSmall)
                     Text("Shift+F5  ShapeSheet Formula Grid", style = MaterialTheme.typography.labelSmall)
                     Text("Ctrl+P  Vector PDF OS Print", style = MaterialTheme.typography.labelSmall)
                 }

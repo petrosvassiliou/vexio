@@ -12,7 +12,7 @@
   <Identity
     Name="VexioSuite.VexioWorkstation"
     Publisher="CN=Vexio Suite Engineering"
-    Version="1.0.0.0"
+    Version="0.1.0.0"
     ProcessorArchitecture="x64" />
 
   <mp:PhoneIdentity
@@ -86,6 +86,29 @@
             <uap:SupportedFileTypes>
               <uap:FileType ContentType="image/vnd.dwg">.dwg</uap:FileType>
               <uap:FileType ContentType="image/vnd.dxf">.dxf</uap:FileType>
+            </uap:SupportedFileTypes>
+          </uap3:FileTypeAssociation>
+        </uap:Extension>
+
+        <!-- Windows Enhanced & Placeable Vector Metafiles (.emf, .wmf) -->
+        <uap:Extension Category="windows.fileTypeAssociation">
+          <uap3:FileTypeAssociation Name="vexio-vector-metafile">
+            <uap:DisplayName>Windows Vector Metafile Drawing</uap:DisplayName>
+            <uap:EditFlags OpenIsSafe="true" />
+            <uap:SupportedFileTypes>
+              <uap:FileType ContentType="image/emf">.emf</uap:FileType>
+              <uap:FileType ContentType="image/wmf">.wmf</uap:FileType>
+            </uap:SupportedFileTypes>
+          </uap3:FileTypeAssociation>
+        </uap:Extension>
+
+        <!-- Enterprise Directory Org Chart Data (.ldif) -->
+        <uap:Extension Category="windows.fileTypeAssociation">
+          <uap3:FileTypeAssociation Name="vexio-directory-ldif">
+            <uap:DisplayName>LDAP Directory Interchange Org Chart</uap:DisplayName>
+            <uap:EditFlags OpenIsSafe="true" />
+            <uap:SupportedFileTypes>
+              <uap:FileType ContentType="text/x-ldif">.ldif</uap:FileType>
             </uap:SupportedFileTypes>
           </uap3:FileTypeAssociation>
         </uap:Extension>

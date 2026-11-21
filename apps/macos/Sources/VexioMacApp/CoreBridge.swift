@@ -118,6 +118,11 @@ public enum VexioExportFormat: String, CaseIterable, Identifiable, Sendable {
     case dxf
     case pdf
     case svg
+    case pptx
+    case docx
+    case emf
+    case powerautomate
+    case powerbi
 
     public var id: String { rawValue }
 
@@ -128,6 +133,19 @@ public enum VexioExportFormat: String, CaseIterable, Identifiable, Sendable {
         case .dxf: return "AutoCAD Exchange (.dxf)"
         case .pdf: return "Vector PDF/A (.pdf)"
         case .svg: return "Scalable Vector Graphics (.svg)"
+        case .pptx: return "PowerPoint Presentation (.pptx)"
+        case .docx: return "Word Process Specification (.docx)"
+        case .emf: return "Enhanced Metafile Vector (.emf)"
+        case .powerautomate: return "Power Automate Workflow (.flow.json)"
+        case .powerbi: return "Power BI Visio Visual (.pbi.json)"
+        }
+    }
+
+    public var defaultFileExtension: String {
+        switch self {
+        case .powerautomate: return "flow.json"
+        case .powerbi: return "pbi.json"
+        default: return rawValue
         }
     }
 
@@ -138,6 +156,11 @@ public enum VexioExportFormat: String, CaseIterable, Identifiable, Sendable {
         case .dxf: return .autoCADDXF
         case .pdf: return .pdf
         case .svg: return .svg
+        case .pptx: return .presentation
+        case .docx: return .data
+        case .emf: return .data
+        case .powerautomate: return .json
+        case .powerbi: return .json
         }
     }
 }
@@ -308,6 +331,147 @@ public struct ForceTouchQuickInspectContext: Equatable, Sendable {
     public let pressure: Float
 }
 
+// MARK: - Phase 7 Plan 2 Domain Models (Boolean Ops, 6x4 Themes, Visual Presets & Compare)
+
+public enum VexioBooleanOperation: String, CaseIterable, Identifiable, Sendable {
+    case union = "union"
+    case combine = "combine"
+    case fragment = "fragment"
+    case intersect = "intersect"
+    case subtract = "subtract"
+    case trim = "trim"
+    case join = "join"
+    case offset = "offset"
+
+    public var id: String { rawValue }
+
+    public var displayName: String {
+        switch self {
+        case .union: return "Union"
+        case .combine: return "Combine"
+        case .fragment: return "Fragment"
+        case .intersect: return "Intersect"
+        case .subtract: return "Subtract"
+        case .trim: return "Trim"
+        case .join: return "Join"
+        case .offset: return "Offset"
+        }
+    }
+
+    public var symbolName: String {
+        switch self {
+        case .union: return "square.on.square"
+        case .combine: return "squares.below.rectangle"
+        case .fragment: return "rectangle.split.2x2"
+        case .intersect: return "circle.lefthalf.filled"
+        case .subtract: return "minus.square"
+        case .trim: return "scissors"
+        case .join: return "link"
+        case .offset: return "arrow.up.left.and.arrow.down.right"
+        }
+    }
+}
+
+public enum VexioThemePreset: String, CaseIterable, Identifiable, Sendable {
+    case modern = "modern"
+    case professional = "professional"
+    case vibrant = "vibrant"
+    case blueprint = "blueprint"
+    case monochrome = "monochrome"
+    case handDrawn = "hand_drawn"
+
+    public var id: String { rawValue }
+
+    public var displayName: String {
+        switch self {
+        case .modern: return "Modern"
+        case .professional: return "Professional"
+        case .vibrant: return "Vibrant"
+        case .blueprint: return "Blueprint"
+        case .monochrome: return "Monochrome"
+        case .handDrawn: return "Hand Drawn"
+        }
+    }
+
+    public var primaryPreviewColor: Color {
+        switch self {
+        case .modern: return Color(red: 0.15, green: 0.39, blue: 0.92)
+        case .professional: return Color(red: 0.12, green: 0.25, blue: 0.43)
+        case .vibrant: return Color(red: 0.91, green: 0.28, blue: 0.42)
+        case .blueprint: return Color(red: 0.08, green: 0.46, blue: 0.78)
+        case .monochrome: return Color(red: 0.27, green: 0.31, blue: 0.36)
+        case .handDrawn: return Color(red: 0.48, green: 0.36, blue: 0.86)
+        }
+    }
+
+    public var accentPreviewColor: Color {
+        switch self {
+        case .modern: return Color(red: 0.06, green: 0.73, blue: 0.51)
+        case .professional: return Color(red: 0.22, green: 0.52, blue: 0.68)
+        case .vibrant: return Color(red: 0.96, green: 0.62, blue: 0.04)
+        case .blueprint: return Color(red: 0.38, green: 0.78, blue: 0.98)
+        case .monochrome: return Color(red: 0.58, green: 0.64, blue: 0.72)
+        case .handDrawn: return Color(red: 0.93, green: 0.48, blue: 0.22)
+        }
+    }
+}
+
+public enum VexioVisualEffectPreset: String, CaseIterable, Identifiable, Sendable {
+    case gradLinear = "grad_linear"
+    case gradRadial = "grad_radial"
+    case hatchDiag = "hatch_diag"
+    case shadowSoft = "shadow_soft"
+    case bevel3D = "bevel_3d"
+    case sketchy = "sketchy"
+
+    public var id: String { rawValue }
+
+    public var displayName: String {
+        switch self {
+        case .gradLinear: return "Linear Gradient"
+        case .gradRadial: return "Radial Glow"
+        case .hatchDiag: return "Diagonal Hatch"
+        case .shadowSoft: return "Soft Shadow"
+        case .bevel3D: return "3D Bevel"
+        case .sketchy: return "Sketchy Outline"
+        }
+    }
+
+    public var symbolName: String {
+        switch self {
+        case .gradLinear: return "rectangle.lefthalf.filled"
+        case .gradRadial: return "sun.max"
+        case .hatchDiag: return "line.diagonal"
+        case .shadowSoft: return "square.on.square.badge.person.crop"
+        case .bevel3D: return "cube"
+        case .sketchy: return "scribble"
+        }
+    }
+}
+
+public struct DiagramDiffItemPayload: Identifiable, Decodable, Equatable, Sendable {
+    public var id: String { "\(page_name)-\(shape_id)-\(summary)" }
+    public let page_name: String
+    public let shape_id: UInt64
+    public let shape_name: String
+    public let summary: String
+
+    private enum CodingKeys: String, CodingKey {
+        case page_name
+        case shape_id
+        case shape_name
+        case summary
+    }
+}
+
+public struct DiagramCompareReportPayload: Decodable, Equatable, Sendable {
+    public let entries: [DiagramDiffItemPayload]
+    public let added_count: Int
+    public let removed_count: Int
+    public let modified_count: Int
+    public let diff_overlay_svg: String
+}
+
 // MARK: - Sendable Snapshot & Export FileDocument
 
 public struct VexioDocumentSnapshot: Sendable {
@@ -318,9 +482,11 @@ public struct VexioDocumentSnapshot: Sendable {
 public struct VexioExportFileDocument: FileDocument, Sendable {
     public static let readableContentTypes: [UTType] = [
         .visioDrawing, .visioLegacyDrawing, .autoCADDXF, .pdf, .svg,
+        .presentation, .spreadsheet, .data, .json,
     ]
     public static let writableContentTypes: [UTType] = [
         .visioDrawing, .visioLegacyDrawing, .autoCADDXF, .pdf, .svg,
+        .presentation, .spreadsheet, .data, .json,
     ]
 
     public let data: Data
@@ -604,7 +770,12 @@ private final class NativeDocumentCore: @unchecked Sendable {
         let safeWidth = max(widthPx, 1)
         let safeHeight = max(heightPx, 1)
         var rgbaBuffer = VexioOwnedBuffer(ptr: nil, len: 0, cap: 0)
-        let status = vexio_render_preview_rgba(doc, pageId, safeWidth, safeHeight, &rgbaBuffer)
+        var status = vexio_render_preview_rgba(doc, pageId, safeWidth, safeHeight, &rgbaBuffer)
+        if status != VEXIO_OK && pageId == 0 {
+            vexio_buffer_free(rgbaBuffer)
+            rgbaBuffer = VexioOwnedBuffer(ptr: nil, len: 0, cap: 0)
+            status = vexio_render_preview_rgba(doc, 1, safeWidth, safeHeight, &rgbaBuffer)
+        }
         if let err = VexioBridgeError.from(status: status, context: "render_preview_rgba") {
             vexio_buffer_free(rgbaBuffer)
             throw err
@@ -633,6 +804,240 @@ private final class NativeDocumentCore: @unchecked Sendable {
         }
         return cgImage
     }
+
+    // MARK: - Phase 7 Plan 2 Thread-Safe C-ABI Operations
+
+    func booleanOp(
+        pageId: UInt32,
+        shapeIds: [UInt64],
+        operation: String,
+        offsetInches: Double
+    ) throws {
+        guard !shapeIds.isEmpty else {
+            throw VexioBridgeError.invalidArgument(context: "boolean_op requires at least one shape ID")
+        }
+        lock.lock()
+        defer { lock.unlock() }
+
+        let status: VexioStatus = shapeIds.withUnsafeBufferPointer { idsBuffer in
+            operation.withCString { opCStr in
+                vexio_doc_boolean_op(
+                    doc,
+                    pageId,
+                    idsBuffer.baseAddress,
+                    idsBuffer.count,
+                    opCStr,
+                    offsetInches
+                )
+            }
+        }
+        if let err = VexioBridgeError.from(status: status, context: "boolean_op(\(operation))") {
+            throw err
+        }
+    }
+
+    func applyTheme(themeSlug: String, variantIndex: UInt8) throws {
+        lock.lock()
+        defer { lock.unlock() }
+
+        let status: VexioStatus = themeSlug.withCString { slugCStr in
+            vexio_doc_apply_theme(doc, slugCStr, variantIndex)
+        }
+        if let err = VexioBridgeError.from(status: status, context: "apply_theme(\(themeSlug))") {
+            throw err
+        }
+    }
+
+    func applyVisualPreset(pageId: UInt32, shapeId: UInt64, presetSlug: String) throws {
+        lock.lock()
+        defer { lock.unlock() }
+
+        let status: VexioStatus = presetSlug.withCString { presetCStr in
+            vexio_doc_apply_visual_preset(doc, pageId, shapeId, presetCStr)
+        }
+        if let err = VexioBridgeError.from(status: status, context: "apply_visual_preset(\(presetSlug))") {
+            throw err
+        }
+    }
+
+    func createSubprocess(pageId: UInt32, shapeId: UInt64, subprocessName: String) throws -> UInt32 {
+        lock.lock()
+        defer { lock.unlock() }
+
+        var outSubPageId: UInt32 = 0
+        let status: VexioStatus = withUnsafeMutablePointer(to: &outSubPageId) { outPtr in
+            subprocessName.withCString { subNameCStr in
+                vexio_doc_create_subprocess(doc, pageId, shapeId, subNameCStr, outPtr)
+            }
+        }
+        if let err = VexioBridgeError.from(status: status, context: "create_subprocess(\(subprocessName))") {
+            throw err
+        }
+        return outSubPageId
+    }
+
+    func compare(againstBaselineData baselineData: Data, formatExtension: String = "vsdx") throws -> String {
+        guard !baselineData.isEmpty else {
+            throw VexioBridgeError.emptyDocumentPayload
+        }
+        lock.lock()
+        defer { lock.unlock() }
+
+        var baselineDoc: OpaquePointer?
+        let openStatus: VexioStatus = withUnsafeMutablePointer(to: &baselineDoc) { docOutPtr in
+            baselineData.withUnsafeBytes { rawBuffer in
+                let basePtr = rawBuffer.bindMemory(to: UInt8.self).baseAddress
+                let slice = VexioByteSlice(ptr: basePtr, len: rawBuffer.count)
+                return formatExtension.withCString { extCStr in
+                    vexio_doc_open_bytes(engine, slice, extCStr, docOutPtr)
+                }
+            }
+        }
+        if let err = VexioBridgeError.from(status: openStatus, context: "compare_baseline(\(formatExtension))") {
+            if let partial = baselineDoc {
+                vexio_doc_destroy(partial)
+            }
+            throw err
+        }
+        guard let validBaselineDoc = baselineDoc else {
+            throw VexioBridgeError.corruptOrUnsupportedFormat(extensionName: formatExtension)
+        }
+        defer { vexio_doc_destroy(validBaselineDoc) }
+
+        var outJSON = VexioOwnedBuffer(ptr: nil, len: 0, cap: 0)
+        let compareStatus = vexio_doc_compare(validBaselineDoc, doc, &outJSON)
+        if let err = VexioBridgeError.from(status: compareStatus, context: "vexio_doc_compare") {
+            vexio_buffer_free(outJSON)
+            throw err
+        }
+        return Self.consumeOwnedBufferAsUTF8(outJSON)
+    }
+
+    func applyCrdtJSON(replicaId: String, opsJSON: String) throws {
+        lock.lock()
+        defer { lock.unlock() }
+
+        let status: VexioStatus = replicaId.withCString { replicaCStr in
+            opsJSON.withCString { opsCStr in
+                vexio_doc_apply_crdt_json(doc, replicaCStr, opsCStr)
+            }
+        }
+        if let err = VexioBridgeError.from(status: status, context: "apply_crdt_json") {
+            throw err
+        }
+    }
+
+    func flushCrdtJSON(
+        againstBaselineData baselineData: Data,
+        formatExtension: String = "vsdx",
+        replicaId: String,
+        nowMs: UInt64
+    ) throws -> String {
+        guard !baselineData.isEmpty else {
+            throw VexioBridgeError.emptyDocumentPayload
+        }
+        lock.lock()
+        defer { lock.unlock() }
+
+        var baselineDoc: OpaquePointer?
+        let openStatus: VexioStatus = withUnsafeMutablePointer(to: &baselineDoc) { docOutPtr in
+            baselineData.withUnsafeBytes { rawBuffer in
+                let basePtr = rawBuffer.bindMemory(to: UInt8.self).baseAddress
+                let slice = VexioByteSlice(ptr: basePtr, len: rawBuffer.count)
+                return formatExtension.withCString { extCStr in
+                    vexio_doc_open_bytes(engine, slice, extCStr, docOutPtr)
+                }
+            }
+        }
+        if let err = VexioBridgeError.from(status: openStatus, context: "flush_crdt_baseline") {
+            if let partial = baselineDoc {
+                vexio_doc_destroy(partial)
+            }
+            throw err
+        }
+        guard let validBaselineDoc = baselineDoc else {
+            throw VexioBridgeError.corruptOrUnsupportedFormat(extensionName: formatExtension)
+        }
+        defer { vexio_doc_destroy(validBaselineDoc) }
+
+        var outOps = VexioOwnedBuffer(ptr: nil, len: 0, cap: 0)
+        let flushStatus: VexioStatus = withUnsafeMutablePointer(to: &outOps) { outPtr in
+            replicaId.withCString { replicaCStr in
+                vexio_doc_flush_crdt_json(validBaselineDoc, doc, replicaCStr, nowMs, outPtr)
+            }
+        }
+        if let err = VexioBridgeError.from(status: flushStatus, context: "flush_crdt_json") {
+            vexio_buffer_free(outOps)
+            throw err
+        }
+        return Self.consumeOwnedBufferAsUTF8(outOps)
+    }
+
+    func importDataVisualizer(pageId: UInt32, csvOrXlsxData: Data) throws -> UInt32 {
+        guard !csvOrXlsxData.isEmpty else {
+            throw VexioBridgeError.emptyDocumentPayload
+        }
+        lock.lock()
+        defer { lock.unlock() }
+
+        var stepCount: UInt32 = 0
+        let status: VexioStatus = withUnsafeMutablePointer(to: &stepCount) { countPtr in
+            csvOrXlsxData.withUnsafeBytes { rawBuffer in
+                let basePtr = rawBuffer.bindMemory(to: UInt8.self).baseAddress
+                let slice = VexioByteSlice(ptr: basePtr, len: rawBuffer.count)
+                return vexio_doc_import_data_visualizer(doc, pageId, slice, countPtr)
+            }
+        }
+        if let err = VexioBridgeError.from(status: status, context: "import_data_visualizer") {
+            throw err
+        }
+        return stepCount
+    }
+
+    func exportDataVisualizerXlsx(pageId: UInt32) throws -> Data {
+        lock.lock()
+        defer { lock.unlock() }
+
+        var outXlsx = VexioOwnedBuffer(ptr: nil, len: 0, cap: 0)
+        let status = vexio_doc_export_data_visualizer_xlsx(doc, pageId, &outXlsx)
+        if let err = VexioBridgeError.from(status: status, context: "export_data_visualizer_xlsx") {
+            vexio_buffer_free(outXlsx)
+            throw err
+        }
+        return Self.consumeOwnedBufferAsData(outXlsx)
+    }
+
+    func importCloudDiscovery(pageId: UInt32, discoveryJSON: String) throws -> UInt32 {
+        lock.lock()
+        defer { lock.unlock() }
+
+        var importedCount: UInt32 = 0
+        let status: VexioStatus = withUnsafeMutablePointer(to: &importedCount) { countPtr in
+            discoveryJSON.withCString { jsonCStr in
+                vexio_doc_import_cloud_discovery(doc, pageId, jsonCStr, countPtr)
+            }
+        }
+        if let err = VexioBridgeError.from(status: status, context: "import_cloud_discovery") {
+            throw err
+        }
+        return importedCount
+    }
+
+    func importEntraOrLdif(pageId: UInt32, directoryPayload: String) throws -> UInt32 {
+        lock.lock()
+        defer { lock.unlock() }
+
+        var importedCount: UInt32 = 0
+        let status: VexioStatus = withUnsafeMutablePointer(to: &importedCount) { countPtr in
+            directoryPayload.withCString { textCStr in
+                vexio_doc_import_entra_or_ldif(doc, pageId, textCStr, countPtr)
+            }
+        }
+        if let err = VexioBridgeError.from(status: status, context: "import_entra_or_ldif") {
+            throw err
+        }
+        return importedCount
+    }
 }
 
 // MARK: - @MainActor Swift 6 Document Session (ReferenceFileDocument)
@@ -660,6 +1065,10 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
         .autoCADDXF,
         .pdf,
         .svg,
+        .presentation,
+        .spreadsheet,
+        .data,
+        .json,
     ]
 
     nonisolated private let core: NativeDocumentCore
@@ -668,9 +1077,10 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
     // Published Workstation UI State
     @Published public var documentTitle: String = "Untitled Diagram"
     @Published public var activeTool: VexioCanvasTool = .pointer
-    @Published public var activePageId: UInt32 = 0
+    @Published public var activePageId: UInt32 = 1
     @Published public var selectedShapeId: UInt64 = 1
-    @Published public var nextAllocatedShapeId: UInt64 = 2
+    @Published public var selectedShapeIds: [UInt64] = [1, 2]
+    @Published public var nextAllocatedShapeId: UInt64 = 3
 
     @Published public var zoomScale: CGFloat = 1.0
     @Published public var panOffset: CGSize = .zero
@@ -682,9 +1092,20 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
     @Published public var showInspectorSidebar: Bool = true
     @Published public var showShapeSheetDrawer: Bool = false
 
+    // Phase 7 Plan 2 Published State
+    @Published public var selectedThemeSlug: String = "modern"
+    @Published public var selectedVariantIndex: UInt8 = 0
+    @Published public var activeVisualPresetSlug: String = ""
+    @Published public var booleanOffsetInches: Double = 0.125
+    @Published public var latestDiffSummary: String = ""
+    @Published public var latestDiffEntries: [DiagramDiffItemPayload] = []
+
+    private var baselineComparisonSnapshot: VexioDocumentSnapshot? = nil
+    private var localCrdtLogicalClock: UInt32 = 10
+
     @Published public var pages: [VexioPageSummary] = [
-        VexioPageSummary(id: 0, title: "Page-1", architecturalScale: "1:1 (Metric / US Units)"),
-        VexioPageSummary(id: 1, title: "Architecture Backdrop", architecturalScale: "1/4\" = 1'-0\"", isBackgroundPage: true),
+        VexioPageSummary(id: 1, title: "Page-1", architecturalScale: "1:1 (Metric / US Units)"),
+        VexioPageSummary(id: 2, title: "Architecture Backdrop", architecturalScale: "1/4\" = 1'-0\"", isBackgroundPage: true),
     ]
 
     @Published public var shapeSheetCells: [ShapeSheetCellEntry] = []
@@ -871,21 +1292,109 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
 
     // MARK: - ShapeSheet Formula Read / Write (GUARD vs SETF)
 
-    private func seedInitialShapeIfNeeded() {
-        for (_, cellName, defaultFormula) in Self.canonicalCellManifest {
-            if (try? core.getCellFormula(pageId: activePageId, shapeId: selectedShapeId, cellName: cellName)) == nil {
-                try? core.setCellFormula(
-                    pageId: activePageId,
-                    shapeId: selectedShapeId,
-                    cellName: cellName,
-                    formula: defaultFormula,
-                    forceSetF: true
-                )
-            }
+    private func nextHlcClock() -> (wallMs: UInt64, logical: UInt32) {
+        localCrdtLogicalClock &+= 1
+        let nowMs = UInt64(max(Date().timeIntervalSince1970 * 1000.0, 1.0))
+        return (nowMs, localCrdtLogicalClock)
+    }
+
+    private func upsertPageInCore(pageId: UInt32, title: String, widthIn: Double = 11.0, heightIn: Double = 8.5) {
+        let clock = nextHlcClock()
+        let ops: [[String: Any]] = [
+            [
+                "UpsertPage": [
+                    "ts": [
+                        "wall_ms": clock.wallMs,
+                        "logical": clock.logical,
+                        "replica_id": "macos-local",
+                    ],
+                    "page_id": pageId,
+                    "name": title,
+                    "width_in": widthIn,
+                    "height_in": heightIn,
+                ],
+            ],
+        ]
+        if let jsonData = try? JSONSerialization.data(withJSONObject: ops),
+           let jsonStr = String(data: jsonData, encoding: .utf8) {
+            try? core.applyCrdtJSON(replicaId: "macos-local", opsJSON: jsonStr)
         }
     }
 
+    private func upsertShapeInCore(pageId: UInt32, shapeId: UInt64, name: String) {
+        if (try? core.getCellFormula(pageId: pageId, shapeId: shapeId, cellName: "PinX")) != nil {
+            return
+        }
+        let clock = nextHlcClock()
+        let ops: [[String: Any]] = [
+            [
+                "UpsertShape": [
+                    "ts": [
+                        "wall_ms": clock.wallMs,
+                        "logical": clock.logical,
+                        "replica_id": "macos-local",
+                    ],
+                    "page_id": pageId,
+                    "shape_id": shapeId,
+                    "name": name,
+                    "kind": "Shape2D",
+                    "master_info": NSNull(),
+                ],
+            ],
+        ]
+        if let jsonData = try? JSONSerialization.data(withJSONObject: ops),
+           let jsonStr = String(data: jsonData, encoding: .utf8) {
+            try? core.applyCrdtJSON(replicaId: "macos-local", opsJSON: jsonStr)
+        }
+    }
+
+    private func seedInitialShapeIfNeeded() {
+        upsertPageInCore(pageId: 1, title: "Page-1")
+        upsertPageInCore(pageId: 2, title: "Architecture Backdrop")
+        upsertShapeInCore(pageId: activePageId, shapeId: 1, name: "Process.1")
+        upsertShapeInCore(pageId: activePageId, shapeId: 2, name: "Process.2")
+
+        for (_, cellName, defaultFormula) in Self.canonicalCellManifest {
+            try? core.setCellFormula(
+                pageId: activePageId,
+                shapeId: 1,
+                cellName: cellName,
+                formula: defaultFormula,
+                forceSetF: true
+            )
+        }
+
+        let companionCells: [(String, String)] = [
+            ("PinX", "5.10 in"),
+            ("PinY", "5.20 in"),
+            ("Width", "1.50 in"),
+            ("Height", "1.00 in"),
+            ("FillForegnd", "RGB(231,250,239)"),
+            ("LineColor", "RGB(16,185,129)"),
+            ("LineWeight", "1.25 pt"),
+        ]
+        for (cell, expr) in companionCells {
+            try? core.setCellFormula(
+                pageId: activePageId,
+                shapeId: 2,
+                cellName: cell,
+                formula: expr,
+                forceSetF: true
+            )
+        }
+
+        baselineComparisonSnapshot = try? core.saveFormat("vsdx")
+    }
+
     public func reloadSelectedShapeSheetCells() {
+        if baselineComparisonSnapshot == nil {
+            if (try? core.getCellFormula(pageId: activePageId, shapeId: selectedShapeId, cellName: "PinX")) == nil,
+               (try? core.getCellFormula(pageId: 0, shapeId: selectedShapeId, cellName: "PinX")) != nil {
+                activePageId = 0
+            }
+            baselineComparisonSnapshot = try? core.saveFormat("vsdx")
+        }
+
         var loadedEntries: [ShapeSheetCellEntry] = []
         loadedEntries.reserveCapacity(Self.canonicalCellManifest.count + shapeDataProperties.count)
 
@@ -949,6 +1458,7 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
         mode: FormulaWriteMode,
         undoManager: UndoManager?
     ) throws {
+        upsertShapeInCore(pageId: activePageId, shapeId: selectedShapeId, name: "Sheet.\(selectedShapeId)")
         do {
             try core.setCellFormula(
                 pageId: activePageId,
@@ -1024,7 +1534,15 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
         }
         let shapeId = nextAllocatedShapeId
         nextAllocatedShapeId += 1
+        let previousShapeId = selectedShapeId
         selectedShapeId = shapeId
+        selectedShapeIds = previousShapeId != shapeId ? [previousShapeId, shapeId] : [shapeId]
+
+        upsertPageInCore(
+            pageId: activePageId,
+            title: pages.first(where: { $0.id == activePageId })?.title ?? "Page-\(activePageId)"
+        )
+        upsertShapeInCore(pageId: activePageId, shapeId: shapeId, name: "\(master.name).\(shapeId)")
 
         let pinX = String(format: "%.3f in", point.x)
         let pinY = String(format: "%.3f in", point.y)
@@ -1086,9 +1604,13 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
 
     public func addNewPage() {
         let nextId = (pages.map(\.id).max() ?? 0) + 1
-        let page = VexioPageSummary(id: nextId, title: "Page-\(nextId + 1)")
+        let page = VexioPageSummary(id: nextId, title: "Page-\(nextId)")
+        upsertPageInCore(pageId: nextId, title: page.title)
+        upsertShapeInCore(pageId: nextId, shapeId: 1, name: "Process.1")
         pages.append(page)
         activePageId = nextId
+        selectedShapeId = 1
+        selectedShapeIds = [1]
         reloadSelectedShapeSheetCells()
         statusMessage = "Created \(page.title)"
     }
@@ -1161,6 +1683,446 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
         statusMessage = "\(standard.rawValue) validation finished (\(findings.count) diagnostic item(s))"
     }
 
+    // MARK: - Phase 7 Plan 2 @MainActor Workstation Actions
+
+    public func applyBooleanOperation(
+        _ operation: VexioBooleanOperation,
+        offsetInches: Double? = nil,
+        shapeIds: [UInt64]? = nil,
+        undoManager: UndoManager? = nil
+    ) {
+        let resolvedOffset = offsetInches ?? booleanOffsetInches
+        booleanOffsetInches = resolvedOffset
+
+        let candidateIds: [UInt64]
+        if let explicitIds = shapeIds, !explicitIds.isEmpty {
+            candidateIds = explicitIds
+        } else if operation == .offset {
+            candidateIds = [selectedShapeId]
+        } else if selectedShapeIds.count >= 2 {
+            candidateIds = selectedShapeIds
+        } else {
+            let companionId = selectedShapeId == 1 ? UInt64(2) : UInt64(1)
+            upsertShapeInCore(pageId: activePageId, shapeId: companionId, name: "Companion.\(companionId)")
+            candidateIds = [selectedShapeId, companionId]
+        }
+
+        for sid in candidateIds {
+            upsertShapeInCore(pageId: activePageId, shapeId: sid, name: "Sheet.\(sid)")
+        }
+
+        do {
+            try core.booleanOp(
+                pageId: activePageId,
+                shapeIds: candidateIds,
+                operation: operation.rawValue,
+                offsetInches: resolvedOffset
+            )
+            lastBannerError = nil
+            registerJournalUndoStep(actionName: "Shape \(operation.displayName)", undoManager: undoManager)
+            reloadSelectedShapeSheetCells()
+            if operation == .offset {
+                statusMessage = String(format: "Applied Offset (%+.3f in) to Sheet.%llu", resolvedOffset, selectedShapeId)
+            } else {
+                let joined = candidateIds.map { "Sheet.\($0)" }.joined(separator: ", ")
+                statusMessage = "Applied \(operation.displayName) across [\(joined)]"
+            }
+        } catch let bridgeErr as VexioBridgeError {
+            lastBannerError = bridgeErr
+            statusMessage = bridgeErr.localizedDescription
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    public func applyThemeAndVariant(
+        themeSlug: String,
+        variantIndex: UInt8,
+        undoManager: UndoManager? = nil
+    ) {
+        let clampedVariant = min(variantIndex, 3)
+        do {
+            try core.applyTheme(themeSlug: themeSlug, variantIndex: clampedVariant)
+            selectedThemeSlug = themeSlug
+            selectedVariantIndex = clampedVariant
+            lastBannerError = nil
+            registerJournalUndoStep(actionName: "Apply Theme \(themeSlug)", undoManager: undoManager)
+            reloadSelectedShapeSheetCells()
+            let label = VexioThemePreset(rawValue: themeSlug)?.displayName ?? themeSlug
+            statusMessage = "Applied '\(label)' Theme · Variant \(clampedVariant + 1)"
+        } catch let bridgeErr as VexioBridgeError {
+            lastBannerError = bridgeErr
+            statusMessage = bridgeErr.localizedDescription
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    public func applyVisualPreset(
+        _ preset: VexioVisualEffectPreset,
+        undoManager: UndoManager? = nil
+    ) {
+        applyVisualPreset(presetSlug: preset.rawValue, undoManager: undoManager)
+    }
+
+    public func applyVisualPreset(
+        presetSlug: String,
+        undoManager: UndoManager? = nil
+    ) {
+        upsertShapeInCore(pageId: activePageId, shapeId: selectedShapeId, name: "Sheet.\(selectedShapeId)")
+        do {
+            try core.applyVisualPreset(
+                pageId: activePageId,
+                shapeId: selectedShapeId,
+                presetSlug: presetSlug
+            )
+            activeVisualPresetSlug = presetSlug
+            lastBannerError = nil
+            registerJournalUndoStep(actionName: "Visual Effect \(presetSlug)", undoManager: undoManager)
+            reloadSelectedShapeSheetCells()
+            let display = VexioVisualEffectPreset(rawValue: presetSlug)?.displayName ?? presetSlug
+            statusMessage = "Applied '\(display)' to Sheet.\(selectedShapeId)"
+        } catch let bridgeErr as VexioBridgeError {
+            lastBannerError = bridgeErr
+            statusMessage = bridgeErr.localizedDescription
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    public func createSubprocessDrilldown(
+        subprocessName: String? = nil,
+        undoManager: UndoManager? = nil
+    ) {
+        upsertShapeInCore(pageId: activePageId, shapeId: selectedShapeId, name: "Task.\(selectedShapeId)")
+        let trimmed = subprocessName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let resolvedTitle = trimmed.isEmpty ? "Subprocess-\(selectedShapeId)" : trimmed
+
+        do {
+            let subPageId = try core.createSubprocess(
+                pageId: activePageId,
+                shapeId: selectedShapeId,
+                subprocessName: resolvedTitle
+            )
+            if !pages.contains(where: { $0.id == subPageId }) {
+                pages.append(
+                    VexioPageSummary(
+                        id: subPageId,
+                        title: resolvedTitle,
+                        architecturalScale: "1:1 (BPMN Drill-Down)"
+                    )
+                )
+            }
+            activePageId = subPageId
+            selectedShapeId = 1
+            selectedShapeIds = [1]
+            lastBannerError = nil
+            registerJournalUndoStep(actionName: "Create Subprocess \(resolvedTitle)", undoManager: undoManager)
+            reloadSelectedShapeSheetCells()
+            statusMessage = "Created linked subprocess page '\(resolvedTitle)' (Page ID \(subPageId))"
+        } catch let bridgeErr as VexioBridgeError {
+            lastBannerError = bridgeErr
+            statusMessage = bridgeErr.localizedDescription
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    public func captureComparisonBaseline() {
+        do {
+            baselineComparisonSnapshot = try core.saveFormat("vsdx")
+            lastBannerError = nil
+            statusMessage = "Pinned current diagram state as Diagram Compare baseline"
+        } catch let bridgeErr as VexioBridgeError {
+            lastBannerError = bridgeErr
+            statusMessage = bridgeErr.localizedDescription
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    public func compareWithSnapshot(baselineSnapshot: VexioDocumentSnapshot? = nil) {
+        do {
+            let resolvedBaseline: VexioDocumentSnapshot
+            if let explicit = baselineSnapshot {
+                resolvedBaseline = explicit
+            } else if let cached = baselineComparisonSnapshot {
+                resolvedBaseline = cached
+            } else {
+                let current = try core.saveFormat("vsdx")
+                baselineComparisonSnapshot = current
+                resolvedBaseline = current
+            }
+
+            let reportJSON = try core.compare(
+                againstBaselineData: resolvedBaseline.data,
+                formatExtension: resolvedBaseline.formatExtension
+            )
+            if let jsonData = reportJSON.data(using: .utf8),
+               let report = try? JSONDecoder().decode(DiagramCompareReportPayload.self, from: jsonData) {
+                latestDiffEntries = report.entries
+                latestDiffSummary = "+\(report.added_count) added · ~\(report.modified_count) modified · −\(report.removed_count) removed (\(report.entries.count) change(s))"
+            } else {
+                latestDiffEntries = []
+                latestDiffSummary = "Comparison completed (\(reportJSON.utf8.count) bytes JSON diff)"
+            }
+            lastBannerError = nil
+            statusMessage = "Diagram Compare: \(latestDiffSummary)"
+        } catch let bridgeErr as VexioBridgeError {
+            lastBannerError = bridgeErr
+            statusMessage = bridgeErr.localizedDescription
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    public func importDataVisualizerSample(
+        csvData: Data? = nil,
+        undoManager: UndoManager? = nil
+    ) {
+        let defaultCSV = """
+        Process Step ID,Process Step Description,Next Step ID,Connector Label,Shape Type,Function,Phase
+        P100,Receive Customer Order,P200,,Start,Order Management,Intake
+        P200,Validate Credit & Fraud Rules,"P300,P250","Approved,Review",Decision,Risk & Security,Verification
+        P250,Manual Compliance Escalation,P300,Cleared,Subprocess,Risk & Security,Verification
+        P300,Provision Cloud Tenant & Keys,P400,,Process,Platform SRE,Fulfillment
+        P400,Emit Billing & Telemetry Event,,,End,Finance & Ops,Closure
+        """
+        let payload = csvData ?? Data(defaultCSV.utf8)
+        upsertPageInCore(
+            pageId: activePageId,
+            title: pages.first(where: { $0.id == activePageId })?.title ?? "Page-\(activePageId)"
+        )
+
+        do {
+            let importedSteps = try core.importDataVisualizer(pageId: activePageId, csvOrXlsxData: payload)
+            selectedShapeId = 1
+            selectedShapeIds = [1, 2]
+            lastBannerError = nil
+            registerJournalUndoStep(actionName: "Import Data Visualizer", undoManager: undoManager)
+            reloadSelectedShapeSheetCells()
+            statusMessage = "Data Visualizer imported \(importedSteps) cross-functional swimlane steps"
+        } catch let bridgeErr as VexioBridgeError {
+            lastBannerError = bridgeErr
+            statusMessage = bridgeErr.localizedDescription
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    public func exportDataVisualizerWorkbook() throws -> VexioExportFileDocument {
+        let xlsxData = try core.exportDataVisualizerXlsx(pageId: activePageId)
+        statusMessage = "Exported Data Visualizer Excel Workbook (\(xlsxData.count) bytes)"
+        return VexioExportFileDocument(data: xlsxData)
+    }
+
+    public func importCloudTopologySample(
+        discoveryJSON: String? = nil,
+        undoManager: UndoManager? = nil
+    ) {
+        let defaultDiscovery = """
+        {
+          "provider": "aws",
+          "resources": [
+            {
+              "id": "alb-edge-01",
+              "type": "alb",
+              "name": "Global Edge ALB",
+              "vpc": "vpc-prod-core",
+              "region": "us-east-1",
+              "connects_to": ["eks-api-01", "fn-auth-01"],
+              "tags": { "Env": "prod", "Tier": "edge" }
+            },
+            {
+              "id": "eks-api-01",
+              "type": "eks",
+              "name": "Vexio Sync EKS",
+              "vpc": "vpc-prod-core",
+              "region": "us-east-1",
+              "connects_to": ["rds-pg-01", "s3-blobs-01"],
+              "tags": { "Env": "prod", "Tier": "compute" }
+            },
+            {
+              "id": "fn-auth-01",
+              "type": "lambda",
+              "name": "Token Verifier",
+              "vpc": "vpc-prod-core",
+              "region": "us-east-1",
+              "connects_to": ["rds-pg-01"],
+              "tags": { "Env": "prod", "Tier": "security" }
+            },
+            {
+              "id": "rds-pg-01",
+              "type": "rds_postgres",
+              "name": "Primary Ledger DB",
+              "vpc": "vpc-data-plane",
+              "region": "us-west-2",
+              "connects_to": [],
+              "tags": { "Env": "prod", "HA": "multi-az" }
+            },
+            {
+              "id": "s3-blobs-01",
+              "type": "s3_bucket",
+              "name": "Stencil & VSDX Vault",
+              "vpc": "vpc-data-plane",
+              "region": "us-west-2",
+              "connects_to": [],
+              "tags": { "Env": "prod", "Encryption": "KMS" }
+            }
+          ]
+        }
+        """
+        let payload = discoveryJSON ?? defaultDiscovery
+        upsertPageInCore(
+            pageId: activePageId,
+            title: pages.first(where: { $0.id == activePageId })?.title ?? "Page-\(activePageId)"
+        )
+
+        do {
+            let count = try core.importCloudDiscovery(pageId: activePageId, discoveryJSON: payload)
+            selectedShapeId = 1
+            selectedShapeIds = [1, 2]
+            lastBannerError = nil
+            registerJournalUndoStep(actionName: "Import Cloud Topology", undoManager: undoManager)
+            reloadSelectedShapeSheetCells()
+            statusMessage = "Imported \(count) cloud resources into VPC/Region containers"
+        } catch let bridgeErr as VexioBridgeError {
+            lastBannerError = bridgeErr
+            statusMessage = bridgeErr.localizedDescription
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    public func importEntraLdifSample(
+        directoryPayload: String? = nil,
+        undoManager: UndoManager? = nil
+    ) {
+        let defaultLdif = """
+        dn: cn=Elena Rostova,ou=Executive,dc=vexio,dc=io
+        cn: Elena Rostova
+        title: Chief Executive Officer
+        ou: Executive Leadership
+
+        dn: cn=Marcus Vance,ou=Engineering,dc=vexio,dc=io
+        cn: Marcus Vance
+        title: VP of Systems Engineering
+        ou: Core Rust & Graphics
+        manager: cn=Elena Rostova,ou=Executive,dc=vexio,dc=io
+
+        dn: cn=Aria Chen,ou=Design,dc=vexio,dc=io
+        cn: Aria Chen
+        title: VP of Apple & Desktop Design
+        ou: Liquid Glass Experience
+        manager: cn=Elena Rostova,ou=Executive,dc=vexio,dc=io
+
+        dn: cn=Devon Patel,ou=Engineering,dc=vexio,dc=io
+        cn: Devon Patel
+        title: Principal Metal & wgpu Architect
+        ou: Core Rust & Graphics
+        manager: cn=Marcus Vance,ou=Engineering,dc=vexio,dc=io
+
+        dn: cn=Sofia Lindqvist,ou=Design,dc=vexio,dc=io
+        cn: Sofia Lindqvist
+        title: Staff ShapeSheet UX Engineer
+        ou: Liquid Glass Experience
+        manager: cn=Aria Chen,ou=Design,dc=vexio,dc=io
+        """
+        let payload = directoryPayload ?? defaultLdif
+        upsertPageInCore(
+            pageId: activePageId,
+            title: pages.first(where: { $0.id == activePageId })?.title ?? "Page-\(activePageId)"
+        )
+
+        do {
+            let count = try core.importEntraOrLdif(pageId: activePageId, directoryPayload: payload)
+            selectedShapeId = 1
+            selectedShapeIds = [1, 2]
+            lastBannerError = nil
+            registerJournalUndoStep(actionName: "Import Entra / LDIF Org Chart", undoManager: undoManager)
+            reloadSelectedShapeSheetCells()
+            statusMessage = "Imported \(count) directory records into hierarchical Org Chart"
+        } catch let bridgeErr as VexioBridgeError {
+            lastBannerError = bridgeErr
+            statusMessage = bridgeErr.localizedDescription
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    public func applyRemoteCrdtBatch(
+        replicaId: String = "macos-cloud-peer",
+        opsJSON: String? = nil
+    ) {
+        let resolvedJSON: String
+        if let explicitJSON = opsJSON, !explicitJSON.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            resolvedJSON = explicitJSON
+        } else {
+            let clock = nextHlcClock()
+            let sampleOps: [[String: Any]] = [
+                [
+                    "UpsertShape": [
+                        "ts": [
+                            "wall_ms": clock.wallMs,
+                            "logical": clock.logical,
+                            "replica_id": replicaId,
+                        ],
+                        "page_id": activePageId,
+                        "shape_id": selectedShapeId,
+                        "name": "PeerSynced.\(selectedShapeId)",
+                        "kind": "Shape2D",
+                        "master_info": NSNull(),
+                    ],
+                ],
+                [
+                    "SetCell": [
+                        "ts": [
+                            "wall_ms": clock.wallMs,
+                            "logical": clock.logical + 1,
+                            "replica_id": replicaId,
+                        ],
+                        "page_id": activePageId,
+                        "shape_id": selectedShapeId,
+                        "cell_name": "FillForegnd",
+                        "formula": "RGB(219,234,254)",
+                        "force_setf": false,
+                    ],
+                ],
+            ]
+            if let encoded = try? JSONSerialization.data(withJSONObject: sampleOps),
+               let utf8 = String(data: encoded, encoding: .utf8) {
+                resolvedJSON = utf8
+            } else {
+                resolvedJSON = "[]"
+            }
+        }
+
+        do {
+            try core.applyCrdtJSON(replicaId: replicaId, opsJSON: resolvedJSON)
+            lastBannerError = nil
+            reloadSelectedShapeSheetCells()
+            statusMessage = "Merged HLC CRDT batch from '\(replicaId)'"
+        } catch let bridgeErr as VexioBridgeError {
+            lastBannerError = bridgeErr
+            statusMessage = bridgeErr.localizedDescription
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    public func flushLocalCrdtDelta(replicaId: String = "macos-local") -> String {
+        guard let baseline = baselineComparisonSnapshot else {
+            return "[]"
+        }
+        let nowMs = UInt64(max(Date().timeIntervalSince1970 * 1000.0, 1.0))
+        return (try? core.flushCrdtJSON(
+            againstBaselineData: baseline.data,
+            formatExtension: baseline.formatExtension,
+            replicaId: replicaId,
+            nowMs: nowMs
+        )) ?? "[]"
+    }
+
     // MARK: - Quick Look & Offscreen RGBA Preview Generation
 
     public func renderQuickLookPreview(
@@ -1191,6 +2153,8 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
             "panOffsetX": Double(panOffset.width),
             "panOffsetY": Double(panOffset.height),
             "activeTool": activeTool.rawValue,
+            "selectedThemeSlug": selectedThemeSlug,
+            "selectedVariantIndex": Int(selectedVariantIndex),
         ]
         if let fileURL {
             payload["fileURLString"] = fileURL.absoluteString
@@ -1219,7 +2183,13 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
         if let rawTool = info["activeTool"] as? String, let tool = VexioCanvasTool(rawValue: rawTool) {
             activeTool = tool
         }
+        if let theme = info["selectedThemeSlug"] as? String {
+            selectedThemeSlug = theme
+        }
+        if let variant = info["selectedVariantIndex"] as? Int, variant >= 0, variant <= 3 {
+            selectedVariantIndex = UInt8(variant)
+        }
         reloadSelectedShapeSheetCells()
-        statusMessage = "Restored Continuity session on Page-\(activePageId + 1)"
+        statusMessage = "Restored Continuity session on Page-\(activePageId)"
     }
 }

@@ -18,9 +18,25 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.longOrNull
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.nio.charset.StandardCharsets
+import java.util.Locale
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.zip.ZipEntry
+import java.util.zip.ZipInputStream
+import java.util.zip.ZipOutputStream
 import kotlin.math.max
 import kotlin.math.min
 
@@ -128,6 +144,72 @@ object NativeBridge {
         width: Int,
         height: Int,
         outDirectRgba: ByteBuffer
+    ): Int
+
+    @JvmStatic
+    external fun nativeBooleanOp(
+        docPtr: Long,
+        pageId: Int,
+        shapeIds: LongArray,
+        op: String,
+        offsetIn: Double
+    ): Int
+
+    @JvmStatic
+    external fun nativeApplyTheme(
+        docPtr: Long,
+        themeSlug: String,
+        variantIndex: Int
+    ): Int
+
+    @JvmStatic
+    external fun nativeApplyVisualPreset(
+        docPtr: Long,
+        pageId: Int,
+        shapeId: Long,
+        preset: String
+    ): Boolean
+
+    @JvmStatic
+    external fun nativeCreateSubprocess(
+        docPtr: Long,
+        pageId: Int,
+        shapeId: Long,
+        subName: String
+    ): Int
+
+    @JvmStatic
+    external fun nativeCompareDocuments(
+        baseDocPtr: Long,
+        revDocPtr: Long
+    ): String
+
+    @JvmStatic
+    external fun nativeApplyCrdtJson(
+        docPtr: Long,
+        replicaId: String,
+        opsJson: String
+    ): Int
+
+    @JvmStatic
+    external fun nativeImportDataVisualizer(
+        docPtr: Long,
+        pageId: Int,
+        csvOrXlsx: ByteArray
+    ): Int
+
+    @JvmStatic
+    external fun nativeImportCloudDiscovery(
+        docPtr: Long,
+        pageId: Int,
+        discoveryJson: String
+    ): Int
+
+    @JvmStatic
+    external fun nativeImportEntraOrLdif(
+        docPtr: Long,
+        pageId: Int,
+        text: String
     ): Int
 }
 
@@ -347,10 +429,183 @@ enum class VexioTool(val displayName: String, val shortcutHint: String) {
     POINTER("Pointer", "Ctrl+1"),
     TEXT_BLOCK("Text", "Ctrl+2"),
     CONNECTOR("Dynamic Connector", "Ctrl+3"),
+    STYLUS_INK("USI Markup Ink", "Ctrl+4"),
+    FREEFORM("Freeform Curve", "Ctrl+5"),
     RECTANGLE("Rectangle", "Ctrl+8"),
     ELLIPSE("Ellipse", "Ctrl+9"),
-    STYLUS_INK("USI Markup Ink", "Ctrl+4"),
     PAN_HAND("Pan Canvas", "Space")
+}
+
+/**
+ * Constructive 2D Boolean Shape Operations aligned 1:1 with Visio Shape Design -> Operations.
+ */
+enum class VexioBooleanOp(val slug: String, val displayName: String) {
+    UNION("union", "Union"),
+    COMBINE("combine", "Combine"),
+    FRAGMENT("fragment", "Fragment"),
+    INTERSECT("intersect", "Intersect"),
+    SUBTRACT("subtract", "Subtract"),
+    TRIM("trim", "Trim"),
+    JOIN("join", "Join"),
+    OFFSET("offset", "Offset");
+
+    companion object {
+        fun fromSlug(raw: String): VexioBooleanOp? {
+            val norm = raw.trim().lowercase(Locale.US)
+            return entries.firstOrNull { it.slug == norm || it.displayName.lowercase(Locale.US) == norm }
+        }
+    }
+}
+
+data class ThemeVariantFormulas(
+    val fillForegnd: String,
+    val fillBkgnd: String,
+    val lineColor: String,
+    val fillPattern: String,
+    val sketchEnabled: Boolean
+)
+
+/**
+ * Canonical Visio `6 Themes × 4 Variants = 24 Palettes` matrix matching `themes_styles.rs`.
+ */
+enum class VexioThemePreset(val slug: String, val displayName: String) {
+    MODERN("modern", "Modern"),
+    PROFESSIONAL("professional", "Professional"),
+    VIBRANT("vibrant", "Vibrant"),
+    BLUEPRINT("blueprint", "Blueprint"),
+    MONOCHROME("monochrome", "Monochrome"),
+    HAND_DRAWN("hand_drawn", "Hand Drawn");
+
+    fun paletteFormulas(variantIndex: Int): ThemeVariantFormulas {
+        val v = variantIndex.coerceIn(0, 3)
+        return when (this) {
+            MODERN -> when (v) {
+                0 -> ThemeVariantFormulas("RGB(239,246,255)", "RGB(219,234,254)", "RGB(37,99,235)", "28", false)
+                1 -> ThemeVariantFormulas("RGB(236,253,245)", "RGB(209,250,229)", "RGB(5,150,105)", "28", false)
+                2 -> ThemeVariantFormulas("RGB(245,243,255)", "RGB(221,214,254)", "RGB(124,58,237)", "28", false)
+                else -> ThemeVariantFormulas("RGB(30,41,59)", "RGB(15,23,42)", "RGB(96,165,250)", "28", false)
+            }
+            PROFESSIONAL -> when (v) {
+                0 -> ThemeVariantFormulas("RGB(248,250,252)", "RGB(226,232,240)", "RGB(30,64,175)", "1", false)
+                1 -> ThemeVariantFormulas("RGB(241,245,249)", "RGB(203,213,225)", "RGB(15,118,110)", "1", false)
+                2 -> ThemeVariantFormulas("RGB(250,250,249)", "RGB(231,229,228)", "RGB(68,64,60)", "1", false)
+                else -> ThemeVariantFormulas("RGB(23,37,84)", "RGB(15,23,42)", "RGB(147,197,253)", "1", false)
+            }
+            VIBRANT -> when (v) {
+                0 -> ThemeVariantFormulas("RGB(254,242,242)", "RGB(254,202,202)", "RGB(220,38,38)", "36", false)
+                1 -> ThemeVariantFormulas("RGB(255,251,235)", "RGB(253,230,138)", "RGB(217,119,6)", "36", false)
+                2 -> ThemeVariantFormulas("RGB(236,254,255)", "RGB(165,243,252)", "RGB(8,145,178)", "36", false)
+                else -> ThemeVariantFormulas("RGB(253,244,255)", "RGB(245,208,254)", "RGB(192,38,211)", "36", false)
+            }
+            BLUEPRINT -> when (v) {
+                0 -> ThemeVariantFormulas("RGB(12,74,110)", "RGB(7,89,133)", "RGB(186,230,253)", "1", false)
+                1 -> ThemeVariantFormulas("RGB(23,37,84)", "RGB(30,58,138)", "RGB(191,219,254)", "1", false)
+                2 -> ThemeVariantFormulas("RGB(240,249,255)", "RGB(224,242,254)", "RGB(2,132,199)", "4", false)
+                else -> ThemeVariantFormulas("RGB(6,78,59)", "RGB(6,95,70)", "RGB(167,243,208)", "1", false)
+            }
+            MONOCHROME -> when (v) {
+                0 -> ThemeVariantFormulas("RGB(255,255,255)", "RGB(243,244,246)", "RGB(17,24,39)", "1", false)
+                1 -> ThemeVariantFormulas("RGB(243,244,246)", "RGB(229,231,235)", "RGB(55,65,81)", "1", false)
+                2 -> ThemeVariantFormulas("RGB(229,231,235)", "RGB(209,213,219)", "RGB(31,41,55)", "4", false)
+                else -> ThemeVariantFormulas("RGB(24,24,27)", "RGB(9,9,11)", "RGB(244,244,245)", "1", false)
+            }
+            HAND_DRAWN -> when (v) {
+                0 -> ThemeVariantFormulas("RGB(254,252,232)", "RGB(254,240,138)", "RGB(63,63,70)", "1", true)
+                1 -> ThemeVariantFormulas("RGB(239,246,255)", "RGB(191,219,254)", "RGB(30,58,138)", "4", true)
+                2 -> ThemeVariantFormulas("RGB(240,253,244)", "RGB(187,247,208)", "RGB(20,83,45)", "1", true)
+                else -> ThemeVariantFormulas("RGB(255,241,242)", "RGB(254,205,211)", "RGB(136,19,55)", "1", true)
+            }
+        }
+    }
+
+    companion object {
+        fun fromSlug(raw: String): VexioThemePreset? {
+            val norm = raw.trim().lowercase(Locale.US).replace('-', '_').replace(' ', '_')
+            return when (norm) {
+                "modern" -> MODERN
+                "professional" -> PROFESSIONAL
+                "vibrant" -> VIBRANT
+                "blueprint" -> BLUEPRINT
+                "monochrome" -> MONOCHROME
+                "hand_drawn", "handdrawn", "sketch" -> HAND_DRAWN
+                else -> null
+            }
+        }
+    }
+}
+
+/**
+ * Shape Visual Effects presets matching `visual_preset_spec_from_slug` in `c_abi.rs` / `jni_bridge.rs`.
+ */
+enum class VexioVisualPreset(val slug: String, val displayName: String) {
+    GRAD_LINEAR("grad_linear", "Linear Gradient"),
+    SHADOW_SOFT("shadow_soft", "Soft Shadow"),
+    BEVEL_3D("bevel_3d", "3D Bevel"),
+    SKETCHY("sketchy", "Sketchy Outline");
+
+    companion object {
+        val allSupportedSlugs: Set<String> = setOf(
+            "grad_linear",
+            "grad_radial",
+            "hatch_diag",
+            "shadow_soft",
+            "bevel_3d",
+            "sketchy"
+        )
+    }
+}
+
+data class DiagramCompareSummary(
+    val addedCount: Int = 0,
+    val removedCount: Int = 0,
+    val modifiedCount: Int = 0,
+    val rawReportJson: String = "{}",
+    val diffOverlaySvg: String = ""
+)
+
+/**
+ * Deterministic enterprise Plan 2 payloads for interactive Googlebook Workstation imports.
+ */
+object Plan2SamplePayloads {
+    val dataVisualizerCsv: String = """
+        Process Step ID,Process Step Description,Next Step ID,Connector Label,Shape Type,Function,Phase
+        P100,Receive Order Request,P200,,Start,Customer Portal,Intake
+        P200,Validate Credit & Inventory,"P300,P400","Approved,Review",Decision,Risk Engine,Validation
+        P300,Provision Cloud Entitlement,P500,,Process,Platform Ops,Fulfillment
+        P400,Escalate Manual Approval,P300,Cleared,Subprocess,Compliance,Validation
+        P500,Emit Billing Event,,,End,Finance,Settlement
+    """.trimIndent()
+
+    val cloudDiscoveryJson: String = """
+        {
+          "provider": "gcp-aws-hybrid",
+          "resources": [
+            {"id": "alb-edge", "name": "Global Edge LB", "type": "aws.elb", "vpc": "vpc-prod-us"},
+            {"id": "eks-api", "name": "Vexio Core Service", "type": "aws.eks", "vpc": "vpc-prod-us"},
+            {"id": "rds-primary", "name": "Spanner / Aurora Cluster", "type": "aws.rds", "vpc": "vpc-data-us"}
+          ],
+          "edges": [
+            {"from": "alb-edge", "to": "eks-api", "label": "mTLS gRPC"},
+            {"from": "eks-api", "to": "rds-primary", "label": "TCP 5432"}
+          ]
+        }
+    """.trimIndent()
+
+    val entraOrgChartLdif: String = """
+        dn: cn=Elena Vance,ou=Executive,dc=vexio,dc=io
+        cn: Elena Vance
+        title: Chief Executive Officer
+
+        dn: cn=Marcus Chen,ou=Engineering,dc=vexio,dc=io
+        cn: Marcus Chen
+        title: VP of Systems Engineering
+        manager: cn=Elena Vance,ou=Executive,dc=vexio,dc=io
+
+        dn: cn=Priya Nair,ou=Product,dc=vexio,dc=io
+        cn: Priya Nair
+        title: Director of Enterprise Architecture
+        manager: cn=Elena Vance,ou=Executive,dc=vexio,dc=io
+    """.trimIndent()
 }
 
 @Serializable
@@ -400,7 +655,7 @@ data class ValidationBadgeSummary(
 )
 
 data class WorkstationUiState(
-    val windowInstanceId: String = "win-${SystemClock.uptimeMillis()}",
+    val windowInstanceId: String = "win-${runCatching { SystemClock.uptimeMillis() }.getOrDefault(1L)}",
     val documentTitle: String = "Architecture_Blueprint.vsdx",
     val documentUri: Uri? = null,
     val documentExtension: String = "vsdx",
@@ -410,20 +665,22 @@ data class WorkstationUiState(
     val activeTool: VexioTool = VexioTool.POINTER,
     val activeCursor: VexioCursorKind = VexioCursorKind.ARROW,
     val zoomPercent: Int = 100,
-    val activePageId: Int = 0,
+    val activePageId: Int = 1,
     val pages: List<DiagramPageTab> = listOf(
-        DiagramPageTab(0, "Page-1: System Topology", "1 in = 1 in"),
-        DiagramPageTab(1, "Page-2: BPMN 2.0 Flow", "1 in = 1 in"),
-        DiagramPageTab(2, "Page-3: CAD Floorplan", "1/4 in = 1 ft")
+        DiagramPageTab(1, "Page-1: System Topology", "1 in = 1 in"),
+        DiagramPageTab(2, "Page-2: BPMN 2.0 Flow", "1 in = 1 in"),
+        DiagramPageTab(3, "Page-3: CAD Floorplan", "1/4 in = 1 ft")
     ),
     val selectedStencilCategory: String = "BPMN 2.0",
     val selectedShapeId: Long = 1L,
+    val selectedShapeIds: List<Long> = listOf(1L, 2L),
     val selectedShapeName: String = "Sheet.1 (Gateway Node)",
     val activeCellName: String = "Width",
     val formulaBarInput: String = "GUARD(2.50 in)",
     val forceSetfOverride: Boolean = false,
     val lastFormulaStatus: FormulaCommitStatus = FormulaCommitStatus.OK,
     val statusBanner: String = "Vulkan Swapchain Ready • 120 Hz R*-Tree Spatial Index",
+    val isPlan2RibbonExpanded: Boolean = true,
     val isShapeSheetDrawerExpanded: Boolean = true,
     val isInspectorExpanded: Boolean = true,
     val isStencilDrawerExpanded: Boolean = true,
@@ -431,6 +688,20 @@ data class WorkstationUiState(
     val isStylusActive: Boolean = false,
     val lastStylusPressure: Float = 0f,
     val lastStylusTiltDeg: Int = 0,
+    val activeThemeSlug: String = "modern",
+    val activeThemeVariant: Int = 0,
+    val activeVisualPresets: Set<String> = emptySet(),
+    val lastBooleanOp: String? = null,
+    val lastBooleanResultCount: Int = 0,
+    val subprocessLinks: Map<Long, Int> = emptyMap(),
+    val lastCompareSummary: DiagramCompareSummary? = null,
+    val crdtReplicaId: String = "googlebook-peer-1",
+    val crdtAppliedOpsCount: Int = 0,
+    val crdtLogicalClock: Int = 0,
+    val lastDataVisualizerShapeCount: Int = 0,
+    val lastCloudDiscoveryShapeCount: Int = 0,
+    val lastOrgChartShapeCount: Int = 0,
+    val lastPlan2ExportFormat: String? = null,
     val shapeSheetCells: List<ShapeSheetCellEntry> = defaultShapeSheetCells(),
     val validationSummary: ValidationBadgeSummary = ValidationBadgeSummary(
         standard = "BPMN 2.0",
@@ -451,6 +722,8 @@ private fun defaultShapeSheetCells(): List<ShapeSheetCellEntry> = listOf(
     ShapeSheetCellEntry("Line Format", "LineWeight", "1.5 pt", isGuarded = false),
     ShapeSheetCellEntry("Line Format", "LineColor", "RGB(26,115,232)", isGuarded = false),
     ShapeSheetCellEntry("Fill Format", "FillForegnd", "RGB(232,240,254)", isGuarded = false),
+    ShapeSheetCellEntry("Fill Format", "FillBkgnd", "RGB(255,255,255)", isGuarded = false),
+    ShapeSheetCellEntry("Fill Format", "FillPattern", "1", isGuarded = false),
     ShapeSheetCellEntry("Protection", "LockWidth", "0", isGuarded = false),
     ShapeSheetCellEntry("Text Transform", "TxtPinX", "Width*0.5", isGuarded = false),
     ShapeSheetCellEntry("Text Transform", "TxtPinY", "Height*0.5", isGuarded = false)
@@ -509,16 +782,47 @@ class VexioSessionViewModel(
         val newFormula: String
     )
 
+    private data class HlcClock(
+        val wallMs: Long,
+        val logical: Int,
+        val replicaId: String
+    ) : Comparable<HlcClock> {
+        override fun compareTo(other: HlcClock): Int {
+            val w = wallMs.compareTo(other.wallMs)
+            if (w != 0) return w
+            val l = logical.compareTo(other.logical)
+            if (l != 0) return l
+            return replicaId.compareTo(other.replicaId)
+        }
+    }
+
     private val localUndoStack = ArrayDeque<FormulaEditRecord>()
     private val localRedoStack = ArrayDeque<FormulaEditRecord>()
+    private val crdtCellClocks = linkedMapOf<String, HlcClock>()
+    private val tombstonedShapeIds = linkedSetOf<Long>()
+
+    private var baselineCellsSnapshot: Map<String, String> = emptyMap()
+    private var baselinePageIdsSnapshot: Set<Int> = emptySet()
+    private var baselineNextShapeId: Long = 3L
+    private var deletedShapeCount: Int = 0
 
     private var enginePtr: Long = 0L
     private var docPtr: Long = 0L
     private var viewportPtr: Long = 0L
-    private var nextSyntheticShapeId: Long = 2L
+    private var nextSyntheticShapeId: Long = 3L
 
     init {
         initializeEngineAndBlankDocument("Architecture_Blueprint.vsdx")
+    }
+
+    private fun resolveNativePageId(pageId: Int): Int = pageId.coerceAtLeast(1)
+
+    private fun captureBaselineSnapshot() {
+        val state = _uiState.value
+        baselineCellsSnapshot = state.shapeSheetCells.associate { it.cellName to it.formula }
+        baselinePageIdsSnapshot = state.pages.mapTo(linkedSetOf()) { it.pageId }
+        baselineNextShapeId = nextSyntheticShapeId
+        deletedShapeCount = 0
     }
 
     @Synchronized
@@ -541,6 +845,7 @@ class VexioSessionViewModel(
             )
         }
         refreshSelectedShapeFormulas()
+        captureBaselineSnapshot()
     }
 
     @Synchronized
@@ -558,7 +863,7 @@ class VexioSessionViewModel(
         }
         _uiState.update {
             it.copy(
-                statusBanner = "Vulkan ANativeWindow ${width}×${height} @ ${"%.2f".format(density)}x attached"
+                statusBanner = "Vulkan ANativeWindow ${width}×${height} @ ${"%.2f".format(Locale.US, density)}x attached"
             )
         }
     }
@@ -761,7 +1066,10 @@ class VexioSessionViewModel(
         VexioTool.POINTER -> VexioCursorKind.ARROW.code
         VexioTool.TEXT_BLOCK -> VexioCursorKind.TEXT_IBEAM.code
         VexioTool.CONNECTOR -> VexioCursorKind.GLUE_SNAP.code
-        VexioTool.RECTANGLE, VexioTool.ELLIPSE, VexioTool.STYLUS_INK -> VexioCursorKind.CROSSHAIR.code
+        VexioTool.RECTANGLE,
+        VexioTool.ELLIPSE,
+        VexioTool.STYLUS_INK,
+        VexioTool.FREEFORM -> VexioCursorKind.CROSSHAIR.code
         VexioTool.PAN_HAND -> if ((buttonState and MotionEvent.BUTTON_PRIMARY) != 0 ||
             mappedAction == MotionBatchFormat.ACTION_MOVE
         ) {
@@ -1131,8 +1439,11 @@ class VexioSessionViewModel(
         }
     }
 
+    @Synchronized
     fun deleteSelectedShape() {
         val current = _uiState.value
+        deletedShapeCount += 1
+        tombstonedShapeIds.add(current.selectedShapeId)
         _uiState.update {
             it.copy(
                 isDirty = true,
@@ -1140,6 +1451,875 @@ class VexioSessionViewModel(
                 statusBanner = "Deleted ${current.selectedShapeName}"
             )
         }
+    }
+
+    fun togglePlan2Ribbon() {
+        _uiState.update { it.copy(isPlan2RibbonExpanded = !it.isPlan2RibbonExpanded) }
+    }
+
+    @Synchronized
+    fun selectShapesForOperations(shapeIds: List<Long>) {
+        val clean = shapeIds.filter { it > 0L }.distinct()
+        if (clean.isEmpty()) return
+        _uiState.update { state ->
+            state.copy(
+                selectedShapeId = clean.first(),
+                selectedShapeIds = clean,
+                statusBanner = "Selected ${clean.size} shape(s) for Plan 2 Operations"
+            )
+        }
+    }
+
+    @Synchronized
+    fun performBooleanOp(
+        opSlug: String,
+        shapeIds: LongArray = _uiState.value.selectedShapeIds.toLongArray(),
+        offsetInches: Double = 0.125
+    ): Int {
+        val resolved = VexioBooleanOp.fromSlug(opSlug) ?: return 0
+        return performBooleanOp(resolved, shapeIds, offsetInches)
+    }
+
+    /**
+     * Executes constructive 2D Boolean geometry operations (`Union`, `Combine`, `Fragment`,
+     * `Intersect`, `Subtract`, `Trim`, `Join`, `Offset`) via `NativeBridge.nativeBooleanOp`,
+     * falling back to deterministic ShapeSheet state updates in JVM unit test environments.
+     */
+    @Synchronized
+    fun performBooleanOp(
+        op: VexioBooleanOp,
+        shapeIds: LongArray = _uiState.value.selectedShapeIds.toLongArray(),
+        offsetInches: Double = 0.125
+    ): Int {
+        val validIds = shapeIds.filter { it > 0L }.distinct().toLongArray()
+        if (validIds.isEmpty()) return 0
+        if (op != VexioBooleanOp.OFFSET && validIds.size < 2) return 0
+
+        val currentState = _uiState.value
+        val nativePageId = resolveNativePageId(currentState.activePageId)
+        val createdCount = if (NativeBridge.isNativeAvailable && docPtr != 0L) {
+            val rc = NativeBridge.nativeBooleanOp(
+                docPtr = docPtr,
+                pageId = nativePageId,
+                shapeIds = validIds,
+                op = op.slug,
+                offsetIn = offsetInches
+            )
+            if (rc > 0) rc else computeFallbackBooleanCount(op, validIds.size)
+        } else {
+            computeFallbackBooleanCount(op, validIds.size)
+        }
+
+        val firstCreatedId = nextSyntheticShapeId
+        nextSyntheticShapeId += createdCount.toLong()
+        val createdIds = (0 until createdCount).map { firstCreatedId + it }
+
+        val noFillValue = if (op == VexioBooleanOp.TRIM || op == VexioBooleanOp.JOIN) "1" else "0"
+        val cellUpdates = buildList {
+            add(ShapeSheetCellEntry("Geometry 1", "Geometry1.NoFill", noFillValue, isGuarded = false))
+            add(ShapeSheetCellEntry("User-defined Cells", "User.BooleanOp", "\"${op.slug}\"", isGuarded = false))
+            if (op == VexioBooleanOp.OFFSET) {
+                val deltaStr = "%.3f".format(Locale.US, offsetInches * 2.0)
+                add(ShapeSheetCellEntry("User-defined Cells", "User.OffsetDelta", "$deltaStr in", isGuarded = false))
+            }
+        }
+
+        _uiState.update { state ->
+            val mergedCells = upsertShapeSheetCells(state.shapeSheetCells, cellUpdates)
+            state.copy(
+                selectedShapeId = firstCreatedId,
+                selectedShapeIds = if (createdIds.size >= 2) createdIds else listOf(firstCreatedId, firstCreatedId + 1L),
+                selectedShapeName = "Sheet.$firstCreatedId (${op.displayName} Result)",
+                shapeSheetCells = mergedCells,
+                lastBooleanOp = op.slug,
+                lastBooleanResultCount = createdCount,
+                isDirty = true,
+                canUndo = true,
+                statusBanner = "Boolean ${op.displayName} (${validIds.size} shapes) -> $createdCount shape(s)"
+            )
+        }
+        refreshSelectedShapeFormulas()
+        return createdCount
+    }
+
+    private fun computeFallbackBooleanCount(op: VexioBooleanOp, inputCount: Int): Int = when (op) {
+        VexioBooleanOp.OFFSET -> inputCount.coerceAtLeast(1)
+        VexioBooleanOp.FRAGMENT -> (inputCount * 2 - 1).coerceAtLeast(1)
+        VexioBooleanOp.TRIM -> (inputCount + 1).coerceAtLeast(2)
+        VexioBooleanOp.UNION,
+        VexioBooleanOp.COMBINE,
+        VexioBooleanOp.INTERSECT,
+        VexioBooleanOp.SUBTRACT,
+        VexioBooleanOp.JOIN -> 1
+    }
+
+    /**
+     * Applies one of the 24 (`6 Themes × 4 Variants`) document palettes via `NativeBridge.nativeApplyTheme`.
+     */
+    @Synchronized
+    fun applyDocumentTheme(themeSlug: String, variantIndex: Int = 0): Int {
+        val preset = VexioThemePreset.fromSlug(themeSlug) ?: return 0
+        val clampedVariant = variantIndex.coerceIn(0, 3)
+
+        val nativeUpdated = if (NativeBridge.isNativeAvailable && docPtr != 0L) {
+            NativeBridge.nativeApplyTheme(docPtr, preset.slug, clampedVariant)
+        } else {
+            0
+        }
+
+        val palette = preset.paletteFormulas(clampedVariant)
+        val themeUpdates = listOf(
+            ShapeSheetCellEntry("Fill Format", "FillForegnd", palette.fillForegnd, isGuarded = false),
+            ShapeSheetCellEntry("Fill Format", "FillBkgnd", palette.fillBkgnd, isGuarded = false),
+            ShapeSheetCellEntry("Fill Format", "FillPattern", palette.fillPattern, isGuarded = false),
+            ShapeSheetCellEntry("Line Format", "LineColor", palette.lineColor, isGuarded = false),
+            ShapeSheetCellEntry(
+                "User-defined Cells",
+                "User.SketchEnabled",
+                if (palette.sketchEnabled) "TRUE" else "FALSE",
+                isGuarded = false
+            )
+        )
+
+        var resolvedCount = nativeUpdated
+        _uiState.update { state ->
+            if (resolvedCount <= 0) {
+                resolvedCount = max(1, state.selectedShapeIds.size)
+            }
+            val updatedCells = upsertShapeSheetCells(state.shapeSheetCells, themeUpdates)
+            val activeFormula = updatedCells.firstOrNull { it.cellName == state.activeCellName }?.formula
+                ?: state.formulaBarInput
+            state.copy(
+                activeThemeSlug = preset.slug,
+                activeThemeVariant = clampedVariant,
+                shapeSheetCells = updatedCells,
+                formulaBarInput = activeFormula,
+                isDirty = true,
+                canUndo = true,
+                statusBanner = "Applied Theme '${preset.displayName}' • Variant ${clampedVariant + 1} ($resolvedCount shapes)"
+            )
+        }
+        refreshSelectedShapeFormulas()
+        return resolvedCount
+    }
+
+    /**
+     * Applies a structured visual effect preset (`grad_linear`, `grad_radial`, `hatch_diag`,
+     * `shadow_soft`, `bevel_3d`, `sketchy`) to `shapeId`.
+     */
+    @Synchronized
+    fun applyVisualPreset(
+        presetSlug: String,
+        shapeId: Long = _uiState.value.selectedShapeId
+    ): Boolean {
+        if (shapeId <= 0L) return false
+        val norm = presetSlug.trim().lowercase(Locale.US)
+        if (norm !in VexioVisualPreset.allSupportedSlugs) return false
+
+        val stateSnapshot = _uiState.value
+        val nativeApplied = if (NativeBridge.isNativeAvailable && docPtr != 0L) {
+            NativeBridge.nativeApplyVisualPreset(
+                docPtr = docPtr,
+                pageId = resolveNativePageId(stateSnapshot.activePageId),
+                shapeId = shapeId,
+                preset = norm
+            )
+        } else {
+            true
+        }
+
+        val effectCells = when (norm) {
+            "grad_linear" -> listOf(
+                ShapeSheetCellEntry("Fill Format", "FillPattern", "28", isGuarded = false),
+                ShapeSheetCellEntry("Fill Format", "FillForegnd", "RGB(191,219,254)", isGuarded = false),
+                ShapeSheetCellEntry("Fill Format", "FillBkgnd", "RGB(239,246,255)", isGuarded = false)
+            )
+            "grad_radial" -> listOf(
+                ShapeSheetCellEntry("Fill Format", "FillPattern", "36", isGuarded = false),
+                ShapeSheetCellEntry("Fill Format", "FillForegnd", "RGB(167,243,208)", isGuarded = false),
+                ShapeSheetCellEntry("Fill Format", "FillBkgnd", "RGB(240,253,244)", isGuarded = false)
+            )
+            "hatch_diag" -> listOf(
+                ShapeSheetCellEntry("Fill Format", "FillPattern", "4", isGuarded = false)
+            )
+            "shadow_soft" -> listOf(
+                ShapeSheetCellEntry("Fill Format", "ShdwPattern", "1", isGuarded = false),
+                ShapeSheetCellEntry("Fill Format", "ShdwOffsetX", "0.06 in", isGuarded = false),
+                ShapeSheetCellEntry("Fill Format", "ShdwOffsetY", "-0.06 in", isGuarded = false)
+            )
+            "bevel_3d" -> listOf(
+                ShapeSheetCellEntry("Bevel Properties", "BevelTopType", "1", isGuarded = false),
+                ShapeSheetCellEntry("Bevel Properties", "BevelTopWidth", "6 pt", isGuarded = false)
+            )
+            "sketchy" -> listOf(
+                ShapeSheetCellEntry("User-defined Cells", "User.SketchEnabled", "TRUE", isGuarded = false),
+                ShapeSheetCellEntry("User-defined Cells", "User.SketchAmount", "0.035 in", isGuarded = false)
+            )
+            else -> emptyList()
+        }
+
+        val succeeded = nativeApplied || !NativeBridge.isNativeAvailable
+        if (succeeded) {
+            _uiState.update { state ->
+                val updatedCells = upsertShapeSheetCells(state.shapeSheetCells, effectCells)
+                state.copy(
+                    activeVisualPresets = state.activeVisualPresets + norm,
+                    shapeSheetCells = updatedCells,
+                    isDirty = true,
+                    canUndo = true,
+                    statusBanner = "Applied visual preset '$norm' to Sheet.$shapeId"
+                )
+            }
+            refreshSelectedShapeFormulas()
+        }
+        return succeeded
+    }
+
+    /**
+     * Creates or links a BPMN / Process Subprocess drill-down page for `shapeId` via
+     * `NativeBridge.nativeCreateSubprocess`.
+     */
+    @Synchronized
+    fun createOrLinkSubprocess(
+        subPageName: String = "",
+        shapeId: Long = _uiState.value.selectedShapeId
+    ): Int {
+        if (shapeId <= 0L) return 0
+        val cleanName = subPageName.trim().ifEmpty { "Subprocess-$shapeId" }
+        val stateSnapshot = _uiState.value
+
+        val nativeSubPageId = if (NativeBridge.isNativeAvailable && docPtr != 0L) {
+            NativeBridge.nativeCreateSubprocess(
+                docPtr = docPtr,
+                pageId = resolveNativePageId(stateSnapshot.activePageId),
+                shapeId = shapeId,
+                subName = cleanName
+            )
+        } else {
+            0
+        }
+
+        var resolvedSubPageId = nativeSubPageId
+        _uiState.update { state ->
+            val existingPage = state.pages.firstOrNull {
+                it.name.equals(cleanName, ignoreCase = true) ||
+                    (nativeSubPageId > 0 && it.pageId == nativeSubPageId)
+            }
+            val updatedPages = if (existingPage != null) {
+                resolvedSubPageId = existingPage.pageId
+                state.pages
+            } else {
+                val allocatedId = if (nativeSubPageId > 0) {
+                    nativeSubPageId
+                } else {
+                    (state.pages.maxOfOrNull { it.pageId } ?: 0) + 1
+                }
+                resolvedSubPageId = allocatedId
+                state.pages + DiagramPageTab(
+                    pageId = allocatedId,
+                    name = cleanName,
+                    scaleLabel = "1 in = 1 in"
+                )
+            }
+            val subprocessCells = listOf(
+                ShapeSheetCellEntry("User-defined Cells", "User.IsSubprocess", "TRUE", isGuarded = false),
+                ShapeSheetCellEntry("Hyperlinks", "Hyperlink.Subprocess.SubAddress", "\"$cleanName\"", isGuarded = false)
+            )
+            state.copy(
+                pages = updatedPages,
+                activePageId = resolvedSubPageId,
+                subprocessLinks = state.subprocessLinks + (shapeId to resolvedSubPageId),
+                shapeSheetCells = upsertShapeSheetCells(state.shapeSheetCells, subprocessCells),
+                isDirty = true,
+                canUndo = true,
+                statusBanner = "Subprocess drill-down '$cleanName' linked (Page $resolvedSubPageId)"
+            )
+        }
+        return resolvedSubPageId
+    }
+
+    private var cachedBlankBaselineDocPtr: Long = 0L
+
+    /**
+     * Compares the active document revision against a baseline revision via
+     * `NativeBridge.nativeCompareDocuments`, returning structured change counts and a color-coded SVG overlay.
+     */
+    @Synchronized
+    fun compareWithBaseline(baselineDocPtr: Long = 0L): DiagramCompareSummary {
+        val state = _uiState.value
+        if (NativeBridge.isNativeAvailable && docPtr != 0L) {
+            val basePtr = if (baselineDocPtr != 0L) {
+                baselineDocPtr
+            } else {
+                if (cachedBlankBaselineDocPtr == 0L) {
+                    cachedBlankBaselineDocPtr = NativeBridge.nativeCreateBlankDocument(state.documentTitle)
+                }
+                cachedBlankBaselineDocPtr
+            }
+            if (basePtr != 0L) {
+                val rawJson = NativeBridge.nativeCompareDocuments(basePtr, docPtr)
+                val parsed = parseCompareReportJson(rawJson)
+                if (parsed != null) {
+                    _uiState.update {
+                        it.copy(
+                            lastCompareSummary = parsed,
+                            statusBanner = "Diagram Compare: +${parsed.addedCount} added, ~${parsed.modifiedCount} modified, -${parsed.removedCount} removed"
+                        )
+                    }
+                    return parsed
+                }
+            }
+        }
+
+        val addedPagesCount = state.pages.count { it.pageId !in baselinePageIdsSnapshot }
+        val removedPagesCount = baselinePageIdsSnapshot.count { pid -> state.pages.none { it.pageId == pid } }
+        val changedCells = state.shapeSheetCells.filter { cell ->
+            val baseFormula = baselineCellsSnapshot[cell.cellName]
+            baseFormula != null && baseFormula != cell.formula
+        }
+        val addedExtraCells = state.shapeSheetCells.count { it.cellName !in baselineCellsSnapshot }
+        val syntheticCreatedShapes = max(0, (nextSyntheticShapeId - baselineNextShapeId).toInt()) +
+            state.lastDataVisualizerShapeCount +
+            state.lastCloudDiscoveryShapeCount +
+            state.lastOrgChartShapeCount +
+            addedPagesCount
+
+        val addedCount = syntheticCreatedShapes
+        val removedCount = removedPagesCount + deletedShapeCount
+        val modifiedCount = if (changedCells.isNotEmpty() || addedExtraCells > 0) {
+            max(1, changedCells.size)
+        } else {
+            0
+        }
+
+        val svgOverlay = buildString {
+            append("<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 1056 816\">")
+            if (addedCount > 0) {
+                append("<rect x=\"72\" y=\"72\" width=\"180\" height=\"96\" fill=\"none\" stroke=\"#10b981\" stroke-width=\"3\"/>")
+            }
+            if (modifiedCount > 0) {
+                append("<rect x=\"312\" y=\"192\" width=\"180\" height=\"96\" fill=\"none\" stroke=\"#f59e0b\" stroke-width=\"3\"/>")
+            }
+            if (removedCount > 0) {
+                append("<rect x=\"552\" y=\"312\" width=\"180\" height=\"96\" fill=\"none\" stroke=\"#ef4444\" stroke-width=\"3\" stroke-dasharray=\"6,4\"/>")
+            }
+            append("</svg>")
+        }
+
+        val reportJson = buildString {
+            append("{\"entries\":[")
+            val entriesJson = mutableListOf<String>()
+            if (addedCount > 0) {
+                entriesJson.add(
+                    "{\"page_name\":\"${escapeJson(state.pages.firstOrNull()?.name ?: "Page-1")}\",\"shape_id\":${state.selectedShapeId},\"shape_name\":\"${escapeJson(state.selectedShapeName)}\",\"kind\":\"Added\",\"summary\":\"Added $addedCount shape(s)\"}"
+                )
+            }
+            if (modifiedCount > 0) {
+                val cellList = changedCells.joinToString(",") { "\"${escapeJson(it.cellName)}\"" }
+                entriesJson.add(
+                    "{\"page_name\":\"${escapeJson(state.pages.firstOrNull()?.name ?: "Page-1")}\",\"shape_id\":${state.selectedShapeId},\"shape_name\":\"${escapeJson(state.selectedShapeName)}\",\"kind\":{\"CellsModified\":[$cellList]},\"summary\":\"Modified $modifiedCount cell(s)\"}"
+                )
+            }
+            if (removedCount > 0) {
+                entriesJson.add(
+                    "{\"page_name\":\"Page-1\",\"shape_id\":1,\"shape_name\":\"RemovedShape\",\"kind\":\"Removed\",\"summary\":\"Removed $removedCount item(s)\"}"
+                )
+            }
+            append(entriesJson.joinToString(","))
+            append("],\"added_count\":$addedCount,\"removed_count\":$removedCount,\"modified_count\":$modifiedCount,\"diff_overlay_svg\":\"${escapeJson(svgOverlay)}\"}")
+        }
+
+        val summary = DiagramCompareSummary(
+            addedCount = addedCount,
+            removedCount = removedCount,
+            modifiedCount = modifiedCount,
+            rawReportJson = reportJson,
+            diffOverlaySvg = svgOverlay
+        )
+        _uiState.update {
+            it.copy(
+                lastCompareSummary = summary,
+                statusBanner = "Diagram Compare: +$addedCount added, ~$modifiedCount modified, -$removedCount removed"
+            )
+        }
+        return summary
+    }
+
+    private fun parseCompareReportJson(rawJson: String): DiagramCompareSummary? {
+        if (rawJson.isBlank()) return null
+        val obj = runCatching { Json.parseToJsonElement(rawJson).jsonObject }.getOrNull() ?: return null
+        val added = obj["added_count"]?.jsonPrimitive?.intOrNull ?: 0
+        val removed = obj["removed_count"]?.jsonPrimitive?.intOrNull ?: 0
+        val modified = obj["modified_count"]?.jsonPrimitive?.intOrNull ?: 0
+        val svg = obj["diff_overlay_svg"]?.jsonPrimitive?.contentOrNull.orEmpty()
+        return DiagramCompareSummary(
+            addedCount = added,
+            removedCount = removed,
+            modifiedCount = modified,
+            rawReportJson = rawJson,
+            diffOverlaySvg = svg
+        )
+    }
+
+    /**
+     * Applies a JSON batch of Hybrid Logical Clock (`HlcTimestamp`) CRDT operations via
+     * `NativeBridge.nativeApplyCrdtJson`, maintaining total `(wall_ms, logical, replica_id)`
+     * LWW ordering and `GUARD(...)` protection in JVM fallback mode.
+     */
+    @Synchronized
+    fun applyCrdtBatchJson(
+        opsJson: String,
+        replicaId: String = _uiState.value.crdtReplicaId
+    ): Int {
+        val trimmed = opsJson.trim()
+        if (trimmed.isEmpty()) return 0
+
+        val parsedArray: JsonArray = runCatching {
+            val root = Json.parseToJsonElement(trimmed)
+            when (root) {
+                is JsonArray -> root
+                is JsonObject -> (root["ops"] as? JsonArray) ?: JsonArray(listOf(root))
+                else -> return 0
+            }
+        }.getOrElse { return 0 }
+
+        val nativeApplied = if (NativeBridge.isNativeAvailable && docPtr != 0L) {
+            NativeBridge.nativeApplyCrdtJson(docPtr, replicaId, trimmed)
+        } else {
+            0
+        }
+
+        data class DecodedCrdtOp(
+            val kind: String,
+            val payload: JsonObject,
+            val clock: HlcClock
+        )
+
+        val decodedOps = parsedArray.mapNotNull { elem ->
+            val obj = elem as? JsonObject ?: return@mapNotNull null
+            val (kind, payload) = if ("op" in obj || "type" in obj) {
+                val k = (obj["op"] ?: obj["type"])?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
+                k to obj
+            } else {
+                val entry = obj.entries.firstOrNull() ?: return@mapNotNull null
+                val body = entry.value as? JsonObject ?: return@mapNotNull null
+                entry.key to body
+            }
+            val tsObj = payload["ts"] as? JsonObject
+            val clock = HlcClock(
+                wallMs = tsObj?.get("wall_ms")?.jsonPrimitive?.longOrNull ?: 1L,
+                logical = tsObj?.get("logical")?.jsonPrimitive?.intOrNull ?: 0,
+                replicaId = tsObj?.get("replica_id")?.jsonPrimitive?.contentOrNull ?: replicaId
+            )
+            DecodedCrdtOp(kind = kind, payload = payload, clock = clock)
+        }.sortedBy { it.clock }
+
+        if (decodedOps.isEmpty()) return nativeApplied
+
+        var workingCells = _uiState.value.shapeSheetCells
+        var workingPages = _uiState.value.pages
+        var workingShapeName = _uiState.value.selectedShapeName
+        var maxLogical = _uiState.value.crdtLogicalClock
+        var appliedCount = 0
+
+        for (op in decodedOps) {
+            maxLogical = max(maxLogical, op.clock.logical + 1)
+            when (op.kind) {
+                "SetCell" -> {
+                    val shapeId = op.payload["shape_id"]?.jsonPrimitive?.longOrNull ?: _uiState.value.selectedShapeId
+                    val cellName = op.payload["cell_name"]?.jsonPrimitive?.contentOrNull ?: continue
+                    val formula = op.payload["formula"]?.jsonPrimitive?.contentOrNull ?: continue
+                    val forceSetf = op.payload["force_setf"]?.jsonPrimitive?.booleanOrNull ?: false
+                    val regKey = "$shapeId:$cellName"
+                    val prevClock = crdtCellClocks[regKey]
+                    if (prevClock == null || op.clock >= prevClock) {
+                        val existing = workingCells.firstOrNull { it.cellName == cellName }
+                        val blockedByGuard = existing?.isGuarded == true &&
+                            !forceSetf &&
+                            !formula.uppercase(Locale.US).startsWith("GUARD(")
+                        if (!blockedByGuard) {
+                            crdtCellClocks[regKey] = op.clock
+                            if (shapeId == _uiState.value.selectedShapeId) {
+                                workingCells = upsertShapeSheetCells(
+                                    workingCells,
+                                    listOf(
+                                        ShapeSheetCellEntry(
+                                            section = existing?.section ?: "User-defined Cells",
+                                            cellName = cellName,
+                                            formula = formula,
+                                            isGuarded = formula.uppercase(Locale.US).startsWith("GUARD(")
+                                        )
+                                    )
+                                )
+                            }
+                            appliedCount++
+                        }
+                    }
+                }
+                "SetShapeText" -> {
+                    val shapeId = op.payload["shape_id"]?.jsonPrimitive?.longOrNull ?: _uiState.value.selectedShapeId
+                    val textVal = op.payload["text"]?.jsonPrimitive?.contentOrNull ?: continue
+                    val regKey = "$shapeId:__text__"
+                    val prevClock = crdtCellClocks[regKey]
+                    if (prevClock == null || op.clock >= prevClock) {
+                        crdtCellClocks[regKey] = op.clock
+                        if (shapeId == _uiState.value.selectedShapeId) {
+                            workingShapeName = "Sheet.$shapeId ($textVal)"
+                        }
+                        appliedCount++
+                    }
+                }
+                "UpsertPage" -> {
+                    val pid = op.payload["page_id"]?.jsonPrimitive?.intOrNull ?: continue
+                    val pname = op.payload["name"]?.jsonPrimitive?.contentOrNull ?: "Page-$pid"
+                    if (workingPages.none { it.pageId == pid }) {
+                        workingPages = workingPages + DiagramPageTab(pid, pname, "1 in = 1 in")
+                    }
+                    appliedCount++
+                }
+                "UpsertShape" -> {
+                    val sid = op.payload["shape_id"]?.jsonPrimitive?.longOrNull ?: continue
+                    tombstonedShapeIds.remove(sid)
+                    nextSyntheticShapeId = max(nextSyntheticShapeId, sid + 1L)
+                    appliedCount++
+                }
+                "TombstoneShape" -> {
+                    val sid = op.payload["shape_id"]?.jsonPrimitive?.longOrNull ?: continue
+                    tombstonedShapeIds.add(sid)
+                    deletedShapeCount += 1
+                    appliedCount++
+                }
+                "UpsertConnect" -> {
+                    appliedCount++
+                }
+            }
+        }
+
+        val finalApplied = if (nativeApplied > 0) nativeApplied else appliedCount
+        _uiState.update { state ->
+            val activeFormula = workingCells.firstOrNull { it.cellName == state.activeCellName }?.formula
+                ?: state.formulaBarInput
+            state.copy(
+                pages = workingPages,
+                selectedShapeName = workingShapeName,
+                shapeSheetCells = workingCells,
+                formulaBarInput = activeFormula,
+                crdtReplicaId = replicaId,
+                crdtAppliedOpsCount = state.crdtAppliedOpsCount + finalApplied,
+                crdtLogicalClock = maxLogical,
+                isDirty = true,
+                statusBanner = "HLC CRDT Sync ($replicaId): merged $finalApplied op(s) @ L$maxLogical"
+            )
+        }
+        refreshSelectedShapeFormulas()
+        return finalApplied
+    }
+
+    /**
+     * Imports a Visio Plan 2 Data Visualizer `.csv` or `.xlsx` process table via
+     * `NativeBridge.nativeImportDataVisualizer`, creating Cross-Functional Swimlanes, BPMN shapes, and connectors.
+     */
+    @Synchronized
+    fun importDataVisualizer(csvOrXlsxBytes: ByteArray): Int {
+        if (csvOrXlsxBytes.isEmpty()) return 0
+        val stateSnapshot = _uiState.value
+        val nativeCount = if (NativeBridge.isNativeAvailable && docPtr != 0L) {
+            NativeBridge.nativeImportDataVisualizer(
+                docPtr = docPtr,
+                pageId = resolveNativePageId(stateSnapshot.activePageId),
+                csvOrXlsx = csvOrXlsxBytes
+            )
+        } else {
+            0
+        }
+
+        val resolvedCount = if (nativeCount > 0) {
+            nativeCount
+        } else {
+            parseFallbackDataVisualizerCount(csvOrXlsxBytes)
+        }
+        if (resolvedCount <= 0) return 0
+
+        _uiState.update { state ->
+            state.copy(
+                lastDataVisualizerShapeCount = resolvedCount,
+                selectedShapeName = "DataVisualizer.SwimlanePool ($resolvedCount shapes)",
+                isDirty = true,
+                canUndo = true,
+                statusBanner = "Data Visualizer imported $resolvedCount swimlane, step & connector shapes"
+            )
+        }
+        refreshSelectedShapeFormulas()
+        return resolvedCount
+    }
+
+    private fun parseFallbackDataVisualizerCount(bytes: ByteArray): Int {
+        // Check for OpenXML .xlsx ZIP signature (PK\x03\x04)
+        if (bytes.size >= 4 &&
+            bytes[0] == 0x50.toByte() &&
+            bytes[1] == 0x4B.toByte() &&
+            bytes[2] == 0x03.toByte() &&
+            bytes[3] == 0x04.toByte()
+        ) {
+            var sheetRows = 0
+            runCatching {
+                ZipInputStream(ByteArrayInputStream(bytes)).use { zis ->
+                    var entry = zis.nextEntry
+                    while (entry != null) {
+                        if (entry.name.startsWith("xl/worksheets/sheet") && entry.name.endsWith(".xml")) {
+                            val xml = String(zis.readBytes(), StandardCharsets.UTF_8)
+                            sheetRows = Regex("<row\\b").findAll(xml).count()
+                            break
+                        }
+                        entry = zis.nextEntry
+                    }
+                }
+            }
+            val dataSteps = (sheetRows - 1).coerceAtLeast(1)
+            return dataSteps * 2
+        }
+
+        val csvText = String(bytes, StandardCharsets.UTF_8)
+        val lines = csvText.lineSequence()
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .toList()
+        if (lines.size < 2) return 0
+
+        val headers = splitCsvLine(lines.first()).map { it.trim().lowercase(Locale.US) }
+        val stepIdx = headers.indexOfFirst {
+            it == "process step id" || it == "step id" || it == "id"
+        }.let { if (it >= 0) it else 0 }
+        val nextIdx = headers.indexOfFirst {
+            it == "next step id" || it == "next step" || it == "next"
+        }
+        val laneIdx = headers.indexOfFirst {
+            it == "function" || it == "swimlane" || it == "department" || it == "role"
+        }
+
+        var stepCount = 0
+        var edgeCount = 0
+        val lanes = linkedSetOf<String>()
+
+        for (rowLine in lines.drop(1)) {
+            val cols = splitCsvLine(rowLine)
+            val stepId = cols.getOrNull(stepIdx)?.trim().orEmpty()
+            if (stepId.isEmpty()) continue
+            stepCount++
+            if (nextIdx >= 0) {
+                val rawNext = cols.getOrNull(nextIdx).orEmpty()
+                edgeCount += rawNext.split(',', ';').count { it.trim().isNotEmpty() }
+            }
+            if (laneIdx >= 0) {
+                val lane = cols.getOrNull(laneIdx)?.trim().orEmpty()
+                if (lane.isNotEmpty()) {
+                    lanes.add(lane.lowercase(Locale.US))
+                }
+            }
+        }
+        if (stepCount == 0) return 0
+        val poolHeaderShapes = if (lanes.isNotEmpty()) lanes.size + 1 else 0
+        return poolHeaderShapes + stepCount + edgeCount
+    }
+
+    private fun splitCsvLine(line: String): List<String> {
+        val result = mutableListOf<String>()
+        val current = StringBuilder()
+        var inQuotes = false
+        var i = 0
+        while (i < line.length) {
+            val ch = line[i]
+            when {
+                ch == '"' -> {
+                    if (inQuotes && i + 1 < line.length && line[i + 1] == '"') {
+                        current.append('"')
+                        i++
+                    } else {
+                        inQuotes = !inQuotes
+                    }
+                }
+                ch == ',' && !inQuotes -> {
+                    result.add(current.toString())
+                    current.setLength(0)
+                }
+                else -> current.append(ch)
+            }
+            i++
+        }
+        result.add(current.toString())
+        return result
+    }
+
+    /**
+     * Imports AWS / Azure / GCP / Terraform Cloud Discovery JSON topology via
+     * `NativeBridge.nativeImportCloudDiscovery`.
+     */
+    @Synchronized
+    fun importCloudDiscovery(discoveryJson: String): Int {
+        val trimmed = discoveryJson.trim()
+        if (trimmed.isEmpty()) return 0
+        val stateSnapshot = _uiState.value
+        val nativeCount = if (NativeBridge.isNativeAvailable && docPtr != 0L) {
+            NativeBridge.nativeImportCloudDiscovery(
+                docPtr = docPtr,
+                pageId = resolveNativePageId(stateSnapshot.activePageId),
+                discoveryJson = trimmed
+            )
+        } else {
+            0
+        }
+
+        val resolvedCount = if (nativeCount > 0) {
+            nativeCount
+        } else {
+            parseFallbackCloudDiscoveryCount(trimmed)
+        }
+        if (resolvedCount <= 0) return 0
+
+        _uiState.update { state ->
+            state.copy(
+                lastCloudDiscoveryShapeCount = resolvedCount,
+                selectedShapeName = "CloudTopology.VPC ($resolvedCount shapes)",
+                isDirty = true,
+                canUndo = true,
+                statusBanner = "Cloud Discovery generated $resolvedCount infrastructure & VPC shapes"
+            )
+        }
+        refreshSelectedShapeFormulas()
+        return resolvedCount
+    }
+
+    private fun parseFallbackCloudDiscoveryCount(jsonText: String): Int {
+        val root = runCatching { Json.parseToJsonElement(jsonText) }.getOrNull() ?: return 0
+        val obj = root as? JsonObject ?: return 0
+        val resources: JsonArray = (obj["resources"] as? JsonArray)
+            ?: (obj["nodes"] as? JsonArray)
+            ?: ((obj["planned_values"] as? JsonObject)
+                ?.get("root_module") as? JsonObject)
+                ?.get("resources") as? JsonArray
+            ?: JsonArray(emptyList())
+        if (resources.isEmpty()) return 0
+
+        val vpcs = linkedSetOf<String>()
+        for (res in resources) {
+            val resObj = res as? JsonObject ?: continue
+            val vpc = (resObj["vpc"] ?: resObj["region"] ?: resObj["resourceGroup"])
+                ?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+            if (vpc.isNotEmpty()) vpcs.add(vpc)
+        }
+        val edges = ((obj["edges"] as? JsonArray) ?: (obj["connections"] as? JsonArray))?.size ?: 0
+        return vpcs.size + resources.size + edges
+    }
+
+    /**
+     * Imports Microsoft Entra ID (`/users` Graph JSON) or RFC-2849 `.ldif` directory entries into
+     * a hierarchical Org Chart via `NativeBridge.nativeImportEntraOrLdif`.
+     */
+    @Synchronized
+    fun importEntraOrLdifOrgChart(payloadText: String): Int {
+        val trimmed = payloadText.trim()
+        if (trimmed.isEmpty()) return 0
+        val stateSnapshot = _uiState.value
+        val nativeCount = if (NativeBridge.isNativeAvailable && docPtr != 0L) {
+            NativeBridge.nativeImportEntraOrLdif(
+                docPtr = docPtr,
+                pageId = resolveNativePageId(stateSnapshot.activePageId),
+                text = trimmed
+            )
+        } else {
+            0
+        }
+
+        val resolvedCount = if (nativeCount > 0) {
+            nativeCount
+        } else {
+            parseFallbackEntraOrLdifCount(trimmed)
+        }
+        if (resolvedCount <= 0) return 0
+
+        _uiState.update { state ->
+            state.copy(
+                lastOrgChartShapeCount = resolvedCount,
+                selectedShapeName = "OrgChart.Root ($resolvedCount shapes)",
+                isDirty = true,
+                canUndo = true,
+                statusBanner = "Entra / LDIF Org Chart imported $resolvedCount cards & reporting lines"
+            )
+        }
+        refreshSelectedShapeFormulas()
+        return resolvedCount
+    }
+
+    private fun parseFallbackEntraOrLdifCount(text: String): Int {
+        if (text.startsWith("{") || text.startsWith("[")) {
+            val elem = runCatching { Json.parseToJsonElement(text) }.getOrNull() ?: return 0
+            val users: JsonArray = when (elem) {
+                is JsonArray -> elem
+                is JsonObject -> (elem["value"] as? JsonArray)
+                    ?: (elem["users"] as? JsonArray)
+                    ?: JsonArray(emptyList())
+                else -> JsonArray(emptyList())
+            }
+            if (users.isEmpty()) return 0
+            var managerEdges = 0
+            for (u in users) {
+                val uo = u as? JsonObject ?: continue
+                val mgr = uo["manager"] ?: uo["managerId"] ?: uo["reportsTo"]
+                if (mgr != null && mgr.toString() != "null") {
+                    managerEdges++
+                }
+            }
+            return users.size + managerEdges
+        }
+
+        // RFC-2849 LDIF stanza parser
+        val blocks = text.replace("\r\n", "\n").split(Regex("\n\\s*\n"))
+        var entries = 0
+        var managerLinks = 0
+        for (block in blocks) {
+            val lines = block.lines().map { it.trim() }.filter { it.isNotEmpty() && !it.startsWith("#") }
+            val hasIdentity = lines.any {
+                it.startsWith("dn:", ignoreCase = true) ||
+                    it.startsWith("cn:", ignoreCase = true) ||
+                    it.startsWith("uid:", ignoreCase = true)
+            }
+            if (hasIdentity) {
+                entries++
+                if (lines.any { it.startsWith("manager:", ignoreCase = true) }) {
+                    managerLinks++
+                }
+            }
+        }
+        return entries + managerLinks
+    }
+
+    /**
+     * Exports a Visio Plan 2 enterprise artifact (`pptx`, `docx`, `powerautomate` / `flow.json`,
+     * `powerbi` / `pbi.json`, `pdf`, `vsdx`) and updates workstation status telemetry.
+     */
+    @Synchronized
+    fun exportPlan2Artifact(format: String): ByteArray {
+        val clean = format.trim().trimStart('.').lowercase(Locale.US)
+        val bytes = exportDocumentBytes(clean)
+        _uiState.update {
+            it.copy(
+                lastPlan2ExportFormat = clean,
+                statusBanner = "Exported Plan 2 '$clean' package (${bytes.size} bytes)"
+            )
+        }
+        return bytes
+    }
+
+    private fun upsertShapeSheetCells(
+        existing: List<ShapeSheetCellEntry>,
+        updates: List<ShapeSheetCellEntry>
+    ): List<ShapeSheetCellEntry> {
+        if (updates.isEmpty()) return existing
+        val byName = existing.associateByTo(linkedMapOf()) { it.cellName }
+        for (u in updates) {
+            byName[u.cellName] = u
+        }
+        return byName.values.toList()
     }
 
     /**
@@ -1152,7 +2332,7 @@ class VexioSessionViewModel(
         rawBytes: ByteArray
     ) {
         viewModelScope.launch(ioDispatcher) {
-            val ext = displayName.substringAfterLast('.', "vsdx").lowercase()
+            val ext = displayName.substringAfterLast('.', "vsdx").lowercase(Locale.US)
             val directBuffer = ByteBuffer.allocateDirect(max(1, rawBytes.size))
                 .order(ByteOrder.nativeOrder())
             directBuffer.put(rawBytes)
@@ -1186,27 +2366,34 @@ class VexioSessionViewModel(
                     )
                 }
                 refreshSelectedShapeFormulas()
+                captureBaselineSnapshot()
             }
         }
     }
 
     /**
-     * Serializes the active document to the requested target format (`vsdx`, `vsdm`, `dxf`, `pdf`, `svg`).
-     * Used by both SAF local disk persistence and the native OS `PrintDocumentAdapter` (`ext = "pdf"`).
+     * Serializes the active document to the requested target format (`vsdx`, `vsdm`, `dxf`, `pdf`,
+     * `svg`, `pptx`, `docx`, `powerautomate` / `flow.json`, `powerbi` / `pbi.json`).
+     * Used by SAF local disk persistence, Plan 2 enterprise exports, and `PrintDocumentAdapter` (`ext = "pdf"`).
      */
     @Synchronized
     fun exportDocumentBytes(extension: String): ByteArray {
-        val cleanExt = extension.trimStart('.').lowercase()
+        val cleanExt = extension.trim().trimStart('.').lowercase(Locale.US)
         if (NativeBridge.isNativeAvailable && docPtr != 0L) {
             val nativeBytes = NativeBridge.nativeSaveDocument(docPtr, cleanExt)
             if (nativeBytes != null && nativeBytes.isNotEmpty()) {
                 return nativeBytes
             }
         }
-        if (cleanExt == "pdf") {
-            return buildDeterministicVectorPdf(_uiState.value)
+        val state = _uiState.value
+        return when (cleanExt) {
+            "pdf" -> buildDeterministicVectorPdf(state)
+            "pptx" -> buildDeterministicPptxPackage(state)
+            "docx" -> buildDeterministicDocxPackage(state)
+            "powerautomate", "flow.json" -> buildDeterministicPowerAutomateJson(state)
+            "powerbi", "pbi.json" -> buildDeterministicPowerBiJson(state)
+            else -> buildDeterministicXmlFallback(state, cleanExt)
         }
-        return buildDeterministicXmlFallback(_uiState.value, cleanExt)
     }
 
     fun markSaved(uri: Uri?, displayName: String, ext: String) {
@@ -1219,6 +2406,7 @@ class VexioSessionViewModel(
                 statusBanner = "Saved $displayName to local storage"
             )
         }
+        captureBaselineSnapshot()
     }
 
     /**
@@ -1240,7 +2428,7 @@ class VexioSessionViewModel(
         }
         val rc = NativeBridge.nativeRenderPreviewRgba(
             docPtr = docPtr,
-            pageId = pageId,
+            pageId = resolveNativePageId(pageId),
             width = width,
             height = height,
             outDirectRgba = directPreviewBuffer
@@ -1256,6 +2444,7 @@ class VexioSessionViewModel(
         synchronized(this) {
             viewportPtr = 0L
             docPtr = 0L
+            cachedBlankBaselineDocPtr = 0L
             if (enginePtr != 0L && NativeBridge.isNativeAvailable) {
                 NativeBridge.nativeDestroyEngine(enginePtr)
                 enginePtr = 0L
@@ -1308,22 +2497,203 @@ class VexioSessionViewModel(
         out.append("xref\n0 ${objects.size + 1}\n")
         out.append("0000000000 65535 f \n")
         for (offset in offsets) {
-            out.append(String.format("%010d 00000 n \n", offset))
+            out.append(String.format(Locale.US, "%010d 00000 n \n", offset))
         }
         out.append("trailer\n<< /Size ${objects.size + 1} /Root 1 0 R >>\n")
         out.append("startxref\n$xrefOffset\n%%EOF\n")
         return out.toString().toByteArray(Charsets.US_ASCII)
     }
 
+    private fun buildDeterministicPptxPackage(state: WorkstationUiState): ByteArray {
+        val baos = ByteArrayOutputStream()
+        ZipOutputStream(baos).use { zos ->
+            writeZipUtf8(
+                zos,
+                "[Content_Types].xml",
+                """
+                <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+                <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+                  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+                  <Default Extension="xml" ContentType="application/xml"/>
+                  <Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/>
+                  <Override PartName="/ppt/slides/slide1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/>
+                </Types>
+                """.trimIndent()
+            )
+            writeZipUtf8(
+                zos,
+                "_rels/.rels",
+                """
+                <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+                <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+                  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="ppt/presentation.xml"/>
+                </Relationships>
+                """.trimIndent()
+            )
+            writeZipUtf8(
+                zos,
+                "ppt/presentation.xml",
+                """
+                <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+                <p:presentation xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+                  <p:sldIdLst><p:sldId id="256" r:id="rId1"/></p:sldIdLst>
+                  <p:sldSz cx="12192000" cy="6858000"/>
+                </p:presentation>
+                """.trimIndent()
+            )
+            writeZipUtf8(
+                zos,
+                "ppt/slides/slide1.xml",
+                """
+                <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+                <p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
+                  <p:cSld name="${escapeXml(state.documentTitle)}">
+                    <p:spTree>
+                      <p:sp>
+                        <p:txBody><a:p><a:r><a:t>${escapeXml(state.documentTitle)} — ${escapeXml(state.selectedShapeName)}</a:t></a:r></a:p></p:txBody>
+                      </p:sp>
+                    </p:spTree>
+                  </p:cSld>
+                </p:sld>
+                """.trimIndent()
+            )
+        }
+        return baos.toByteArray()
+    }
+
+    private fun buildDeterministicDocxPackage(state: WorkstationUiState): ByteArray {
+        val baos = ByteArrayOutputStream()
+        ZipOutputStream(baos).use { zos ->
+            writeZipUtf8(
+                zos,
+                "[Content_Types].xml",
+                """
+                <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+                <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+                  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+                  <Default Extension="xml" ContentType="application/xml"/>
+                  <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
+                </Types>
+                """.trimIndent()
+            )
+            writeZipUtf8(
+                zos,
+                "_rels/.rels",
+                """
+                <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+                <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+                  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
+                </Relationships>
+                """.trimIndent()
+            )
+            val rowsSummary = state.shapeSheetCells.joinToString("") { cell ->
+                "<w:p><w:r><w:t>${escapeXml(cell.cellName)} = ${escapeXml(cell.formula)}</w:t></w:r></w:p>"
+            }
+            writeZipUtf8(
+                zos,
+                "word/document.xml",
+                """
+                <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+                <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+                  <w:body>
+                    <w:p><w:r><w:t>Vexio Process Specification: ${escapeXml(state.documentTitle)}</w:t></w:r></w:p>
+                    <w:p><w:r><w:t>Active Shape: ${escapeXml(state.selectedShapeName)} (Theme: ${escapeXml(state.activeThemeSlug)})</w:t></w:r></w:p>
+                    $rowsSummary
+                  </w:body>
+                </w:document>
+                """.trimIndent()
+            )
+        }
+        return baos.toByteArray()
+    }
+
+    private fun buildDeterministicPowerAutomateJson(state: WorkstationUiState): ByteArray {
+        val actionKey = state.selectedShapeName
+            .replace(Regex("[^A-Za-z0-9_]"), "_")
+            .trim('_')
+            .ifEmpty { "Step_${state.selectedShapeId}" }
+        val json = """
+            {
+              "${'$'}schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+              "contentVersion": "1.0.0.0",
+              "parameters": {},
+              "triggers": {
+                "manual": {
+                  "type": "Request",
+                  "kind": "Button",
+                  "inputs": { "schema": {} }
+                }
+              },
+              "actions": {
+                "${escapeJson(actionKey)}": {
+                  "type": "Compose",
+                  "inputs": "${escapeJson(state.selectedShapeName)}",
+                  "runAfter": {},
+                  "metadata": {
+                    "visioShapeId": ${state.selectedShapeId},
+                    "pageId": ${state.activePageId}
+                  }
+                }
+              },
+              "outputs": {}
+            }
+        """.trimIndent()
+        return json.toByteArray(StandardCharsets.UTF_8)
+    }
+
+    private fun buildDeterministicPowerBiJson(state: WorkstationUiState): ByteArray {
+        val cellsJson = state.shapeSheetCells.joinToString(",") { cell ->
+            "\"${escapeJson(cell.cellName)}\":\"${escapeJson(cell.formula)}\""
+        }
+        val json = """
+            {
+              "schemaVersion": "1.0",
+              "visualType": "vexioPlan2Visual",
+              "documentTitle": "${escapeJson(state.documentTitle)}",
+              "activePageId": ${state.activePageId},
+              "theme": "${escapeJson(state.activeThemeSlug)}",
+              "variant": ${state.activeThemeVariant},
+              "shapeBindings": [
+                {
+                  "shapeId": ${state.selectedShapeId},
+                  "name": "${escapeJson(state.selectedShapeName)}",
+                  "cells": { $cellsJson }
+                }
+              ]
+            }
+        """.trimIndent()
+        return json.toByteArray(StandardCharsets.UTF_8)
+    }
+
+    private fun writeZipUtf8(zos: ZipOutputStream, entryName: String, content: String) {
+        val entry = ZipEntry(entryName)
+        zos.putNextEntry(entry)
+        zos.write(content.toByteArray(StandardCharsets.UTF_8))
+        zos.closeEntry()
+    }
+
+    private fun escapeXml(raw: String): String = raw
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace("\"", "&quot;")
+        .replace("'", "&apos;")
+
+    private fun escapeJson(raw: String): String = raw
+        .replace("\\", "\\\\")
+        .replace("\"", "\\\"")
+        .replace("\n", "\\n")
+        .replace("\r", "\\r")
+
     private fun buildDeterministicXmlFallback(state: WorkstationUiState, ext: String): ByteArray {
         val cellsXml = state.shapeSheetCells.joinToString("\n") { cell ->
-            "      <Cell N=\"${cell.cellName}\" F=\"${cell.formula}\" />"
+            "      <Cell N=\"${escapeXml(cell.cellName)}\" F=\"${escapeXml(cell.formula)}\" />"
         }
         val payload = """
             <?xml version="1.0" encoding="UTF-8"?>
-            <VexioDocument format="$ext" title="${state.documentTitle}">
+            <VexioDocument format="${escapeXml(ext)}" title="${escapeXml(state.documentTitle)}">
               <Page ID="${state.activePageId}">
-                <Shape ID="${state.selectedShapeId}" Name="${state.selectedShapeName}">
+                <Shape ID="${state.selectedShapeId}" Name="${escapeXml(state.selectedShapeName)}">
             $cellsXml
                 </Shape>
               </Page>

@@ -4,9 +4,13 @@ import android.view.KeyEvent
 import android.view.MotionEvent
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.ByteArrayInputStream
+import java.lang.reflect.Modifier
 import java.nio.ByteOrder
+import java.util.zip.ZipInputStream
 
 class NativeBridgePacketTest {
 
@@ -191,5 +195,213 @@ class NativeBridgePacketTest {
         assertEquals(VexioCursorKind.GLUE_SNAP, VexioCursorKind.fromNativeCode(10))
         assertEquals(VexioCursorKind.FORBIDDEN_GUARD, VexioCursorKind.fromNativeCode(11))
         assertEquals(VexioCursorKind.ARROW, VexioCursorKind.fromNativeCode(999))
+    }
+
+    @Test
+    fun plan2JniExternalDeclarationsMatchRustBridgeOneToOne() {
+        val cls = NativeBridge::class.java
+        val longT = Long::class.javaPrimitiveType!!
+        val intT = Int::class.javaPrimitiveType!!
+        val doubleT = Double::class.javaPrimitiveType!!
+        val boolT = Boolean::class.javaPrimitiveType!!
+
+        fun verifyNative(name: String, returnType: Class<*>, vararg params: Class<*>) {
+            val method = cls.getDeclaredMethod(name, *params)
+            assertTrue("$name must be native", Modifier.isNative(method.modifiers))
+            assertTrue("$name must be static (@JvmStatic)", Modifier.isStatic(method.modifiers))
+            assertEquals(returnType, method.returnType)
+        }
+
+        verifyNative("nativeBooleanOp", intT, longT, intT, LongArray::class.java, String::class.java, doubleT)
+        verifyNative("nativeApplyTheme", intT, longT, String::class.java, intT)
+        verifyNative("nativeApplyVisualPreset", boolT, longT, intT, longT, String::class.java)
+        verifyNative("nativeCreateSubprocess", intT, longT, intT, longT, String::class.java)
+        verifyNative("nativeCompareDocuments", String::class.java, longT, longT)
+        verifyNative("nativeApplyCrdtJson", intT, longT, String::class.java, String::class.java)
+        verifyNative("nativeImportDataVisualizer", intT, longT, intT, ByteArray::class.java)
+        verifyNative("nativeImportCloudDiscovery", intT, longT, intT, String::class.java)
+        verifyNative("nativeImportEntraOrLdif", intT, longT, intT, String::class.java)
+    }
+
+    @Test
+    fun freeformToolAndConstructiveBooleanOperationsUpdateStateDeterministically() {
+        val vm = VexioSessionViewModel()
+
+        // Verify Freeform Curve tool (Ctrl+5)
+        vm.selectTool(VexioTool.FREEFORM)
+        assertEquals(VexioTool.FREEFORM, vm.uiState.value.activeTool)
+        assertEquals("Freeform Curve", VexioTool.FREEFORM.displayName)
+        assertEquals("Ctrl+5", VexioTool.FREEFORM.shortcutHint)
+        assertEquals(VexioCursorKind.CROSSHAIR, vm.uiState.value.activeCursor)
+
+        // Binary boolean op requires >= 2 shapes
+        assertEquals(0, vm.performBooleanOp("Union", longArrayOf(1L)))
+
+        // Union, Combine, Intersect, Subtract, Join produce 1 composite shape
+        for (opName in listOf("Union", "Combine", "Intersect", "Subtract", "Join")) {
+            val count = vm.performBooleanOp(opName, longArrayOf(1L, 2L))
+            assertEquals("Expected 1 composite shape for $opName", 1, count)
+            assertEquals(opName.lowercase(), vm.uiState.value.lastBooleanOp)
+        }
+
+        // Fragment on 2 overlapping shapes produces 3 fragments; Trim produces 3 segments; Offset works on 1+ shapes
+        assertEquals(3, vm.performBooleanOp(VexioBooleanOp.FRAGMENT, longArrayOf(1L, 2L)))
+        assertEquals(3, vm.performBooleanOp(VexioBooleanOp.TRIM, longArrayOf(1L, 2L)))
+        assertEquals(1, vm.performBooleanOp(VexioBooleanOp.OFFSET, longArrayOf(1L), offsetInches = 0.25))
+        assertTrue(vm.uiState.value.isDirty)
+    }
+
+    @Test
+    fun themesSixByFourMatrixAndVisualEffectPresetsApplyCleanly() {
+        val vm = VexioSessionViewModel()
+
+        // Verify all 6 themes × 4 variants = 24 palettes apply deterministically
+        for (preset in VexioThemePreset.entries) {
+            for (variant in 0..3) {
+                val updated = vm.applyDocumentTheme(preset.slug, variant)
+                assertTrue("Theme ${preset.slug} v$variant must update >= 1 shape", updated >= 1)
+                assertEquals(preset.slug, vm.uiState.value.activeThemeSlug)
+                assertEquals(variant, vm.uiState.value.activeThemeVariant)
+            }
+        }
+        assertEquals(0, vm.applyDocumentTheme("nonexistent_theme", 0))
+
+        // Verify visual presets: grad_linear, shadow_soft, bevel_3d, sketchy
+        for (effect in listOf("grad_linear", "shadow_soft", "bevel_3d", "sketchy")) {
+            assertTrue("Preset $effect must succeed", vm.applyVisualPreset(effect))
+            assertTrue(effect in vm.uiState.value.activeVisualPresets)
+        }
+        assertFalse(vm.applyVisualPreset("invalid_preset"))
+    }
+
+    @Test
+    fun subprocessDrillDownAndDiagramCompareGenerateStructuredDiffAndSvg() {
+        val vm = VexioSessionViewModel()
+        val initialPages = vm.uiState.value.pages.size
+
+        // Create subprocess page for Sheet.1
+        val subPageId = vm.createOrLinkSubprocess("Order Validation Subprocess", shapeId = 1L)
+        assertTrue(subPageId > 0)
+        assertEquals(initialPages + 1, vm.uiState.value.pages.size)
+        assertEquals(subPageId, vm.uiState.value.activePageId)
+        assertEquals(subPageId, vm.uiState.value.subprocessLinks[1L])
+
+        // Re-linking same subprocess name is idempotent (reuses existing page)
+        val reusedId = vm.createOrLinkSubprocess("Order Validation Subprocess", shapeId = 1L)
+        assertEquals(subPageId, reusedId)
+        assertEquals(initialPages + 1, vm.uiState.value.pages.size)
+
+        // Modify a cell and delete a shape, then run Diagram Compare
+        vm.commitCellFormula("Height", "2.75 in", forceSetf = false)
+        vm.deleteSelectedShape()
+
+        val diff = vm.compareWithBaseline()
+        assertNotNull(vm.uiState.value.lastCompareSummary)
+        assertTrue(diff.addedCount >= 1)
+        assertTrue(diff.modifiedCount >= 1)
+        assertTrue(diff.removedCount >= 1)
+        assertTrue(diff.diffOverlaySvg.startsWith("<svg"))
+        assertTrue(diff.rawReportJson.contains("\"added_count\":"))
+    }
+
+    @Test
+    fun dataVisualizerCloudDiscoveryAndEntraLdifConnectorsImportShapes() {
+        val vm = VexioSessionViewModel()
+
+        val dvShapes = vm.importDataVisualizer(
+            Plan2SamplePayloads.dataVisualizerCsv.toByteArray(Charsets.UTF_8)
+        )
+        // 5 swimlanes + 1 pool header + 5 steps + 5 connectors = 16 shapes
+        assertEquals(16, dvShapes)
+        assertEquals(16, vm.uiState.value.lastDataVisualizerShapeCount)
+
+        val cloudShapes = vm.importCloudDiscovery(Plan2SamplePayloads.cloudDiscoveryJson)
+        // 2 distinct VPCs + 3 cloud resources + 2 edges = 7 shapes
+        assertEquals(7, cloudShapes)
+        assertEquals(7, vm.uiState.value.lastCloudDiscoveryShapeCount)
+
+        val ldifShapes = vm.importEntraOrLdifOrgChart(Plan2SamplePayloads.entraOrgChartLdif)
+        // 3 directory entries + 2 manager reporting lines = 5 shapes
+        assertEquals(5, ldifShapes)
+
+        val entraGraphJson = """
+            {
+              "value": [
+                {"id": "u1", "displayName": "Ada Lovelace", "jobTitle": "CTO"},
+                {"id": "u2", "displayName": "Alan Turing", "jobTitle": "Principal Architect", "managerId": "u1"}
+              ]
+            }
+        """.trimIndent()
+        assertEquals(3, vm.importEntraOrLdifOrgChart(entraGraphJson))
+    }
+
+    @Test
+    fun hlcCrdtBatchConvergesOutOfOrderAndRespectsGuardProtection() {
+        val vmA = VexioSessionViewModel()
+        val vmB = VexioSessionViewModel()
+        val shapeId = vmA.uiState.value.selectedShapeId
+
+        val opOlder = """
+            {"SetCell":{"ts":{"wall_ms":1000,"logical":1,"replica_id":"peer-a"},"page_id":1,"shape_id":$shapeId,"cell_name":"PinX","formula":"5.25 in","force_setf":false}}
+        """.trimIndent()
+        val opNewer = """
+            {"SetCell":{"ts":{"wall_ms":1000,"logical":2,"replica_id":"peer-b"},"page_id":1,"shape_id":$shapeId,"cell_name":"PinX","formula":"7.75 in","force_setf":false}}
+        """.trimIndent()
+        val opGuardBlocked = """
+            {"SetCell":{"ts":{"wall_ms":2000,"logical":1,"replica_id":"peer-b"},"page_id":1,"shape_id":$shapeId,"cell_name":"Width","formula":"9.00 in","force_setf":false}}
+        """.trimIndent()
+
+        // Apply [older, newer] on vmA, and [newer] then [older] on vmB
+        assertEquals(2, vmA.applyCrdtBatchJson("[$opOlder,$opNewer,$opGuardBlocked]", "peer-local-a"))
+        assertEquals(1, vmB.applyCrdtBatchJson("[$opNewer]", "peer-local-b"))
+        assertEquals(0, vmB.applyCrdtBatchJson("[$opOlder,$opGuardBlocked]", "peer-local-b"))
+
+        val pinXA = vmA.uiState.value.shapeSheetCells.first { it.cellName == "PinX" }.formula
+        val pinXB = vmB.uiState.value.shapeSheetCells.first { it.cellName == "PinX" }.formula
+        assertEquals("7.75 in", pinXA)
+        assertEquals(pinXA, pinXB)
+
+        // Guarded Width remained protected against non-SETF CRDT write
+        assertEquals(
+            "GUARD(2.50 in)",
+            vmA.uiState.value.shapeSheetCells.first { it.cellName == "Width" }.formula
+        )
+    }
+
+    @Test
+    fun plan2ExportsProduceValidOpenXmlZipAndWorkflowJsonPackages() {
+        val vm = VexioSessionViewModel()
+
+        fun listZipEntries(bytes: ByteArray): Set<String> {
+            val names = linkedSetOf<String>()
+            ZipInputStream(ByteArrayInputStream(bytes)).use { zis ->
+                var entry = zis.nextEntry
+                while (entry != null) {
+                    names.add(entry.name)
+                    entry = zis.nextEntry
+                }
+            }
+            return names
+        }
+
+        val pptxBytes = vm.exportPlan2Artifact("pptx")
+        val pptxEntries = listZipEntries(pptxBytes)
+        assertTrue(pptxEntries.contains("[Content_Types].xml"))
+        assertTrue(pptxEntries.contains("ppt/presentation.xml"))
+        assertTrue(pptxEntries.contains("ppt/slides/slide1.xml"))
+
+        val docxBytes = vm.exportPlan2Artifact("docx")
+        val docxEntries = listZipEntries(docxBytes)
+        assertTrue(docxEntries.contains("[Content_Types].xml"))
+        assertTrue(docxEntries.contains("word/document.xml"))
+
+        val flowJson = String(vm.exportPlan2Artifact("flow.json"), Charsets.UTF_8)
+        assertTrue(flowJson.contains("workflowdefinition.json#"))
+        assertTrue(flowJson.contains("\"triggers\""))
+        assertTrue(flowJson.contains("\"actions\""))
+
+        val pbiJson = String(vm.exportPlan2Artifact("pbi.json"), Charsets.UTF_8)
+        assertTrue(pbiJson.contains("vexioPlan2Visual"))
+        assertTrue(pbiJson.contains("\"shapeBindings\""))
     }
 }

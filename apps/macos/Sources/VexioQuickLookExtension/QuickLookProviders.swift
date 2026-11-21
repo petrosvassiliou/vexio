@@ -95,7 +95,12 @@ enum VexioOfflineQuickLookRenderer {
         let clampedHeight = min(max(heightPx, 64), 4096)
 
         var rgbaOwned = VexioOwnedBuffer(ptr: nil, len: 0, cap: 0)
-        let renderStatus = vexio_render_preview_rgba(doc, pageId, clampedWidth, clampedHeight, &rgbaOwned)
+        var renderStatus = vexio_render_preview_rgba(doc, pageId, clampedWidth, clampedHeight, &rgbaOwned)
+        if renderStatus != VEXIO_OK && pageId == 0 {
+            vexio_buffer_free(rgbaOwned)
+            rgbaOwned = VexioOwnedBuffer(ptr: nil, len: 0, cap: 0)
+            renderStatus = vexio_render_preview_rgba(doc, 1, clampedWidth, clampedHeight, &rgbaOwned)
+        }
         defer { vexio_buffer_free(rgbaOwned) }
 
         guard renderStatus == VEXIO_OK,

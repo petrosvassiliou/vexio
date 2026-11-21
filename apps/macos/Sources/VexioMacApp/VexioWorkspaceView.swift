@@ -58,7 +58,8 @@ public struct VexioWorkspaceView: View {
     @State private var formulaWriteMode: FormulaWriteMode = .respectGuard
 
     // Export & Offscreen Preview State
-    @State private var activeExportFormat: VexioExportFormat = .vsdx
+    @State private var activeExportContentType: UTType = .visioDrawing
+    @State private var activeExportFilename: String = "Untitled Diagram.vsdx"
     @State private var preparedExportDocument: VexioExportFileDocument?
     @State private var isShowingFileExporter: Bool = false
     @State private var renderedPreviewImage: CGImage?
@@ -119,7 +120,8 @@ public struct VexioWorkspaceView: View {
                             selectedTab: $selectedInspectorTab,
                             onInspectCellInShapeSheet: { cellName in
                                 focusCellInShapeSheet(cellName, preferSetF: false)
-                            }
+                            },
+                            onRequestDataVisualizerExport: triggerDataVisualizerXlsxExport
                         )
                         .frame(width: isCompactStageManagerWidth ? 276 : 308)
                         .transition(.move(edge: .trailing).combined(with: .opacity))
@@ -130,6 +132,7 @@ public struct VexioWorkspaceView: View {
                 VexioLiquidGlassTopToolbar(
                     session: session,
                     onRequestExport: triggerExport,
+                    onRequestDataVisualizerExport: triggerDataVisualizerXlsxExport,
                     onRequestOffscreenPreview: generateAndShowOffscreenPreview
                 )
                 .padding(.horizontal, 14)
@@ -155,8 +158,8 @@ public struct VexioWorkspaceView: View {
         .fileExporter(
             isPresented: $isShowingFileExporter,
             document: preparedExportDocument,
-            contentType: activeExportFormat.contentType,
-            defaultFilename: "\(session.documentTitle).\(activeExportFormat.rawValue)"
+            contentType: activeExportContentType,
+            defaultFilename: activeExportFilename
         ) { result in
             switch result {
             case .success(let savedURL):
@@ -174,7 +177,7 @@ public struct VexioWorkspaceView: View {
         }
     }
 
-    // MARK: - Refractive Canvas Overlays (Tool Palette, Guard Banner, Force Touch Popover, Bottom Pills)
+    // MARK: - Refractive Canvas Overlays (Tool Palette, Guard Banner, Compare Pill, Force Touch Popover, Bottom Pills)
 
     private var canvasRefractiveOverlays: some View {
         ZStack {
@@ -228,6 +231,57 @@ public struct VexioWorkspaceView: View {
                 .transition(.move(edge: .top).combined(with: .opacity))
             }
 
+            // Floating Liquid Glass Diagram Compare Summary Card
+            if !session.latestDiffSummary.isEmpty {
+                VStack {
+                    Spacer().frame(height: session.lastBannerError == nil ? 66 : 118)
+                    HStack {
+                        Spacer()
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack(spacing: 8) {
+                                Image(systemName: "arrow.left.arrow.right.square.fill")
+                                    .foregroundStyle(Color.accentColor)
+                                Text("Diagram Compare")
+                                    .font(.system(size: 12, weight: .semibold))
+                                Spacer()
+                                Button("Pin Baseline") {
+                                    session.captureComparisonBaseline()
+                                }
+                                .buttonStyle(.bordered)
+                                .controlSize(.mini)
+
+                                Button {
+                                    withAnimation(LiquidGlassPhysics.standardSpring) {
+                                        session.latestDiffSummary = ""
+                                        session.latestDiffEntries = []
+                                    }
+                                } label: {
+                                    Image(systemName: "xmark.circle.fill")
+                                        .foregroundStyle(.secondary)
+                                }
+                                .buttonStyle(.plain)
+                            }
+
+                            Text(session.latestDiffSummary)
+                                .font(.system(size: 11.5, weight: .medium, design: .monospaced))
+
+                            ForEach(session.latestDiffEntries.prefix(4)) { entry in
+                                Text("• \(entry.summary)")
+                                    .font(.system(size: 10.5))
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                            }
+                        }
+                        .padding(12)
+                        .frame(width: 360)
+                        .liquidGlassSurface(cornerRadius: 14, elevation: .quickPopover, tint: .accentColor)
+                    }
+                    .padding(.trailing, 16)
+                    Spacer()
+                }
+                .transition(.move(edge: .top).combined(with: .opacity))
+            }
+
             // Force Touch Deep-Click ShapeSheet Quick-Popover
             if let inspectContext = session.forceTouchQuickInspect {
                 ForceTouchShapeSheetQuickPopover(
@@ -250,11 +304,11 @@ public struct VexioWorkspaceView: View {
                 .transition(.scale(scale: 0.90).combined(with: .opacity))
             }
 
-            // Bottom Page Switcher & Zoom Liquid Glass Pill Controls
+            // Bottom Page Switcher, Subprocess, Compare & Zoom Liquid Glass Pill Controls
             VStack {
                 Spacer()
                 HStack(spacing: 12) {
-                    // Page Switcher & Scale Pill
+                    // Page Switcher, Subprocess Drill-Down & Diagram Compare Pill
                     LiquidGlassPillCluster(cornerRadius: 14) {
                         ForEach(session.pages) { page in
                             let isCurrent = (session.activePageId == page.id)
@@ -291,7 +345,33 @@ public struct VexioWorkspaceView: View {
                                 .font(.system(size: 12.5, weight: .medium))
                         }
                         .buttonStyle(.plain)
-                        .help("Insert New Page")
+                        .help("Insert New Page (⇧⌘N)")
+
+                        Divider().frame(height: 14)
+
+                        Button {
+                            withAnimation(LiquidGlassPhysics.standardSpring) {
+                                session.createSubprocessDrilldown(undoManager: undoManager)
+                            }
+                        } label: {
+                            Label("Create Subprocess", systemImage: "arrow.turn.down.right")
+                                .font(.system(size: 11, weight: .medium))
+                        }
+                        .buttonStyle(.plain)
+                        .help("Create & Link Drill-Down Subprocess Page (⇧⌘P)")
+
+                        Divider().frame(height: 14)
+
+                        Button {
+                            withAnimation(LiquidGlassPhysics.standardSpring) {
+                                session.compareWithSnapshot()
+                            }
+                        } label: {
+                            Label("Diagram Compare", systemImage: "arrow.left.arrow.right.square")
+                                .font(.system(size: 11, weight: .medium))
+                        }
+                        .buttonStyle(.plain)
+                        .help("Compare Active Diagram Against Baseline Snapshot (⇧⌘D)")
 
                         Divider().frame(height: 14)
 
@@ -363,8 +443,22 @@ public struct VexioWorkspaceView: View {
 
     private func triggerExport(_ format: VexioExportFormat) {
         do {
-            activeExportFormat = format
+            activeExportContentType = format.contentType
+            activeExportFilename = "\(session.documentTitle).\(format.defaultFileExtension)"
             preparedExportDocument = try session.exportDocument(as: format)
+            isShowingFileExporter = true
+        } catch let bridgeErr as VexioBridgeError {
+            session.lastBannerError = bridgeErr
+        } catch {
+            session.statusMessage = error.localizedDescription
+        }
+    }
+
+    private func triggerDataVisualizerXlsxExport() {
+        do {
+            activeExportContentType = .spreadsheet
+            activeExportFilename = "\(session.documentTitle)-DataVisualizer.xlsx"
+            preparedExportDocument = try session.exportDataVisualizerWorkbook()
             isShowingFileExporter = true
         } catch let bridgeErr as VexioBridgeError {
             session.lastBannerError = bridgeErr
@@ -392,6 +486,7 @@ private struct VexioLiquidGlassTopToolbar: View {
     @Environment(\.undoManager) private var undoManager
 
     let onRequestExport: (VexioExportFormat) -> Void
+    let onRequestDataVisualizerExport: () -> Void
     let onRequestOffscreenPreview: () -> Void
 
     var body: some View {
@@ -440,8 +535,23 @@ private struct VexioLiquidGlassTopToolbar: View {
 
             Spacer(minLength: 8)
 
-            // Center: Routing, Auto-Layout, Rotate, Guard & Validation
+            // Center: Shape Operations, Routing, Auto-Layout, Rotate & Validation
             HStack(spacing: 8) {
+                Menu {
+                    ForEach(VexioBooleanOperation.allCases) { op in
+                        Button {
+                            session.applyBooleanOperation(op, undoManager: undoManager)
+                        } label: {
+                            Label(op.displayName, systemImage: op.symbolName)
+                        }
+                    }
+                } label: {
+                    Label("Shape Ops", systemImage: "square.on.square")
+                        .font(.system(size: 12, weight: .medium))
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+
                 Menu {
                     ForEach(ConnectorRoutingStyle.allCases) { style in
                         Button {
@@ -507,6 +617,10 @@ private struct VexioLiquidGlassTopToolbar: View {
                         Button("Export \(format.displayName)…") {
                             onRequestExport(format)
                         }
+                    }
+                    Divider()
+                    Button("Export Data Visualizer Workbook (.xlsx)…") {
+                        onRequestDataVisualizerExport()
                     }
                 } label: {
                     Label("Export", systemImage: "square.and.arrow.up")
@@ -702,6 +816,7 @@ private struct VexioInspectorSidebar: View {
     @ObservedObject var session: VexioDocumentSession
     @Binding var selectedTab: VexioInspectorTab
     let onInspectCellInShapeSheet: (String) -> Void
+    let onRequestDataVisualizerExport: () -> Void
 
     @Environment(\.undoManager) private var undoManager
 
@@ -719,7 +834,7 @@ private struct VexioInspectorSidebar: View {
                     Label("Sheet.\(session.selectedShapeId)", systemImage: "cube.transparent")
                         .font(.system(size: 12, weight: .semibold, design: .monospaced))
                     Spacer()
-                    Text("Page-\(session.activePageId + 1)")
+                    Text(session.pages.first(where: { $0.id == session.activePageId })?.title ?? "Page-\(session.activePageId)")
                         .font(.system(size: 10.5))
                         .foregroundStyle(.secondary)
                 }
@@ -778,9 +893,119 @@ private struct VexioInspectorSidebar: View {
         }
     }
 
-    // 1. Style Tab
+    // 1. Style Tab (6x4 Document Themes, Visual Effects Presets & Fill/Stroke)
     private var styleInspectorSection: some View {
         VStack(alignment: .leading, spacing: 12) {
+            Text("DOCUMENT THEMES (6×4 MATRIX)")
+                .font(.system(size: 10.5, weight: .bold))
+                .foregroundStyle(.secondary)
+
+            LazyVGrid(
+                columns: [GridItem(.flexible(), spacing: 6), GridItem(.flexible(), spacing: 6)],
+                spacing: 6
+            ) {
+                ForEach(VexioThemePreset.allCases) { theme in
+                    let isSelectedTheme = (session.selectedThemeSlug == theme.rawValue)
+                    Button {
+                        withAnimation(LiquidGlassPhysics.standardSpring) {
+                            session.applyThemeAndVariant(
+                                themeSlug: theme.rawValue,
+                                variantIndex: session.selectedVariantIndex,
+                                undoManager: undoManager
+                            )
+                        }
+                    } label: {
+                        HStack(spacing: 6) {
+                            HStack(spacing: -3) {
+                                Circle()
+                                    .fill(theme.primaryPreviewColor)
+                                    .frame(width: 11, height: 11)
+                                Circle()
+                                    .fill(theme.accentPreviewColor)
+                                    .frame(width: 11, height: 11)
+                            }
+                            Text(theme.displayName)
+                                .font(.system(size: 11, weight: isSelectedTheme ? .semibold : .regular))
+                                .lineLimit(1)
+                            Spacer(minLength: 0)
+                        }
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 6)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .fill(isSelectedTheme ? Color.accentColor.opacity(0.18) : Color.primary.opacity(0.05))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .strokeBorder(
+                                    isSelectedTheme ? Color.accentColor.opacity(0.65) : Color.primary.opacity(0.08),
+                                    lineWidth: 0.9
+                                )
+                        )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+
+            HStack(spacing: 6) {
+                Text("Variant")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                ForEach(0..<4, id: \.self) { variantIdx in
+                    let isCurrentVariant = (Int(session.selectedVariantIndex) == variantIdx)
+                    Button("V\(variantIdx + 1)") {
+                        withAnimation(LiquidGlassPhysics.standardSpring) {
+                            session.applyThemeAndVariant(
+                                themeSlug: session.selectedThemeSlug,
+                                variantIndex: UInt8(variantIdx),
+                                undoManager: undoManager
+                            )
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(isCurrentVariant ? .accentColor : nil)
+                    .controlSize(.small)
+                }
+            }
+
+            Divider()
+
+            Text("SHAPE VISUAL EFFECTS")
+                .font(.system(size: 10.5, weight: .bold))
+                .foregroundStyle(.secondary)
+
+            LazyVGrid(
+                columns: [GridItem(.flexible(), spacing: 6), GridItem(.flexible(), spacing: 6)],
+                spacing: 6
+            ) {
+                ForEach(VexioVisualEffectPreset.allCases) { preset in
+                    let isSelectedPreset = (session.activeVisualPresetSlug == preset.rawValue)
+                    Button {
+                        session.applyVisualPreset(preset, undoManager: undoManager)
+                    } label: {
+                        HStack(spacing: 5) {
+                            Image(systemName: preset.symbolName)
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(isSelectedPreset ? Color.accentColor : Color.secondary)
+                            Text(preset.displayName)
+                                .font(.system(size: 10.5, weight: isSelectedPreset ? .semibold : .regular))
+                                .lineLimit(1)
+                            Spacer(minLength: 0)
+                        }
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 5.5)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .fill(isSelectedPreset ? Color.accentColor.opacity(0.16) : Color.primary.opacity(0.04))
+                        )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+
+            Divider()
+
             Text("FILL & STROKE FORMAT")
                 .font(.system(size: 10.5, weight: .bold))
                 .foregroundStyle(.secondary)
@@ -862,9 +1087,32 @@ private struct VexioInspectorSidebar: View {
         }
     }
 
-    // 2. Geometry & GUARD Protection Tab
+    // 2. Geometry, Boolean Shape Ops & GUARD Protection Tab
     private var geometryInspectorSection: some View {
         VStack(alignment: .leading, spacing: 10) {
+            Text("BOOLEAN SHAPE OPERATIONS")
+                .font(.system(size: 10.5, weight: .bold))
+                .foregroundStyle(.secondary)
+
+            LazyVGrid(
+                columns: [GridItem(.flexible(), spacing: 6), GridItem(.flexible(), spacing: 6)],
+                spacing: 6
+            ) {
+                ForEach(VexioBooleanOperation.allCases) { op in
+                    Button {
+                        session.applyBooleanOperation(op, undoManager: undoManager)
+                    } label: {
+                        Label(op.displayName, systemImage: op.symbolName)
+                            .font(.system(size: 11, weight: .medium))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
+            }
+
+            Divider()
+
             Text("SHAPE TRANSFORM & GUARD")
                 .font(.system(size: 10.5, weight: .bold))
                 .foregroundStyle(.secondary)
@@ -919,9 +1167,74 @@ private struct VexioInspectorSidebar: View {
         }
     }
 
-    // 3. Shape Data (Prop.*) Tab
+    // 3. Shape Data (Prop.*) & Plan 2 Data / Cloud / Directory Connectors Tab
     private var shapeDataInspectorSection: some View {
         VStack(alignment: .leading, spacing: 10) {
+            Text("PLAN 2 DATA, CLOUD & DIRECTORY")
+                .font(.system(size: 10.5, weight: .bold))
+                .foregroundStyle(.secondary)
+
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 6) {
+                    Button {
+                        session.importDataVisualizerSample(undoManager: undoManager)
+                    } label: {
+                        Label("Data Visualizer", systemImage: "tablecells.badge.ellipsis")
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+
+                    Button("Export .xlsx") {
+                        onRequestDataVisualizerExport()
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
+
+                Button {
+                    session.importCloudTopologySample(undoManager: undoManager)
+                } label: {
+                    Label("Cloud Discovery (AWS / Azure / GCP)", systemImage: "cloud.fill")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+
+                Button {
+                    session.importEntraLdifSample(undoManager: undoManager)
+                } label: {
+                    Label("Entra ID / LDAP (.ldif) Org Chart", systemImage: "person.3.sequence.fill")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+
+                HStack(spacing: 6) {
+                    Button {
+                        session.applyRemoteCrdtBatch()
+                    } label: {
+                        Label("CRDT Sync", systemImage: "arrow.triangle.2.circlepath")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+
+                    Button {
+                        session.compareWithSnapshot()
+                    } label: {
+                        Label("Compare", systemImage: "arrow.left.arrow.right.square")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
+            }
+            .padding(8)
+            .background(RoundedRectangle(cornerRadius: 8).fill(Color.primary.opacity(0.04)))
+
+            Divider()
+
             Text("CUSTOM SHAPE DATA (Prop.*)")
                 .font(.system(size: 10.5, weight: .bold))
                 .foregroundStyle(.secondary)

@@ -86,13 +86,19 @@ Zero warnings and 100% passing unit, formula, CAD, routing, validation, and Open
 RUSTFLAGS="-D warnings" cargo test --workspace
 ```
 
-### 2. Regenerate Deterministic Built-In `.vssx` Stencil Packs
-Exports IP-clean `.vssx` stencils (`basic_flowchart.vssx`, `bpmn_2_0.vssx`, `uml_2_5.vssx`, `network_rack_equipment.vssx`, `floor_plan_p_id_vsm.vssx`) to `stencils/` and `apps/chromeos-pwa/public/stencils/`:
+### 2. Regenerate Deterministic Built-In `.vssx` Stencil Packs (12 Domain Libraries)
+Exports all 12 IP-clean `.vssx` stencil packs (`basic_flowchart`, `bpmn_2_0`, `uml_2_5`, `network_rack_equipment`, `floor_plan_p_id_vsm`, `cloud_architecture_aws_gcp_azure`, `electrical_electronic_ieee_iec`, `ui_application_wireframes`, `organization_chart`, `project_schedule_gantt_timeline`, `value_stream_mapping_lean_vsm`, `database_crow_s_foot_idef1x`) to `stencils/` and `apps/chromeos-pwa/public/stencils/`:
 ```bash
 cargo run -p vexio-core --example export_builtin_stencils
 ```
 
-### 3. Rust WASM SIMD + ChromeOS Offline-First PWA Build
+### 3. 50,000-Shape 120 FPS & Multi-Format Corpus Regression Suite
+Runs the 50,000-shape R\*-tree viewport/LOD frame-budget benchmark (`< 8.33 ms`) alongside lossless round-trip verification across `.vsdx`, `.vsd` (`v5`/`v11`), `.vdx`, `.dwg` (`AC1015` & `AC1032` R2018/R2024 Reed-Solomon + LZ77), `.dxf`, `.emf`, `.sqlite`, `.pptx`, `.docx`, Power Automate, Power BI, and 3-peer HLC CRDT convergence:
+```bash
+cargo test -p vexio-core --test corpus_and_50k_bench --release
+```
+
+### 4. Rust WASM SIMD + Code-Split ChromeOS Offline-First PWA Build
 ```bash
 rustup target add wasm32-unknown-unknown
 
@@ -108,17 +114,24 @@ npm --prefix apps/chromeos-pwa ci
 npm --prefix apps/chromeos-pwa run build
 ```
 
-### 4. Local Firebase Emulator Suite & Offline Security Verification
-Validates `COOP: same-origin` / `COEP: require-corp` headers, `application/wasm` MIME + immutable caching, ChromeOS `window-controls-overlay` & `file_handlers` manifest, Firestore/Auth per-UID tenant isolation rules, and 100% unauthenticated offline WASM SIMD execution:
+### 5. Local Firebase Emulator Suite & 6-Stage Offline Security Verification
+Validates `COOP: same-origin` / `COEP: require-corp` headers, `application/wasm` MIME + immutable caching, `< 500 KB` code-split JS chunks, ChromeOS `window-controls-overlay` & `file_handlers` manifest, 100% unauthenticated offline WASM SIMD Plan 2 execution, HLC CRDT convergence, and Firestore/Auth per-UID security rules:
 ```bash
-npm --prefix firebase ci
-npx --prefix firebase firebase emulators:exec \
+cd firebase
+npm ci
+./node_modules/.bin/firebase emulators:exec \
   --project demo-vexio-chromeos \
-  --only auth,firestore,hosting \
+  --only auth,firestore,hosting,storage \
   "node ../tests/verify_offline_firebase_pwa.mjs"
 ```
 
-### 5. Native Workstation Builds
+### 6. Live Production Firebase `.web.app` Provisioning & Auto-Deploy
+Link a live Firebase project and configure GitHub Actions repository variables (`FIREBASE_PROJECT_ID`, `VITE_FIREBASE_*`) + `FIREBASE_SERVICE_ACCOUNT_VEXIO_CHROMEOS_SUITE` secret in one step:
+```bash
+./firebase/scripts/provision-firebase-ci.sh <your-firebase-project-id> petrosvassiliou/vexio
+```
+
+### 7. Native Workstation Builds (`v0.1.0`)
 - **Windows (`apps/windows` — WinUI 3 + DirectX 12 + MSIX):**
   ```powershell
   cargo build --release -p vexio-core --target x86_64-pc-windows-msvc
@@ -151,8 +164,9 @@ npx --prefix firebase firebase emulators:exec \
 
 | Workflow | Trigger | Runner | Pipeline Scope |
 | :--- | :--- | :--- | :--- |
-| [`ci-rust-wasm.yml`](.github/workflows/ci-rust-wasm.yml) | `push`, `pull_request` | `ubuntu-latest` | `RUSTFLAGS="-D warnings" cargo test --workspace`, `.vssx` stencil export, `wasm32-unknown-unknown` `+simd128` build, `wasm-bindgen`, and ChromeOS PWA Vite/precache build |
-| [`release-windows-msix.yml`](.github/workflows/release-windows-msix.yml) | `v*` tags, `workflow_dispatch` | `windows-latest` | `x86_64` & `aarch64` MSVC `vexio-core`, Windows App SDK 1.6 + DirectX 12 CMake build, and MSIX packaging |
-| [`release-macos-dmg.yml`](.github/workflows/release-macos-dmg.yml) | `v*` tags, `workflow_dispatch` | `macos-15` | Universal2 `lipo` `libvexio_core.a`, Swift 6 `VexioMacApp` + `VexioQuickLookExtension`, and `.dmg` packaging |
-| [`release-android-googlebook.yml`](.github/workflows/release-android-googlebook.yml) | `v*` tags, `workflow_dispatch` | `ubuntu-latest` | Android NDK + `cargo-ndk` (`arm64-v8a`, `x86_64`) `libvexio_core.so` / `libvexio_jni.so`, Gradle `assembleRelease` & `bundleRelease` APK/AAB |
-| [`deploy-firebase-chromeos-pwa.yml`](.github/workflows/deploy-firebase-chromeos-pwa.yml) | `main` push, `workflow_dispatch` | `ubuntu-latest` | WASM SIMD + `.vssx` stencils + Vite/precache bundle in `apps/chromeos-pwa/dist` + Firebase Hosting (`COOP`/`COEP`) & Firestore/Storage rules deployment |
+| [`ci-rust-wasm.yml`](.github/workflows/ci-rust-wasm.yml) | `push`, `pull_request` | `ubuntu-latest` | `RUSTFLAGS="-D warnings" cargo test --workspace` (`54` suites + 50k benchmark), `.vssx` stencil export, `wasm32` `+simd128` build, and code-split ChromeOS PWA bundle |
+| [`release-windows-msix.yml`](.github/workflows/release-windows-msix.yml) | `v*` tags (`v0.1.0`), `workflow_dispatch` | `windows-latest` | `x86_64` & `aarch64` MSVC `vexio-core`, Windows App SDK 1.6 + DirectX 12 CMake build, and MSIX GitHub Release packaging |
+| [`release-macos-dmg.yml`](.github/workflows/release-macos-dmg.yml) | `v*` tags (`v0.1.0`), `workflow_dispatch` | `macos-15` | Universal2 `lipo` `libvexio_core.a`, Swift 6 `VexioMacApp` + `VexioQuickLookExtension`, and `.dmg` GitHub Release packaging |
+| [`release-android-googlebook.yml`](.github/workflows/release-android-googlebook.yml) | `v*` tags (`v0.1.0`), `workflow_dispatch` | `ubuntu-latest` | Android NDK + `cargo-ndk` (`arm64-v8a`, `x86_64`) `libvexio_core.so` / `libvexio_jni.so`, Gradle `assembleRelease` & `bundleRelease` APK/AAB |
+| [`deploy-firebase-chromeos-pwa.yml`](.github/workflows/deploy-firebase-chromeos-pwa.yml) | `main` push, `v*` tags, `workflow_dispatch` | `ubuntu-latest` | WASM SIMD + 12 `.vssx` stencils + 6-stage Firebase Emulator verification + Release `.zip` + optional live Firebase Hosting (`COOP`/`COEP`) & Rules deployment |
+

@@ -137,6 +137,11 @@ struct MainWindow : MainWindowT<MainWindow> {
     void OnPageOrientationChanged(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::Controls::SelectionChangedEventArgs const& e);
     void OnDrawingScaleChanged(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::Controls::SelectionChangedEventArgs const& e);
     void OnThemeChanged(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::Controls::SelectionChangedEventArgs const& e);
+    void OnThemeVariantChanged(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::Controls::SelectionChangedEventArgs const& e);
+    void OnVisualPresetGradLinearClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
+    void OnVisualPresetShadowSoftClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
+    void OnVisualPresetBevel3dClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
+    void OnVisualPresetSketchyClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
     void OnLineJumpStyleChanged(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::Controls::SelectionChangedEventArgs const& e);
     void OnReLayoutTopDownClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
     void OnReLayoutLeftRightClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
@@ -145,6 +150,11 @@ struct MainWindow : MainWindowT<MainWindow> {
     void OnLinkExternalDataClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
     void OnRefreshExternalDataClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
     void OnPushTwoWaySyncClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
+    void OnImportDataVisualizerClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
+    void OnExportDataVisualizerClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
+    void OnImportCloudDiscoveryClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
+    void OnImportEntraOrLdifClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
+    void OnExportPowerBiClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
     void OnApplyDataBarsClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
     void OnApplyIconSetsClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
     void OnApplyColorByValueClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
@@ -154,12 +164,16 @@ struct MainWindow : MainWindowT<MainWindow> {
     void OnCheckDiagramClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
     void OnCreateSubprocessPageClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
     void OnLinkSubprocessClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
+    void OnExportPowerAutomateClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
 
     void OnInkPenToggleClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
     void OnInkHighlighterToggleClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
     void OnConvertInkToShapesClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
     void OnNewCommentClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
     void OnToggleMarkupOverlayClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
+    void OnCompareDiagramClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
+    void OnExportPptxClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
+    void OnExportDocxClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
 
     void OnViewRulersChanged(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
     void OnViewGridChanged(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
@@ -174,8 +188,13 @@ struct MainWindow : MainWindowT<MainWindow> {
 
     void OnGuardSelectedCellClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
     void OnBooleanUnionClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
+    void OnBooleanCombineClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
     void OnBooleanFragmentClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
+    void OnBooleanIntersectClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
     void OnBooleanSubtractClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
+    void OnBooleanTrimClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
+    void OnBooleanJoinClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
+    void OnBooleanOffsetClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
     void OnOpenMacroEditorClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
 
     // Stencils Dock & Drag-and-Drop
@@ -260,9 +279,20 @@ private:
                     std::wstring_view message);
     void MarkDocumentDirty(bool dirty);
 
-    // File Open / Save / Export Pickers
+    // Phase 7/8 Plan 2 Operations & Dialog Helpers
+    void ApplySelectedThemeAndVariant();
+    void ApplyVisualPresetSlug(std::string_view presetSlugUtf8, std::wstring_view displayLabel);
+    void ExecuteBooleanOp(std::string_view opSlugUtf8, std::wstring_view displayLabel, double offsetIn = 0.18);
+    void RefreshBaselineSnapshot();
+
+    // File Open / Save / Export Pickers & Plan 2 Connector Dialogs
     winrt::fire_and_forget PromptOpenFilePickerAsync();
     winrt::fire_and_forget SaveDocumentAsync(bool forceSaveAs, std::string forcedExtensionUtf8 = {});
+    winrt::fire_and_forget ImportDataVisualizerPickerAsync();
+    winrt::fire_and_forget ExportDataVisualizerXlsxAsync();
+    winrt::fire_and_forget ShowCloudDiscoveryDialogAsync();
+    winrt::fire_and_forget ShowEntraOrLdifDialogAsync();
+    winrt::fire_and_forget ShowDiagramCompareDialogAsync();
     winrt::fire_and_forget ShowMacroEditorDialogAsync();
     winrt::fire_and_forget ShowRenamePageDialogAsync();
     winrt::fire_and_forget ShowBomReportDialogAsync();
@@ -273,6 +303,7 @@ private:
     // RAII Rust Core Handles (vexio.h)
     vexio::win::EngineHandle   m_engine{};
     vexio::win::DocHandle      m_doc{};
+    vexio::win::DocHandle      m_baselineDoc{};
     vexio::win::ViewportHandle m_viewport{};
 
     // Active Document & Selection State
@@ -284,6 +315,7 @@ private:
 
     uint32_t     m_activePageId{1};
     uint64_t     m_selectedShapeId{1};
+    uint64_t     m_previousSelectedShapeId{1};
     uint64_t     m_nextShapeId{2};
     std::string  m_selectedCellName{"Width"};
 

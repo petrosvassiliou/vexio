@@ -595,3 +595,329 @@ pub unsafe extern "C" fn vexio_doc_apply_crdt_json(
     }));
     res.unwrap_or(VexioStatus::ErrInternalPanic)
 }
+
+pub(crate) fn visual_preset_spec_from_slug(
+    preset: &str,
+    shape_id: u64,
+) -> crate::themes_styles::ShapeVisualStyleSpec {
+    use crate::themes_styles::{
+        BevelExtrusionSpec, DropShadowSpec, GradientDirection, GradientFillSpec, HatchFillSpec,
+        HatchPatternKind, ShapeVisualStyleSpec, SketchOutlineSpec,
+    };
+    use vexio_shapesheet::RgbaColor;
+
+    match preset {
+        "grad_linear" => ShapeVisualStyleSpec {
+            gradient: Some(GradientFillSpec {
+                direction: GradientDirection::LinearDiagonal,
+                foregnd: RgbaColor { r: 191, g: 219, b: 254, a: 255 },
+                bkgnd: RgbaColor { r: 239, g: 246, b: 255, a: 255 },
+                angle_deg: 45.0,
+            }),
+            ..Default::default()
+        },
+        "grad_radial" => ShapeVisualStyleSpec {
+            gradient: Some(GradientFillSpec {
+                direction: GradientDirection::RadialCenter,
+                foregnd: RgbaColor { r: 167, g: 243, b: 208, a: 255 },
+                bkgnd: RgbaColor { r: 240, g: 253, b: 244, a: 255 },
+                angle_deg: 0.0,
+            }),
+            ..Default::default()
+        },
+        "hatch_diag" => ShapeVisualStyleSpec {
+            hatch: Some(HatchFillSpec {
+                kind: HatchPatternKind::UpwardDiagonal,
+                foregnd: RgbaColor { r: 59, g: 130, b: 246, a: 255 },
+                bkgnd: RgbaColor { r: 248, g: 250, b: 252, a: 255 },
+            }),
+            ..Default::default()
+        },
+        "shadow_soft" => ShapeVisualStyleSpec {
+            shadow: Some(DropShadowSpec {
+                enabled: true,
+                foregnd: RgbaColor { r: 15, g: 23, b: 42, a: 255 },
+                offset_x_in: 0.06,
+                offset_y_in: -0.06,
+                blur_pt: 4.5,
+            }),
+            ..Default::default()
+        },
+        "bevel_3d" => ShapeVisualStyleSpec {
+            bevel: Some(BevelExtrusionSpec {
+                bevel_top_type: 1,
+                extrusion_depth_in: 0.14,
+                extrusion_angle_deg: 35.0,
+            }),
+            ..Default::default()
+        },
+        "sketchy" => ShapeVisualStyleSpec {
+            sketch: Some(SketchOutlineSpec {
+                enabled: true,
+                seed: (shape_id as u32).max(1),
+                amount: 1.0,
+            }),
+            ..Default::default()
+        },
+        _ => ShapeVisualStyleSpec::default(),
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_doc_apply_visual_preset(
+    doc: *mut VexioDoc,
+    page_id: u32,
+    shape_id: u64,
+    preset_utf8: *const c_char,
+) -> VexioStatus {
+    let res = catch_unwind(AssertUnwindSafe(|| {
+        if doc.is_null() || preset_utf8.is_null() {
+            return VexioStatus::ErrInvalidArg;
+        }
+        // SAFETY: `doc` and `preset_utf8` verified non-null for the duration of this call.
+        let d = unsafe { &mut *doc };
+        // SAFETY: `preset_utf8` is a NUL-terminated UTF-8 string supplied by the native caller.
+        let Ok(preset) = unsafe { CStr::from_ptr(preset_utf8) }.to_str() else {
+            return VexioStatus::ErrInvalidArg;
+        };
+        let spec = visual_preset_spec_from_slug(preset, shape_id);
+        if crate::themes_styles::apply_visual_effects_to_shape(
+            &mut d.session.doc,
+            page_id,
+            shape_id,
+            &spec,
+        ) {
+            VexioStatus::Ok
+        } else {
+            VexioStatus::ErrInvalidArg
+        }
+    }));
+    res.unwrap_or(VexioStatus::ErrInternalPanic)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_doc_flush_crdt_json(
+    prev_doc: *const VexioDoc,
+    curr_doc: *const VexioDoc,
+    replica_id_utf8: *const c_char,
+    now_ms: u64,
+    out_ops_json: *mut VexioOwnedBuffer,
+) -> VexioStatus {
+    let res = catch_unwind(|| {
+        if prev_doc.is_null()
+            || curr_doc.is_null()
+            || replica_id_utf8.is_null()
+            || out_ops_json.is_null()
+        {
+            return VexioStatus::ErrInvalidArg;
+        }
+        // SAFETY: `prev_doc` and `curr_doc` verified non-null.
+        let prev = unsafe { &*prev_doc };
+        let curr = unsafe { &*curr_doc };
+        // SAFETY: `replica_id_utf8` verified non-null NUL-terminated C string.
+        let Ok(rep_id) = unsafe { CStr::from_ptr(replica_id_utf8) }.to_str() else {
+            return VexioStatus::ErrInvalidArg;
+        };
+        let mut crdt = crate::crdt::CrdtDocumentState::new(rep_id);
+        let ops = crdt.diff_to_ops(&prev.session.doc, &curr.session.doc, now_ms.max(1));
+        let json_bytes = serde_json::to_vec(&ops).unwrap_or_else(|_| b"[]".to_vec());
+        // SAFETY: `out_ops_json` verified non-null writable pointer.
+        unsafe { *out_ops_json = VexioOwnedBuffer::from_vec(json_bytes) };
+        VexioStatus::Ok
+    });
+    res.unwrap_or(VexioStatus::ErrInternalPanic)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_doc_import_data_visualizer(
+    doc: *mut VexioDoc,
+    page_id: u32,
+    csv_or_xlsx: VexioByteSlice,
+    out_step_count: *mut u32,
+) -> VexioStatus {
+    let res = catch_unwind(AssertUnwindSafe(|| {
+        if doc.is_null() || csv_or_xlsx.ptr.is_null() || csv_or_xlsx.len == 0 {
+            return VexioStatus::ErrInvalidArg;
+        }
+        // SAFETY: `doc` and `csv_or_xlsx.ptr[..len]` verified non-null and valid.
+        let d = unsafe { &mut *doc };
+        let bytes = unsafe { std::slice::from_raw_parts(csv_or_xlsx.ptr, csv_or_xlsx.len) };
+        match crate::plan2_connectors::import_data_visualizer_csv_or_xlsx(
+            &mut d.session.doc,
+            page_id,
+            bytes,
+        ) {
+            Ok(count) => {
+                if !out_step_count.is_null() {
+                    // SAFETY: `out_step_count` checked non-null.
+                    unsafe { *out_step_count = count as u32 };
+                }
+                VexioStatus::Ok
+            }
+            Err(_) => VexioStatus::ErrIoCorruptFormat,
+        }
+    }));
+    res.unwrap_or(VexioStatus::ErrInternalPanic)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_doc_export_data_visualizer_xlsx(
+    doc: *const VexioDoc,
+    page_id: u32,
+    out_xlsx: *mut VexioOwnedBuffer,
+) -> VexioStatus {
+    let res = catch_unwind(|| {
+        if doc.is_null() || out_xlsx.is_null() {
+            return VexioStatus::ErrInvalidArg;
+        }
+        // SAFETY: `doc` verified non-null.
+        let d = unsafe { &*doc };
+        match crate::plan2_connectors::export_data_visualizer_xlsx(&d.session.doc, page_id) {
+            Ok(xlsx) => {
+                // SAFETY: `out_xlsx` verified non-null.
+                unsafe { *out_xlsx = VexioOwnedBuffer::from_vec(xlsx) };
+                VexioStatus::Ok
+            }
+            Err(_) => VexioStatus::ErrIoCorruptFormat,
+        }
+    });
+    res.unwrap_or(VexioStatus::ErrInternalPanic)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_doc_import_cloud_discovery(
+    doc: *mut VexioDoc,
+    page_id: u32,
+    discovery_json_utf8: *const c_char,
+    out_count: *mut u32,
+) -> VexioStatus {
+    let res = catch_unwind(AssertUnwindSafe(|| {
+        if doc.is_null() || discovery_json_utf8.is_null() {
+            return VexioStatus::ErrInvalidArg;
+        }
+        // SAFETY: `doc` and `discovery_json_utf8` verified non-null.
+        let d = unsafe { &mut *doc };
+        let Ok(json_str) = unsafe { CStr::from_ptr(discovery_json_utf8) }.to_str() else {
+            return VexioStatus::ErrInvalidArg;
+        };
+        match crate::plan2_connectors::import_cloud_discovery_json(
+            &mut d.session.doc,
+            page_id,
+            json_str,
+        ) {
+            Ok(count) => {
+                if !out_count.is_null() {
+                    // SAFETY: `out_count` checked non-null.
+                    unsafe { *out_count = count as u32 };
+                }
+                VexioStatus::Ok
+            }
+            Err(_) => VexioStatus::ErrIoCorruptFormat,
+        }
+    }));
+    res.unwrap_or(VexioStatus::ErrInternalPanic)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_doc_import_entra_or_ldif(
+    doc: *mut VexioDoc,
+    page_id: u32,
+    text_utf8: *const c_char,
+    out_count: *mut u32,
+) -> VexioStatus {
+    let res = catch_unwind(AssertUnwindSafe(|| {
+        if doc.is_null() || text_utf8.is_null() {
+            return VexioStatus::ErrInvalidArg;
+        }
+        // SAFETY: `doc` and `text_utf8` verified non-null.
+        let d = unsafe { &mut *doc };
+        let Ok(text_str) = unsafe { CStr::from_ptr(text_utf8) }.to_str() else {
+            return VexioStatus::ErrInvalidArg;
+        };
+        match crate::plan2_connectors::import_entra_or_ldif_org_chart(
+            &mut d.session.doc,
+            page_id,
+            text_str,
+        ) {
+            Ok(count) => {
+                if !out_count.is_null() {
+                    // SAFETY: `out_count` checked non-null.
+                    unsafe { *out_count = count as u32 };
+                }
+                VexioStatus::Ok
+            }
+            Err(_) => VexioStatus::ErrIoCorruptFormat,
+        }
+    }));
+    res.unwrap_or(VexioStatus::ErrInternalPanic)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::ffi::CString;
+
+    #[test]
+    fn c_abi_plan2_visual_presets_connectors_and_crdt_flush_roundtrip() {
+        let title = CString::new("Native C-ABI v0.1").unwrap();
+        // SAFETY: `title` is a valid NUL-terminated CString; returned pointer is freed via `vexio_doc_destroy`.
+        unsafe {
+            let base_doc = vexio_doc_create_blank(title.as_ptr());
+            let work_doc = vexio_doc_create_blank(title.as_ptr());
+            assert!(!base_doc.is_null() && !work_doc.is_null());
+
+            let dv_csv = b"Process Step ID,Process Step Description,Next Step ID,Connector Label,Shape Type,Function,Owner\nA1,Ingest,A2,,Start,Ops,SRE\nA2,Deploy,,,End,Eng,Dev";
+            let mut step_count = 0u32;
+            assert_eq!(
+                vexio_doc_import_data_visualizer(
+                    work_doc,
+                    1,
+                    VexioByteSlice {
+                        ptr: dv_csv.as_ptr(),
+                        len: dv_csv.len(),
+                    },
+                    &mut step_count,
+                ),
+                VexioStatus::Ok
+            );
+            assert_eq!(step_count, 2);
+
+            let mut xlsx_buf = VexioOwnedBuffer {
+                ptr: std::ptr::null_mut(),
+                len: 0,
+                cap: 0,
+            };
+            assert_eq!(
+                vexio_doc_export_data_visualizer_xlsx(work_doc, 1, &mut xlsx_buf),
+                VexioStatus::Ok
+            );
+            assert!(xlsx_buf.len > 200);
+            vexio_buffer_free(xlsx_buf);
+
+            let preset = CString::new("shadow_soft").unwrap();
+            let first_sid = (*work_doc).session.doc.page(1).unwrap().shapes[0].id;
+            assert_eq!(
+                vexio_doc_apply_visual_preset(work_doc, 1, first_sid, preset.as_ptr()),
+                VexioStatus::Ok
+            );
+
+            let replica = CString::new("winui-peer").unwrap();
+            let mut ops_buf = VexioOwnedBuffer {
+                ptr: std::ptr::null_mut(),
+                len: 0,
+                cap: 0,
+            };
+            assert_eq!(
+                vexio_doc_flush_crdt_json(base_doc, work_doc, replica.as_ptr(), 5_000, &mut ops_buf),
+                VexioStatus::Ok
+            );
+            assert!(ops_buf.len > 10);
+            vexio_buffer_free(ops_buf);
+
+            vexio_doc_destroy(work_doc);
+            vexio_doc_destroy(base_doc);
+        }
+    }
+}
+
+

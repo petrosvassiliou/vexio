@@ -134,7 +134,7 @@
                             <Flyout x:Name="FileBackstageFlyout" Placement="BottomEdgeAlignedLeft">
                                 <StackPanel Width="340" Spacing="8" Padding="4">
                                     <TextBlock Text="Vexio Backstage" FontSize="16" FontWeight="Bold" />
-                                    <TextBlock Text="Lossless OpenXML (.vsdx/.vsdm/.vssx/.vstx), Legacy (.vsd/.vdx) &amp; Offline CAD (.dwg/.dxf)"
+                                    <TextBlock Text="Lossless OpenXML (.vsdx/.vsdm/.vssx/.vstx), Legacy (.vsd/.vdx/.emf/.wmf), Directory (.ldif) &amp; Offline CAD (.dwg/.dxf)"
                                                FontSize="11.5" Opacity="0.75" TextWrapping="Wrap" />
                                     <MenuFlyoutSeparator />
                                     <Button HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Click="OnNewBlankDocClick" Content="New Blank Drawing (.vsdx)" />
@@ -146,11 +146,15 @@
                                     <Button HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Click="OnSaveClick" Content="Save Active Document (Ctrl+S)" />
                                     <Button HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Click="OnSaveAsClick" Content="Save As (.vsdx, .vsdm, .vssx, .vstx, .vsd, .vdx)..." />
                                     <MenuFlyoutSeparator />
-                                    <TextBlock Text="Vector &amp; Print Exports" FontSize="12" FontWeight="SemiBold" />
+                                    <TextBlock Text="Vector, Office &amp; Print Exports" FontSize="12" FontWeight="SemiBold" />
                                     <StackPanel Orientation="Horizontal" Spacing="6">
                                         <Button Click="OnExportPdfClick" Content="Export PDF/A" />
                                         <Button Click="OnExportSvgClick" Content="Export SVG" />
                                         <Button Click="OnExportDxfClick" Content="Export CAD DXF" />
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                        <Button Click="OnExportPptxClick" Content="PowerPoint (.pptx)" />
+                                        <Button Click="OnExportDocxClick" Content="Word Spec (.docx)" />
                                     </StackPanel>
                                     <Button HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Click="OnTiledPrintClick"
                                             Content="Multi-Page Tiled Print with Registration Marks (Ctrl+P)" />
@@ -310,11 +314,21 @@
                             <AppBarSeparator />
                             <StackPanel>
                                 <StackPanel Orientation="Horizontal" Spacing="6" Height="56" VerticalAlignment="Center">
-                                    <ComboBox x:Name="ThemeSelectorCombo" SelectedIndex="0" Width="154" VerticalAlignment="Center" SelectionChanged="OnThemeChanged">
-                                        <x:String>Enterprise Slate</x:String>
-                                        <x:String>Technical Blueprint</x:String>
-                                        <x:String>Executive Monochrome</x:String>
-                                        <x:String>Engineering Emerald</x:String>
+                                    <ComboBox x:Name="ThemeSelectorCombo" SelectedIndex="0" Width="168" VerticalAlignment="Center"
+                                              SelectionChanged="OnThemeChanged" ToolTipService.ToolTip="Document Theme (6 Palettes)">
+                                        <x:String>Modern (modern)</x:String>
+                                        <x:String>Professional (professional)</x:String>
+                                        <x:String>Vibrant (vibrant)</x:String>
+                                        <x:String>Blueprint (blueprint)</x:String>
+                                        <x:String>Monochrome (monochrome)</x:String>
+                                        <x:String>Hand Drawn (hand_drawn)</x:String>
+                                    </ComboBox>
+                                    <ComboBox x:Name="ThemeVariantCombo" SelectedIndex="0" Width="108" VerticalAlignment="Center"
+                                              SelectionChanged="OnThemeVariantChanged" ToolTipService.ToolTip="Theme Variant (1..4)">
+                                        <x:String>Variant 1</x:String>
+                                        <x:String>Variant 2</x:String>
+                                        <x:String>Variant 3</x:String>
+                                        <x:String>Variant 4</x:String>
                                     </ComboBox>
                                     <ComboBox x:Name="LineJumpStyleCombo" SelectedIndex="0" Width="124" VerticalAlignment="Center" SelectionChanged="OnLineJumpStyleChanged">
                                         <x:String>Arc Line Jumps</x:String>
@@ -323,7 +337,21 @@
                                         <x:String>No Line Jumps</x:String>
                                     </ComboBox>
                                 </StackPanel>
-                                <TextBlock Text="Themes &amp; Line Jumps" Style="{StaticResource VexioRibbonGroupLabelStyle}" />
+                                <TextBlock Text="Themes, Variants &amp; Line Jumps" Style="{StaticResource VexioRibbonGroupLabelStyle}" />
+                            </StackPanel>
+                            <AppBarSeparator />
+                            <StackPanel>
+                                <StackPanel Orientation="Horizontal" Spacing="4" Height="56">
+                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnVisualPresetGradLinearClick"
+                                            Content="Linear Gradient" ToolTipService.ToolTip="Apply grad_linear visual effect preset" />
+                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnVisualPresetShadowSoftClick"
+                                            Content="Soft Shadow" ToolTipService.ToolTip="Apply shadow_soft visual effect preset" />
+                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnVisualPresetBevel3dClick"
+                                            Content="3D Bevel" ToolTipService.ToolTip="Apply bevel_3d visual effect preset" />
+                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnVisualPresetSketchyClick"
+                                            Content="Sketchy" ToolTipService.ToolTip="Apply sketchy hand-drawn outline preset" />
+                                </StackPanel>
+                                <TextBlock Text="Visual Effects" Style="{StaticResource VexioRibbonGroupLabelStyle}" />
                             </StackPanel>
                             <AppBarSeparator />
                             <StackPanel>
@@ -340,6 +368,22 @@
                         <StackPanel x:Name="RibbonPanelData" Orientation="Horizontal" Spacing="12" Visibility="Collapsed">
                             <StackPanel>
                                 <StackPanel Orientation="Horizontal" Spacing="4" Height="56">
+                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnImportDataVisualizerClick" FontWeight="SemiBold"
+                                            Content="Data Visualizer (.xlsx/.csv)" ToolTipService.ToolTip="Import Cross-Functional Flowchart from Excel/CSV" />
+                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnExportDataVisualizerClick"
+                                            Content="Export Visualizer (.xlsx)" ToolTipService.ToolTip="Round-trip active flowchart to Data Visualizer .xlsx" />
+                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnImportCloudDiscoveryClick"
+                                            Content="Cloud Discovery (AWS/Azure/GCP)" ToolTipService.ToolTip="Generate topology diagram from AWS/Azure/GCP JSON" />
+                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnImportEntraOrLdifClick"
+                                            Content="Entra / LDIF Org Chart" ToolTipService.ToolTip="Import Microsoft Entra ID Graph JSON or RFC-2849 .ldif Org Chart" />
+                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnExportPowerBiClick"
+                                            Content="Export Power BI (.pbi.json)" ToolTipService.ToolTip="Export Microsoft Power BI Visio Visual mapping JSON" />
+                                </StackPanel>
+                                <TextBlock Text="Plan 2 Data Visualizer, Cloud &amp; BI" Style="{StaticResource VexioRibbonGroupLabelStyle}" />
+                            </StackPanel>
+                            <AppBarSeparator />
+                            <StackPanel>
+                                <StackPanel Orientation="Horizontal" Spacing="4" Height="56">
                                     <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnLinkExternalDataClick" Content="Import Excel / CSV / SQLite" />
                                     <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnRefreshExternalDataClick" Content="Refresh All Data" />
                                     <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnPushTwoWaySyncClick" Content="Two-Way Writeback" />
@@ -352,15 +396,9 @@
                                     <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnApplyDataBarsClick" Content="Data Bars" />
                                     <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnApplyIconSetsClick" Content="Icon Sets" />
                                     <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnApplyColorByValueClick" Content="Color by Value" />
-                                </StackPanel>
-                                <TextBlock Text="Data Graphics" Style="{StaticResource VexioRibbonGroupLabelStyle}" />
-                            </StackPanel>
-                            <AppBarSeparator />
-                            <StackPanel>
-                                <StackPanel Orientation="Horizontal" Spacing="4" Height="56">
                                     <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnGenerateBomReportClick" Content="BOM Shape Report" />
                                 </StackPanel>
-                                <TextBlock Text="Reporting" Style="{StaticResource VexioRibbonGroupLabelStyle}" />
+                                <TextBlock Text="Data Graphics &amp; Reporting" Style="{StaticResource VexioRibbonGroupLabelStyle}" />
                             </StackPanel>
                         </StackPanel>
 
@@ -386,14 +424,24 @@
                             <AppBarSeparator />
                             <StackPanel>
                                 <StackPanel Orientation="Horizontal" Spacing="4" Height="56">
-                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnCreateSubprocessPageClick" Content="Create Subprocess Page" />
+                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnCreateSubprocessPageClick" FontWeight="SemiBold"
+                                            Content="Create Subprocess Drill-Down" />
                                     <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnLinkSubprocessClick" Content="Link Existing Page" />
                                 </StackPanel>
                                 <TextBlock Text="Subprocess" Style="{StaticResource VexioRibbonGroupLabelStyle}" />
                             </StackPanel>
+                            <AppBarSeparator />
+                            <StackPanel>
+                                <StackPanel Orientation="Horizontal" Spacing="4" Height="56">
+                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnExportPowerAutomateClick" FontWeight="SemiBold"
+                                            Content="Export Power Automate (.flow.json)"
+                                            ToolTipService.ToolTip="Export BPMN / Flowchart process to Power Automate / Logic Apps workflow JSON" />
+                                </StackPanel>
+                                <TextBlock Text="Workflow Automation" Style="{StaticResource VexioRibbonGroupLabelStyle}" />
+                            </StackPanel>
                         </StackPanel>
 
-                        <!-- 6. REVIEW RIBBON PANEL (Ink & Comments) -->
+                        <!-- 6. REVIEW RIBBON PANEL (Ink, Comments, Diagram Compare & Office Exports) -->
                         <StackPanel x:Name="RibbonPanelReview" Orientation="Horizontal" Spacing="12" Visibility="Collapsed">
                             <StackPanel>
                                 <StackPanel Orientation="Horizontal" Spacing="4" Height="56">
@@ -411,6 +459,21 @@
                                                   Click="OnToggleMarkupOverlayClick" Content="Show Markup Overlay" />
                                 </StackPanel>
                                 <TextBlock Text="Comments" Style="{StaticResource VexioRibbonGroupLabelStyle}" />
+                            </StackPanel>
+                            <AppBarSeparator />
+                            <StackPanel>
+                                <StackPanel Orientation="Horizontal" Spacing="4" Height="56">
+                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnCompareDiagramClick" FontWeight="SemiBold"
+                                            Content="Diagram Compare (Visual Diff)"
+                                            ToolTipService.ToolTip="Compute structural ShapeSheet &amp; CRDT diff against baseline or file" />
+                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnExportPptxClick"
+                                            Content="Export PowerPoint (.pptx)"
+                                            ToolTipService.ToolTip="Export presentation deck (.pptx) from active diagram" />
+                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnExportDocxClick"
+                                            Content="Export Word Spec (.docx)"
+                                            ToolTipService.ToolTip="Export structured process specification document (.docx)" />
+                                </StackPanel>
+                                <TextBlock Text="Compare &amp; Office Hand-Off" Style="{StaticResource VexioRibbonGroupLabelStyle}" />
                             </StackPanel>
                         </StackPanel>
 
@@ -446,7 +509,7 @@
                             </StackPanel>
                         </StackPanel>
 
-                        <!-- 8. DEVELOPER RIBBON PANEL (ShapeSheet & Sandboxed Macro Editor) -->
+                        <!-- 8. DEVELOPER RIBBON PANEL (ShapeSheet, 8 Boolean Ops & Sandboxed Macro Editor) -->
                         <StackPanel x:Name="RibbonPanelDeveloper" Orientation="Horizontal" Spacing="12" Visibility="Collapsed">
                             <StackPanel>
                                 <StackPanel Orientation="Horizontal" Spacing="4" Height="56">
@@ -459,10 +522,15 @@
                             <StackPanel>
                                 <StackPanel Orientation="Horizontal" Spacing="4" Height="56">
                                     <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnBooleanUnionClick" Content="Union" />
+                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnBooleanCombineClick" Content="Combine" />
                                     <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnBooleanFragmentClick" Content="Fragment" />
+                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnBooleanIntersectClick" Content="Intersect" />
                                     <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnBooleanSubtractClick" Content="Subtract" />
+                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnBooleanTrimClick" Content="Trim" />
+                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnBooleanJoinClick" Content="Join" />
+                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnBooleanOffsetClick" Content="Offset" />
                                 </StackPanel>
-                                <TextBlock Text="Boolean Geometry Operations" Style="{StaticResource VexioRibbonGroupLabelStyle}" />
+                                <TextBlock Text="Boolean Geometry Operations (8 Modes)" Style="{StaticResource VexioRibbonGroupLabelStyle}" />
                             </StackPanel>
                             <AppBarSeparator />
                             <StackPanel>
