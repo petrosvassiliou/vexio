@@ -57,11 +57,11 @@
             <uap:EditFlags OpenIsSafe="true" />
             <uap:SupportedFileTypes>
               <uap:FileType ContentType="application/vnd.ms-visio.drawing.main+xml">.vsdx</uap:FileType>
-              <uap:FileType ContentType="application/vnd.ms-visio.drawing.macroEnabled.main+xml">.vsdm</uap:FileType>
+              <uap:FileType ContentType="application/vnd.ms-visio.drawing.macroenabled.main+xml">.vsdm</uap:FileType>
               <uap:FileType ContentType="application/vnd.ms-visio.stencil.main+xml">.vssx</uap:FileType>
-              <uap:FileType ContentType="application/vnd.ms-visio.stencil.macroEnabled.main+xml">.vssm</uap:FileType>
+              <uap:FileType ContentType="application/vnd.ms-visio.stencil.macroenabled.main+xml">.vssm</uap:FileType>
               <uap:FileType ContentType="application/vnd.ms-visio.template.main+xml">.vstx</uap:FileType>
-              <uap:FileType ContentType="application/vnd.ms-visio.template.macroEnabled.main+xml">.vstm</uap:FileType>
+              <uap:FileType ContentType="application/vnd.ms-visio.template.macroenabled.main+xml">.vstm</uap:FileType>
             </uap:SupportedFileTypes>
           </uap3:FileTypeAssociation>
         </uap:Extension>
