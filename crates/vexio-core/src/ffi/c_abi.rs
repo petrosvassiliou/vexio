@@ -111,6 +111,118 @@ impl NativeCanvasTool {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NativeResizeHandle {
+    NW,
+    N,
+    NE,
+    E,
+    SE,
+    S,
+    SW,
+    W,
+}
+
+impl NativeResizeHandle {
+    pub fn cursor_code(self) -> u32 {
+        match self {
+            Self::N | Self::S => 5,
+            Self::E | Self::W => 6,
+            Self::NW | Self::SE => 11,
+            Self::NE | Self::SW => 12,
+        }
+    }
+
+    pub fn compute_box(
+        self,
+        orig_pin: [f64; 2],
+        orig_size: [f64; 2],
+        dx: f64,
+        dy: f64,
+        lock_aspect: bool,
+    ) -> ([f64; 2], [f64; 2]) {
+        let mut left = orig_pin[0] - orig_size[0] * 0.5;
+        let mut right = orig_pin[0] + orig_size[0] * 0.5;
+        let mut bottom = orig_pin[1] - orig_size[1] * 0.5;
+        let mut top = orig_pin[1] + orig_size[1] * 0.5;
+
+        match self {
+            Self::W | Self::NW | Self::SW => left = (left + dx).min(right - 0.15),
+            Self::E | Self::NE | Self::SE => right = (right + dx).max(left + 0.15),
+            _ => {}
+        }
+        match self {
+            Self::S | Self::SW | Self::SE => bottom = (bottom + dy).min(top - 0.15),
+            Self::N | Self::NW | Self::NE => top = (top + dy).max(bottom + 0.15),
+            _ => {}
+        }
+
+        let mut w = (right - left).max(0.15);
+        let mut h = (top - bottom).max(0.15);
+        if lock_aspect && orig_size[1] > 1e-6 && matches!(self, Self::NW | Self::NE | Self::SE | Self::SW) {
+            let aspect = orig_size[0] / orig_size[1];
+            h = (w / aspect).max(0.15);
+            if matches!(self, Self::NW | Self::NE) {
+                top = bottom + h;
+            } else {
+                bottom = top - h;
+            }
+            w = (right - left).max(0.15);
+        }
+        ([(left + right) * 0.5, (bottom + top) * 0.5], [w, h])
+    }
+}
+
+fn hit_test_selection_grips(
+    doc: &VisioDocument,
+    page_id: u32,
+    selected_id: u64,
+    page_pt: [f64; 2],
+    effective_ppi: f64,
+) -> Option<Result<NativeResizeHandle, ()>> {
+    let sh = doc.page(page_id)?.find_shape(selected_id)?;
+    if sh.kind != ShapeKind::Shape2D {
+        return None;
+    }
+    let px = sh.sheet.get_f64("PinX").unwrap_or(0.0);
+    let py = sh.sheet.get_f64("PinY").unwrap_or(0.0);
+    let w = sh.sheet.get_f64("Width").unwrap_or(1.0);
+    let h = sh.sheet.get_f64("Height").unwrap_or(1.0);
+    let ang = sh.sheet.get_f64("Angle").unwrap_or(0.0);
+
+    // Transform `page_pt` into unrotated shape-centered coordinates
+    let dx = page_pt[0] - px;
+    let dy = page_pt[1] - py;
+    let (s, c) = (-ang).sin_cos();
+    let lx = dx * c - dy * s;
+    let ly = dx * s + dy * c;
+
+    let tol_in = (10.0 / effective_ppi.max(24.0)).clamp(0.07, 0.22);
+    let rot_offset = (22.0 / effective_ppi.max(24.0)).clamp(0.16, 0.40);
+    if lx.hypot(ly - (h * 0.5 + rot_offset)) <= tol_in * 1.15 {
+        return Some(Err(())); // Rotation knob!
+    }
+
+    let hw = w * 0.5;
+    let hh = h * 0.5;
+    let grips = [
+        (NativeResizeHandle::NW, -hw, hh),
+        (NativeResizeHandle::NE, hw, hh),
+        (NativeResizeHandle::SE, hw, -hh),
+        (NativeResizeHandle::SW, -hw, -hh),
+        (NativeResizeHandle::N, 0.0, hh),
+        (NativeResizeHandle::E, hw, 0.0),
+        (NativeResizeHandle::S, 0.0, -hh),
+        (NativeResizeHandle::W, -hw, 0.0),
+    ];
+    for (dir, gx, gy) in grips {
+        if (lx - gx).hypot(ly - gy) <= tol_in {
+            return Some(Ok(dir));
+        }
+    }
+    None
+}
+
 #[derive(Debug, Clone)]
 pub enum NativeDragState {
     Pan {
@@ -122,6 +234,23 @@ pub enum NativeDragState {
         start_page: [f64; 2],
         orig_pin: [f64; 2],
         moved: bool,
+    },
+    ResizeShape {
+        shape_id: u64,
+        handle: NativeResizeHandle,
+        start_page: [f64; 2],
+        orig_pin: [f64; 2],
+        orig_size: [f64; 2],
+        orig_angle_deg: f64,
+        cur_pin: [f64; 2],
+        cur_size: [f64; 2],
+    },
+    RotateShape {
+        shape_id: u64,
+        orig_pin: [f64; 2],
+        orig_size: [f64; 2],
+        orig_angle_deg: f64,
+        cur_angle_deg: f64,
     },
     DrawBoxOrLine {
         tool: NativeCanvasTool,
@@ -184,7 +313,8 @@ impl VexioViewport {
     }
 
     /// Stateful cross-platform pointer / stylus / wheel dispatcher shared by C-ABI and JNI.
-    /// Returns cursor code (`0=Arrow`, `1=Move`, `2=Crosshair`, `3=HandGrab`, `7=TextIBeam`).
+    /// Returns cursor code (`0=Arrow`, `1=Move`, `2=Crosshair`, `3=HandGrab`, `5=ResizeNS`,
+    /// `6=ResizeWE`, `7=TextIBeam`, `11=ResizeNWSE`, `12=ResizeNESW`, `13=Rotate`).
     pub fn dispatch_pointer_internal(
         &mut self,
         session: &mut DocumentSession,
@@ -207,6 +337,7 @@ impl VexioViewport {
         }
 
         let page_pt = self.camera.screen_to_page_in(ev.x_px, ev.y_px);
+        let eff_ppi = self.camera.effective_ppi();
         let visuals = ReactiveEngine::evaluate_page_visuals(&session.doc, pid);
         let index = vexio_render::SpatialIndex::build(&visuals);
         let top_hit = index
@@ -229,6 +360,50 @@ impl VexioViewport {
                 }
                 match self.active_tool {
                     NativeCanvasTool::Select => {
+                        // First check 8-Handle Resize Grips & Top Rotation Knob on primary selected 2D shape!
+                        if let Some(&primary_sid) = self.selected_ids.first() {
+                            if let Some(grip_hit) = hit_test_selection_grips(
+                                &session.doc,
+                                pid,
+                                primary_sid,
+                                page_pt,
+                                eff_ppi,
+                            ) {
+                                if let Some(sh) = session.doc.page(pid).and_then(|p| p.find_shape(primary_sid)) {
+                                    let ox = sh.sheet.get_f64("PinX").unwrap_or(page_pt[0]);
+                                    let oy = sh.sheet.get_f64("PinY").unwrap_or(page_pt[1]);
+                                    let ow = sh.sheet.get_f64("Width").unwrap_or(1.0);
+                                    let oh = sh.sheet.get_f64("Height").unwrap_or(1.0);
+                                    let oa = sh.sheet.get_f64("Angle").unwrap_or(0.0).to_degrees();
+                                    match grip_hit {
+                                        Ok(handle) => {
+                                            self.drag_state = Some(NativeDragState::ResizeShape {
+                                                shape_id: primary_sid,
+                                                handle,
+                                                start_page: page_pt,
+                                                orig_pin: [ox, oy],
+                                                orig_size: [ow, oh],
+                                                orig_angle_deg: oa,
+                                                cur_pin: [ox, oy],
+                                                cur_size: [ow, oh],
+                                            });
+                                            return handle.cursor_code();
+                                        }
+                                        Err(()) => {
+                                            self.drag_state = Some(NativeDragState::RotateShape {
+                                                shape_id: primary_sid,
+                                                orig_pin: [ox, oy],
+                                                orig_size: [ow, oh],
+                                                orig_angle_deg: oa,
+                                                cur_angle_deg: oa,
+                                            });
+                                            return 13;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
                         if let Some(sid) = top_hit {
                             if is_shift {
                                 if let Some(pos) = self.selected_ids.iter().position(|&x| x == sid) {
@@ -308,6 +483,74 @@ impl VexioViewport {
                             self.camera.pan_by_pixels(dx, dy);
                             self.present_if_attached(&session.doc);
                             return 3;
+                        }
+                        NativeDragState::ResizeShape {
+                            shape_id,
+                            handle,
+                            start_page,
+                            orig_pin,
+                            orig_size,
+                            cur_pin,
+                            cur_size,
+                            ..
+                        } => {
+                            let dx = page_pt[0] - start_page[0];
+                            let dy = page_pt[1] - start_page[1];
+                            let (np, ns) = handle.compute_box(*orig_pin, *orig_size, dx, dy, is_shift);
+                            *cur_pin = np;
+                            *cur_size = ns;
+                            let code = handle.cursor_code();
+                            if let Some(page) = session.doc.page_mut(pid) {
+                                if let Some(sh) = page.find_shape_mut(*shape_id) {
+                                    let _ = sh.sheet.try_set_formula_respecting_guard(
+                                        "PinX",
+                                        format!("{} in", format_clean_f64(np[0])),
+                                        false,
+                                    );
+                                    let _ = sh.sheet.try_set_formula_respecting_guard(
+                                        "PinY",
+                                        format!("{} in", format_clean_f64(np[1])),
+                                        false,
+                                    );
+                                    let _ = sh.sheet.try_set_formula_respecting_guard(
+                                        "Width",
+                                        format!("{} in", format_clean_f64(ns[0])),
+                                        false,
+                                    );
+                                    let _ = sh.sheet.try_set_formula_respecting_guard(
+                                        "Height",
+                                        format!("{} in", format_clean_f64(ns[1])),
+                                        false,
+                                    );
+                                }
+                            }
+                            ReactiveEngine::recalculate_document(&mut session.doc);
+                            route_page_connectors(&mut session.doc, pid);
+                            self.present_if_attached(&session.doc);
+                            return code;
+                        }
+                        NativeDragState::RotateShape {
+                            shape_id,
+                            orig_pin,
+                            cur_angle_deg,
+                            ..
+                        } => {
+                            let rad = (page_pt[1] - orig_pin[1]).atan2(page_pt[0] - orig_pin[0]) - std::f64::consts::FRAC_PI_2;
+                            let deg = (rad.to_degrees() / 5.0).round() * 5.0;
+                            *cur_angle_deg = deg;
+                            if let Some(page) = session.doc.page_mut(pid) {
+                                if let Some(sh) = page.find_shape_mut(*shape_id) {
+                                    let _ = sh.sheet.try_set_formula_respecting_guard(
+                                        "Angle",
+                                        format!("{} deg", format_clean_f64(deg)),
+                                        false,
+                                    );
+                                }
+                            }
+                            ReactiveEngine::recalculate_document(&mut session.doc);
+                            route_page_connectors(&mut session.doc, pid);
+                            self.present_if_attached(&session.doc);
+                            return 13;
                         }
                         NativeDragState::MoveShape {
                             shape_id,
@@ -400,6 +643,56 @@ impl VexioViewport {
                 if let Some(state) = self.drag_state.take() {
                     match state {
                         NativeDragState::Pan { .. } => {}
+                        NativeDragState::ResizeShape {
+                            shape_id,
+                            orig_pin,
+                            orig_size,
+                            orig_angle_deg,
+                            cur_pin,
+                            cur_size,
+                            ..
+                        } => {
+                            // Restore orig cells first so `transform_shape` records a clean Undo/Redo journal entry!
+                            if let Some(page) = session.doc.page_mut(pid) {
+                                if let Some(sh) = page.find_shape_mut(shape_id) {
+                                    sh.sheet.set_formula("PinX", format!("{} in", format_clean_f64(orig_pin[0])), Some(vexio_shapesheet::Unit::Inch));
+                                    sh.sheet.set_formula("PinY", format!("{} in", format_clean_f64(orig_pin[1])), Some(vexio_shapesheet::Unit::Inch));
+                                    sh.sheet.set_formula("Width", format!("{} in", format_clean_f64(orig_size[0])), Some(vexio_shapesheet::Unit::Inch));
+                                    sh.sheet.set_formula("Height", format!("{} in", format_clean_f64(orig_size[1])), Some(vexio_shapesheet::Unit::Inch));
+                                }
+                            }
+                            let _ = session.transform_shape(
+                                pid,
+                                shape_id,
+                                cur_pin[0],
+                                cur_pin[1],
+                                cur_size[0],
+                                cur_size[1],
+                                orig_angle_deg,
+                            );
+                        }
+                        NativeDragState::RotateShape {
+                            shape_id,
+                            orig_pin,
+                            orig_size,
+                            orig_angle_deg,
+                            cur_angle_deg,
+                        } => {
+                            if let Some(page) = session.doc.page_mut(pid) {
+                                if let Some(sh) = page.find_shape_mut(shape_id) {
+                                    sh.sheet.set_formula("Angle", format!("{} deg", format_clean_f64(orig_angle_deg)), Some(vexio_shapesheet::Unit::Degree));
+                                }
+                            }
+                            let _ = session.transform_shape(
+                                pid,
+                                shape_id,
+                                orig_pin[0],
+                                orig_pin[1],
+                                orig_size[0],
+                                orig_size[1],
+                                cur_angle_deg,
+                            );
+                        }
                         NativeDragState::MoveShape {
                             shape_id,
                             orig_pin,
@@ -633,6 +926,16 @@ impl VexioViewport {
             NativeCanvasTool::Pan => 3,
             NativeCanvasTool::Text => 7,
             NativeCanvasTool::Select => {
+                if let Some(&primary_sid) = self.selected_ids.first() {
+                    if let Some(grip_hit) =
+                        hit_test_selection_grips(&session.doc, pid, primary_sid, page_pt, eff_ppi)
+                    {
+                        return match grip_hit {
+                            Ok(h) => h.cursor_code(),
+                            Err(()) => 13,
+                        };
+                    }
+                }
                 if top_hit.is_some() {
                     1
                 } else {
@@ -1696,6 +1999,68 @@ pub unsafe extern "C" fn vexio_doc_validate_json(
         unsafe { *out_json = VexioOwnedBuffer::from_vec(json_bytes) };
         VexioStatus::Ok
     });
+    res.unwrap_or(VexioStatus::ErrInternalPanic)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_doc_transform_shape(
+    doc: *mut VexioDoc,
+    page_id: u32,
+    shape_id: u64,
+    pin_x_in: f64,
+    pin_y_in: f64,
+    width_in: f64,
+    height_in: f64,
+    angle_deg: f64,
+) -> VexioStatus {
+    let res = catch_unwind(AssertUnwindSafe(|| {
+        if doc.is_null() {
+            return VexioStatus::ErrInvalidArg;
+        }
+        // SAFETY: `doc` verified non-null.
+        let d = unsafe { &mut *doc };
+        match d
+            .session
+            .transform_shape(page_id, shape_id, pin_x_in, pin_y_in, width_in, height_in, angle_deg)
+        {
+            Ok(()) => VexioStatus::Ok,
+            Err(CoreError::Journal(JournalError::CellGuarded(_))) => VexioStatus::ErrCellGuarded,
+            Err(_) => VexioStatus::ErrInvalidArg,
+        }
+    }));
+    res.unwrap_or(VexioStatus::ErrInternalPanic)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_doc_import_stencil_bytes(
+    doc: *mut VexioDoc,
+    file_name_utf8: *const c_char,
+    bytes: VexioByteSlice,
+    out_json: *mut VexioOwnedBuffer,
+) -> VexioStatus {
+    let res = catch_unwind(AssertUnwindSafe(|| {
+        if doc.is_null() || file_name_utf8.is_null() || bytes.ptr.is_null() || out_json.is_null() {
+            return VexioStatus::ErrInvalidArg;
+        }
+        // SAFETY: Pointers verified non-null; `bytes.ptr[..bytes.len]` provided by caller.
+        let d = unsafe { &mut *doc };
+        let Ok(fname) = unsafe { CStr::from_ptr(file_name_utf8) }.to_str() else {
+            return VexioStatus::ErrInvalidArg;
+        };
+        let raw = unsafe { std::slice::from_raw_parts(bytes.ptr, bytes.len) };
+        match d.session.import_stencil_package(fname, raw) {
+            Ok((pack_title, previews)) => {
+                let payload = serde_json::json!({
+                    "packTitle": pack_title,
+                    "previews": previews,
+                });
+                let json_bytes = serde_json::to_vec(&payload).unwrap_or_else(|_| b"{}".to_vec());
+                unsafe { *out_json = VexioOwnedBuffer::from_vec(json_bytes) };
+                VexioStatus::Ok
+            }
+            Err(_) => VexioStatus::ErrIoCorruptFormat,
+        }
+    }));
     res.unwrap_or(VexioStatus::ErrInternalPanic)
 }
 

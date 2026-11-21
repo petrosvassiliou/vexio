@@ -1916,8 +1916,8 @@ fn make_stencil_pack(
                 let mut g = GeometrySection::new(1);
                 g.rows = vec![
                     GeometryRow::move_to(1, "0 in", "=Height*0.14"),
-                    GeometryRow::arc_to(2, "=Width*0.5", "=Height*0.14", "-0.08 in"),
-                    GeometryRow::arc_to(3, "=Width", "=Height*0.14", "0.08 in"),
+                    GeometryRow::arc_to(2, "=Width*0.5", "=Height*0.14", "=MIN(Width,Height)*-0.08"),
+                    GeometryRow::arc_to(3, "=Width", "=Height*0.14", "=MIN(Width,Height)*0.08"),
                     GeometryRow::line_to(4, "=Width", "=Height"),
                     GeometryRow::line_to(5, "0 in", "=Height"),
                     GeometryRow::line_to(6, "0 in", "=Height*0.14"),
@@ -1940,7 +1940,7 @@ fn make_stencil_pack(
                 g.rows = vec![
                     GeometryRow::move_to(1, "0 in", "0 in"),
                     GeometryRow::line_to(2, "=Width*0.62", "0 in"),
-                    GeometryRow::arc_to(3, "=Width*0.62", "=Height", "0.32 in"),
+                    GeometryRow::arc_to(3, "=Width*0.62", "=Height", "=MIN(Width,Height)*0.32"),
                     GeometryRow::line_to(4, "0 in", "=Height"),
                     GeometryRow::line_to(5, "0 in", "0 in"),
                 ];
@@ -2192,12 +2192,12 @@ fn make_stencil_pack(
                 g.no_fill = "TRUE".into();
                 g.rows = vec![
                     GeometryRow::move_to(1, "=Width*0.85", "=Height"),
-                    GeometryRow::arc_to(2, "=Width*0.45", "=Height*0.84", "0.05 in"),
+                    GeometryRow::arc_to(2, "=Width*0.45", "=Height*0.84", "=MIN(Width,Height)*0.05"),
                     GeometryRow::line_to(3, "=Width*0.45", "=Height*0.58"),
-                    GeometryRow::arc_to(4, "=Width*0.10", "=Height*0.50", "-0.05 in"),
-                    GeometryRow::arc_to(5, "=Width*0.45", "=Height*0.42", "-0.05 in"),
+                    GeometryRow::arc_to(4, "=Width*0.10", "=Height*0.50", "=MIN(Width,Height)*-0.05"),
+                    GeometryRow::arc_to(5, "=Width*0.45", "=Height*0.42", "=MIN(Width,Height)*-0.05"),
                     GeometryRow::line_to(6, "=Width*0.45", "=Height*0.16"),
-                    GeometryRow::arc_to(7, "=Width*0.85", "0 in", "0.05 in"),
+                    GeometryRow::arc_to(7, "=Width*0.85", "0 in", "=MIN(Width,Height)*0.05"),
                 ];
                 sh.sheet.add_geometry(g);
             }
@@ -2206,12 +2206,12 @@ fn make_stencil_pack(
                 g.no_fill = "TRUE".into();
                 g.rows = vec![
                     GeometryRow::move_to(1, "=Width*0.15", "=Height"),
-                    GeometryRow::arc_to(2, "=Width*0.55", "=Height*0.84", "-0.05 in"),
+                    GeometryRow::arc_to(2, "=Width*0.55", "=Height*0.84", "=MIN(Width,Height)*-0.05"),
                     GeometryRow::line_to(3, "=Width*0.55", "=Height*0.58"),
-                    GeometryRow::arc_to(4, "=Width*0.90", "=Height*0.50", "0.05 in"),
-                    GeometryRow::arc_to(5, "=Width*0.55", "=Height*0.42", "0.05 in"),
+                    GeometryRow::arc_to(4, "=Width*0.90", "=Height*0.50", "=MIN(Width,Height)*0.05"),
+                    GeometryRow::arc_to(5, "=Width*0.55", "=Height*0.42", "=MIN(Width,Height)*0.05"),
                     GeometryRow::line_to(6, "=Width*0.55", "=Height*0.16"),
-                    GeometryRow::arc_to(7, "=Width*0.15", "0 in", "-0.05 in"),
+                    GeometryRow::arc_to(7, "=Width*0.15", "0 in", "=MIN(Width,Height)*-0.05"),
                 ];
                 sh.sheet.add_geometry(g);
             }
@@ -2258,6 +2258,11 @@ fn apply_domain_master_styling_and_details(
     role: &str,
     geom_kind: &str,
 ) {
+    // 0. Authentic 1:1 Multi-Color Visio Stencil Artwork for Microsoft, Servers, Network & Cloud
+    if crate::visio_artwork::apply_visio_1to1_icon_artwork(sh, category, role) {
+        return;
+    }
+
     // 1. Curated Crisp Visio Light-Mode Domain Palette
     let (fill_rgb, stroke_rgb, weight_pt) = match (category, role) {
         ("Basic Shapes", "basic_star") => ("254,249,195", "202,138,4", 1.65),
@@ -2269,11 +2274,31 @@ fn apply_domain_master_styling_and_details(
         ("Swimlanes", "swimlane_handoff") => ("219,234,254", "29,78,216", 1.6),
         ("Swimlanes", _) => ("248,250,252", "71,85,105", 1.65),
         ("Process Engineering", _) => ("240,249,255", "3,105,161", 1.65),
-        (_, "start") | (_, "bpmn_msg_start") => ("236,253,245", "5,150,105", 1.75),
-        (_, "intermediate") | (_, "bpmn_timer") => ("255,251,235", "217,119,6", 1.65),
-        (_, "end") => ("254,242,242", "220,38,38", 2.85),
-        (_, "exclusive_gateway") | (_, "parallel_gateway") | (_, "inclusive_gateway") => ("254,249,195", "202,138,4", 1.75),
-        (_, "task") | (_, "bpmn_user_task") | (_, "bpmn_service_task") | (_, "bpmn_subprocess") => ("239,246,255", "37,99,235", 1.6),
+        (_, "start")
+        | (_, "bpmn_msg_start")
+        | (_, "bpmn_signal_start")
+        | (_, "bpmn_cond_event") => ("236,253,245", "5,150,105", 1.75),
+        (_, "intermediate")
+        | (_, "bpmn_timer")
+        | (_, "bpmn_catch_msg")
+        | (_, "bpmn_throw_msg")
+        | (_, "bpmn_error_ev")
+        | (_, "bpmn_esc_ev") => ("255,251,235", "217,119,6", 1.65),
+        (_, "end") | (_, "bpmn_term_end") => ("254,242,242", "220,38,38", 2.85),
+        (_, "exclusive_gateway")
+        | (_, "parallel_gateway")
+        | (_, "inclusive_gateway")
+        | (_, "bpmn_event_gw") => ("254,249,195", "202,138,4", 1.75),
+        (_, "task")
+        | (_, "bpmn_user_task")
+        | (_, "bpmn_service_task")
+        | (_, "bpmn_send_task")
+        | (_, "bpmn_recv_task")
+        | (_, "bpmn_script_task")
+        | (_, "bpmn_rule_task")
+        | (_, "bpmn_manual_task")
+        | (_, "bpmn_subprocess") => ("239,246,255", "37,99,235", 1.6),
+        (_, "bpmn_call_act") => ("239,246,255", "29,78,216", 2.6),
         (_, "bpmn_pool") => ("248,250,252", "71,85,105", 1.65),
         ("Flowchart", "Decision") => ("254,243,199", "217,119,6", 1.6),
         ("Flowchart", "Terminator") => ("236,253,245", "13,148,136", 1.6),
@@ -2283,30 +2308,7 @@ fn apply_domain_master_styling_and_details(
         ("Software & Database", "uml_initial") => ("15,23,42", "15,23,42", 1.5),
         ("Software & Database", "uml_note") => ("254,252,232", "161,98,7", 1.5),
         ("Software & Database", _) => ("245,243,255", "109,40,217", 1.55),
-        ("Network", "firewall") | ("Network", "net_ngfw") | ("Network", "net_waf") => ("254,242,242", "220,38,38", 1.7),
-        ("Network", "net_ids_ips") => ("255,247,237", "194,65,12", 1.65),
-        ("Network", "switch_1u")
-        | ("Network", "net_l2_switch")
-        | ("Network", "net_l3_switch")
-        | ("Network", "net_poe_switch")
-        | ("Network", "net_fiber_switch") => ("236,254,255", "14,116,144", 1.65),
-        ("Network", "rack_42u")
-        | ("Network", "net_patch_panel")
-        | ("Network", "net_nas_san")
-        | ("Network", "net_ups") => ("241,245,249", "51,65,85", 1.65),
-        ("Network", _) => ("240,249,255", "3,105,161", 1.65),
-        ("Servers", "srv_db") => ("254,242,242", "185,28,28", 1.7),
-        ("Servers", "srv_bastion") => ("254,242,242", "220,38,38", 1.7),
-        ("Servers", "srv_web") | ("Servers", "srv_dns") => ("240,249,255", "2,132,199", 1.65),
-        ("Servers", "srv_hypervisor") | ("Servers", "srv_app") => ("238,242,255", "67,56,202", 1.65),
-        ("Servers", "srv_backup") | ("Servers", "srv_file") => ("236,253,245", "5,150,105", 1.65),
-        ("Servers", _) => ("241,245,249", "30,64,175", 1.65),
         ("Engineering & Architecture", _) => ("248,250,252", "51,65,85", 1.65),
-        ("Cloud", "cloud_fn") => ("255,251,235", "234,88,12", 1.65),
-        ("Cloud", "cloud_bucket") => ("236,253,245", "22,163,74", 1.6),
-        ("Cloud", "cloud_sql") => ("238,242,255", "67,56,202", 1.6),
-        ("Cloud", "cloud_iam") => ("254,242,242", "185,28,28", 1.65),
-        ("Cloud", _) => ("239,246,255", "29,78,216", 1.65),
         ("Electrical", _) => ("255,255,255", "15,23,42", 1.85),
         ("Wireframe", "wf_button") => ("219,234,254", "29,78,216", 1.6),
         ("Wireframe", _) => ("248,250,252", "71,85,105", 1.5),
@@ -2320,34 +2322,6 @@ fn apply_domain_master_styling_and_details(
         ("Lean Manufacturing", "vsm_inventory") => ("255,247,237", "217,119,6", 1.65),
         ("Lean Manufacturing", _) => ("241,245,249", "51,65,85", 1.6),
         ("Database", _) => ("239,246,255", "29,78,216", 1.6),
-        ("Microsoft 365", "m365_teams") | ("Microsoft 365", "m365_loop") => ("238,242,255", "79,70,229", 1.65),
-        ("Microsoft 365", "office_visio") => ("239,246,255", "29,78,216", 1.7),
-        ("Microsoft 365", "office_project") => ("236,253,245", "21,128,61", 1.7),
-        ("Microsoft 365", "m365_sharepoint") => ("240,253,250", "13,148,136", 1.65),
-        ("Microsoft 365", "office_excel") => ("236,253,245", "21,128,61", 1.65),
-        ("Microsoft 365", "office_powerpoint") => ("255,247,237", "194,65,12", 1.65),
-        ("Microsoft 365", "office_onenote") => ("250,245,255", "126,34,206", 1.65),
-        ("Microsoft 365", "m365_copilot") | ("Microsoft 365", "m365_purview") => ("245,243,255", "109,40,217", 1.7),
-        ("Microsoft 365", "m365_defender") => ("239,246,255", "30,64,175", 1.75),
-        ("Microsoft 365", _) => ("239,246,255", "2,132,199", 1.65),
-        ("Microsoft Servers", "ms_sql_server") => ("254,242,242", "185,28,28", 1.7),
-        ("Microsoft Servers", "ms_entra_id") => ("240,249,255", "2,132,199", 1.7),
-        ("Microsoft Servers", "ms_sharepoint_srv") => ("240,253,250", "13,148,136", 1.65),
-        ("Microsoft Servers", "ms_hyperv") => ("238,242,255", "55,48,163", 1.65),
-        ("Microsoft Servers", _) => ("241,245,249", "3,105,161", 1.65),
-        ("Microsoft Azure", "az_firewall") => ("254,242,242", "220,38,38", 1.7),
-        ("Microsoft Azure", "az_bastion") => ("241,245,249", "30,64,175", 1.7),
-        ("Microsoft Azure", "az_functions") => ("255,251,235", "217,119,6", 1.7),
-        ("Microsoft Azure", "az_key_vault") => ("254,249,195", "180,83,9", 1.7),
-        ("Microsoft Azure", "az_storage") => ("236,253,245", "5,150,105", 1.65),
-        ("Microsoft Azure", "az_openai") => ("245,243,255", "124,58,237", 1.7),
-        ("Microsoft Azure", _) => ("240,249,255", "2,132,199", 1.65),
-        ("Power Platform", "pp_powerbi") => ("254,249,195", "202,138,4", 1.7),
-        ("Power Platform", "pp_powerapps") => ("253,244,255", "162,28,175", 1.7),
-        ("Power Platform", "pp_dataverse") => ("236,253,245", "22,163,74", 1.65),
-        ("Power Platform", "ms_fabric") => ("240,253,250", "15,118,110", 1.7),
-        ("Power Platform", "pp_copilot_studio") => ("245,243,255", "109,40,217", 1.65),
-        ("Power Platform", _) => ("239,246,255", "37,99,235", 1.65),
         _ => ("239,246,255", "37,99,235", 1.6),
     };
 
@@ -2363,76 +2337,91 @@ fn apply_domain_master_styling_and_details(
     sh.sheet
         .set_formula("Char.Color", "=RGB(15,23,42)", Some(Unit::Color));
 
+    // Visio 1:1 External Below-Symbol Caption (`TxtPinY = -0.15 in`) for Events, Gateways, Actors & Schematics
+    if matches!(category, "Electrical" | "Process Engineering")
+        || matches!(
+            role,
+            "start"
+                | "bpmn_msg_start"
+                | "bpmn_timer"
+                | "bpmn_signal_start"
+                | "bpmn_cond_event"
+                | "intermediate"
+                | "bpmn_catch_msg"
+                | "bpmn_throw_msg"
+                | "bpmn_error_ev"
+                | "bpmn_esc_ev"
+                | "end"
+                | "bpmn_term_end"
+                | "exclusive_gateway"
+                | "parallel_gateway"
+                | "inclusive_gateway"
+                | "bpmn_event_gw"
+                | "bpmn_data_obj"
+                | "uml_actor"
+                | "uml_initial"
+                | "uml_final"
+                | "uml_flow_final"
+                | "flow_onpage"
+                | "flow_or_junc"
+                | "flow_sum_junc"
+                | "sched_milestone"
+                | "sched_star"
+                | "sched_gate"
+        )
+    {
+        sh.sheet
+            .set_formula("TxtPinX", "=Width*0.5", Some(Unit::Inch));
+        sh.sheet
+            .set_formula("TxtPinY", "-0.15 in", Some(Unit::Inch));
+        sh.sheet
+            .set_formula("Char.Size", "9 pt", Some(Unit::Point));
+    }
+
     if geom_kind == "Rectangle"
-        && (category == "Servers"
-            || matches!(
-                role,
-                "basic_round_rect"
-                    | "Process"
-                    | "task"
-                    | "bpmn_user_task"
-                    | "bpmn_service_task"
-                    | "bpmn_subprocess"
-                    | "cloud_vm"
-                    | "wf_card"
-                    | "wf_mobile"
-                    | "wf_modal"
-                    | "org_exec"
-                    | "org_vp"
-                    | "org_mgr"
-                    | "org_ic"
-                    | "org_consultant"
-                    | "m365_tenant"
-                    | "m365_teams"
-                    | "m365_exchange"
-                    | "m365_outlook"
-                    | "office_powerpoint"
-                    | "office_onenote"
-                    | "office_visio"
-                    | "office_project"
-                    | "m365_loop"
-                    | "m365_intune"
-                    | "ms_win_server"
-                    | "ms_dns_dhcp"
-                    | "ms_iis"
-                    | "ms_exchange_srv"
-                    | "ms_sharepoint_srv"
-                    | "ms_failover_cluster"
-                    | "az_resource_group"
-                    | "az_vm"
-                    | "az_storage"
-                    | "az_firewall"
-                    | "az_service_bus"
-                    | "pp_powerbi"
-                    | "pp_dataverse"
-                    | "pp_power_pages"
-                    | "d365_crm"
-                    | "d365_erp"
-                    | "net_ngfw"
-                    | "net_vpn_gw"
-                    | "net_l2_switch"
-                    | "net_l3_switch"
-                    | "net_poe_switch"
-                    | "net_fiber_switch"
-                    | "net_wlc"
-                    | "net_modem"
-                    | "net_nas_san"
-                    | "net_ups"
-            ))
+        && matches!(
+            role,
+            "basic_round_rect"
+                | "Process"
+                | "task"
+                | "bpmn_user_task"
+                | "bpmn_service_task"
+                | "bpmn_send_task"
+                | "bpmn_recv_task"
+                | "bpmn_script_task"
+                | "bpmn_rule_task"
+                | "bpmn_manual_task"
+                | "bpmn_subprocess"
+                | "bpmn_call_act"
+                | "wf_card"
+                | "wf_mobile"
+                | "wf_modal"
+                | "org_exec"
+                | "org_board"
+                | "org_cxo"
+                | "org_vp"
+                | "org_sr_mgr"
+                | "org_mgr"
+                | "org_lead"
+                | "org_staff"
+                | "org_ic"
+                | "org_assoc"
+                | "org_consultant"
+        )
     {
         sh.sheet.set_formula(
             "Rounding",
             if role == "basic_round_rect" || role == "wf_mobile" {
-                "0.14 in"
+                "=MIN(Width,Height)*0.16"
             } else {
-                "0.07 in"
+                "=MIN(Width,Height)*0.10"
             },
             Some(Unit::Inch),
         );
     }
     if matches!(
         role,
-        "org_vacancy" | "org_consultant" | "cloud_vpc" | "vsm_shared" | "az_resource_group"
+        "org_vacancy" | "org_consultant" | "org_matrix" | "vsm_shared" | "uml_boundary" | "callout_dashed_group"
     ) {
         sh.sheet.set_formula("LinePattern", "2", Some(Unit::Number));
     }
@@ -2485,10 +2474,10 @@ fn apply_domain_master_styling_and_details(
         "bpmn_user_task" => {
             detail.rows = vec![
                 GeometryRow::move_to(1, "=Width*0.08", "=Height*0.62"),
-                GeometryRow::arc_to(2, "=Width*0.22", "=Height*0.62", "-0.06 in"),
+                GeometryRow::arc_to(2, "=Width*0.22", "=Height*0.62", "=MIN(Width,Height)*-0.06"),
                 GeometryRow::move_to(3, "=Width*0.11", "=Height*0.76"),
-                GeometryRow::arc_to(4, "=Width*0.19", "=Height*0.76", "0.04 in"),
-                GeometryRow::arc_to(5, "=Width*0.11", "=Height*0.76", "0.04 in"),
+                GeometryRow::arc_to(4, "=Width*0.19", "=Height*0.76", "=MIN(Width,Height)*0.04"),
+                GeometryRow::arc_to(5, "=Width*0.11", "=Height*0.76", "=MIN(Width,Height)*0.04"),
             ];
             sh.sheet.add_geometry(detail);
         }
@@ -2665,9 +2654,9 @@ fn apply_domain_master_styling_and_details(
         "net_wifi" => {
             detail.rows = vec![
                 GeometryRow::move_to(1, "=Width*0.26", "=Height*0.56"),
-                GeometryRow::arc_to(2, "=Width*0.74", "=Height*0.56", "0.14 in"),
+                GeometryRow::arc_to(2, "=Width*0.74", "=Height*0.56", "=MIN(Width,Height)*0.14"),
                 GeometryRow::move_to(3, "=Width*0.35", "=Height*0.42"),
-                GeometryRow::arc_to(4, "=Width*0.65", "=Height*0.42", "0.09 in"),
+                GeometryRow::arc_to(4, "=Width*0.65", "=Height*0.42", "=MIN(Width,Height)*0.09"),
                 GeometryRow::move_to(5, "=Width*0.47", "=Height*0.26"),
                 GeometryRow::line_to(6, "=Width*0.53", "=Height*0.26"),
             ];
@@ -2754,7 +2743,7 @@ fn apply_domain_master_styling_and_details(
             g1.rows = vec![
                 GeometryRow::move_to(1, "0 in", "0 in"),
                 GeometryRow::line_to(2, "0 in", "=Height"),
-                GeometryRow::arc_to(3, "=Width", "0 in", "0.18 in"),
+                GeometryRow::arc_to(3, "=Width", "0 in", "=MIN(Width,Height)*0.18"),
             ];
             sh.sheet.add_geometry(g1);
         }
@@ -2764,10 +2753,10 @@ fn apply_domain_master_styling_and_details(
             g1.rows = vec![
                 GeometryRow::move_to(1, "0 in", "0 in"),
                 GeometryRow::line_to(2, "0 in", "=Height"),
-                GeometryRow::arc_to(3, "=Width*0.5", "0 in", "0.14 in"),
+                GeometryRow::arc_to(3, "=Width*0.5", "0 in", "=MIN(Width,Height)*0.14"),
                 GeometryRow::move_to(4, "=Width", "0 in"),
                 GeometryRow::line_to(5, "=Width", "=Height"),
-                GeometryRow::arc_to(6, "=Width*0.5", "0 in", "-0.14 in"),
+                GeometryRow::arc_to(6, "=Width*0.5", "0 in", "=MIN(Width,Height)*-0.14"),
             ];
             sh.sheet.add_geometry(g1);
         }
@@ -2952,10 +2941,10 @@ fn apply_domain_master_styling_and_details(
             g1.rows = vec![
                 GeometryRow::move_to(1, "0 in", "=Height*0.35"),
                 GeometryRow::line_to(2, "=Width*0.14", "=Height*0.35"),
-                GeometryRow::arc_to(3, "=Width*0.32", "=Height*0.35", "0.14 in"),
-                GeometryRow::arc_to(4, "=Width*0.50", "=Height*0.35", "0.14 in"),
-                GeometryRow::arc_to(5, "=Width*0.68", "=Height*0.35", "0.14 in"),
-                GeometryRow::arc_to(6, "=Width*0.86", "=Height*0.35", "0.14 in"),
+                GeometryRow::arc_to(3, "=Width*0.32", "=Height*0.35", "=MIN(Width,Height)*0.14"),
+                GeometryRow::arc_to(4, "=Width*0.50", "=Height*0.35", "=MIN(Width,Height)*0.14"),
+                GeometryRow::arc_to(5, "=Width*0.68", "=Height*0.35", "=MIN(Width,Height)*0.14"),
+                GeometryRow::arc_to(6, "=Width*0.86", "=Height*0.35", "=MIN(Width,Height)*0.14"),
                 GeometryRow::line_to(7, "=Width", "=Height*0.35"),
             ];
             sh.sheet.add_geometry(g1);
@@ -2997,8 +2986,8 @@ fn apply_domain_master_styling_and_details(
         "ieee_ac_source" => {
             detail.rows = vec![
                 GeometryRow::move_to(1, "=Width*0.22", "=Height*0.5"),
-                GeometryRow::arc_to(2, "=Width*0.50", "=Height*0.5", "0.12 in"),
-                GeometryRow::arc_to(3, "=Width*0.78", "=Height*0.5", "-0.12 in"),
+                GeometryRow::arc_to(2, "=Width*0.50", "=Height*0.5", "=MIN(Width,Height)*0.12"),
+                GeometryRow::arc_to(3, "=Width*0.78", "=Height*0.5", "=MIN(Width,Height)*-0.12"),
             ];
             sh.sheet.add_geometry(detail);
         }
@@ -3125,11 +3114,11 @@ fn apply_domain_master_styling_and_details(
             sh.sheet.add_geometry(g1);
             detail.rows = vec![
                 GeometryRow::move_to(1, "=Width*0.16", "=Height*0.14"),
-                GeometryRow::arc_to(2, "=Width*0.34", "=Height*0.14", "0.09 in"),
-                GeometryRow::arc_to(3, "=Width*0.16", "=Height*0.14", "0.09 in"),
+                GeometryRow::arc_to(2, "=Width*0.34", "=Height*0.14", "=MIN(Width,Height)*0.09"),
+                GeometryRow::arc_to(3, "=Width*0.16", "=Height*0.14", "=MIN(Width,Height)*0.09"),
                 GeometryRow::move_to(4, "=Width*0.74", "=Height*0.14"),
-                GeometryRow::arc_to(5, "=Width*0.92", "=Height*0.14", "0.09 in"),
-                GeometryRow::arc_to(6, "=Width*0.74", "=Height*0.14", "0.09 in"),
+                GeometryRow::arc_to(5, "=Width*0.92", "=Height*0.14", "=MIN(Width,Height)*0.09"),
+                GeometryRow::arc_to(6, "=Width*0.74", "=Height*0.14", "=MIN(Width,Height)*0.09"),
             ];
             sh.sheet.add_geometry(detail);
         }
@@ -3140,9 +3129,9 @@ fn apply_domain_master_styling_and_details(
                 // Left primary winding + leads
                 GeometryRow::move_to(1, "0 in", "=Height*0.85"),
                 GeometryRow::line_to(2, "=Width*0.28", "=Height*0.85"),
-                GeometryRow::arc_to(3, "=Width*0.28", "=Height*0.62", "-0.12 in"),
-                GeometryRow::arc_to(4, "=Width*0.28", "=Height*0.38", "-0.12 in"),
-                GeometryRow::arc_to(5, "=Width*0.28", "=Height*0.15", "-0.12 in"),
+                GeometryRow::arc_to(3, "=Width*0.28", "=Height*0.62", "=MIN(Width,Height)*-0.12"),
+                GeometryRow::arc_to(4, "=Width*0.28", "=Height*0.38", "=MIN(Width,Height)*-0.12"),
+                GeometryRow::arc_to(5, "=Width*0.28", "=Height*0.15", "=MIN(Width,Height)*-0.12"),
                 GeometryRow::line_to(6, "0 in", "=Height*0.15"),
                 // Core bars
                 GeometryRow::move_to(7, "=Width*0.46", "=Height*0.14"),
@@ -3152,9 +3141,9 @@ fn apply_domain_master_styling_and_details(
                 // Right secondary winding + leads
                 GeometryRow::move_to(11, "=Width", "=Height*0.85"),
                 GeometryRow::line_to(12, "=Width*0.72", "=Height*0.85"),
-                GeometryRow::arc_to(13, "=Width*0.72", "=Height*0.62", "0.12 in"),
-                GeometryRow::arc_to(14, "=Width*0.72", "=Height*0.38", "0.12 in"),
-                GeometryRow::arc_to(15, "=Width*0.72", "=Height*0.15", "0.12 in"),
+                GeometryRow::arc_to(13, "=Width*0.72", "=Height*0.62", "=MIN(Width,Height)*0.12"),
+                GeometryRow::arc_to(14, "=Width*0.72", "=Height*0.38", "=MIN(Width,Height)*0.12"),
+                GeometryRow::arc_to(15, "=Width*0.72", "=Height*0.15", "=MIN(Width,Height)*0.12"),
                 GeometryRow::line_to(16, "=Width", "=Height*0.15"),
             ];
             sh.sheet.add_geometry(g1);
@@ -3306,9 +3295,9 @@ fn apply_domain_master_styling_and_details(
         "pid_tank" => {
             detail.rows = vec![
                 GeometryRow::move_to(1, "0 in", "=Height*0.84"),
-                GeometryRow::arc_to(2, "=Width", "=Height*0.84", "-0.12 in"),
+                GeometryRow::arc_to(2, "=Width", "=Height*0.84", "=MIN(Width,Height)*-0.12"),
                 GeometryRow::move_to(3, "0 in", "=Height*0.16"),
-                GeometryRow::arc_to(4, "=Width", "=Height*0.16", "0.10 in"),
+                GeometryRow::arc_to(4, "=Width", "=Height*0.16", "=MIN(Width,Height)*0.10"),
             ];
             sh.sheet.add_geometry(detail);
         }
@@ -3326,9 +3315,9 @@ fn apply_domain_master_styling_and_details(
                 GeometryRow::move_to(1, "0 in", "=Height*0.5"),
                 GeometryRow::line_to(2, "=Width", "=Height*0.5"),
                 GeometryRow::move_to(3, "=Width*0.32", "=Height*0.72"),
-                GeometryRow::arc_to(4, "=Width*0.68", "=Height*0.72", "0.06 in"),
+                GeometryRow::arc_to(4, "=Width*0.68", "=Height*0.72", "=MIN(Width,Height)*0.06"),
                 GeometryRow::move_to(5, "=Width*0.32", "=Height*0.28"),
-                GeometryRow::arc_to(6, "=Width*0.68", "=Height*0.28", "-0.06 in"),
+                GeometryRow::arc_to(6, "=Width*0.68", "=Height*0.28", "=MIN(Width,Height)*-0.06"),
             ];
             sh.sheet.add_geometry(detail);
         }
@@ -3364,10 +3353,10 @@ fn apply_domain_master_styling_and_details(
                 GeometryRow::line_to(9, "=Width*0.29", "=Height*0.38"),
                 // Primary & secondary user heads/shoulders
                 GeometryRow::move_to(10, "=Width*0.52", "=Height*0.24"),
-                GeometryRow::arc_to(11, "=Width*0.84", "=Height*0.24", "-0.12 in"),
+                GeometryRow::arc_to(11, "=Width*0.84", "=Height*0.24", "=MIN(Width,Height)*-0.12"),
                 GeometryRow::move_to(12, "=Width*0.60", "=Height*0.66"),
-                GeometryRow::arc_to(13, "=Width*0.76", "=Height*0.66", "0.08 in"),
-                GeometryRow::arc_to(14, "=Width*0.60", "=Height*0.66", "0.08 in"),
+                GeometryRow::arc_to(13, "=Width*0.76", "=Height*0.66", "=MIN(Width,Height)*0.08"),
+                GeometryRow::arc_to(14, "=Width*0.60", "=Height*0.66", "=MIN(Width,Height)*0.08"),
             ];
             sh.sheet.add_geometry(detail);
         }
@@ -3394,11 +3383,11 @@ fn apply_domain_master_styling_and_details(
             detail.rows = vec![
                 // Overlapping SharePoint portal circles
                 GeometryRow::move_to(1, "=Width*0.20", "=Height*0.62"),
-                GeometryRow::arc_to(2, "=Width*0.60", "=Height*0.62", "0.18 in"),
-                GeometryRow::arc_to(3, "=Width*0.20", "=Height*0.62", "0.18 in"),
+                GeometryRow::arc_to(2, "=Width*0.60", "=Height*0.62", "=MIN(Width,Height)*0.18"),
+                GeometryRow::arc_to(3, "=Width*0.20", "=Height*0.62", "=MIN(Width,Height)*0.18"),
                 GeometryRow::move_to(4, "=Width*0.44", "=Height*0.38"),
-                GeometryRow::arc_to(5, "=Width*0.80", "=Height*0.38", "0.16 in"),
-                GeometryRow::arc_to(6, "=Width*0.44", "=Height*0.38", "0.16 in"),
+                GeometryRow::arc_to(5, "=Width*0.80", "=Height*0.38", "=MIN(Width,Height)*0.16"),
+                GeometryRow::arc_to(6, "=Width*0.44", "=Height*0.38", "=MIN(Width,Height)*0.16"),
             ];
             sh.sheet.add_geometry(detail);
         }
@@ -3407,9 +3396,9 @@ fn apply_domain_master_styling_and_details(
                 // Dual-cloud contour silhouette inside OneDrive pill
                 GeometryRow::move_to(1, "=Width*0.18", "=Height*0.28"),
                 GeometryRow::line_to(2, "=Width*0.82", "=Height*0.28"),
-                GeometryRow::arc_to(3, "=Width*0.70", "=Height*0.62", "0.10 in"),
-                GeometryRow::arc_to(4, "=Width*0.40", "=Height*0.68", "0.14 in"),
-                GeometryRow::arc_to(5, "=Width*0.18", "=Height*0.28", "0.11 in"),
+                GeometryRow::arc_to(3, "=Width*0.70", "=Height*0.62", "=MIN(Width,Height)*0.10"),
+                GeometryRow::arc_to(4, "=Width*0.40", "=Height*0.68", "=MIN(Width,Height)*0.14"),
+                GeometryRow::arc_to(5, "=Width*0.18", "=Height*0.28", "=MIN(Width,Height)*0.11"),
             ];
             sh.sheet.add_geometry(detail);
         }
@@ -3467,8 +3456,8 @@ fn apply_domain_master_styling_and_details(
                 GeometryRow::move_to(1, "0 in", "=Height*0.78"),
                 GeometryRow::line_to(2, "=Width", "=Height*0.78"),
                 GeometryRow::move_to(3, "=Width*0.18", "=Height*0.44"),
-                GeometryRow::arc_to(4, "=Width*0.46", "=Height*0.44", "0.14 in"),
-                GeometryRow::arc_to(5, "=Width*0.18", "=Height*0.44", "0.14 in"),
+                GeometryRow::arc_to(4, "=Width*0.46", "=Height*0.44", "=MIN(Width,Height)*0.14"),
+                GeometryRow::arc_to(5, "=Width*0.18", "=Height*0.44", "=MIN(Width,Height)*0.14"),
                 GeometryRow::move_to(6, "=Width*0.32", "=Height*0.44"),
                 GeometryRow::line_to(7, "=Width*0.32", "=Height*0.62"),
                 GeometryRow::move_to(8, "=Width*0.32", "=Height*0.44"),
@@ -3502,10 +3491,10 @@ fn apply_domain_master_styling_and_details(
             detail.rows = vec![
                 // Intertwined dual-ribbon infinity loop
                 GeometryRow::move_to(1, "=Width*0.22", "=Height*0.50"),
-                GeometryRow::arc_to(2, "=Width*0.50", "=Height*0.50", "0.14 in"),
-                GeometryRow::arc_to(3, "=Width*0.78", "=Height*0.50", "-0.14 in"),
-                GeometryRow::arc_to(4, "=Width*0.50", "=Height*0.50", "-0.14 in"),
-                GeometryRow::arc_to(5, "=Width*0.22", "=Height*0.50", "0.14 in"),
+                GeometryRow::arc_to(2, "=Width*0.50", "=Height*0.50", "=MIN(Width,Height)*0.14"),
+                GeometryRow::arc_to(3, "=Width*0.78", "=Height*0.50", "=MIN(Width,Height)*-0.14"),
+                GeometryRow::arc_to(4, "=Width*0.50", "=Height*0.50", "=MIN(Width,Height)*-0.14"),
+                GeometryRow::arc_to(5, "=Width*0.22", "=Height*0.50", "=MIN(Width,Height)*0.14"),
             ];
             sh.sheet.add_geometry(detail);
         }
@@ -3514,8 +3503,8 @@ fn apply_domain_master_styling_and_details(
                 // Tear-drop modular Loop ring anchored bottom-left
                 GeometryRow::move_to(1, "=Width*0.26", "=Height*0.22"),
                 GeometryRow::line_to(2, "=Width*0.52", "=Height*0.22"),
-                GeometryRow::arc_to(3, "=Width*0.52", "=Height*0.78", "0.18 in"),
-                GeometryRow::arc_to(4, "=Width*0.26", "=Height*0.50", "0.12 in"),
+                GeometryRow::arc_to(3, "=Width*0.52", "=Height*0.78", "=MIN(Width,Height)*0.18"),
+                GeometryRow::arc_to(4, "=Width*0.26", "=Height*0.50", "=MIN(Width,Height)*0.12"),
                 GeometryRow::line_to(5, "=Width*0.26", "=Height*0.22"),
             ];
             sh.sheet.add_geometry(detail);
@@ -3658,8 +3647,8 @@ fn apply_domain_master_styling_and_details(
             detail.rows = vec![
                 // Web globe circle + equator & meridian
                 GeometryRow::move_to(1, "=Width*0.28", "=Height*0.50"),
-                GeometryRow::arc_to(2, "=Width*0.72", "=Height*0.50", "0.22 in"),
-                GeometryRow::arc_to(3, "=Width*0.28", "=Height*0.50", "0.22 in"),
+                GeometryRow::arc_to(2, "=Width*0.72", "=Height*0.50", "=MIN(Width,Height)*0.22"),
+                GeometryRow::arc_to(3, "=Width*0.28", "=Height*0.50", "=MIN(Width,Height)*0.22"),
                 GeometryRow::move_to(4, "=Width*0.28", "=Height*0.50"),
                 GeometryRow::line_to(5, "=Width*0.72", "=Height*0.50"),
                 GeometryRow::move_to(6, "=Width*0.50", "=Height*0.18"),
@@ -3696,9 +3685,9 @@ fn apply_domain_master_styling_and_details(
             rings.no_fill = "TRUE".into();
             rings.rows = vec![
                 GeometryRow::move_to(1, "0 in", "=Height*0.58"),
-                GeometryRow::arc_to(2, "=Width", "=Height*0.58", "-0.08 in"),
+                GeometryRow::arc_to(2, "=Width", "=Height*0.58", "=MIN(Width,Height)*-0.08"),
                 GeometryRow::move_to(3, "0 in", "=Height*0.36"),
-                GeometryRow::arc_to(4, "=Width", "=Height*0.36", "-0.08 in"),
+                GeometryRow::arc_to(4, "=Width", "=Height*0.36", "=MIN(Width,Height)*-0.08"),
             ];
             sh.sheet.add_geometry(rings);
         }
@@ -3724,11 +3713,11 @@ fn apply_domain_master_styling_and_details(
                 GeometryRow::move_to(1, "0 in", "=Height*0.76"),
                 GeometryRow::line_to(2, "=Width", "=Height*0.76"),
                 GeometryRow::move_to(3, "=Width*0.26", "=Height*0.38"),
-                GeometryRow::arc_to(4, "=Width*0.56", "=Height*0.38", "0.14 in"),
-                GeometryRow::arc_to(5, "=Width*0.26", "=Height*0.38", "0.14 in"),
+                GeometryRow::arc_to(4, "=Width*0.56", "=Height*0.38", "=MIN(Width,Height)*0.14"),
+                GeometryRow::arc_to(5, "=Width*0.26", "=Height*0.38", "=MIN(Width,Height)*0.14"),
                 GeometryRow::move_to(6, "=Width*0.46", "=Height*0.38"),
-                GeometryRow::arc_to(7, "=Width*0.76", "=Height*0.38", "0.14 in"),
-                GeometryRow::arc_to(8, "=Width*0.46", "=Height*0.38", "0.14 in"),
+                GeometryRow::arc_to(7, "=Width*0.76", "=Height*0.38", "=MIN(Width,Height)*0.14"),
+                GeometryRow::arc_to(8, "=Width*0.46", "=Height*0.38", "=MIN(Width,Height)*0.14"),
             ];
             sh.sheet.add_geometry(detail);
         }
@@ -3830,8 +3819,8 @@ fn apply_domain_master_styling_and_details(
                 GeometryRow::move_to(5, "=Width*0.22", "=Height*0.68"),
                 GeometryRow::line_to(6, "=Width*0.78", "=Height*0.32"),
                 GeometryRow::move_to(7, "=Width*0.38", "=Height*0.50"),
-                GeometryRow::arc_to(8, "=Width*0.62", "=Height*0.50", "0.11 in"),
-                GeometryRow::arc_to(9, "=Width*0.38", "=Height*0.50", "0.11 in"),
+                GeometryRow::arc_to(8, "=Width*0.62", "=Height*0.50", "=MIN(Width,Height)*0.11"),
+                GeometryRow::arc_to(9, "=Width*0.38", "=Height*0.50", "=MIN(Width,Height)*0.11"),
             ];
             sh.sheet.add_geometry(detail);
         }
@@ -3839,9 +3828,9 @@ fn apply_domain_master_styling_and_details(
             detail.rows = vec![
                 // Criss-crossing orbital web paths across App Service sphere
                 GeometryRow::move_to(1, "=Width*0.14", "=Height*0.34"),
-                GeometryRow::arc_to(2, "=Width*0.86", "=Height*0.66", "0.16 in"),
+                GeometryRow::arc_to(2, "=Width*0.86", "=Height*0.66", "=MIN(Width,Height)*0.16"),
                 GeometryRow::move_to(3, "=Width*0.14", "=Height*0.66"),
-                GeometryRow::arc_to(4, "=Width*0.86", "=Height*0.34", "-0.16 in"),
+                GeometryRow::arc_to(4, "=Width*0.86", "=Height*0.34", "=MIN(Width,Height)*-0.16"),
             ];
             sh.sheet.add_geometry(detail);
         }
@@ -3874,10 +3863,10 @@ fn apply_domain_master_styling_and_details(
             sh.sheet.add_geometry(g1);
             detail.rows = vec![
                 GeometryRow::move_to(1, "=Width*0.14", "=Height*0.84"),
-                GeometryRow::arc_to(2, "=Width*0.86", "=Height*0.84", "0.10 in"),
-                GeometryRow::arc_to(3, "=Width*0.14", "=Height*0.84", "0.10 in"),
+                GeometryRow::arc_to(2, "=Width*0.86", "=Height*0.84", "=MIN(Width,Height)*0.10"),
+                GeometryRow::arc_to(3, "=Width*0.14", "=Height*0.84", "=MIN(Width,Height)*0.10"),
                 GeometryRow::move_to(4, "0 in", "=Height*0.38"),
-                GeometryRow::arc_to(5, "=Width", "=Height*0.62", "-0.14 in"),
+                GeometryRow::arc_to(5, "=Width", "=Height*0.62", "=MIN(Width,Height)*-0.14"),
             ];
             sh.sheet.add_geometry(detail);
         }
@@ -3928,8 +3917,8 @@ fn apply_domain_master_styling_and_details(
             detail.rows = vec![
                 // Inner vault ring + central keyhole
                 GeometryRow::move_to(1, "=Width*0.34", "=Height*0.58"),
-                GeometryRow::arc_to(2, "=Width*0.66", "=Height*0.58", "0.14 in"),
-                GeometryRow::arc_to(3, "=Width*0.34", "=Height*0.58", "0.14 in"),
+                GeometryRow::arc_to(2, "=Width*0.66", "=Height*0.58", "=MIN(Width,Height)*0.14"),
+                GeometryRow::arc_to(3, "=Width*0.34", "=Height*0.58", "=MIN(Width,Height)*0.14"),
                 GeometryRow::move_to(4, "=Width*0.44", "=Height*0.44"),
                 GeometryRow::line_to(5, "=Width*0.40", "=Height*0.20"),
                 GeometryRow::line_to(6, "=Width*0.60", "=Height*0.20"),
@@ -3964,9 +3953,9 @@ fn apply_domain_master_styling_and_details(
             detail.rows = vec![
                 // Sweeping hybrid Azure Arc over on-prem horizon
                 GeometryRow::move_to(1, "=Width*0.16", "=Height*0.28"),
-                GeometryRow::arc_to(2, "=Width*0.84", "=Height*0.28", "0.24 in"),
+                GeometryRow::arc_to(2, "=Width*0.84", "=Height*0.28", "=MIN(Width,Height)*0.24"),
                 GeometryRow::move_to(3, "=Width*0.28", "=Height*0.28"),
-                GeometryRow::arc_to(4, "=Width*0.72", "=Height*0.28", "0.14 in"),
+                GeometryRow::arc_to(4, "=Width*0.72", "=Height*0.28", "=MIN(Width,Height)*0.14"),
                 GeometryRow::move_to(5, "=Width*0.14", "=Height*0.28"),
                 GeometryRow::line_to(6, "=Width*0.86", "=Height*0.28"),
             ];
@@ -4122,7 +4111,7 @@ fn apply_domain_master_styling_and_details(
 
 fn append_extended_role_vector_details(
     sh: &mut VisioShape,
-    category: &str,
+    _category: &str,
     role: &str,
     mut detail: GeometrySection,
 ) {
@@ -4233,7 +4222,7 @@ fn append_extended_role_vector_details(
                     push_circle_arcs(&mut rows, "=Width*0.26", "=Width*0.74", "=Height*0.56", "0.08 in");
                     let ix = (rows.len() + 1) as u32;
                     rows.push(GeometryRow::move_to(ix, "=Width*0.26", "=Height*0.18"));
-                    rows.push(GeometryRow::arc_to(ix + 1, "=Width*0.74", "=Height*0.18", "-0.08 in"));
+                    rows.push(GeometryRow::arc_to(ix + 1, "=Width*0.74", "=Height*0.18", "=MIN(Width,Height)*-0.08"));
                 }
                 "srv_app" | "srv_rds" => {
                     push_seg(&mut rows, "=Width*0.22", "=Height*0.18", "=Width*0.78", "=Height*0.18");
@@ -4349,8 +4338,8 @@ fn append_extended_role_vector_details(
         "net_waf" | "az_app_gw" => {
             detail.rows = vec![
                 GeometryRow::move_to(1, "=Width*0.24", "=Height*0.50"),
-                GeometryRow::arc_to(2, "=Width*0.76", "=Height*0.50", "0.22 in"),
-                GeometryRow::arc_to(3, "=Width*0.24", "=Height*0.50", "0.22 in"),
+                GeometryRow::arc_to(2, "=Width*0.76", "=Height*0.50", "=MIN(Width,Height)*0.22"),
+                GeometryRow::arc_to(3, "=Width*0.24", "=Height*0.50", "=MIN(Width,Height)*0.22"),
                 GeometryRow::move_to(4, "=Width*0.16", "=Height*0.28"),
                 GeometryRow::line_to(5, "=Width*0.84", "=Height*0.28"),
                 GeometryRow::move_to(6, "=Width*0.50", "=Height*0.28"),
@@ -4361,11 +4350,11 @@ fn append_extended_role_vector_details(
         "net_ids_ips" | "net_ddos" | "net_nac" => {
             detail.rows = vec![
                 GeometryRow::move_to(1, "=Width*0.18", "=Height*0.50"),
-                GeometryRow::arc_to(2, "=Width*0.82", "=Height*0.50", "0.18 in"),
-                GeometryRow::arc_to(3, "=Width*0.18", "=Height*0.50", "0.18 in"),
+                GeometryRow::arc_to(2, "=Width*0.82", "=Height*0.50", "=MIN(Width,Height)*0.18"),
+                GeometryRow::arc_to(3, "=Width*0.18", "=Height*0.50", "=MIN(Width,Height)*0.18"),
                 GeometryRow::move_to(4, "=Width*0.40", "=Height*0.50"),
-                GeometryRow::arc_to(5, "=Width*0.60", "=Height*0.50", "0.09 in"),
-                GeometryRow::arc_to(6, "=Width*0.40", "=Height*0.50", "0.09 in"),
+                GeometryRow::arc_to(5, "=Width*0.60", "=Height*0.50", "=MIN(Width,Height)*0.09"),
+                GeometryRow::arc_to(6, "=Width*0.40", "=Height*0.50", "=MIN(Width,Height)*0.09"),
             ];
             sh.sheet.add_geometry(detail);
         }
@@ -4382,7 +4371,7 @@ fn append_extended_role_vector_details(
                 GeometryRow::line_to(8, "=Width*0.38", "=Height*0.56"),
                 GeometryRow::line_to(9, "=Width*0.38", "=Height*0.30"),
                 GeometryRow::move_to(10, "=Width*0.42", "=Height*0.56"),
-                GeometryRow::arc_to(11, "=Width*0.58", "=Height*0.56", "0.10 in"),
+                GeometryRow::arc_to(11, "=Width*0.58", "=Height*0.56", "=MIN(Width,Height)*0.10"),
             ];
             sh.sheet.add_geometry(detail);
         }
@@ -4410,8 +4399,8 @@ fn append_extended_role_vector_details(
             detail.rows = vec![
                 // Classic Visio Layer-3 Multilayer Switch: central hub + 8 radial switching rays
                 GeometryRow::move_to(1, "=Width*0.34", "=Height*0.50"),
-                GeometryRow::arc_to(2, "=Width*0.66", "=Height*0.50", "0.16 in"),
-                GeometryRow::arc_to(3, "=Width*0.34", "=Height*0.50", "0.16 in"),
+                GeometryRow::arc_to(2, "=Width*0.66", "=Height*0.50", "=MIN(Width,Height)*0.16"),
+                GeometryRow::arc_to(3, "=Width*0.34", "=Height*0.50", "=MIN(Width,Height)*0.16"),
                 GeometryRow::move_to(4, "=Width*0.50", "=Height*0.12"),
                 GeometryRow::line_to(5, "=Width*0.50", "=Height*0.88"),
                 GeometryRow::move_to(6, "=Width*0.12", "=Height*0.50"),
@@ -4442,9 +4431,9 @@ fn append_extended_role_vector_details(
         "net_mesh_ap" | "net_wlc" => {
             detail.rows = vec![
                 GeometryRow::move_to(1, "=Width*0.20", "=Height*0.62"),
-                GeometryRow::arc_to(2, "=Width*0.80", "=Height*0.62", "0.18 in"),
+                GeometryRow::arc_to(2, "=Width*0.80", "=Height*0.62", "=MIN(Width,Height)*0.18"),
                 GeometryRow::move_to(3, "=Width*0.32", "=Height*0.44"),
-                GeometryRow::arc_to(4, "=Width*0.68", "=Height*0.44", "0.10 in"),
+                GeometryRow::arc_to(4, "=Width*0.68", "=Height*0.44", "=MIN(Width,Height)*0.10"),
                 GeometryRow::move_to(5, "=Width*0.18", "=Height*0.22"),
                 GeometryRow::line_to(6, "=Width*0.82", "=Height*0.22"),
             ];
@@ -4497,7 +4486,7 @@ fn append_extended_role_vector_details(
                 GeometryRow::move_to(1, "=Width*0.12", "=Height*0.76"),
                 GeometryRow::line_to(2, "=Width*0.88", "=Height*0.76"),
                 GeometryRow::move_to(3, "=Width*0.22", "=Height*0.36"),
-                GeometryRow::arc_to(4, "=Width*0.78", "=Height*0.36", "0.22 in"),
+                GeometryRow::arc_to(4, "=Width*0.78", "=Height*0.36", "=MIN(Width,Height)*0.22"),
                 GeometryRow::line_to(5, "=Width*0.22", "=Height*0.36"),
             ];
             sh.sheet.add_geometry(detail);
@@ -4550,8 +4539,8 @@ fn append_extended_role_vector_details(
         "office_access" | "az_sql_db" => {
             detail.rows = vec![
                 GeometryRow::move_to(1, "=Width*0.16", "=Height*0.76"),
-                GeometryRow::arc_to(2, "=Width*0.84", "=Height*0.76", "0.10 in"),
-                GeometryRow::arc_to(3, "=Width*0.16", "=Height*0.76", "0.10 in"),
+                GeometryRow::arc_to(2, "=Width*0.84", "=Height*0.76", "=MIN(Width,Height)*0.10"),
+                GeometryRow::arc_to(3, "=Width*0.16", "=Height*0.76", "=MIN(Width,Height)*0.10"),
                 GeometryRow::move_to(4, "=Width*0.16", "=Height*0.48"),
                 GeometryRow::line_to(5, "=Width*0.84", "=Height*0.48"),
                 GeometryRow::move_to(6, "=Width*0.16", "=Height*0.24"),
@@ -4596,7 +4585,7 @@ fn append_extended_role_vector_details(
             let mut g1 = GeometrySection::new(1);
             g1.rows = vec![
                 GeometryRow::move_to(1, "0 in", "=Height*0.15"),
-                GeometryRow::arc_to(2, "=Width", "=Height*0.15", "0.42 in"),
+                GeometryRow::arc_to(2, "=Width", "=Height*0.15", "=MIN(Width,Height)*0.42"),
                 GeometryRow::line_to(3, "0 in", "=Height*0.15"),
             ];
             sh.sheet.add_geometry(g1);
@@ -4606,7 +4595,7 @@ fn append_extended_role_vector_details(
             g1.rows = vec![
                 GeometryRow::move_to(1, "=Width*0.15", "=Height*0.15"),
                 GeometryRow::line_to(2, "=Width*0.90", "=Height*0.15"),
-                GeometryRow::arc_to(3, "=Width*0.15", "=Height*0.90", "-0.26 in"),
+                GeometryRow::arc_to(3, "=Width*0.15", "=Height*0.90", "=MIN(Width,Height)*-0.26"),
                 GeometryRow::line_to(4, "=Width*0.15", "=Height*0.15"),
             ];
             sh.sheet.add_geometry(g1);
@@ -4621,26 +4610,130 @@ fn append_extended_role_vector_details(
             ];
             sh.sheet.add_geometry(g1);
         }
+        "bpmn_signal_start" => {
+            detail.rows = vec![
+                GeometryRow::move_to(1, "=Width*0.50", "=Height*0.76"),
+                GeometryRow::line_to(2, "=Width*0.76", "=Height*0.28"),
+                GeometryRow::line_to(3, "=Width*0.24", "=Height*0.28"),
+                GeometryRow::line_to(4, "=Width*0.50", "=Height*0.76"),
+            ];
+            sh.sheet.add_geometry(detail);
+        }
+        "bpmn_cond_event" => {
+            detail.rows = vec![
+                GeometryRow::move_to(1, "=Width*0.30", "=Height*0.26"),
+                GeometryRow::line_to(2, "=Width*0.70", "=Height*0.26"),
+                GeometryRow::line_to(3, "=Width*0.70", "=Height*0.74"),
+                GeometryRow::line_to(4, "=Width*0.30", "=Height*0.74"),
+                GeometryRow::line_to(5, "=Width*0.30", "=Height*0.26"),
+                GeometryRow::move_to(6, "=Width*0.36", "=Height*0.58"),
+                GeometryRow::line_to(7, "=Width*0.64", "=Height*0.58"),
+                GeometryRow::move_to(8, "=Width*0.36", "=Height*0.42"),
+                GeometryRow::line_to(9, "=Width*0.64", "=Height*0.42"),
+            ];
+            sh.sheet.add_geometry(detail);
+        }
+        "bpmn_catch_msg" | "bpmn_throw_msg" => {
+            detail.rows = vec![
+                GeometryRow::move_to(1, "=Width*0.24", "=Height*0.34"),
+                GeometryRow::line_to(2, "=Width*0.76", "=Height*0.34"),
+                GeometryRow::line_to(3, "=Width*0.76", "=Height*0.66"),
+                GeometryRow::line_to(4, "=Width*0.24", "=Height*0.66"),
+                GeometryRow::line_to(5, "=Width*0.24", "=Height*0.34"),
+                GeometryRow::move_to(6, "=Width*0.24", "=Height*0.66"),
+                GeometryRow::line_to(7, "=Width*0.50", "=Height*0.48"),
+                GeometryRow::line_to(8, "=Width*0.76", "=Height*0.66"),
+            ];
+            sh.sheet.add_geometry(detail);
+        }
+        "bpmn_error_ev" => {
+            detail.rows = vec![
+                GeometryRow::move_to(1, "=Width*0.28", "=Height*0.26"),
+                GeometryRow::line_to(2, "=Width*0.46", "=Height*0.72"),
+                GeometryRow::line_to(3, "=Width*0.56", "=Height*0.44"),
+                GeometryRow::line_to(4, "=Width*0.72", "=Height*0.74"),
+            ];
+            sh.sheet.add_geometry(detail);
+        }
+        "bpmn_esc_ev" => {
+            detail.rows = vec![
+                GeometryRow::move_to(1, "=Width*0.50", "=Height*0.76"),
+                GeometryRow::line_to(2, "=Width*0.74", "=Height*0.26"),
+                GeometryRow::line_to(3, "=Width*0.50", "=Height*0.44"),
+                GeometryRow::line_to(4, "=Width*0.26", "=Height*0.26"),
+                GeometryRow::line_to(5, "=Width*0.50", "=Height*0.76"),
+            ];
+            sh.sheet.add_geometry(detail);
+        }
+        "bpmn_term_end" => {
+            detail.no_fill = "FALSE".into();
+            detail.rows = vec![GeometryRow {
+                ix: 1,
+                kind: vexio_shapesheet::GeometryRowKind::Ellipse,
+                x: "=Width*0.5".into(),
+                y: "=Height*0.5".into(),
+                a: Some("=Width*0.78".into()),
+                b: Some("=Height*0.5".into()),
+                c: Some("=Width*0.5".into()),
+                d: Some("=Height*0.78".into()),
+                e: None,
+                deleted: false,
+            }];
+            sh.sheet.add_geometry(detail);
+            sh.sheet
+                .set_formula("Geometry2.FillForegnd", "=RGB(220,38,38)", Some(Unit::Color));
+        }
+        "bpmn_event_gw" => {
+            detail.rows = vec![GeometryRow {
+                ix: 1,
+                kind: vexio_shapesheet::GeometryRowKind::Ellipse,
+                x: "=Width*0.5".into(),
+                y: "=Height*0.5".into(),
+                a: Some("=Width*0.74".into()),
+                b: Some("=Height*0.5".into()),
+                c: Some("=Width*0.5".into()),
+                d: Some("=Height*0.74".into()),
+                e: None,
+                deleted: false,
+            }];
+            sh.sheet.add_geometry(detail);
+        }
+        "bpmn_send_task" | "bpmn_recv_task" => {
+            detail.rows = vec![
+                GeometryRow::move_to(1, "=Width*0.07", "=Height*0.66"),
+                GeometryRow::line_to(2, "=Width*0.23", "=Height*0.66"),
+                GeometryRow::line_to(3, "=Width*0.23", "=Height*0.88"),
+                GeometryRow::line_to(4, "=Width*0.07", "=Height*0.88"),
+                GeometryRow::line_to(5, "=Width*0.07", "=Height*0.66"),
+                GeometryRow::move_to(6, "=Width*0.07", "=Height*0.88"),
+                GeometryRow::line_to(7, "=Width*0.15", "=Height*0.75"),
+                GeometryRow::line_to(8, "=Width*0.23", "=Height*0.88"),
+            ];
+            sh.sheet.add_geometry(detail);
+        }
+        "bpmn_script_task" | "bpmn_rule_task" | "bpmn_manual_task" => {
+            detail.rows = vec![
+                GeometryRow::move_to(1, "=Width*0.07", "=Height*0.88"),
+                GeometryRow::line_to(2, "=Width*0.22", "=Height*0.88"),
+                GeometryRow::move_to(3, "=Width*0.07", "=Height*0.78"),
+                GeometryRow::line_to(4, "=Width*0.22", "=Height*0.78"),
+                GeometryRow::move_to(5, "=Width*0.07", "=Height*0.68"),
+                GeometryRow::line_to(6, "=Width*0.18", "=Height*0.68"),
+            ];
+            sh.sheet.add_geometry(detail);
+        }
+        "uml_flow_final" => {
+            detail.rows = vec![
+                GeometryRow::move_to(1, "=Width*0.28", "=Height*0.28"),
+                GeometryRow::line_to(2, "=Width*0.72", "=Height*0.72"),
+                GeometryRow::move_to(3, "=Width*0.72", "=Height*0.28"),
+                GeometryRow::line_to(4, "=Width*0.28", "=Height*0.72"),
+            ];
+            sh.sheet.add_geometry(detail);
+        }
         _ => {
-            // Ensure rich interior technical lines on extended domain masters (never plain empty boxes for complex roles)
-            if !matches!(
-                category,
-                "Basic Shapes" | "Arrows"
-            ) || role.contains("star")
-                || role.contains("bevel")
-                || role.contains("fork")
-                || role.contains("join")
-                || role.contains("vert_bi")
-                || role.contains("striped")
-            {
-                detail.rows = vec![
-                    GeometryRow::move_to(1, "=Width*0.20", "=Height*0.68"),
-                    GeometryRow::line_to(2, "=Width*0.80", "=Height*0.68"),
-                    GeometryRow::move_to(3, "=Width*0.20", "=Height*0.34"),
-                    GeometryRow::line_to(4, "=Width*0.68", "=Height*0.34"),
-                ];
-                sh.sheet.add_geometry(detail);
-            }
+            // Pure canonical Visio shapes (`Start Event`, `End Event`, `Task`, `Process`, `Decision`,
+            // `Rectangle`, `Circle`, `Diamond`, etc.) remain clean without spurious interior lines!
         }
     }
 }
@@ -4666,8 +4759,8 @@ pub fn list_builtin_stencil_previews() -> BTreeMap<String, Vec<StencilMasterPrev
     let mut out: BTreeMap<String, Vec<StencilMasterPreview>> = BTreeMap::new();
     let preview_w_in = 1.50;
     let preview_h_in = 1.00;
-    let max_box_w = 1.18;
-    let max_box_h = 0.74;
+    let max_box_w = 1.24;
+    let max_box_h = 0.80;
 
     let mut mini_doc = VisioDocument::new_blank("StencilPreview");
     if let Some(page) = mini_doc.page_mut(1) {
@@ -4682,7 +4775,7 @@ pub fn list_builtin_stencil_previews() -> BTreeMap<String, Vec<StencilMasterPrev
             Some(Unit::Inch),
         );
         page.page_sheet
-            .set_formula("PageColor", "=RGB(248,250,252)", Some(Unit::Color));
+            .set_formula("PageColor", "=RGB(255,255,255)", Some(Unit::Color));
     }
 
     for pack in packs {
@@ -4708,8 +4801,8 @@ pub fn list_builtin_stencil_previews() -> BTreeMap<String, Vec<StencilMasterPrev
                         line_formula = lc.formula.clone();
                     }
                     let scale: f64 = (max_box_w / orig_w).min(max_box_h / orig_h);
-                    let fit_w = (orig_w * scale).max(0.18);
-                    let fit_h = (orig_h * scale).max(0.14);
+                    let fit_w = (orig_w * scale).max(0.22);
+                    let fit_h = (orig_h * scale).max(0.18);
 
                     sh.sheet.set_formula(
                         "Width",
@@ -4774,7 +4867,10 @@ mod stencil_preview_tests {
             for m in masters {
                 assert!(m.svg.contains("<svg"), "missing <svg> in {}:{}", pack_name, m.name);
                 assert!(
-                    m.svg.contains("<path") || m.svg.contains("<ellipse") || m.svg.contains("<rect"),
+                    m.svg.contains("<path")
+                        || m.svg.contains("<ellipse")
+                        || m.svg.contains("<rect")
+                        || m.svg.contains("<polygon"),
                     "missing vector primitive in {}:{}",
                     pack_name,
                     m.name
@@ -4783,11 +4879,13 @@ mod stencil_preview_tests {
                     || pack_name.starts_with("Servers")
                     || pack_name.starts_with("Network")
                 {
-                    let prim_count =
-                        m.svg.matches("<path").count() + m.svg.matches("<ellipse").count();
+                    let prim_count = m.svg.matches("<path").count()
+                        + m.svg.matches("<ellipse").count()
+                        + m.svg.matches("<polygon").count()
+                        + m.svg.matches("<rect").count();
                     assert!(
-                        prim_count >= 2,
-                        "Stencil {}:{} must have multi-geometry interior detail (got {prim_count})",
+                        prim_count >= 3,
+                        "Stencil {}:{} must have rich multi-element 1:1 Visio detail (got {prim_count})",
                         pack_name,
                         m.name
                     );

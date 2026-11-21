@@ -193,6 +193,18 @@ object NativeBridge {
     ): Long
 
     @JvmStatic
+    external fun nativeTransformShape(
+        docPtr: Long,
+        pageId: Int,
+        shapeId: Long,
+        pinXIn: Double,
+        pinYIn: Double,
+        widthIn: Double,
+        heightIn: Double,
+        angleDeg: Double
+    ): Boolean
+
+    @JvmStatic
     external fun nativeDeleteShapes(docPtr: Long, pageId: Int, shapeIds: LongArray): Int
 
     @JvmStatic
@@ -905,8 +917,8 @@ object BuiltInStencilCatalog {
         StencilMasterItem("Callouts, Notes & Containers::Callout Bubble", "Callout Bubble", "Callouts, Notes & Containers", "1.70 in", "1.10 in", "RGB(254,249,195)", "Callout"),
         StencilMasterItem("Cross-Functional Swimlanes::Horizontal Swimlane", "Horizontal Swimlane", "Cross-Functional Swimlanes", "8.50 in", "2.20 in", "RGB(248,250,252)", "Swimlane"),
         StencilMasterItem("BPMN 2.0::User Task", "User Task", "BPMN 2.0", "1.75 in", "1.00 in", "RGB(232,240,254)", "RoundedRect"),
-        StencilMasterItem("BPMN 2.0::Exclusive Gateway", "Exclusive Gateway", "BPMN 2.0", "GUARD(0.75 in)", "GUARD(0.75 in)", "RGB(254,247,224)", "Diamond"),
-        StencilMasterItem("BPMN 2.0::Start Event", "Start Event", "BPMN 2.0", "GUARD(0.50 in)", "GUARD(0.50 in)", "RGB(230,244,234)", "Circle"),
+        StencilMasterItem("BPMN 2.0::Exclusive Gateway", "Exclusive Gateway", "BPMN 2.0", "0.75 in", "0.75 in", "RGB(254,247,224)", "Diamond"),
+        StencilMasterItem("BPMN 2.0::Start Event", "Start Event", "BPMN 2.0", "0.50 in", "0.50 in", "RGB(230,244,234)", "Circle"),
         StencilMasterItem("UML 2.5::Class", "Class", "UML 2.5", "2.40 in", "1.60 in", "RGB(243,229,245)", "ClassBox"),
         StencilMasterItem("UML 2.5::Component", "Component", "UML 2.5", "2.20 in", "1.20 in", "RGB(224,242,241)", "Component"),
         StencilMasterItem("Database Crow's Foot & IDEF1X::Strong Entity", "Strong Entity", "Database Crow's Foot & IDEF1X", "2.20 in", "1.30 in", "RGB(239,246,255)", "ClassBox"),

@@ -367,164 +367,248 @@ fn render_single_shape_svg(
         ""
     };
 
-    for path in &vis.paths {
-        if path.no_show || path.verbs_page_space.is_empty() {
-            continue;
-        }
-        let p_fill = if path.no_fill { "none" } else { &fill_paint };
-        let p_stroke = if path.no_line { "none" } else { &stroke };
+    let has_primary_foreign_svg = shape_opt.is_some_and(|sh| {
+        sh.sheet.get_bool("User.ForeignSvgPrimary").unwrap_or(false)
+            && sh
+                .foreign_data
+                .as_ref()
+                .is_some_and(|fd| fd.media_type.eq_ignore_ascii_case("SVG") && !fd.data.is_empty())
+    });
 
-        let mut d = String::new();
-        let mut sketch_d = String::new();
-        let mut last_pt = [0.0, 0.0];
-        let mut seg_idx = 0u32;
+    if !has_primary_foreign_svg {
+        for path in &vis.paths {
+            if path.no_show || path.verbs_page_space.is_empty() {
+                continue;
+            }
+            let path_fill_owned = path.fill_color.map(|c| c.to_hex_rgb());
+            let path_stroke_owned = path.stroke_color.map(|c| c.to_hex_rgb());
+            let p_fill = if path.no_fill {
+                "none"
+            } else {
+                path_fill_owned.as_deref().unwrap_or(&fill_paint)
+            };
+            let p_stroke = if path.no_line {
+                "none"
+            } else {
+                path_stroke_owned.as_deref().unwrap_or(&stroke)
+            };
+            let p_sw_px = path
+                .stroke_weight_in
+                .map(|w| (w * ppi).max(0.65))
+                .unwrap_or(sw_px);
 
-        for verb in &path.verbs_page_space {
-            match verb {
-                EvaluatedPathVerb::MoveTo(p) => {
-                    let _ = write!(d, "M {:.2} {:.2} ", to_svg_x(p[0]), to_svg_y(p[1]));
-                    if sketchy {
-                        let _ = write!(sketch_d, "M {:.2} {:.2} ", to_svg_x(p[0]) + 1.1, to_svg_y(p[1]) - 0.9);
+            let mut d = String::new();
+            let mut sketch_d = String::new();
+            let mut last_pt = [0.0, 0.0];
+            let mut seg_idx = 0u32;
+
+            for verb in &path.verbs_page_space {
+                match verb {
+                    EvaluatedPathVerb::MoveTo(p) => {
+                        let _ = write!(d, "M {:.2} {:.2} ", to_svg_x(p[0]), to_svg_y(p[1]));
+                        if sketchy {
+                            let _ = write!(
+                                sketch_d,
+                                "M {:.2} {:.2} ",
+                                to_svg_x(p[0]) + 1.1,
+                                to_svg_y(p[1]) - 0.9
+                            );
+                        }
+                        last_pt = *p;
                     }
-                    last_pt = *p;
-                }
-                EvaluatedPathVerb::LineTo(p) => {
-                    let sx = to_svg_x(p[0]);
-                    let sy = to_svg_y(p[1]);
-                    if sketchy {
-                        let mx = (to_svg_x(last_pt[0]) + sx) * 0.5;
-                        let my = (to_svg_y(last_pt[1]) + sy) * 0.5;
-                        let jitter = if (vis.shape_id as u32 + seg_idx) % 2 == 0 { 2.2 } else { -2.2 };
-                        let _ = write!(d, "Q {:.2} {:.2} {:.2} {:.2} ", mx + jitter, my - jitter, sx, sy);
-                        let _ = write!(
-                            sketch_d,
-                            "Q {:.2} {:.2} {:.2} {:.2} ",
-                            mx - jitter * 0.7,
-                            my + jitter * 0.7,
-                            sx - 0.8,
-                            sy + 0.8
-                        );
-                    } else {
-                        let _ = write!(d, "L {:.2} {:.2} ", sx, sy);
+                    EvaluatedPathVerb::LineTo(p) => {
+                        let sx = to_svg_x(p[0]);
+                        let sy = to_svg_y(p[1]);
+                        if sketchy {
+                            let mx = (to_svg_x(last_pt[0]) + sx) * 0.5;
+                            let my = (to_svg_y(last_pt[1]) + sy) * 0.5;
+                            let jitter = if (vis.shape_id as u32 + seg_idx) % 2 == 0 {
+                                2.2
+                            } else {
+                                -2.2
+                            };
+                            let _ = write!(
+                                d,
+                                "Q {:.2} {:.2} {:.2} {:.2} ",
+                                mx + jitter,
+                                my - jitter,
+                                sx,
+                                sy
+                            );
+                            let _ = write!(
+                                sketch_d,
+                                "Q {:.2} {:.2} {:.2} {:.2} ",
+                                mx - jitter * 0.7,
+                                my + jitter * 0.7,
+                                sx - 0.8,
+                                sy + 0.8
+                            );
+                        } else {
+                            let _ = write!(d, "L {:.2} {:.2} ", sx, sy);
+                        }
+                        last_pt = *p;
+                        seg_idx += 1;
                     }
-                    last_pt = *p;
-                    seg_idx += 1;
-                }
-                EvaluatedPathVerb::QuadTo { ctrl, to } => {
-                    let _ = write!(
-                        d,
-                        "Q {:.2} {:.2} {:.2} {:.2} ",
-                        to_svg_x(ctrl[0]),
-                        to_svg_y(ctrl[1]),
-                        to_svg_x(to[0]),
-                        to_svg_y(to[1])
-                    );
-                    last_pt = *to;
-                }
-                EvaluatedPathVerb::CubicTo { ctrl1, ctrl2, to } => {
-                    let _ = write!(
-                        d,
-                        "C {:.2} {:.2} {:.2} {:.2} {:.2} {:.2} ",
-                        to_svg_x(ctrl1[0]),
-                        to_svg_y(ctrl1[1]),
-                        to_svg_x(ctrl2[0]),
-                        to_svg_y(ctrl2[1]),
-                        to_svg_x(to[0]),
-                        to_svg_y(to[1])
-                    );
-                    last_pt = *to;
-                }
-                EvaluatedPathVerb::ArcTo { to, bow } => {
-                    let chord = ((to[0] - last_pt[0]).powi(2) + (to[1] - last_pt[1]).powi(2)).sqrt();
-                    if bow.abs() < 1e-6 || chord < 1e-6 {
-                        let _ = write!(d, "L {:.2} {:.2} ", to_svg_x(to[0]), to_svg_y(to[1]));
-                    } else {
-                        let r_in = (chord * chord) / (8.0 * bow.abs()) + bow.abs() * 0.5;
-                        let r_px = r_in * ppi;
-                        let sweep = if *bow > 0.0 { 0 } else { 1 };
+                    EvaluatedPathVerb::QuadTo { ctrl, to } => {
                         let _ = write!(
                             d,
-                            "A {:.2} {:.2} 0 0 {sweep} {:.2} {:.2} ",
-                            r_px,
-                            r_px,
+                            "Q {:.2} {:.2} {:.2} {:.2} ",
+                            to_svg_x(ctrl[0]),
+                            to_svg_y(ctrl[1]),
                             to_svg_x(to[0]),
                             to_svg_y(to[1])
                         );
+                        last_pt = *to;
                     }
-                    last_pt = *to;
+                    EvaluatedPathVerb::CubicTo { ctrl1, ctrl2, to } => {
+                        let _ = write!(
+                            d,
+                            "C {:.2} {:.2} {:.2} {:.2} {:.2} {:.2} ",
+                            to_svg_x(ctrl1[0]),
+                            to_svg_y(ctrl1[1]),
+                            to_svg_x(ctrl2[0]),
+                            to_svg_y(ctrl2[1]),
+                            to_svg_x(to[0]),
+                            to_svg_y(to[1])
+                        );
+                        last_pt = *to;
+                    }
+                    EvaluatedPathVerb::ArcTo { to, bow } => {
+                        let chord =
+                            ((to[0] - last_pt[0]).powi(2) + (to[1] - last_pt[1]).powi(2)).sqrt();
+                        if bow.abs() < 1e-6 || chord < 1e-6 {
+                            let _ = write!(d, "L {:.2} {:.2} ", to_svg_x(to[0]), to_svg_y(to[1]));
+                        } else {
+                            let r_in = (chord * chord) / (8.0 * bow.abs()) + bow.abs() * 0.5;
+                            let r_px = r_in * ppi;
+                            let sweep = if *bow > 0.0 { 0 } else { 1 };
+                            let _ = write!(
+                                d,
+                                "A {:.2} {:.2} 0 0 {sweep} {:.2} {:.2} ",
+                                r_px,
+                                r_px,
+                                to_svg_x(to[0]),
+                                to_svg_y(to[1])
+                            );
+                        }
+                        last_pt = *to;
+                    }
+                    EvaluatedPathVerb::Ellipse {
+                        center, rx, ry, ..
+                    } => {
+                        let cx = to_svg_x(center[0]);
+                        let cy = to_svg_y(center[1]);
+                        let rx_px = rx * ppi;
+                        let ry_px = ry * ppi;
+                        let _ = writeln!(
+                            body,
+                            "<ellipse cx=\"{cx:.2}\" cy=\"{cy:.2}\" rx=\"{rx_px:.2}\" ry=\"{ry_px:.2}\" fill=\"{p_fill}\" stroke=\"{p_stroke}\" stroke-width=\"{p_sw_px:.2}\"/>"
+                        );
+                    }
+                    EvaluatedPathVerb::Close => d.push_str("Z "),
                 }
-                EvaluatedPathVerb::Ellipse { center, rx, ry, .. } => {
-                    let cx = to_svg_x(center[0]);
-                    let cy = to_svg_y(center[1]);
-                    let rx_px = rx * ppi;
-                    let ry_px = ry * ppi;
-                    let _ = writeln!(
-                        body,
-                        "<ellipse cx=\"{cx:.2}\" cy=\"{cy:.2}\" rx=\"{rx_px:.2}\" ry=\"{ry_px:.2}\" fill=\"{p_fill}\" stroke=\"{p_stroke}\" stroke-width=\"{sw_px:.2}\"/>"
-                    );
-                }
-                EvaluatedPathVerb::Close => d.push_str("Z "),
             }
-        }
-        if !d.is_empty() {
-            let _ = writeln!(
-                body,
-                "<path d=\"{}\" fill=\"{p_fill}\" stroke=\"{p_stroke}\" stroke-width=\"{sw_px:.2}\"{marker_end}/>",
-                d.trim()
-            );
-            if sketchy && !sketch_d.is_empty() && p_stroke != "none" {
+            if !d.is_empty() {
                 let _ = writeln!(
                     body,
-                    "<path d=\"{}\" fill=\"none\" stroke=\"{p_stroke}\" stroke-width=\"{:.2}\" stroke-opacity=\"0.55\"/>",
-                    sketch_d.trim(),
-                    (sw_px * 0.7).max(0.6)
+                    "<path d=\"{}\" fill=\"{p_fill}\" stroke=\"{p_stroke}\" stroke-width=\"{p_sw_px:.2}\" stroke-linejoin=\"round\" stroke-linecap=\"round\"{marker_end}/>",
+                    d.trim()
                 );
+                if sketchy && !sketch_d.is_empty() && p_stroke != "none" {
+                    let _ = writeln!(
+                        body,
+                        "<path d=\"{}\" fill=\"none\" stroke=\"{p_stroke}\" stroke-width=\"{:.2}\" stroke-opacity=\"0.55\"/>",
+                        sketch_d.trim(),
+                        (p_sw_px * 0.7).max(0.6)
+                    );
+                }
             }
         }
     }
 
-    // Embedded `ForeignMediaData` Cropped & Tone-Adjusted Raster Image
+    // Embedded `ForeignMediaData` Vector SVG (synchronous zero-flicker inline `<svg>`) or Cropped Raster Image
     if let Some(sh) = shape_opt {
         if let Some(fd) = &sh.foreign_data {
             if !fd.data.is_empty() {
-                let mime = match fd.media_type.to_ascii_uppercase().as_str() {
-                    "JPG" | "JPEG" => "image/jpeg",
-                    "SVG" => "image/svg+xml",
-                    _ => "image/png",
-                };
-                let b64 = base64::engine::general_purpose::STANDARD.encode(&fd.data);
                 let box_left = to_svg_x(vis.transform.pin_x - vis.transform.width * 0.5);
                 let box_top = to_svg_y(vis.transform.pin_y + vis.transform.height * 0.5);
                 let box_w = (vis.transform.width * ppi).max(4.0);
                 let box_h = (vis.transform.height * ppi).max(4.0);
+                let cx = to_svg_x(vis.transform.pin_x);
+                let cy = to_svg_y(vis.transform.pin_y);
+                let angle_deg = vis.transform.angle_rad.to_degrees();
 
-                let crop_l = sh.sheet.get_f64("CropLeft").unwrap_or(0.0) * ppi;
-                let crop_r = sh.sheet.get_f64("CropRight").unwrap_or(0.0) * ppi;
-                let crop_t = sh.sheet.get_f64("CropTop").unwrap_or(0.0) * ppi;
-                let crop_b = sh.sheet.get_f64("CropBottom").unwrap_or(0.0) * ppi;
-                let brightness = sh.sheet.get_f64("Brightness").unwrap_or(1.0).clamp(0.1, 3.0);
-                let contrast = sh.sheet.get_f64("Contrast").unwrap_or(1.0).clamp(0.1, 3.0);
+                let mut inlined_svg = false;
+                if fd.media_type.eq_ignore_ascii_case("SVG") {
+                    if let Ok(svg_txt) = std::str::from_utf8(&fd.data) {
+                        if let Some((vb, inner)) = extract_inline_svg_payload(
+                            svg_txt,
+                            &format!("vx-{ns_prefix}-{}-", vis.shape_id),
+                        ) {
+                            if angle_deg.abs() > 0.01 {
+                                let _ = write!(
+                                    body,
+                                    "<g transform=\"rotate({:.2} {cx:.2} {cy:.2})\">",
+                                    -angle_deg
+                                );
+                            }
+                            let _ = writeln!(
+                                body,
+                                "<svg x=\"{box_left:.1}\" y=\"{box_top:.1}\" width=\"{box_w:.1}\" height=\"{box_h:.1}\" viewBox=\"{vb}\" preserveAspectRatio=\"none\" overflow=\"visible\">{inner}</svg>"
+                            );
+                            if angle_deg.abs() > 0.01 {
+                                body.push_str("</g>");
+                            }
+                            inlined_svg = true;
+                        }
+                    }
+                }
 
-                let clip_id = format!("vexio-imgclip-{ns_prefix}-{}", vis.shape_id);
-                let _ = writeln!(
-                    defs,
-                    "<clipPath id=\"{clip_id}\"><rect x=\"{:.1}\" y=\"{:.1}\" width=\"{:.1}\" height=\"{:.1}\"/></clipPath>",
-                    box_left + crop_l,
-                    box_top + crop_t,
-                    (box_w - crop_l - crop_r).max(2.0),
-                    (box_h - crop_t - crop_b).max(2.0)
-                );
-                let _ = writeln!(
-                    body,
-                    "<image href=\"data:{mime};base64,{b64}\" x=\"{box_left:.1}\" y=\"{box_top:.1}\" width=\"{box_w:.1}\" height=\"{box_h:.1}\" preserveAspectRatio=\"none\" clip-path=\"url(#{clip_id})\" style=\"filter:brightness({brightness:.2}) contrast({contrast:.2})\"/>"
-                );
+                if !inlined_svg {
+                    let mime = match fd.media_type.to_ascii_uppercase().as_str() {
+                        "JPG" | "JPEG" => "image/jpeg",
+                        "SVG" => "image/svg+xml",
+                        _ => "image/png",
+                    };
+                    let b64 = base64::engine::general_purpose::STANDARD.encode(&fd.data);
+                    let crop_l = sh.sheet.get_f64("CropLeft").unwrap_or(0.0) * ppi;
+                    let crop_r = sh.sheet.get_f64("CropRight").unwrap_or(0.0) * ppi;
+                    let crop_t = sh.sheet.get_f64("CropTop").unwrap_or(0.0) * ppi;
+                    let crop_b = sh.sheet.get_f64("CropBottom").unwrap_or(0.0) * ppi;
+                    let brightness = sh.sheet.get_f64("Brightness").unwrap_or(1.0).clamp(0.1, 3.0);
+                    let contrast = sh.sheet.get_f64("Contrast").unwrap_or(1.0).clamp(0.1, 3.0);
+
+                    let clip_id = format!("vexio-imgclip-{ns_prefix}-{}", vis.shape_id);
+                    let _ = writeln!(
+                        defs,
+                        "<clipPath id=\"{clip_id}\"><rect x=\"{:.1}\" y=\"{:.1}\" width=\"{:.1}\" height=\"{:.1}\"/></clipPath>",
+                        box_left + crop_l,
+                        box_top + crop_t,
+                        (box_w - crop_l - crop_r).max(2.0),
+                        (box_h - crop_t - crop_b).max(2.0)
+                    );
+                    let rot_attr = if angle_deg.abs() > 0.01 {
+                        format!(" transform=\"rotate({:.2} {cx:.2} {cy:.2})\"", -angle_deg)
+                    } else {
+                        String::new()
+                    };
+                    let _ = writeln!(
+                        body,
+                        "<image href=\"data:{mime};base64,{b64}\" x=\"{box_left:.1}\" y=\"{box_top:.1}\" width=\"{box_w:.1}\" height=\"{box_h:.1}\" preserveAspectRatio=\"none\" clip-path=\"url(#{clip_id})\"{rot_attr} style=\"filter:brightness({brightness:.2}) contrast({contrast:.2})\"/>"
+                    );
+                }
             }
         }
     }
 
     // Multi-Line & Inline Rich-Text Rendering (`**bold**`, `*italic*`, `__underline__`, `~~strike~~`, bullets, RTL, `[vert]`)
     if !vis.text.is_empty() {
-        render_rich_svg_text(body, vis, to_svg_x(vis.transform.pin_x), to_svg_y(vis.transform.pin_y));
+        render_rich_svg_text(
+            body,
+            vis,
+            to_svg_x(vis.txt_pos[0]),
+            to_svg_y(vis.txt_pos[1]),
+        );
     }
 
     // Subprocess `[+]` Visio Drill-Down Badge if shape links to a subprocess page
@@ -548,6 +632,27 @@ fn render_single_shape_svg(
     body.push_str("</g>\n");
 }
 
+fn extract_inline_svg_payload(svg_txt: &str, id_prefix: &str) -> Option<(String, String)> {
+    let open_idx = svg_txt.find("<svg")?;
+    let tag_end = svg_txt[open_idx..].find('>')? + open_idx;
+    let close_idx = svg_txt.rfind("</svg>")?;
+    if close_idx <= tag_end {
+        return None;
+    }
+    let header = &svg_txt[open_idx..=tag_end];
+    let vb = if let Some(vb_pos) = header.find("viewBox=\"") {
+        let rest = &header[vb_pos + 9..];
+        let end_q = rest.find('"')?;
+        rest[..end_q].to_string()
+    } else {
+        "0 0 100 100".to_string()
+    };
+    let inner = svg_txt[tag_end + 1..close_idx]
+        .replace("id=\"g", &format!("id=\"{id_prefix}g"))
+        .replace("url(#g", &format!("url(#{id_prefix}g"));
+    Some((vb, inner))
+}
+
 fn render_rich_svg_text(body: &mut String, vis: &EvaluatedShapeVisual, tx: f64, ty: f64) {
     let raw = vis.text.trim();
     let is_vertical = raw.starts_with("[vert]");
@@ -560,7 +665,14 @@ fn render_rich_svg_text(body: &mut String, vis: &EvaluatedShapeVisual, tx: f64, 
     let line_h = fsize * 1.25;
     let tcol = vis.text_color.to_hex_rgb();
     let lines: Vec<&str> = cleaned_raw.lines().collect();
-    let start_y = ty - ((lines.len().saturating_sub(1) as f64) * line_h * 0.5);
+    let is_external_caption =
+        vis.txt_pos[1] < vis.transform.pin_y - vis.transform.height * 0.48
+            || vis.txt_pos[1] > vis.transform.pin_y + vis.transform.height * 0.48;
+    let start_y = if is_external_caption && vis.txt_pos[1] < vis.transform.pin_y {
+        ty
+    } else {
+        ty - ((lines.len().saturating_sub(1) as f64) * line_h * 0.5)
+    };
 
     let writing_attr = if is_vertical {
         " writing-mode=\"vertical-rl\""
@@ -569,10 +681,15 @@ fn render_rich_svg_text(body: &mut String, vis: &EvaluatedShapeVisual, tx: f64, 
     } else {
         ""
     };
+    let halo_attr = if is_external_caption {
+        " paint-order=\"stroke\" stroke=\"#ffffff\" stroke-width=\"2.6\" stroke-linejoin=\"round\" font-weight=\"500\""
+    } else {
+        ""
+    };
 
     let _ = write!(
         body,
-        "<text x=\"{tx:.2}\" y=\"{start_y:.2}\" font-family=\"Segoe UI, Roboto, sans-serif\" font-size=\"{fsize:.1}\" fill=\"{tcol}\" text-anchor=\"middle\" dominant-baseline=\"middle\"{writing_attr}>"
+        "<text x=\"{tx:.2}\" y=\"{start_y:.2}\" font-family=\"Segoe UI, Roboto, sans-serif\" font-size=\"{fsize:.1}\" fill=\"{tcol}\" text-anchor=\"middle\" dominant-baseline=\"middle\"{writing_attr}{halo_attr}>"
     );
 
     for (idx, line) in lines.iter().enumerate() {
@@ -690,20 +807,21 @@ pub fn export_document_pdf(doc: &VisioDocument) -> Vec<u8> {
         let mut stream = String::new();
 
         for vis in &visuals {
-            let lw = (vis.stroke_weight_in * 72.0).max(0.5);
-            let _ = writeln!(stream, "{lw:.2} w");
-            if let Some(sc) = vis.stroke_color {
-                let [r, g, b, _] = sc.to_linear_f32();
-                let _ = writeln!(stream, "{r:.3} {g:.3} {b:.3} RG");
-            }
-            if let Some(fc) = vis.fill_color {
-                let [r, g, b, _] = fc.to_linear_f32();
-                let _ = writeln!(stream, "{r:.3} {g:.3} {b:.3} rg");
-            }
-
             for path in &vis.paths {
                 if path.no_show || path.verbs_page_space.is_empty() {
                     continue;
+                }
+                let lw = (path.stroke_weight_in.unwrap_or(vis.stroke_weight_in) * 72.0).max(0.5);
+                let _ = writeln!(stream, "{lw:.2} w");
+                let eff_stroke = path.stroke_color.or(vis.stroke_color);
+                let eff_fill = path.fill_color.or(vis.fill_color);
+                if let Some(sc) = eff_stroke {
+                    let [r, g, b, _] = sc.to_linear_f32();
+                    let _ = writeln!(stream, "{r:.3} {g:.3} {b:.3} RG");
+                }
+                if let Some(fc) = eff_fill {
+                    let [r, g, b, _] = fc.to_linear_f32();
+                    let _ = writeln!(stream, "{r:.3} {g:.3} {b:.3} rg");
                 }
                 for verb in &path.verbs_page_space {
                     match verb {
@@ -749,8 +867,8 @@ pub fn export_document_pdf(doc: &VisioDocument) -> Vec<u8> {
                     }
                 }
                 let paint_op = match (
-                    !path.no_fill && vis.fill_color.is_some(),
-                    !path.no_line && vis.stroke_color.is_some(),
+                    !path.no_fill && eff_fill.is_some(),
+                    !path.no_line && eff_stroke.is_some(),
                 ) {
                     (true, true) => "B",
                     (true, false) => "f",
@@ -768,8 +886,8 @@ pub fn export_document_pdf(doc: &VisioDocument) -> Vec<u8> {
                     .unwrap_or("")
                     .replace('(', "\\(")
                     .replace(')', "\\)");
-                let tx = vis.transform.pin_x * 72.0 - (first.len() as f64 * vis.font_size_pt * 0.25);
-                let ty = vis.transform.pin_y * 72.0 - vis.font_size_pt * 0.35;
+                let tx = vis.txt_pos[0] * 72.0 - (first.len() as f64 * vis.font_size_pt * 0.25);
+                let ty = vis.txt_pos[1] * 72.0 - vis.font_size_pt * 0.35;
                 let _ = writeln!(
                     stream,
                     "BT /F1 {:.1} Tf {:.2} {:.2} Td ({first}) Tj ET",

@@ -1472,12 +1472,12 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
         "Value Stream Mapping (Lean VSM)",
     ]
 
-    // Fallback Stencil Seed (superseded immediately by 160-master C-ABI catalog on load)
+    // Fallback Stencil Seed (superseded immediately by 519-master C-ABI catalog on load)
     nonisolated public static let builtInStencilCatalog: [VexioStencilMaster] = [
         VexioStencilMaster(id: "Basic Flowchart::Process", category: "Basic Flowchart", name: "Process", symbolName: "rectangle", defaultWidthFormula: "1.5 in", defaultHeightFormula: "0.875 in", defaultFillFormula: "RGB(235,244,255)", isGuardedAspect: false),
         VexioStencilMaster(id: "Basic Flowchart::Decision", category: "Basic Flowchart", name: "Decision", symbolName: "diamond", defaultWidthFormula: "1.25 in", defaultHeightFormula: "1.0 in", defaultFillFormula: "RGB(255,246,229)", isGuardedAspect: false),
         VexioStencilMaster(id: "Basic Flowchart::Start / End", category: "Basic Flowchart", name: "Start / End", symbolName: "capsule", defaultWidthFormula: "1.5 in", defaultHeightFormula: "0.625 in", defaultFillFormula: "RGB(231,250,239)", isGuardedAspect: false),
-        VexioStencilMaster(id: "Basic Flowchart::Database", category: "Basic Flowchart", name: "Database", symbolName: "cylinder.split.1x2", defaultWidthFormula: "1.25 in", defaultHeightFormula: "1.375 in", defaultFillFormula: "RGB(240,238,255)", isGuardedAspect: true),
+        VexioStencilMaster(id: "Basic Flowchart::Database", category: "Basic Flowchart", name: "Database", symbolName: "cylinder.split.1x2", defaultWidthFormula: "1.25 in", defaultHeightFormula: "1.375 in", defaultFillFormula: "RGB(240,238,255)", isGuardedAspect: false),
     ]
 
     nonisolated public static func symbolName(forCategory category: String, masterName: String) -> String {
@@ -1582,7 +1582,7 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
                         defaultWidthFormula: String(format: "%.3f in", item.widthIn),
                         defaultHeightFormula: String(format: "%.3f in", item.heightIn),
                         defaultFillFormula: fillClean,
-                        isGuardedAspect: abs(item.widthIn - item.heightIn) < 0.01 && item.widthIn <= 0.85,
+                        isGuardedAspect: false,
                         svgPreview: item.svg
                     )
                 )
@@ -1699,9 +1699,10 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
         case 2: return .crosshair
         case 3: return .closedHand
         case 4: return .crosshair
-        case 5, 7: return .iBeam
+        case 5: return .resizeUpDown
         case 6: return .resizeLeftRight
-        case 8: return .crosshair
+        case 7: return .iBeam
+        case 8, 11, 12, 13: return .crosshair
         case 9: return .dragLink
         case 10: return .operationNotAllowed
         default: return .arrow

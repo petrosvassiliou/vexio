@@ -127,6 +127,9 @@ pub struct EvaluatedGeometryPath {
     pub no_fill: bool,
     pub no_line: bool,
     pub no_show: bool,
+    pub fill_color: Option<RgbaColor>,
+    pub stroke_color: Option<RgbaColor>,
+    pub stroke_weight_in: Option<f64>,
     pub verbs_page_space: Vec<EvaluatedPathVerb>,
 }
 
@@ -145,6 +148,7 @@ pub struct EvaluatedShapeVisual {
     pub end_arrow: u8,
     pub begin_arrow: u8,
     pub text: String,
+    pub txt_pos: [f64; 2],
     pub font_size_pt: f64,
     pub text_color: RgbaColor,
 }
@@ -2026,10 +2030,16 @@ fn collect_shape_visuals(
                 }
             }
         }
+        let path_fill = layer_color_override.or_else(|| ss.get_color(&format!("{prefix}.FillForegnd")));
+        let path_stroke = layer_color_override.or_else(|| ss.get_color(&format!("{prefix}.LineColor")));
+        let path_weight = ss.get_f64(&format!("{prefix}.LineWeight"));
         paths.push(EvaluatedGeometryPath {
             no_fill,
             no_line,
             no_show,
+            fill_color: path_fill,
+            stroke_color: path_stroke,
+            stroke_weight_in: path_weight,
             verbs_page_space: verbs,
         });
     }
@@ -2055,6 +2065,10 @@ fn collect_shape_visuals(
             .or(Some(RgbaColor::BLACK))
     };
 
+    let txt_lx = ss.get_f64("TxtPinX").unwrap_or(w * 0.5);
+    let txt_ly = ss.get_f64("TxtPinY").unwrap_or(h * 0.5);
+    let (txt_px, txt_py) = world_tf.local_to_parent(txt_lx, txt_ly);
+
     out.push(EvaluatedShapeVisual {
         shape_id: shape.id,
         kind: shape.kind,
@@ -2069,6 +2083,7 @@ fn collect_shape_visuals(
         end_arrow: ss.get_f64("EndArrow").unwrap_or(0.0) as u8,
         begin_arrow: ss.get_f64("BeginArrow").unwrap_or(0.0) as u8,
         text: shape.text.clone(),
+        txt_pos: [txt_px, txt_py],
         font_size_pt: ss
             .get_f64("Char.Size")
             .map(|inches| inches * 72.0)

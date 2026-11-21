@@ -257,6 +257,256 @@ impl DocumentSession {
         Ok(next_id)
     }
 
+    /// Interactive 8-Handle Resize + Rotation transaction shared across WASM, C-ABI (WinUI 3 / Swift), and JNI.
+    #[allow(clippy::too_many_arguments)]
+    pub fn transform_shape(
+        &mut self,
+        page_id: u32,
+        shape_id: u64,
+        pin_x_in: f64,
+        pin_y_in: f64,
+        mut width_in: f64,
+        mut height_in: f64,
+        angle_deg: f64,
+    ) -> Result<(), CoreError> {
+        let Some(sh) = self.doc.page(page_id).and_then(|p| p.find_shape(shape_id)) else {
+            return Err(CoreError::Journal(JournalError::ShapeNotFound(shape_id)));
+        };
+        let cur_w = sh.sheet.get_f64("Width").unwrap_or(1.0);
+        let cur_h = sh.sheet.get_f64("Height").unwrap_or(1.0);
+        if sh.sheet.get_bool("LockWidth").unwrap_or(false) {
+            width_in = cur_w;
+        }
+        if sh.sheet.get_bool("LockHeight").unwrap_or(false) {
+            height_in = cur_h;
+        }
+        if sh.sheet.get_bool("LockAspect").unwrap_or(false) && cur_h > 1e-6 {
+            let aspect = cur_w / cur_h;
+            height_in = (width_in / aspect).max(0.15);
+        }
+        width_in = width_in.max(0.15);
+        height_in = height_in.max(0.15);
+
+        let mut cmds = Vec::new();
+        for (cname, new_f) in [
+            ("PinX", format!("{} in", format_clean_f64(pin_x_in))),
+            ("PinY", format!("{} in", format_clean_f64(pin_y_in))),
+            ("Width", format!("{} in", format_clean_f64(width_in))),
+            ("Height", format!("{} in", format_clean_f64(height_in))),
+        ] {
+            let old_f = sh
+                .sheet
+                .get_cell(cname)
+                .map(|c| c.formula.clone())
+                .unwrap_or_else(|| "0 in".into());
+            cmds.push(DocCommand::SetCellFormula {
+                page_id,
+                shape_id,
+                cell_name: cname.into(),
+                old_formula: old_f,
+                new_formula: new_f,
+                force_setf: false,
+            });
+        }
+        for (loc_cell, prop_expr) in [("LocPinX", "=Width*0.5"), ("LocPinY", "=Height*0.5")] {
+            if let Some(c) = sh.sheet.get_cell(loc_cell) {
+                let up = c.formula.to_ascii_uppercase();
+                if !up.contains("WIDTH") && !up.contains("HEIGHT") && !c.is_guarded() {
+                    cmds.push(DocCommand::SetCellFormula {
+                        page_id,
+                        shape_id,
+                        cell_name: loc_cell.into(),
+                        old_formula: c.formula.clone(),
+                        new_formula: prop_expr.into(),
+                        force_setf: false,
+                    });
+                }
+            }
+        }
+        if !sh.sheet.get_bool("LockRotate").unwrap_or(false) {
+            let old_a = sh
+                .sheet
+                .get_cell("Angle")
+                .map(|c| c.formula.clone())
+                .unwrap_or_else(|| "0 deg".into());
+            cmds.push(DocCommand::SetCellFormula {
+                page_id,
+                shape_id,
+                cell_name: "Angle".into(),
+                old_formula: old_a,
+                new_formula: format!("{} deg", format_clean_f64(angle_deg)),
+                force_setf: false,
+            });
+        }
+
+        self.journal.execute(
+            &mut self.doc,
+            DocCommand::Batch {
+                label: "Transform Shape".into(),
+                commands: cmds,
+            },
+        )?;
+        route_page_connectors(&mut self.doc, page_id);
+        Ok(())
+    }
+
+    /// Import an external Microsoft Visio `.vssx`, `.vssm`, `.vss`, `.vsdx`, or `.vdx` stencil package
+    /// directly into the active session's stencil catalog with lossless geometry, `ForeignData` SVGs/PNGs,
+    /// proportional resizing, and rendered SVG thumbnails!
+    pub fn import_stencil_package(
+        &mut self,
+        file_name: &str,
+        bytes: &[u8],
+    ) -> Result<(String, Vec<crate::domains::StencilMasterPreview>), CoreError> {
+        let ext = file_name
+            .rsplit('.')
+            .next()
+            .unwrap_or("vssx")
+            .trim()
+            .to_ascii_lowercase();
+        let imported_doc = match ext.as_str() {
+            "vss" | "vsd" | "vst" | "vdx" | "vdw" => {
+                vexio_vsd_legacy::read_legacy_auto(bytes, &ext)?
+            }
+            _ => {
+                let (d, _) = read_vsdx(bytes)?;
+                d
+            }
+        };
+
+        let stem = file_name
+            .rsplit(['/', '\\'])
+            .next()
+            .unwrap_or(file_name)
+            .split('.')
+            .next()
+            .unwrap_or("Imported Stencil")
+            .trim();
+        let pack_title = if stem.is_empty() {
+            "Imported Visio Stencil".to_string()
+        } else {
+            stem.replace(['_', '-'], " ")
+        };
+
+        let mut masters = imported_doc.masters;
+        if masters.is_empty() {
+            if let Some(first_page) = imported_doc.pages.first() {
+                for (idx, sh) in first_page.shapes.iter().enumerate() {
+                    if sh.kind == ShapeKind::Connector1D {
+                        continue;
+                    }
+                    let m_name = if !sh.text.trim().is_empty() {
+                        sh.text.lines().next().unwrap_or(&sh.name).trim().to_string()
+                    } else {
+                        sh.name.clone()
+                    };
+                    masters.push(vexio_shapesheet::VisioMaster {
+                        id: (idx + 1) as u32,
+                        name: m_name.clone(),
+                        name_u: m_name,
+                        base_id: format!("{{IMPORTED-{:04}}}", idx + 1),
+                        unique_id: format!("{{IMPORTED-U-{:04}}}", idx + 1),
+                        prompt: pack_title.clone(),
+                        icon_bytes: None,
+                        page_sheet: vexio_shapesheet::ShapeSheet::new(),
+                        shapes: vec![sh.clone()],
+                    });
+                }
+            }
+        }
+
+        // Normalize imported masters for smooth center-pinned 8-handle resizing and cardinal ports
+        for m in &mut masters {
+            for s in &mut m.shapes {
+                s.sheet.set_formula("LocPinX", "=Width*0.5", Some(Unit::Inch));
+                s.sheet.set_formula("LocPinY", "=Height*0.5", Some(Unit::Inch));
+                s.sheet.set_formula("LockWidth", "FALSE", Some(Unit::Boolean));
+                s.sheet.set_formula("LockHeight", "FALSE", Some(Unit::Boolean));
+                s.sheet.set_formula("LockAspect", "FALSE", Some(Unit::Boolean));
+                attach_cardinal_ports_to_shape(s);
+            }
+        }
+
+        let preview_w_in = 1.50;
+        let preview_h_in = 1.00;
+        let mut mini_doc = VisioDocument::new_blank("ImportedStencilPreview");
+        if let Some(page) = mini_doc.page_mut(1) {
+            page.page_sheet.set_formula("PageWidth", "1.5 in", Some(Unit::Inch));
+            page.page_sheet.set_formula("PageHeight", "1 in", Some(Unit::Inch));
+            page.page_sheet
+                .set_formula("PageColor", "=RGB(255,255,255)", Some(Unit::Color));
+        }
+
+        let mut previews = Vec::with_capacity(masters.len());
+        for m in &masters {
+            let mut orig_w = 1.5;
+            let mut orig_h = 1.0;
+            let mut fill_formula = "=RGB(239,246,255)".to_string();
+            let mut line_formula = "=RGB(37,99,235)".to_string();
+            if let Some(page) = mini_doc.page_mut(1) {
+                page.shapes.clear();
+                if let Some(tpl) = m.shapes.first() {
+                    let mut sh = tpl.clone();
+                    sh.id = 1;
+                    sh.text.clear();
+                    orig_w = sh.sheet.get_f64("Width").unwrap_or(1.5).max(0.15);
+                    orig_h = sh.sheet.get_f64("Height").unwrap_or(1.0).max(0.15);
+                    if let Some(fc) = sh.sheet.get_cell("FillForegnd") {
+                        fill_formula = fc.formula.clone();
+                    }
+                    if let Some(lc) = sh.sheet.get_cell("LineColor") {
+                        line_formula = lc.formula.clone();
+                    }
+                    let scale = (1.24 / orig_w).min(0.80 / orig_h);
+                    sh.sheet.set_formula(
+                        "Width",
+                        format!("{} in", format_clean_f64((orig_w * scale).max(0.22))),
+                        Some(Unit::Inch),
+                    );
+                    sh.sheet.set_formula(
+                        "Height",
+                        format!("{} in", format_clean_f64((orig_h * scale).max(0.18))),
+                        Some(Unit::Inch),
+                    );
+                    sh.sheet
+                        .set_formula("PinX", format!("{} in", format_clean_f64(preview_w_in * 0.5)), Some(Unit::Inch));
+                    sh.sheet
+                        .set_formula("PinY", format!("{} in", format_clean_f64(preview_h_in * 0.5)), Some(Unit::Inch));
+                    page.shapes.push(sh);
+                }
+            }
+            ReactiveEngine::recalculate_document(&mut mini_doc);
+            let svg = export_page_svg(&mini_doc, 1);
+            previews.push(crate::domains::StencilMasterPreview {
+                name: m.name.clone(),
+                prompt: m.prompt.clone(),
+                category: pack_title.clone(),
+                width_in: orig_w,
+                height_in: orig_h,
+                fill_formula,
+                line_formula,
+                svg,
+            });
+        }
+
+        let new_pack = StencilPack {
+            title: pack_title.clone(),
+            category: pack_title.clone(),
+            masters,
+        };
+        if let Some(existing) = self
+            .builtin_stencils
+            .iter_mut()
+            .find(|p| p.title.eq_ignore_ascii_case(&pack_title))
+        {
+            *existing = new_pack;
+        } else {
+            self.builtin_stencils.insert(0, new_pack);
+        }
+
+        Ok((pack_title, previews))
+    }
+
     /// Draw a straight 1D Line segment (`EndArrow = 0`, `ShapeRouteStyle = 1`).
     pub fn draw_line(
         &mut self,

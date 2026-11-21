@@ -744,83 +744,37 @@ impl WasmVexioSession {
         shape_id: u32,
         pin_x_in: f64,
         pin_y_in: f64,
-        mut width_in: f64,
-        mut height_in: f64,
+        width_in: f64,
+        height_in: f64,
         angle_deg: f64,
     ) -> bool {
-        let sid = shape_id as u64;
-        let Some(sh) = self.inner.doc.page(page_id).and_then(|p| p.find_shape(sid)) else {
-            return false;
-        };
-        let cur_w = sh.sheet.get_f64("Width").unwrap_or(1.0);
-        let cur_h = sh.sheet.get_f64("Height").unwrap_or(1.0);
-        if sh.sheet.get_bool("LockWidth").unwrap_or(false) {
-            width_in = cur_w;
-        }
-        if sh.sheet.get_bool("LockHeight").unwrap_or(false) {
-            height_in = cur_h;
-        }
-        if sh.sheet.get_bool("LockAspect").unwrap_or(false) && cur_h > 1e-6 {
-            let aspect = cur_w / cur_h;
-            height_in = (width_in / aspect).max(0.15);
-        }
-        width_in = width_in.max(0.15);
-        height_in = height_in.max(0.15);
-
-        let mut cmds = Vec::new();
-        for (cname, new_f) in [
-            ("PinX", format!("{} in", format_clean_f64(pin_x_in))),
-            ("PinY", format!("{} in", format_clean_f64(pin_y_in))),
-            ("Width", format!("{} in", format_clean_f64(width_in))),
-            ("Height", format!("{} in", format_clean_f64(height_in))),
-        ] {
-            let old_f = sh
-                .sheet
-                .get_cell(cname)
-                .map(|c| c.formula.clone())
-                .unwrap_or_else(|| "0 in".into());
-            cmds.push(DocCommand::SetCellFormula {
+        self.inner
+            .transform_shape(
                 page_id,
-                shape_id: sid,
-                cell_name: cname.into(),
-                old_formula: old_f,
-                new_formula: new_f,
-                force_setf: false,
-            });
-        }
-        if !sh.sheet.get_bool("LockRotate").unwrap_or(false) {
-            let old_a = sh
-                .sheet
-                .get_cell("Angle")
-                .map(|c| c.formula.clone())
-                .unwrap_or_else(|| "0 deg".into());
-            cmds.push(DocCommand::SetCellFormula {
-                page_id,
-                shape_id: sid,
-                cell_name: "Angle".into(),
-                old_formula: old_a,
-                new_formula: format!("{} deg", format_clean_f64(angle_deg)),
-                force_setf: false,
-            });
-        }
-
-        if self
-            .inner
-            .journal
-            .execute(
-                &mut self.inner.doc,
-                DocCommand::Batch {
-                    label: "Transform Shape".into(),
-                    commands: cmds,
-                },
+                shape_id as u64,
+                pin_x_in,
+                pin_y_in,
+                width_in,
+                height_in,
+                angle_deg,
             )
             .is_ok()
-        {
-            route_page_connectors(&mut self.inner.doc, page_id);
-            true
-        } else {
-            false
-        }
+    }
+
+    /// Import an external `.vssx`, `.vssm`, `.vss`, `.vsdx`, or `.vdx` Visio stencil file
+    /// directly into the Stencil Navigator with lossless geometry, `ForeignData`, and SVG thumbnails.
+    pub fn import_stencil_bytes(&mut self, file_name: &str, bytes: &[u8]) -> Result<String, JsValue> {
+        let (pack_title, previews) = self
+            .inner
+            .import_stencil_package(file_name, bytes)
+            .map_err(|e| JsValue::from_str(&e.to_string()))?;
+        let master_names: Vec<String> = previews.iter().map(|p| p.name.clone()).collect();
+        let resp = serde_json::json!({
+            "packTitle": pack_title,
+            "masterNames": master_names,
+            "previews": previews,
+        });
+        Ok(serde_json::to_string(&resp).unwrap_or_else(|_| "{}".into()))
     }
 
     /// Multi-shape Align (`left`, `center`, `right`, `top`, `middle`, `bottom`) and

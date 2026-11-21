@@ -485,10 +485,10 @@ pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativePushMotionB
         }
 
         // Map internal C cursor code to `VexioCursorKind` in `NativeBridge.kt`:
-        // 0=ARROW, 1=CROSSHAIR, 2=MOVE_ALL, 7=TEXT_IBEAM, 8=GRAB_HAND, 9=GRABBING_HAND
+        // 0=ARROW, 1=CROSSHAIR, 2=MOVE_ALL, 3=RESIZE_NS, 4=RESIZE_EW, 5=RESIZE_NWSE, 6=RESIZE_NESW, 7=TEXT_IBEAM, 8=GRAB_HAND, 9=GRABBING_HAND
         match last_c_cursor {
-            1 => 2, // MOVE_ALL
-            2 => 1, // CROSSHAIR
+            1 => 2,  // MOVE_ALL
+            2 => 1,  // CROSSHAIR
             3 => {
                 if vp.drag_state.is_some() {
                     9 // GRABBING_HAND
@@ -496,11 +496,57 @@ pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativePushMotionB
                     8 // GRAB_HAND
                 }
             }
-            7 => 7, // TEXT_IBEAM
-            _ => 0, // ARROW
+            5 => 3,  // RESIZE_NS
+            6 => 4,  // RESIZE_EW
+            7 => 7,  // TEXT_IBEAM
+            11 => 5, // RESIZE_NWSE
+            12 => 6, // RESIZE_NESW
+            13 => 1, // CROSSHAIR (Rotate)
+            _ => 0,  // ARROW
         }
     }))
     .unwrap_or(0)
+}
+
+#[no_mangle]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeTransformShape(
+    _env: JNIEnv<'_>,
+    _class: JClass<'_>,
+    doc_ptr: jlong,
+    page_id: jint,
+    shape_id: jlong,
+    pin_x_in: jdouble,
+    pin_y_in: jdouble,
+    width_in: jdouble,
+    height_in: jdouble,
+    angle_deg: jdouble,
+) -> jboolean {
+    catch_unwind(AssertUnwindSafe(|| {
+        if doc_ptr == 0 || shape_id <= 0 {
+            return JNI_FALSE;
+        }
+        // SAFETY: `doc_ptr` created by `nativeCreateBlankDocument` or `nativeOpenDocument`.
+        let doc = unsafe { &mut *(doc_ptr as *mut VexioDoc) };
+        if doc
+            .session
+            .transform_shape(
+                page_id.max(1) as u32,
+                shape_id as u64,
+                pin_x_in,
+                pin_y_in,
+                width_in,
+                height_in,
+                angle_deg,
+            )
+            .is_ok()
+        {
+            JNI_TRUE
+        } else {
+            JNI_FALSE
+        }
+    }))
+    .unwrap_or(JNI_FALSE)
 }
 
 #[no_mangle]

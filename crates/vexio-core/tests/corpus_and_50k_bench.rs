@@ -48,6 +48,9 @@ fn make_bench_visual(id: u64, x_in: f64, y_in: f64) -> EvaluatedShapeVisual {
             no_fill: false,
             no_line: false,
             no_show: false,
+            fill_color: None,
+            stroke_color: None,
+            stroke_weight_in: None,
             verbs_page_space: vec![
                 EvaluatedPathVerb::MoveTo([x_in, y_in]),
                 EvaluatedPathVerb::LineTo([x_in + w_in, y_in]),
@@ -68,6 +71,7 @@ fn make_bench_visual(id: u64, x_in: f64, y_in: f64) -> EvaluatedShapeVisual {
         end_arrow: 0,
         begin_arrow: 0,
         text: String::new(),
+        txt_pos: [x_in + w_in * 0.5, y_in + h_in * 0.5],
         font_size_pt: 10.0,
         text_color: RgbaColor::BLACK,
     }

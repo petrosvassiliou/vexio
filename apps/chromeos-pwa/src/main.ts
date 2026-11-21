@@ -1933,12 +1933,15 @@ class VexioChromeOsApp {
   }
 
   private renderPortsHtml(snap: EngineSnapshot, ppi: number): string {
-    const targetIds = new Set<number>(this.selectedShapeIds);
-    if (this.hoveredShapeId) targetIds.add(this.hoveredShapeId);
+    const selectedSet = new Set<number>(this.selectedShapeIds);
+    const targetIds = new Set<number>();
     if (this.activeTool === 'connector') {
       for (const s of snap.shapes) {
         if (s.kind !== 'Connector1D') targetIds.add(s.id);
       }
+    } else if (this.hoveredShapeId && !selectedSet.has(this.hoveredShapeId)) {
+      // Only show perimeter green ports on hovered UNSELECTED shapes in Pointer mode so N/S/E/W resize handles are 100% unobstructed!
+      targetIds.add(this.hoveredShapeId);
     }
     const dots: string[] = [];
     for (const sh of snap.shapes) {
@@ -1960,6 +1963,25 @@ class VexioChromeOsApp {
         );
       }
     }
+
+    // Visio AutoConnect outward quick-connect diamonds 18px outside N/S/E/W on primary selected shape (never overlapping resize handles!)
+    if (this.activeTool === 'pointer' && this.selectedShapeIds.length === 1) {
+      const selSh = snap.shapes.find((s) => s.id === this.selectedShapeIds[0] && s.kind !== 'Connector1D');
+      if (selSh) {
+        const offsetIn = 18 / ppi;
+        const autoDirs: Array<[number, number, number, number, string]> = [
+          [selSh.pinX, selSh.pinY + selSh.height * 0.5 + offsetIn, selSh.pinX, selSh.pinY + selSh.height * 0.5, 'North'],
+          [selSh.pinX + selSh.width * 0.5 + offsetIn, selSh.pinY, selSh.pinX + selSh.width * 0.5, selSh.pinY, 'East'],
+          [selSh.pinX, selSh.pinY - selSh.height * 0.5 - offsetIn, selSh.pinX, selSh.pinY - selSh.height * 0.5, 'South'],
+          [selSh.pinX - selSh.width * 0.5 - offsetIn, selSh.pinY, selSh.pinX - selSh.width * 0.5, selSh.pinY, 'West'],
+        ];
+        for (const [ax, ay, portX, portY, label] of autoDirs) {
+          dots.push(
+            `<div class="autoconnect-arrow" data-port-shape="${selSh.id}" data-port-x="${portX.toFixed(4)}" data-port-y="${portY.toFixed(4)}" style="left:${(ax * ppi).toFixed(1)}px;top:${((snap.pageHeightIn - ay) * ppi).toFixed(1)}px" title="Drag ${label} AutoConnect to link shapes"></div>`
+          );
+        }
+      }
+    }
     return dots.join('');
   }
 
@@ -1979,7 +2001,7 @@ class VexioChromeOsApp {
         const hPx = Math.max(14, sh.height * ppi);
         const rotCss = sh.angleDeg ? `transform:rotate(${-sh.angleDeg}deg);` : '';
 
-        if (idx > 0 || selected2D.length > 1) {
+        if (idx > 0) {
           return `<div class="selection-box-overlay multi" style="left:${leftPx}px;top:${topPx}px;width:${wPx}px;height:${hPx}px;${rotCss}"></div>`;
         }
 
@@ -2010,14 +2032,14 @@ class VexioChromeOsApp {
           <div class="selection-box-overlay" style="left:${leftPx}px;top:${topPx}px;width:${wPx}px;height:${hPx}px;${rotCss}">
             <div class="rotation-stem"></div>
             <div class="rotation-knob" data-rotate-knob="${sh.id}" title="Drag to Rotate (${sh.angleDeg.toFixed(0)}°)"></div>
-            <div class="selection-handle" data-handle="nw" style="left:-5px;top:-5px"></div>
-            <div class="selection-handle" data-handle="n" style="left:calc(50% - 4.5px);top:-5px"></div>
-            <div class="selection-handle" data-handle="ne" style="right:-5px;top:-5px"></div>
-            <div class="selection-handle" data-handle="e" style="right:-5px;top:calc(50% - 4.5px)"></div>
-            <div class="selection-handle" data-handle="se" style="right:-5px;bottom:-5px"></div>
-            <div class="selection-handle" data-handle="s" style="left:calc(50% - 4.5px);bottom:-5px"></div>
-            <div class="selection-handle" data-handle="sw" style="left:-5px;bottom:-5px"></div>
-            <div class="selection-handle" data-handle="w" style="left:-5px;top:calc(50% - 4.5px)"></div>
+            <div class="selection-handle" data-handle="nw" data-handle-shape="${sh.id}" style="left:-6px;top:-6px" title="Resize NW (Hold Shift to lock aspect)"></div>
+            <div class="selection-handle" data-handle="n" data-handle-shape="${sh.id}" style="left:calc(50% - 5.5px);top:-6px" title="Resize Top"></div>
+            <div class="selection-handle" data-handle="ne" data-handle-shape="${sh.id}" style="right:-6px;top:-6px" title="Resize NE (Hold Shift to lock aspect)"></div>
+            <div class="selection-handle" data-handle="e" data-handle-shape="${sh.id}" style="right:-6px;top:calc(50% - 5.5px)" title="Resize Right"></div>
+            <div class="selection-handle" data-handle="se" data-handle-shape="${sh.id}" style="right:-6px;bottom:-6px" title="Resize SE (Hold Shift to lock aspect)"></div>
+            <div class="selection-handle" data-handle="s" data-handle-shape="${sh.id}" style="left:calc(50% - 5.5px);bottom:-6px" title="Resize Bottom"></div>
+            <div class="selection-handle" data-handle="sw" data-handle-shape="${sh.id}" style="left:-6px;bottom:-6px" title="Resize SW (Hold Shift to lock aspect)"></div>
+            <div class="selection-handle" data-handle="w" data-handle-shape="${sh.id}" style="left:-6px;top:calc(50% - 5.5px)" title="Resize Left"></div>
           </div>
           ${ctrlDiamonds}
           ${vertexDots}
@@ -2065,7 +2087,7 @@ class VexioChromeOsApp {
       }
     }
 
-    return `${boxesHtml}${connHtml}<div id="port-overlay-layer" class="live-overlay-svg">${this.renderPortsHtml(snap, ppi)}</div>${inlineEditorHtml}`;
+    return `<div id="port-overlay-layer" class="live-overlay-svg">${this.renderPortsHtml(snap, ppi)}</div>${boxesHtml}${connHtml}${inlineEditorHtml}`;
   }
 
   public render(): void {
@@ -2238,10 +2260,14 @@ class VexioChromeOsApp {
         <main class="${mainGridClasses}">
           <aside class="stencil-pane" style="${this.showLeftStencils ? '' : 'display:none'}">
             <div class="pane-header">
-              <span>Shapes (${orderedPacks.length} Categories · ${totalMasterCount})</span>
-              <button class="m3-btn" id="btn-expand-collapse-packs" style="height:20px;padding:0 6px;font-size:10.5px">
-                ${this.expandedStencilPacks.size >= orderedPacks.length ? 'Collapse' : 'Expand All'}
-              </button>
+              <span>Shapes (${orderedPacks.length} Packs · ${totalMasterCount})</span>
+              <div style="display:flex;gap:4px;align-items:center">
+                <button class="m3-btn tonal" id="btn-import-vssx" style="height:20px;padding:0 6px;font-size:10px" title="Import Microsoft Visio Stencil (.vssx / .vss)">+ .vssx</button>
+                <input type="file" id="vssx-file-input" accept=".vssx,.vssm,.vss,.vsdx,.vdx" style="display:none" />
+                <button class="m3-btn" id="btn-expand-collapse-packs" style="height:20px;padding:0 6px;font-size:10px">
+                  ${this.expandedStencilPacks.size >= orderedPacks.length ? 'Collapse' : 'Expand All'}
+                </button>
+              </div>
             </div>
 
             <div class="search-box-wrap">
@@ -4183,6 +4209,64 @@ class VexioChromeOsApp {
       });
     });
 
+    const importVssxFile = async (file: File) => {
+      try {
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        const res = await this.callEngine(
+          'importStencil',
+          { fileName: file.name, bytes },
+          [bytes.buffer]
+        );
+        if (res.packTitle && Array.isArray(res.masterNames) && res.masterNames.length > 0) {
+          this.stencilCatalog = {
+            [res.packTitle]: res.masterNames,
+            ...this.stencilCatalog,
+          };
+          this.stencilPreviews = {
+            [res.packTitle]: res.previews ?? [],
+            ...this.stencilPreviews,
+          };
+          this.packOrder = [res.packTitle, ...this.packOrder.filter((p) => p !== res.packTitle)];
+          this.expandedStencilPacks.add(res.packTitle);
+          this.stencilGroupFilter = 'all';
+          this.showToast(
+            `Imported Visio stencil "${res.packTitle}" (${res.masterNames.length} masters)`,
+            'info'
+          );
+          this.render();
+        } else {
+          this.showToast(`No stencil masters found in "${file.name}".`, 'warn');
+        }
+      } catch (err) {
+        this.showToast(
+          `Stencil import error: ${err instanceof Error ? err.message : 'invalid .vssx/.vss file'}`,
+          'error'
+        );
+      }
+    };
+
+    document.getElementById('btn-import-vssx')?.addEventListener('click', () => {
+      (document.getElementById('vssx-file-input') as HTMLInputElement | null)?.click();
+    });
+    document.getElementById('vssx-file-input')?.addEventListener('change', (ev) => {
+      const f = (ev.target as HTMLInputElement).files?.[0];
+      if (f) importVssxFile(f);
+    });
+    const stencilAside = document.querySelector('.stencil-pane') as HTMLElement | null;
+    if (stencilAside) {
+      stencilAside.addEventListener('dragover', (ev) => {
+        if (ev.dataTransfer?.types.includes('Files')) ev.preventDefault();
+      });
+      stencilAside.addEventListener('drop', (ev) => {
+        const f = ev.dataTransfer?.files?.[0];
+        if (f && /\.(vssx|vssm|vss|vsdx|vdx)$/i.test(f.name)) {
+          ev.preventDefault();
+          ev.stopPropagation();
+          importVssxFile(f);
+        }
+      });
+    }
+
     document.getElementById('btn-expand-collapse-packs')?.addEventListener('click', () => {
       const allPacks = Object.keys(this.stencilCatalog);
       if (this.expandedStencilPacks.size >= allPacks.length) {
@@ -4448,23 +4532,9 @@ class VexioChromeOsApp {
         }
 
         // 0D. Check 2D Cardinal Connection Port Dot (Drag from any port to draw glued connector!)
-        const portShapeAttr = targetEl?.dataset.portShape;
-        if (portShapeAttr) {
-          ev.stopPropagation();
-          host.setPointerCapture(ev.pointerId);
-          const px = Number(targetEl?.dataset.portX ?? ptIn[0]);
-          const py = Number(targetEl?.dataset.portY ?? ptIn[1]);
-          this.dragState = {
-            mode: 'connect',
-            startPageIn: [px, py],
-            curPageIn: ptIn,
-            shapeId: Number(portShapeAttr),
-          };
-          return;
-        }
-
-        // 1. Check Top Rotation Knob
-        const rotIdAttr = targetEl?.dataset.rotateKnob;
+        // 1. Check Top Rotation Knob FIRST
+        const rotEl = targetEl?.closest('[data-rotate-knob]') as HTMLElement | null;
+        const rotIdAttr = rotEl?.dataset.rotateKnob;
         if (rotIdAttr && this.snapshot) {
           const sid = Number(rotIdAttr);
           const sh = this.snapshot.shapes.find((s) => s.id === sid);
@@ -4484,10 +4554,21 @@ class VexioChromeOsApp {
           }
         }
 
-        // 2. Check 8-Handle Resize Grips
-        const handleDir = targetEl?.dataset.handle as ResizeHandleDir | undefined;
-        if (handleDir && this.primarySelectedId && this.snapshot) {
-          const sh = this.snapshot.shapes.find((s) => s.id === this.primarySelectedId);
+        // 2. Check 8-Handle Resize Grips (DOM closest + synchronous geometric proximity fallback!)
+        const handleEl = targetEl?.closest('[data-handle]') as HTMLElement | null;
+        let handleDir = handleEl?.dataset.handle as ResizeHandleDir | undefined;
+        let handleShapeId = handleEl?.dataset.handleShape
+          ? Number(handleEl.dataset.handleShape)
+          : this.primarySelectedId;
+        if (!handleDir && this.activeTool === 'pointer' && this.primarySelectedId && this.snapshot) {
+          const geomHit = this.hitTestResizeGripSync(ptIn[0], ptIn[1]);
+          if (geomHit) {
+            handleDir = geomHit.dir;
+            handleShapeId = geomHit.shapeId;
+          }
+        }
+        if (handleDir && handleShapeId && this.snapshot) {
+          const sh = this.snapshot.shapes.find((s) => s.id === handleShapeId);
           if (sh) {
             ev.stopPropagation();
             host.setPointerCapture(ev.pointerId);
@@ -4503,6 +4584,23 @@ class VexioChromeOsApp {
             };
             return;
           }
+        }
+
+        // 3. Check 2D Connection Port Dot / AutoConnect Arrow
+        const portEl = targetEl?.closest('[data-port-shape]') as HTMLElement | null;
+        const portShapeAttr = portEl?.dataset.portShape;
+        if (portShapeAttr) {
+          ev.stopPropagation();
+          host.setPointerCapture(ev.pointerId);
+          const px = Number(portEl?.dataset.portX ?? ptIn[0]);
+          const py = Number(portEl?.dataset.portY ?? ptIn[1]);
+          this.dragState = {
+            mode: 'connect',
+            startPageIn: [px, py],
+            curPageIn: ptIn,
+            shapeId: Number(portShapeAttr),
+          };
+          return;
         }
 
         host.setPointerCapture(ev.pointerId);
@@ -4778,9 +4876,20 @@ class VexioChromeOsApp {
             this.dragState.origSize,
             this.dragState.resizeHandle,
             ptIn[0] - this.dragState.startPageIn[0],
-            ptIn[1] - this.dragState.startPageIn[1]
+            ptIn[1] - this.dragState.startPageIn[1],
+            ev.shiftKey
           );
-          overlay.innerHTML = `<rect x="${sx(next.pinX - next.width * 0.5)}" y="${sy(next.pinY + next.height * 0.5)}" width="${next.width * ppi}" height="${next.height * ppi}" fill="rgba(37,99,235,0.10)" stroke="#2563eb" stroke-dasharray="4,3" stroke-width="2"/>`;
+          const rx = sx(next.pinX - next.width * 0.5);
+          const ry = sy(next.pinY + next.height * 0.5);
+          const rw = next.width * ppi;
+          const rh = next.height * ppi;
+          const tipX = rx + rw * 0.5;
+          const tipY = Math.max(18, ry - 14);
+          overlay.innerHTML = `
+            <rect x="${rx.toFixed(1)}" y="${ry.toFixed(1)}" width="${rw.toFixed(1)}" height="${rh.toFixed(1)}" fill="rgba(37,99,235,0.10)" stroke="#2563eb" stroke-dasharray="4,3" stroke-width="2"/>
+            <rect x="${(tipX - 52).toFixed(1)}" y="${(tipY - 11).toFixed(1)}" width="104" height="20" rx="5" fill="#0f172a" fill-opacity="0.88"/>
+            <text x="${tipX.toFixed(1)}" y="${(tipY + 3).toFixed(1)}" font-family="Segoe UI, Roboto, sans-serif" font-size="11" font-weight="600" fill="#ffffff" text-anchor="middle">${next.width.toFixed(2)}" × ${next.height.toFixed(2)}"</text>
+          `;
         } else if (this.dragState.mode === 'move' && this.dragState.origPin && this.dragState.shapeId) {
           const dx = ptIn[0] - this.dragState.startPageIn[0];
           const dy = ptIn[1] - this.dragState.startPageIn[1];
@@ -5020,7 +5129,8 @@ class VexioChromeOsApp {
             st.origSize,
             st.resizeHandle,
             ptIn[0] - st.startPageIn[0],
-            ptIn[1] - st.startPageIn[1]
+            ptIn[1] - st.startPageIn[1],
+            ev.shiftKey
           );
           const res = await this.callEngine('transformShape', {
             shapeId: st.shapeId,
@@ -5085,14 +5195,18 @@ class VexioChromeOsApp {
     });
 
     document.querySelectorAll('.quick-dim').forEach((inp) => {
-      inp.addEventListener('change', async (e) => {
+      const applyDim = async (el: HTMLInputElement) => {
         if (!this.primarySelectedId) return;
-        const el = e.target as HTMLInputElement;
         const cellName = el.dataset.cell ?? 'Width';
+        const raw = el.value.trim();
+        const formula =
+          /^-?\d+(\.\d+)?$/.test(raw)
+            ? `${raw} ${cellName === 'Angle' ? 'deg' : 'in'}`
+            : raw;
         const res = await this.callEngine('setCellFormula', {
           shapeId: this.primarySelectedId,
           cellName,
-          formula: el.value,
+          formula,
           forceSetf: false,
         });
         if (res.applied === false) {
@@ -5102,6 +5216,14 @@ class VexioChromeOsApp {
         }
         this.snapshot = res.snapshot;
         this.render();
+      };
+      inp.addEventListener('change', (e) => applyDim(e.target as HTMLInputElement));
+      inp.addEventListener('keydown', (e) => {
+        const ke = e as KeyboardEvent;
+        if (ke.key === 'Enter') {
+          ke.preventDefault();
+          applyDim(e.target as HTMLInputElement);
+        }
       });
     });
 
@@ -5491,28 +5613,78 @@ class VexioChromeOsApp {
     });
   }
 
+  private hitTestResizeGripSync(
+    xIn: number,
+    yIn: number
+  ): { shapeId: number; dir: ResizeHandleDir } | null {
+    if (!this.snapshot || !this.primarySelectedId) return null;
+    const sh = this.snapshot.shapes.find(
+      (s) => s.id === this.primarySelectedId && s.kind !== 'Connector1D'
+    );
+    if (!sh) return null;
+    const dx = xIn - sh.pinX;
+    const dy = yIn - sh.pinY;
+    const rad = (-sh.angleDeg * Math.PI) / 180;
+    const lx = dx * Math.cos(rad) - dy * Math.sin(rad);
+    const ly = dx * Math.sin(rad) + dy * Math.cos(rad);
+    const ppiZoom = 96 * (this.zoomPct / 100);
+    const tolIn = Math.max(0.09, Math.min(0.22, 11 / Math.max(24, ppiZoom)));
+    const hw = sh.width * 0.5;
+    const hh = sh.height * 0.5;
+    const handles: Array<[ResizeHandleDir, number, number]> = [
+      ['nw', -hw, hh],
+      ['ne', hw, hh],
+      ['se', hw, -hh],
+      ['sw', -hw, -hh],
+      ['n', 0, hh],
+      ['e', hw, 0],
+      ['s', 0, -hh],
+      ['w', -hw, 0],
+    ];
+    for (const [dir, gx, gy] of handles) {
+      if (Math.hypot(lx - gx, ly - gy) <= tolIn) {
+        return { shapeId: sh.id, dir };
+      }
+    }
+    return null;
+  }
+
   private computeResizedBox(
     origPin: [number, number],
     origSize: [number, number],
     dir: ResizeHandleDir,
     dx: number,
-    dy: number
+    dy: number,
+    lockAspect = false
   ): { pinX: number; pinY: number; width: number; height: number } {
+    const minDim = 0.15;
     let left = origPin[0] - origSize[0] * 0.5;
     let right = origPin[0] + origSize[0] * 0.5;
     let bottom = origPin[1] - origSize[1] * 0.5;
     let top = origPin[1] + origSize[1] * 0.5;
 
-    if (dir.includes('w')) left = Math.min(right - 0.2, left + dx);
-    if (dir.includes('e')) right = Math.max(left + 0.2, right + dx);
-    if (dir.includes('s')) bottom = Math.min(top - 0.2, bottom + dy);
-    if (dir.includes('n')) top = Math.max(bottom + 0.2, top + dy);
+    if (dir.includes('w')) left = Math.min(right - minDim, left + dx);
+    if (dir.includes('e')) right = Math.max(left + minDim, right + dx);
+    if (dir.includes('s')) bottom = Math.min(top - minDim, bottom + dy);
+    if (dir.includes('n')) top = Math.max(bottom + minDim, top + dy);
+
+    let width = Math.max(minDim, right - left);
+    let height = Math.max(minDim, top - bottom);
+    if (lockAspect && origSize[1] > 1e-6 && dir.length === 2) {
+      const aspect = origSize[0] / origSize[1];
+      height = Math.max(minDim, width / aspect);
+      if (dir.includes('n')) {
+        top = bottom + height;
+      } else {
+        bottom = top - height;
+      }
+    }
 
     return {
       pinX: (left + right) * 0.5,
       pinY: (bottom + top) * 0.5,
-      width: Math.max(0.2, right - left),
-      height: Math.max(0.2, top - bottom),
+      width,
+      height,
     };
   }
 }

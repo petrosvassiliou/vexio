@@ -58,6 +58,9 @@ mod tests {
                 no_fill: false,
                 no_line: false,
                 no_show: false,
+                fill_color: None,
+                stroke_color: None,
+                stroke_weight_in: None,
                 verbs_page_space: vec![
                     EvaluatedPathVerb::MoveTo([x_in, y_in]),
                     EvaluatedPathVerb::LineTo([x_in + w_in, y_in]),
@@ -78,6 +81,7 @@ mod tests {
             end_arrow: 0,
             begin_arrow: 0,
             text: String::new(),
+            txt_pos: [x_in + w_in * 0.5, y_in + h_in * 0.5],
             font_size_pt: 10.0,
             text_color: RgbaColor::BLACK,
         }
@@ -202,6 +206,9 @@ mod tests {
                     no_fill: false,
                     no_line: false,
                     no_show: false,
+                    fill_color: None,
+                    stroke_color: None,
+                    stroke_weight_in: None,
                     verbs_page_space: vec![
                         EvaluatedPathVerb::MoveTo([2.5, 3.0]),
                         EvaluatedPathVerb::LineTo([4.5, 3.0]),
@@ -226,6 +233,9 @@ mod tests {
                     no_fill: false,
                     no_line: false,
                     no_show: false,
+                    fill_color: None,
+                    stroke_color: None,
+                    stroke_weight_in: None,
                     verbs_page_space: vec![EvaluatedPathVerb::Ellipse {
                         center: [6.0, 4.0],
                         rx: 0.6,
@@ -251,6 +261,7 @@ mod tests {
             end_arrow: 4,
             begin_arrow: 1,
             text: "NODE-42".into(),
+            txt_pos: [4.0, 4.0],
             font_size_pt: 12.0,
             text_color: RgbaColor::BLACK,
         };

@@ -882,6 +882,9 @@ fn flatten_visual_paths(visual: &EvaluatedShapeVisual) -> ShapeCurveSet {
             no_fill: visual.kind == ShapeKind::Connector1D,
             no_line: false,
             no_show: false,
+            fill_color: None,
+            stroke_color: None,
+            stroke_weight_in: None,
             verbs_page_space: vec![
                 EvaluatedPathVerb::MoveTo(c0),
                 EvaluatedPathVerb::LineTo(c1),

@@ -322,6 +322,9 @@ pub fn tessellate_shape_full(
             no_fill: visual.kind == ShapeKind::Connector1D,
             no_line: false,
             no_show: false,
+            fill_color: None,
+            stroke_color: None,
+            stroke_weight_in: None,
             verbs_page_space: vec![
                 EvaluatedPathVerb::MoveTo(c0),
                 EvaluatedPathVerb::LineTo(c1),
@@ -348,12 +351,18 @@ pub fn tessellate_shape_full(
             if geom.no_show || geom.verbs_page_space.is_empty() {
                 continue;
             }
+            let g_fill = geom.fill_color.map(RgbaColor::to_linear_f32).or(fill_rgba);
+            let g_stroke = geom.stroke_color.map(RgbaColor::to_linear_f32).or(stroke_rgba);
+            let g_sw = geom
+                .stroke_weight_in
+                .map(|w| w.max(1.0 / 144.0) as f32)
+                .unwrap_or(stroke_w);
             tessellate_geometry_section(
                 geom,
                 visual.rounding_in,
-                fill_rgba,
-                stroke_rgba,
-                stroke_w,
+                g_fill,
+                g_stroke,
+                g_sw,
                 tol,
                 &mut fill_tess,
                 &mut stroke_tess,
@@ -422,9 +431,9 @@ pub fn tessellate_shape_full(
             );
             let rich_mesh = crate::typography::tessellate_rich_text_in_box(
                 &block,
-                visual.transform.pin_x,
-                visual.transform.pin_y,
-                visual.transform.width.max(0.8),
+                visual.txt_pos[0],
+                visual.txt_pos[1],
+                visual.transform.width.max(1.2),
                 visual.transform.height.max(0.5),
                 visual.transform.angle_rad,
             );
@@ -1514,8 +1523,8 @@ fn tessellate_vector_label(
     let stroke_w = (cap_h * 0.12).clamp(0.004, 0.08) as f32;
     let text_rgba = visual.text_color.to_linear_f32();
 
-    let cx = (visual.aabb_min[0] + visual.aabb_max[0]) * 0.5;
-    let cy = (visual.aabb_min[1] + visual.aabb_max[1]) * 0.5;
+    let cx = visual.txt_pos[0];
+    let cy = visual.txt_pos[1];
 
     let lines: Vec<&str> = text.lines().take(6).collect();
     if lines.is_empty() {
@@ -1849,6 +1858,8 @@ pub fn compute_visual_content_hash(v: &EvaluatedShapeVisual) -> u64 {
     hash_f64(&mut h, v.rounding_in);
     hash_u64(&mut h, (v.begin_arrow as u64) | ((v.end_arrow as u64) << 8));
     hash_f64(&mut h, v.font_size_pt);
+    hash_f64(&mut h, v.txt_pos[0]);
+    hash_f64(&mut h, v.txt_pos[1]);
     hash_rgba(&mut h, Some(v.text_color));
     for b in v.text.as_bytes() {
         h ^= *b as u64;
@@ -1858,6 +1869,9 @@ pub fn compute_visual_content_hash(v: &EvaluatedShapeVisual) -> u64 {
     for gp in &v.paths {
         let flags = (gp.no_fill as u64) | ((gp.no_line as u64) << 1) | ((gp.no_show as u64) << 2);
         hash_u64(&mut h, flags);
+        hash_rgba(&mut h, gp.fill_color);
+        hash_rgba(&mut h, gp.stroke_color);
+        hash_f64(&mut h, gp.stroke_weight_in.unwrap_or(-1.0));
         hash_u64(&mut h, gp.verbs_page_space.len() as u64);
         for verb in &gp.verbs_page_space {
             match *verb {

@@ -73,7 +73,11 @@ MapCursorToWinUI(uint32_t cursorKind) noexcept {
         case ViewportCursor::ResizeNESW: return Shape::SizeNortheastSouthwest;
         case ViewportCursor::Forbidden:  return Shape::UniversalNo;
         case ViewportCursor::Rotate:     return Shape::Cross;
-        default:                         return Shape::Arrow;
+        default:
+            if (cursorKind == 11) return Shape::SizeNorthwestSoutheast;
+            if (cursorKind == 12) return Shape::SizeNortheastSouthwest;
+            if (cursorKind == 13) return Shape::Cross;
+            return Shape::Arrow;
     }
 }
 

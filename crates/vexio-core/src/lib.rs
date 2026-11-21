@@ -16,6 +16,7 @@ pub mod routing;
 pub mod sqlite_reader;
 pub mod themes_styles;
 pub mod validation;
+pub mod visio_artwork;
 pub mod workspace;
 
 pub use vexio_cad;
@@ -543,5 +544,64 @@ mod tests {
         let vsdx_bytes = vexio_vsdx::write_vsdx(&doc, vexio_vsdx::VsdxPackageKind::Drawing).unwrap();
         let (rt_doc, _) = vexio_vsdx::read_vsdx(&vsdx_bytes).unwrap();
         assert!(rt_doc.page(1).unwrap().find_shape(2).unwrap().foreign_data.is_some());
+    }
+
+    #[test]
+    fn all_builtin_stencils_resize_freely_and_vssx_import_roundtrips() {
+        let packs = crate::domains::build_all_builtin_stencils();
+        assert_eq!(packs.len(), 22);
+        let mut total_tested = 0usize;
+        for pack in &packs {
+            let mut sess = DocumentSession::new_blank(&pack.title);
+            for m in &pack.masters {
+                let sid = sess
+                    .drop_builtin_shape(1, &pack.title, &m.name, 5.0, 4.0)
+                    .unwrap();
+                // Resize down to 0.45 x 0.40 in and up to 3.80 x 2.60 in
+                sess.transform_shape(1, sid, 4.2, 3.8, 0.45, 0.40, 0.0).unwrap();
+                let sh_small = sess.doc.page(1).unwrap().find_shape(sid).unwrap();
+                assert!(
+                    (sh_small.sheet.get_f64("Width").unwrap() - 0.45).abs() < 1e-6,
+                    "Width failed to resize on {}:{}",
+                    pack.title,
+                    m.name
+                );
+                assert!(
+                    (sh_small.sheet.get_f64("Height").unwrap() - 0.40).abs() < 1e-6,
+                    "Height failed to resize on {}:{}",
+                    pack.title,
+                    m.name
+                );
+
+                sess.transform_shape(1, sid, 5.5, 4.5, 3.80, 2.60, 15.0).unwrap();
+                let sh_big = sess.doc.page(1).unwrap().find_shape(sid).unwrap();
+                assert!((sh_big.sheet.get_f64("Width").unwrap() - 3.80).abs() < 1e-6);
+                assert!((sh_big.sheet.get_f64("Height").unwrap() - 2.60).abs() < 1e-6);
+                total_tested += 1;
+            }
+            // Clear page between packs? Actually each pack uses its own fresh `sess`!
+        }
+        assert!(total_tested >= 515);
+
+        // Verify .vssx stencil package export & re-import via `import_stencil_package`
+        let mut vssx_doc = VisioDocument::new_blank("Custom M365 Stencil");
+        vssx_doc.masters = packs[2].masters.iter().take(4).cloned().collect();
+        let vssx_bytes =
+            vexio_vsdx::write_vsdx(&vssx_doc, vexio_vsdx::VsdxPackageKind::Stencil).unwrap();
+
+        let mut target_sess = DocumentSession::new_blank("Target");
+        let (imported_title, previews) = target_sess
+            .import_stencil_package("Custom_M365_Pack.vssx", &vssx_bytes)
+            .unwrap();
+        assert_eq!(imported_title, "Custom M365 Pack");
+        assert_eq!(previews.len(), 4);
+        let dropped = target_sess
+            .drop_builtin_shape(1, &imported_title, &previews[0].name, 3.0, 3.0)
+            .unwrap();
+        target_sess
+            .transform_shape(1, dropped, 3.0, 3.0, 2.9, 2.1, 0.0)
+            .unwrap();
+        let sh = target_sess.doc.page(1).unwrap().find_shape(dropped).unwrap();
+        assert!((sh.sheet.get_f64("Width").unwrap() - 2.9).abs() < 1e-6);
     }
 }

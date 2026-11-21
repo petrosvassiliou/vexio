@@ -686,6 +686,8 @@ pub fn default_unit_for_cell(canonical_key: &str) -> Option<Unit> {
         "fillforegnd" | "fillbkgnd" | "linecolor" | "char.color" | "shdwforegnd" => {
             Some(Unit::Color)
         }
+        k if k.ends_with(".fillforegnd") || k.ends_with(".linecolor") => Some(Unit::Color),
+        k if k.ends_with(".lineweight") => Some(Unit::Point),
         _ => None,
     }
 }

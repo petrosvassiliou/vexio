@@ -128,6 +128,7 @@ interface WasmSessionInstance {
   list_builtin_stencils_json(): string;
   list_builtin_stencil_previews_json(): string;
   list_builtin_pack_order_json(): string;
+  import_stencil_bytes(file_name: string, bytes: Uint8Array): string;
   load_starter_template(template_id: string): void;
   open_bytes(bytes: Uint8Array, ext: string): void;
   save_format(ext: string): Uint8Array;
@@ -346,27 +347,42 @@ self.onmessage = async (ev: MessageEvent) => {
           session.set_replica_id(String(payload.replicaId));
         }
         if (payload?.seedDemo) {
-          const s1 = session.drop_builtin_shape_on_page(1, 'BPMN 2.0', 'Start Event', 1.5, 4.5);
-          session.set_shape_text(1, s1, '');
-          const s2 = session.drop_builtin_shape_on_page(1, 'BPMN 2.0', 'Task', 4.1, 4.5);
-          session.transform_shape(1, s2, 4.1, 4.5, 2.2, 0.95, 0);
+          const s1 = session.drop_builtin_shape_on_page(1, 'BPMN 2.0', 'Start Event', 1.4, 5.4);
+          session.set_shape_text(1, s1, 'Order Received');
+          const s2 = session.drop_builtin_shape_on_page(1, 'BPMN 2.0', 'Task', 3.9, 5.4);
+          session.transform_shape(1, s2, 3.9, 5.4, 2.1, 0.9, 0);
           session.set_shape_text(1, s2, 'Validate Order & Inventory');
-          session.ensure_control_handle(1, s2);
-          const s3 = session.drop_builtin_shape_on_page(1, 'BPMN 2.0', 'Exclusive Gateway', 6.9, 4.5);
-          session.transform_shape(1, s3, 6.9, 4.5, 0.95, 0.95, 0);
-          session.set_shape_text(1, s3, '');
-          const s4 = session.drop_builtin_shape_on_page(1, 'BPMN 2.0', 'End Event', 9.6, 4.5);
-          session.set_shape_text(1, s4, '');
+          const s3 = session.drop_builtin_shape_on_page(1, 'BPMN 2.0', 'Exclusive Gateway', 6.5, 5.4);
+          session.transform_shape(1, s3, 6.5, 5.4, 0.85, 0.85, 0);
+          session.set_shape_text(1, s3, 'Authorized?');
+          const s4 = session.drop_builtin_shape_on_page(1, 'BPMN 2.0', 'End Event', 9.2, 5.4);
+          session.set_shape_text(1, s4, 'Fulfilled');
           session.connect_shapes(1, s1, s2);
           session.connect_shapes(1, s2, s3);
           const c3 = session.connect_shapes(1, s3, s4);
-          session.set_shape_text(1, c3, 'Approved');
+          session.set_shape_text(1, c3, 'Yes');
           session.flush_crdt_ops_json(Date.now());
         }
         const stencils = JSON.parse(session.list_builtin_stencils_json());
         const stencilPreviews = JSON.parse(session.list_builtin_stencil_previews_json());
         const packOrder = JSON.parse(session.list_builtin_pack_order_json());
         self.postMessage({ id, ok: true, stencils, stencilPreviews, packOrder, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'importStencil': {
+        const res = JSON.parse(
+          session.import_stencil_bytes(
+            String(payload.fileName ?? 'CustomStencil.vssx'),
+            payload.bytes as Uint8Array
+          )
+        );
+        self.postMessage({
+          id,
+          ok: true,
+          packTitle: res.packTitle,
+          masterNames: res.masterNames,
+          previews: res.previews,
+        });
         break;
       }
       case 'flushCrdtOps': {
