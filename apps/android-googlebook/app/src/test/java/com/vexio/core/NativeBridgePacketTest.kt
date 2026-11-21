@@ -266,15 +266,17 @@ class NativeBridgePacketTest {
         assertEquals(16, VexioTool.entries.size)
         assertEquals((0..15).toSet(), VexioTool.entries.map { it.nativeCode }.toSet())
 
-        // All 21 Visio Professional & Microsoft (M365, Servers/AD, Azure, Power Platform) stencil categories are present
-        assertEquals(21, BuiltInStencilCatalog.categories.size)
-        assertEquals(21, state.stencilCategories.size)
+        // All 22 Visio Professional, Microsoft, Server & Network stencil categories are present
+        assertEquals(22, BuiltInStencilCatalog.categories.size)
+        assertEquals(22, state.stencilCategories.size)
         val distinctCategories = state.stencilMasters.map { it.category }.distinct()
-        assertEquals(21, distinctCategories.size)
+        assertEquals(22, distinctCategories.size)
         assertTrue(state.stencilCategories.contains("Microsoft 365 & Office"))
         assertTrue(state.stencilCategories.contains("Microsoft Servers & Active Directory"))
         assertTrue(state.stencilCategories.contains("Microsoft Azure & Hybrid Cloud"))
         assertTrue(state.stencilCategories.contains("Microsoft Power Platform & Dynamics 365"))
+        assertTrue(state.stencilCategories.contains("Servers (Standard Roles)"))
+        assertTrue(state.stencilCategories.contains("Network & Rack Equipment"))
 
         // Theme toggle flips deterministically
         vm.toggleDarkTheme()

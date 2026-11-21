@@ -109,7 +109,9 @@ self.addEventListener('fetch', (event) => {
         }
       }
 
-      const cached = (await cache.match(request)) || (await cache.match(url.pathname, { ignoreSearch: true }));
+      // Match exact URL (including ?v=<hash> cache-buster on WASM) when online;
+      // fall back to ignoreSearch: true ONLY when offline so new WASM builds are never masked by a previous SW!
+      const cached = await cache.match(request);
       if (cached) {
         return withIsolationHeaders(cached);
       }
@@ -121,9 +123,11 @@ self.addEventListener('fetch', (event) => {
         }
         return withIsolationHeaders(netResponse);
       } catch {
-        const shell = await cache.match('/index.html');
-        if (shell) {
-          return withIsolationHeaders(shell);
+        const offlineAsset =
+          (await cache.match(url.pathname, { ignoreSearch: true })) ||
+          (await cache.match('/index.html'));
+        if (offlineAsset) {
+          return withIsolationHeaders(offlineAsset);
         }
         return new Response('Vexio Offline Asset Unavailable', { status: 503 });
       }

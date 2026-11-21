@@ -56,22 +56,234 @@ const FALLBACK_STENCILS: Record<string, string[]> = {
   'Basic Shapes': [
     'Rectangle',
     'Rounded Rectangle',
+    'Snip-Corner Rectangle',
+    'Beveled Frame',
     'Square',
     'Circle',
     'Ellipse',
+    'Semi-Circle',
+    'Quarter Pie Sector',
     'Triangle',
     'Right Triangle',
+    'Inverted Triangle',
     'Diamond',
     'Parallelogram',
     'Trapezoid',
     'Pentagon',
     'Hexagon',
+    'Heptagon',
     'Octagon',
+    'Decagon',
+    'Star (4-Point)',
     'Star (5-Point)',
+    'Star (6-Point)',
+    'Star (8-Point)',
     'Cross / Plus',
     'Cylinder / Can',
     '3D Isometric Cube',
     'Ring / Frame',
+  ],
+  'Basic Flowchart': [
+    'Process',
+    'Decision',
+    'Start/End',
+    'Data (I/O)',
+    'Subprocess',
+    'Document',
+    'Multi-Document',
+    'Database',
+    'Manual Input',
+    'Manual Operation',
+    'Preparation',
+    'Delay',
+    'On-Page Reference',
+    'Off-Page Reference',
+    'Internal Storage',
+    'Sequential Data (Tape)',
+    'Direct Data (Drum)',
+    'Stored Data',
+    'Punched Card',
+    'Paper Tape',
+    'Display',
+    'Merge',
+    'Or Junction',
+    'Summing Junction',
+  ],
+  'Microsoft 365 & Office': [
+    'Microsoft 365 Tenant',
+    'Microsoft Teams',
+    'Exchange Online',
+    'SharePoint Online',
+    'OneDrive for Business',
+    'Outlook Mail Flow',
+    'Word Document',
+    'Excel Workbook',
+    'PowerPoint Deck',
+    'OneNote Notebook',
+    'Microsoft Visio',
+    'Microsoft Project',
+    'Microsoft Access DB',
+    'Microsoft Publisher',
+    'Microsoft Copilot',
+    'Microsoft Loop',
+    'Microsoft Forms',
+    'Microsoft Planner',
+    'Microsoft To Do',
+    'Microsoft Stream',
+    'Microsoft Whiteboard',
+    'Viva Engage',
+    'Viva Insights',
+    'Microsoft Intune',
+    'Defender for M365',
+    'Microsoft Purview',
+  ],
+  'Microsoft Servers & Active Directory': [
+    'Windows Server',
+    'Windows Server Core',
+    'Active Directory DC',
+    'Read-Only DC (RODC)',
+    'Microsoft Entra ID',
+    'Entra Connect Sync',
+    'AD Forest / Domain Trust',
+    'Organizational Unit (OU)',
+    'Group Policy (GPO)',
+    'AD Certificate Services (PKI)',
+    'AD Federation Services (ADFS)',
+    'DNS / DHCP Server',
+    'Windows DNS Server',
+    'Windows DHCP Server',
+    'IIS Web Server',
+    'SQL Server Cluster',
+    'SQL Reporting (SSRS)',
+    'SQL Integration (SSIS)',
+    'Exchange Server',
+    'SharePoint Server',
+    'Hyper-V Host',
+    'Failover Cluster',
+    'System Center (MECM / SCOM)',
+    'WSUS Patch Server',
+    'Windows 11 Workstation',
+  ],
+  'Microsoft Azure & Hybrid Cloud': [
+    'Azure Subscription / RG',
+    'Management Group',
+    'Azure Virtual Machine',
+    'VM Scale Set (VMSS)',
+    'Azure Kubernetes (AKS)',
+    'Azure Container Apps',
+    'Azure App Service',
+    'Azure Functions',
+    'Azure Logic Apps',
+    'API Management (APIM)',
+    'Azure SQL / Cosmos DB',
+    'Azure SQL Database',
+    'Azure Storage Account',
+    'Azure Data Lake Gen2',
+    'Azure Virtual Network (VNet)',
+    'Network Security Group (NSG)',
+    'Azure Firewall',
+    'Azure Front Door / App GW',
+    'Application Gateway (WAF)',
+    'Azure Load Balancer',
+    'Azure Bastion / NAT GW',
+    'Azure VPN Gateway',
+    'Azure Key Vault',
+    'Azure Service Bus / Event Hub',
+    'Azure Event Hub',
+    'Azure Monitor / Log Analytics',
+    'Azure ExpressRoute / VPN',
+    'Azure Arc (Hybrid)',
+    'Azure AI Foundry / OpenAI',
+  ],
+  'Microsoft Power Platform & Dynamics 365': [
+    'Power BI Dashboard',
+    'Power BI Semantic Model',
+    'Power BI Paginated Report',
+    'Power Automate Flow',
+    'Power Automate Desktop (RPA)',
+    'Power Apps',
+    'Power Apps Model-Driven',
+    'Microsoft Dataverse',
+    'AI Builder Model',
+    'Copilot Studio Agent',
+    'Power Pages Portal',
+    'Custom API Connector',
+    'On-Premises Data Gateway',
+    'Managed Environment',
+    'Dynamics 365 Sales / CRM',
+    'Dynamics 365 Customer Service',
+    'Dynamics 365 Field Service',
+    'Dynamics 365 Finance & ERP',
+    'Dynamics 365 Business Central',
+    'Microsoft Fabric Lakehouse',
+  ],
+  'Servers (Standard Roles)': [
+    'Tower Server',
+    'Rackmount Server (1U / 2U)',
+    'Rackmount Server (4U)',
+    'Blade Server Chassis',
+    'Blade Server Module',
+    'Mainframe Host',
+    'Microserver / Edge Node',
+    'Web Server',
+    'Database Server',
+    'Application Server',
+    'File Server',
+    'Print Server',
+    'Mail / SMTP Server',
+    'Directory / LDAP Server',
+    'DNS Server',
+    'DHCP Server',
+    'NTP Time Server',
+    'Proxy / Caching Server',
+    'Firewall / Bastion Server',
+    'FTP / SFTP Transfer Server',
+    'Syslog / SIEM Server',
+    'Monitoring / NMS Server',
+    'PKI Certificate Server',
+    'Terminal / RDS Server',
+    'Virtualization / Hypervisor Host',
+    'Backup & Storage Server',
+  ],
+  'Network & Rack Equipment': [
+    'Enterprise Firewall',
+    'Next-Gen Firewall (NGFW)',
+    'Web Application Firewall (WAF)',
+    'IDS / IPS Security Appliance',
+    'DDoS Mitigation Appliance',
+    'VPN Concentrator / Gateway',
+    'NAC / RADIUS Appliance',
+    'Core Switch (1U)',
+    'Layer 2 Access Switch',
+    'Layer 3 Multilayer Switch',
+    'Chassis Core Switch',
+    'PoE+ Managed Switch',
+    'Fiber / SAN Switch',
+    'Industrial DIN Switch',
+    'Core Router',
+    'Edge / Border Router (BGP)',
+    'Branch ISR Router',
+    'SD-WAN Edge Gateway',
+    'Load Balancer',
+    'Reverse Proxy / API Gateway',
+    'Wi-Fi Access Point',
+    'Outdoor Mesh AP',
+    'Wireless LAN Controller (WLC)',
+    'Patch Panel (48-Port)',
+    'Optical ODF Splice Tray',
+    'Cable / Fiber Modem (ONT)',
+    'Media Converter (Fiber/RJ45)',
+    'NAS / SAN Disk Array',
+    'Tape Library Autoloader',
+    'UPS Battery Backup',
+    'Rack PDU Power Strip',
+    '42U Standard Rack',
+    'Cloud VPC',
+    'Database Cluster',
+    'Workstation / Laptop',
+    'VoIP Desk Phone',
+    'IP Security Camera',
+    'Network Laser Printer',
   ],
   'Arrows & Block Arrows': [
     'Right Block Arrow',
@@ -94,80 +306,6 @@ const FALLBACK_STENCILS: Record<string, string[]> = {
     'Banner Ribbon',
     'Status Badge',
     'Title Header',
-  ],
-  'Basic Flowchart': [
-    'Process',
-    'Decision',
-    'Start/End',
-    'Data (I/O)',
-    'Subprocess',
-    'Document',
-    'Multi-Document',
-    'Database',
-    'Manual Input',
-    'Preparation',
-    'Delay',
-    'On-Page Reference',
-  ],
-  'Microsoft 365 & Office': [
-    'Microsoft 365 Tenant',
-    'Microsoft Teams',
-    'Exchange Online',
-    'SharePoint Online',
-    'OneDrive for Business',
-    'Outlook Mail Flow',
-    'Word Document',
-    'Excel Workbook',
-    'PowerPoint Deck',
-    'OneNote Notebook',
-    'Microsoft Copilot',
-    'Microsoft Loop',
-    'Microsoft Intune',
-    'Defender for M365',
-  ],
-  'Microsoft Servers & Active Directory': [
-    'Windows Server',
-    'Active Directory DC',
-    'Microsoft Entra ID',
-    'AD Forest / Domain Trust',
-    'Group Policy (GPO)',
-    'DNS / DHCP Server',
-    'IIS Web Server',
-    'SQL Server Cluster',
-    'Exchange Server',
-    'SharePoint Server',
-    'Hyper-V Host',
-    'Failover Cluster',
-    'System Center (MECM / SCOM)',
-    'Windows 11 Workstation',
-  ],
-  'Microsoft Azure & Hybrid Cloud': [
-    'Azure Subscription / RG',
-    'Azure Virtual Machine',
-    'Azure Kubernetes (AKS)',
-    'Azure App Service',
-    'Azure Functions',
-    'Azure SQL / Cosmos DB',
-    'Azure Storage Account',
-    'Azure Virtual Network (VNet)',
-    'Azure Front Door / App GW',
-    'Azure Key Vault',
-    'Azure Service Bus / Event Hub',
-    'Azure ExpressRoute / VPN',
-    'Azure Arc (Hybrid)',
-    'Azure AI Foundry / OpenAI',
-  ],
-  'Microsoft Power Platform & Dynamics 365': [
-    'Power BI Dashboard',
-    'Power Automate Flow',
-    'Power Apps',
-    'Microsoft Dataverse',
-    'Copilot Studio Agent',
-    'Power Pages Portal',
-    'On-Premises Data Gateway',
-    'Dynamics 365 Sales / CRM',
-    'Dynamics 365 Finance & ERP',
-    'Microsoft Fabric Lakehouse',
   ],
   'Cross-Functional Swimlanes': [
     'Horizontal Swimlane',
@@ -205,17 +343,6 @@ const FALLBACK_STENCILS: Record<string, string[]> = {
     'Actor / Lifeline',
     'Deployment Node (3D)',
     'UML Note',
-  ],
-  'Network & Rack Equipment': [
-    '42U Standard Rack',
-    'Core Router',
-    'Core Switch (1U)',
-    'Enterprise Firewall',
-    'Load Balancer',
-    'Wi-Fi Access Point',
-    'Cloud VPC',
-    'Database Cluster',
-    'Workstation / Laptop',
   ],
   'Cloud Architecture (AWS / GCP / Azure)': [
     'Compute VM',
@@ -566,10 +693,11 @@ class VexioChromeOsApp {
   private stencilCatalog: Record<string, string[]> = FALLBACK_STENCILS;
   private stencilPreviews: Record<string, StencilPreviewItem[]> = {};
   private packOrder: string[] = Object.keys(FALLBACK_STENCILS);
+  private stencilGroupFilter: 'all' | 'microsoft' | 'network' | 'basic' | 'cloud' | 'eng' = 'all';
   private expandedStencilPacks = new Set<string>([
-    'Basic Shapes',
     'Microsoft 365 & Office',
-    'Basic Flowchart',
+    'Servers (Standard Roles)',
+    'Network & Rack Equipment',
   ]);
   private cloudState: CloudSyncState = {
     initialized: false,
@@ -835,7 +963,18 @@ class VexioChromeOsApp {
 
   public async boot(): Promise<void> {
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/sw.js').catch(() => {});
+      let swRefreshing = false;
+      const hadController = Boolean(navigator.serviceWorker.controller);
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (hadController && !swRefreshing) {
+          swRefreshing = true;
+          window.location.reload();
+        }
+      });
+      navigator.serviceWorker
+        .register('/sw.js', { updateViaCache: 'none' })
+        .then((reg) => reg.update())
+        .catch(() => {});
     }
 
     bindWindowControlsOverlay();
@@ -909,13 +1048,15 @@ class VexioChromeOsApp {
       const initRes = await this.callEngine('init', { sharedBuffer, seedDemo: true });
       this.snapshot = initRes.snapshot;
       if (initRes.stencils && Object.keys(initRes.stencils).length > 0) {
-        this.stencilCatalog = initRes.stencils;
+        this.stencilCatalog = { ...FALLBACK_STENCILS, ...initRes.stencils };
       }
       if (initRes.stencilPreviews && Object.keys(initRes.stencilPreviews).length > 0) {
         this.stencilPreviews = initRes.stencilPreviews;
       }
-      if (Array.isArray(initRes.packOrder) && initRes.packOrder.length > 0) {
+      if (Array.isArray(initRes.packOrder) && initRes.packOrder.length >= Object.keys(FALLBACK_STENCILS).length) {
         this.packOrder = initRes.packOrder;
+      } else {
+        this.packOrder = Object.keys(this.stencilCatalog);
       }
       const initialShapeId = this.snapshot?.shapes[1]?.id ?? this.snapshot?.shapes[0]?.id ?? null;
       this.setSingleSelection(initialShapeId);
@@ -2097,7 +2238,7 @@ class VexioChromeOsApp {
         <main class="${mainGridClasses}">
           <aside class="stencil-pane" style="${this.showLeftStencils ? '' : 'display:none'}">
             <div class="pane-header">
-              <span>Shapes (${orderedPacks.length} Categories)</span>
+              <span>Shapes (${orderedPacks.length} Categories · ${totalMasterCount})</span>
               <button class="m3-btn" id="btn-expand-collapse-packs" style="height:20px;padding:0 6px;font-size:10.5px">
                 ${this.expandedStencilPacks.size >= orderedPacks.length ? 'Collapse' : 'Expand All'}
               </button>
@@ -2107,6 +2248,24 @@ class VexioChromeOsApp {
               ${UI_ICONS.search}
               <input class="search-input" id="stencil-search" placeholder="Search ${totalMasterCount} shapes in ${orderedPacks.length} packs..." value="${this.stencilFilter.replace(/"/g, '&quot;')}" />
               ${this.stencilFilter ? '<button class="search-clear-btn" id="btn-clear-stencil-search" title="Clear search">×</button>' : ''}
+            </div>
+
+            <div class="stencil-group-pills" role="tablist" aria-label="Stencil domain filter">
+              ${(
+                [
+                  ['all', 'All'],
+                  ['microsoft', 'Microsoft'],
+                  ['network', 'Servers & Net'],
+                  ['basic', 'Basic & Flow'],
+                  ['cloud', 'Cloud & Dev'],
+                  ['eng', 'Eng & CAD'],
+                ] as const
+              )
+                .map(
+                  ([gid, label]) =>
+                    `<button class="stencil-group-pill ${this.stencilGroupFilter === gid ? 'active' : ''}" data-stencil-group="${gid}">${label}</button>`
+                )
+                .join('')}
             </div>
 
             ${
@@ -2136,12 +2295,54 @@ class VexioChromeOsApp {
                 : `
                   <div class="stencil-accordion-list">
                     ${orderedPacks
+                      .filter((pack) => {
+                        switch (this.stencilGroupFilter) {
+                          case 'microsoft':
+                            return pack.startsWith('Microsoft ');
+                          case 'network':
+                            return (
+                              pack === 'Servers (Standard Roles)' ||
+                              pack === 'Network & Rack Equipment' ||
+                              pack === 'Microsoft Servers & Active Directory'
+                            );
+                          case 'basic':
+                            return (
+                              pack === 'Basic Shapes' ||
+                              pack === 'Basic Flowchart' ||
+                              pack === 'Arrows & Block Arrows' ||
+                              pack === 'Callouts, Notes & Containers' ||
+                              pack === 'Cross-Functional Swimlanes'
+                            );
+                          case 'cloud':
+                            return (
+                              pack === 'Cloud Architecture (AWS / GCP / Azure)' ||
+                              pack === 'BPMN 2.0' ||
+                              pack === 'UML 2.5' ||
+                              pack === "Database Crow's Foot & IDEF1X" ||
+                              pack === 'UI & Application Wireframes'
+                            );
+                          case 'eng':
+                            return (
+                              pack === 'Organization Chart' ||
+                              pack === 'Floor Plan & Architecture' ||
+                              pack === 'Electrical & Electronic (IEEE / IEC)' ||
+                              pack === 'P&ID Process Engineering' ||
+                              pack === 'Project Schedule (Gantt & Timeline)' ||
+                              pack === 'Value Stream Mapping (Lean VSM)'
+                            );
+                          default:
+                            return true;
+                        }
+                      })
                       .map((pack) => {
                         const masters = this.stencilCatalog[pack] ?? [];
-                        const isOpen = this.expandedStencilPacks.has(pack);
+                        const isOpen =
+                          this.stencilGroupFilter !== 'all' || this.expandedStencilPacks.has(pack);
+                        const useCompactScroll =
+                          this.stencilGroupFilter === 'all' && this.expandedStencilPacks.size > 1;
                         return `
                           <div class="stencil-accordion ${isOpen ? 'expanded' : ''}">
-                            <button class="stencil-acc-header" data-acc-pack="${pack}" title="Click to ${isOpen ? 'collapse' : 'expand'} ${pack}">
+                            <button class="stencil-acc-header" data-acc-pack="${pack}" aria-expanded="${isOpen ? 'true' : 'false'}" title="Click to ${isOpen ? 'collapse' : 'expand'} ${pack}">
                               <span>${isOpen ? '▾' : '▸'}</span>
                               <span class="stencil-acc-title">${pack}</span>
                               <span class="stencil-acc-badge">${masters.length}</span>
@@ -2149,7 +2350,7 @@ class VexioChromeOsApp {
                             ${
                               isOpen
                                 ? `
-                                  <div class="stencil-acc-body">
+                                  <div class="stencil-acc-body ${useCompactScroll ? 'compact-scroll' : ''}">
                                     <div class="stencil-grid">
                                       ${masters
                                         .map(
@@ -3948,12 +4149,31 @@ class VexioChromeOsApp {
       this.render();
     });
 
-    // Stencils: 17-Category Accordions, Cross-Pack Search, Click, Right-Click & Drag-and-Drop onto exact Canvas coordinates!
+    // Stencils: 22-Category Accordions, Quick Domain Filter Pills, Cross-Pack Search, Click, Right-Click & Drag-and-Drop!
+    document.querySelectorAll('[data-stencil-group]').forEach((pill) => {
+      pill.addEventListener('click', () => {
+        const gid = (pill as HTMLElement).dataset.stencilGroup as
+          | 'all'
+          | 'microsoft'
+          | 'network'
+          | 'basic'
+          | 'cloud'
+          | 'eng'
+          | undefined;
+        if (!gid) return;
+        this.stencilGroupFilter = gid;
+        this.render();
+      });
+    });
+
     document.querySelectorAll('[data-acc-pack]').forEach((hdr) => {
       hdr.addEventListener('click', () => {
         const pack = (hdr as HTMLElement).dataset.accPack;
         if (!pack) return;
-        if (this.expandedStencilPacks.has(pack)) {
+        if (this.stencilGroupFilter !== 'all') {
+          this.stencilGroupFilter = 'all';
+          this.expandedStencilPacks.add(pack);
+        } else if (this.expandedStencilPacks.has(pack)) {
           this.expandedStencilPacks.delete(pack);
         } else {
           this.expandedStencilPacks.add(pack);
@@ -3966,7 +4186,11 @@ class VexioChromeOsApp {
     document.getElementById('btn-expand-collapse-packs')?.addEventListener('click', () => {
       const allPacks = Object.keys(this.stencilCatalog);
       if (this.expandedStencilPacks.size >= allPacks.length) {
-        this.expandedStencilPacks = new Set(['Basic Shapes', 'Arrows & Block Arrows']);
+        this.expandedStencilPacks = new Set([
+          'Microsoft 365 & Office',
+          'Servers (Standard Roles)',
+          'Network & Rack Equipment',
+        ]);
       } else {
         this.expandedStencilPacks = new Set(allPacks);
       }

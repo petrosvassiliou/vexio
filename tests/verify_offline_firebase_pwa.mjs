@@ -95,30 +95,31 @@ async function main() {
   }
   for (const stFile of [
     'basic_shapes.vssx',
-    'arrows_block_arrows.vssx',
-    'callouts_notes_containers.vssx',
     'basic_flowchart.vssx',
     'microsoft_365_office.vssx',
     'microsoft_servers_active_directory.vssx',
     'microsoft_azure_hybrid_cloud.vssx',
     'microsoft_power_platform_dynamics_365.vssx',
+    'servers_standard_roles.vssx',
+    'network_rack_equipment.vssx',
+    'cloud_architecture_aws_gcp_azure.vssx',
+    'arrows_block_arrows.vssx',
+    'callouts_notes_containers.vssx',
     'cross_functional_swimlanes.vssx',
     'bpmn_2_0.vssx',
     'uml_2_5.vssx',
     'database_crow_s_foot_idef1x.vssx',
-    'network_rack_equipment.vssx',
-    'cloud_architecture_aws_gcp_azure.vssx',
     'organization_chart.vssx',
-    'project_schedule_gantt_timeline.vssx',
     'floor_plan_architecture.vssx',
     'electrical_electronic_ieee_iec.vssx',
     'p_id_process_engineering.vssx',
-    'value_stream_mapping_lean_vsm.vssx',
     'ui_application_wireframes.vssx',
+    'project_schedule_gantt_timeline.vssx',
+    'value_stream_mapping_lean_vsm.vssx',
   ]) {
     assert(swText.includes(`/stencils/${stFile}`), `sw.js missing precached stencil ${stFile}`);
   }
-  console.log(`  ✓ ChromeOS WCO, File Handlers, ${jsAssets.length} code-split chunks (<500 KB each), and 21 .vssx Stencil Packs verified.`);
+  console.log(`  ✓ ChromeOS WCO, File Handlers, ${jsAssets.length} code-split chunks (<500 KB each), and 22 .vssx Stencil Packs verified.`);
 
   console.log('=== [4/6] Verifying 100% Unauthenticated Offline Rust WASM SIMD Engine & Core Tools ===');
   const distWasmJs = pathToFileURL(resolve(DIST_DIR, 'wasm/vexio_core.js')).href;
@@ -129,24 +130,30 @@ async function main() {
   const session = new wasmMod.WasmVexioSession('Offline ChromeOS Test');
   assert.equal(manifest.theme_color, '#f8fafc', 'ChromeOS PWA manifest must default to Light Mode');
   const packOrder = JSON.parse(session.list_builtin_pack_order_json());
-  assert.equal(packOrder.length, 21, 'WASM session must expose canonical order for all 21 stencil packs');
+  assert.equal(packOrder.length, 22, 'WASM session must expose canonical order for all 22 stencil packs');
   const stencilMap = JSON.parse(session.list_builtin_stencils_json());
-  assert.equal(Object.keys(stencilMap).length, 21, 'WASM session must expose all 21 stencil packs');
+  assert.equal(Object.keys(stencilMap).length, 22, 'WASM session must expose all 22 stencil packs');
   const stencilPreviews = JSON.parse(session.list_builtin_stencil_previews_json());
-  assert.equal(Object.keys(stencilPreviews).length, 21, 'WASM session must generate SVG previews for all 21 packs');
+  assert.equal(Object.keys(stencilPreviews).length, 22, 'WASM session must generate SVG previews for all 22 packs');
   const totalPreviews = Object.values(stencilPreviews).reduce((acc, arr) => acc + arr.length, 0);
-  assert.equal(totalPreviews, 212, `Expected 212 high-definition vector stencil previews, got ${totalPreviews}`);
+  assert(totalPreviews >= 500, `Expected >= 500 high-definition vector stencil previews, got ${totalPreviews}`);
   for (const [pk, items] of Object.entries(stencilPreviews)) {
+    assert(items.length >= 18, `Expected >= 18 stencils in pack ${pk}, got ${items.length}`);
     for (const it of items) {
       assert(it.svg.includes('<svg') && it.svg.includes('<path'), `Missing vector <path> preview for ${pk}:${it.name}`);
     }
   }
 
-  // Verify Microsoft Stencils exist in WASM catalog
+  // Verify Microsoft, Standard Servers & Network Equipment stencils exist in WASM catalog
   assert(stencilMap['Microsoft 365 & Office']?.includes('Microsoft Teams'), 'Missing Microsoft Teams stencil');
+  assert(stencilMap['Microsoft 365 & Office']?.includes('Microsoft Visio'), 'Missing Microsoft Visio stencil');
   assert(stencilMap['Microsoft Servers & Active Directory']?.includes('Active Directory DC'), 'Missing Active Directory DC stencil');
-  assert(stencilMap['Microsoft Azure & Hybrid Cloud']?.includes('Azure Kubernetes (AKS)'), 'Missing Azure AKS stencil');
+  assert(stencilMap['Microsoft Azure & Hybrid Cloud']?.includes('Azure Firewall'), 'Missing Azure Firewall stencil');
   assert(stencilMap['Microsoft Power Platform & Dynamics 365']?.includes('Power BI Dashboard'), 'Missing Power BI stencil');
+  assert(stencilMap['Servers (Standard Roles)']?.includes('Web Server'), 'Missing Web Server stencil');
+  assert(stencilMap['Servers (Standard Roles)']?.includes('Database Server'), 'Missing Database Server stencil');
+  assert(stencilMap['Network & Rack Equipment']?.includes('Next-Gen Firewall (NGFW)'), 'Missing NGFW stencil');
+  assert(stencilMap['Network & Rack Equipment']?.includes('Layer 3 Multilayer Switch'), 'Missing L3 Switch stencil');
 
   const s1 = session.drop_builtin_shape('BPMN 2.0', 'Start Event', 2.0, 5.0);
   const s2 = session.drop_builtin_shape('BPMN 2.0', 'Task', 5.0, 5.0);

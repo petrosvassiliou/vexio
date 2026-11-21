@@ -1034,52 +1034,32 @@ pub fn build_all_builtin_stencils() -> Vec<StencilPack> {
             &[
                 ("Rectangle", "Rectangle", 1.6, 1.0, "basic_rect"),
                 ("Rounded Rectangle", "Rectangle", 1.6, 1.0, "basic_round_rect"),
+                ("Snip-Corner Rectangle", "Rectangle", 1.6, 1.0, "basic_snip_rect"),
+                ("Beveled Frame", "Rectangle", 1.6, 1.05, "basic_bevel_frame"),
                 ("Square", "Rectangle", 1.1, 1.1, "basic_square"),
                 ("Circle", "Circle", 1.0, 1.0, "basic_circle"),
                 ("Ellipse", "Circle", 1.6, 1.0, "basic_ellipse"),
+                ("Semi-Circle", "Rectangle", 1.5, 0.85, "basic_semicircle"),
+                ("Quarter Pie Sector", "Rectangle", 1.2, 1.2, "basic_pie"),
                 ("Triangle", "Triangle", 1.2, 1.05, "basic_triangle"),
                 ("Right Triangle", "RightTriangle", 1.2, 1.05, "basic_right_triangle"),
+                ("Inverted Triangle", "Rectangle", 1.2, 1.05, "basic_inv_triangle"),
                 ("Diamond", "Diamond", 1.3, 1.0, "basic_diamond"),
                 ("Parallelogram", "Parallelogram", 1.55, 0.95, "basic_parallelogram"),
                 ("Trapezoid", "Trapezoid", 1.55, 0.95, "basic_trapezoid"),
                 ("Pentagon", "Pentagon", 1.15, 1.1, "basic_pentagon"),
                 ("Hexagon", "Hexagon", 1.35, 1.1, "basic_hexagon"),
+                ("Heptagon", "Octagon", 1.2, 1.2, "basic_heptagon"),
                 ("Octagon", "Octagon", 1.15, 1.15, "basic_octagon"),
+                ("Decagon", "Circle", 1.2, 1.2, "basic_decagon"),
+                ("Star (4-Point)", "Diamond", 1.2, 1.2, "basic_star4"),
                 ("Star (5-Point)", "Star5", 1.2, 1.2, "basic_star"),
+                ("Star (6-Point)", "Hexagon", 1.25, 1.25, "basic_star6"),
+                ("Star (8-Point)", "Octagon", 1.25, 1.25, "basic_star8"),
                 ("Cross / Plus", "Cross", 1.1, 1.1, "basic_cross"),
                 ("Cylinder / Can", "Rectangle", 1.2, 1.35, "db_cluster"),
                 ("3D Isometric Cube", "Cube3D", 1.3, 1.3, "basic_cube"),
                 ("Ring / Frame", "RingFrame", 1.25, 1.25, "basic_ring"),
-            ],
-        ),
-        make_stencil_pack(
-            "Arrows & Block Arrows",
-            "Arrows",
-            &[
-                ("Right Block Arrow", "RightArrow", 1.7, 0.85, "basic_arrow_right"),
-                ("Left Block Arrow", "LeftArrow", 1.7, 0.85, "basic_arrow_left"),
-                ("Up Block Arrow", "UpArrow", 0.9, 1.55, "basic_arrow_up"),
-                ("Down Block Arrow", "DownArrow", 0.9, 1.55, "basic_arrow_down"),
-                ("Bidirectional Arrow", "BiArrow", 1.9, 0.8, "basic_arrow_bi"),
-                ("Quad 4-Way Arrow", "QuadArrow", 1.4, 1.4, "basic_arrow_quad"),
-                ("Chevron", "Chevron", 1.5, 0.85, "basic_chevron"),
-                ("Bent 90° Arrow", "BentArrow", 1.45, 1.35, "basic_arrow_bent"),
-                ("U-Turn Arrow", "UTurnArrow", 1.45, 1.3, "basic_arrow_uturn"),
-                ("Notched Signal Arrow", "NotchedArrow", 1.75, 0.85, "basic_arrow_notched"),
-            ],
-        ),
-        make_stencil_pack(
-            "Callouts, Notes & Containers",
-            "Callouts",
-            &[
-                ("Callout Bubble", "CalloutBubble", 1.7, 1.1, "basic_callout"),
-                ("Folded Note", "FoldedNote", 1.4, 1.2, "basic_note"),
-                ("Section Container", "Rectangle", 2.8, 1.8, "callout_container"),
-                ("Curly Brace Left", "CurlyBraceLeft", 0.55, 1.5, "callout_brace_l"),
-                ("Curly Brace Right", "CurlyBraceRight", 0.55, 1.5, "callout_brace_r"),
-                ("Banner Ribbon", "BannerRibbon", 2.0, 0.75, "callout_banner"),
-                ("Status Badge", "Pill", 1.25, 0.48, "callout_badge"),
-                ("Title Header", "Rectangle", 2.6, 0.65, "callout_header"),
             ],
         ),
         make_stencil_pack(
@@ -1095,9 +1075,21 @@ pub fn build_all_builtin_stencils() -> Vec<StencilPack> {
                 ("Multi-Document", "DocumentWave", 1.6, 1.05, "flow_multidoc"),
                 ("Database", "Rectangle", 1.3, 1.25, "db_cluster"),
                 ("Manual Input", "ManualInput", 1.5, 0.9, "flow_manual_input"),
+                ("Manual Operation", "Trapezoid", 1.55, 0.85, "flow_manual_op"),
                 ("Preparation", "Hexagon", 1.6, 0.85, "flow_prep"),
                 ("Delay", "DelayD", 1.4, 0.85, "flow_delay"),
                 ("On-Page Reference", "Circle", 0.65, 0.65, "flow_onpage"),
+                ("Off-Page Reference", "Pentagon", 0.95, 0.95, "flow_offpage"),
+                ("Internal Storage", "Rectangle", 1.45, 0.95, "flow_internal_store"),
+                ("Sequential Data (Tape)", "Circle", 1.05, 1.05, "flow_seq_tape"),
+                ("Direct Data (Drum)", "Pill", 1.55, 0.90, "flow_direct_drum"),
+                ("Stored Data", "Pill", 1.50, 0.85, "flow_stored_data"),
+                ("Punched Card", "Rectangle", 1.50, 0.90, "flow_card"),
+                ("Paper Tape", "DocumentWave", 1.55, 0.85, "flow_paper_tape"),
+                ("Display", "Hexagon", 1.55, 0.85, "flow_display"),
+                ("Merge", "Triangle", 1.15, 0.95, "flow_merge"),
+                ("Or Junction", "Circle", 0.75, 0.75, "flow_or_junc"),
+                ("Summing Junction", "Circle", 0.75, 0.75, "flow_sum_junc"),
             ],
         ),
         make_stencil_pack(
@@ -1114,10 +1106,22 @@ pub fn build_all_builtin_stencils() -> Vec<StencilPack> {
                 ("Excel Workbook", "FoldedNote", 1.25, 1.35, "office_excel"),
                 ("PowerPoint Deck", "Rectangle", 1.55, 1.05, "office_powerpoint"),
                 ("OneNote Notebook", "Rectangle", 1.30, 1.30, "office_onenote"),
+                ("Microsoft Visio", "Rectangle", 1.45, 1.10, "office_visio"),
+                ("Microsoft Project", "Rectangle", 1.45, 1.10, "office_project"),
+                ("Microsoft Access DB", "Rectangle", 1.35, 1.25, "office_access"),
+                ("Microsoft Publisher", "FoldedNote", 1.25, 1.35, "office_publisher"),
                 ("Microsoft Copilot", "Hexagon", 1.25, 1.15, "m365_copilot"),
                 ("Microsoft Loop", "Rectangle", 1.35, 1.05, "m365_loop"),
+                ("Microsoft Forms", "Rectangle", 1.35, 1.10, "m365_forms"),
+                ("Microsoft Planner", "Rectangle", 1.45, 1.05, "m365_planner"),
+                ("Microsoft To Do", "Rectangle", 1.30, 1.05, "m365_todo"),
+                ("Microsoft Stream", "Pill", 1.45, 0.95, "m365_stream"),
+                ("Microsoft Whiteboard", "Rectangle", 1.55, 1.05, "m365_whiteboard"),
+                ("Viva Engage", "Circle", 1.15, 1.15, "m365_viva"),
+                ("Viva Insights", "Hexagon", 1.30, 1.15, "m365_viva_insights"),
                 ("Microsoft Intune", "Rectangle", 1.45, 1.05, "m365_intune"),
                 ("Defender for M365", "Pentagon", 1.20, 1.25, "m365_defender"),
+                ("Microsoft Purview", "Hexagon", 1.35, 1.15, "m365_purview"),
             ],
         ),
         make_stencil_pack(
@@ -1125,18 +1129,29 @@ pub fn build_all_builtin_stencils() -> Vec<StencilPack> {
             "Microsoft Servers",
             &[
                 ("Windows Server", "Rectangle", 1.35, 1.55, "ms_win_server"),
+                ("Windows Server Core", "Rectangle", 1.35, 1.40, "ms_server_core"),
                 ("Active Directory DC", "Triangle", 1.45, 1.30, "ms_ad_dc"),
+                ("Read-Only DC (RODC)", "Triangle", 1.45, 1.30, "ms_rodc"),
                 ("Microsoft Entra ID", "Diamond", 1.30, 1.25, "ms_entra_id"),
+                ("Entra Connect Sync", "Hexagon", 1.45, 1.15, "ms_entra_connect"),
                 ("AD Forest / Domain Trust", "Pill", 1.85, 0.95, "ms_ad_trust"),
+                ("Organizational Unit (OU)", "Rectangle", 1.50, 1.10, "ms_ad_ou"),
                 ("Group Policy (GPO)", "FoldedNote", 1.30, 1.25, "ms_gpo"),
+                ("AD Certificate Services (PKI)", "Pentagon", 1.30, 1.25, "ms_ad_cs"),
+                ("AD Federation Services (ADFS)", "Diamond", 1.35, 1.20, "ms_adfs"),
                 ("DNS / DHCP Server", "Rectangle", 1.45, 1.10, "ms_dns_dhcp"),
+                ("Windows DNS Server", "Rectangle", 1.45, 1.15, "ms_win_dns"),
+                ("Windows DHCP Server", "Rectangle", 1.45, 1.15, "ms_win_dhcp"),
                 ("IIS Web Server", "Rectangle", 1.50, 1.10, "ms_iis"),
                 ("SQL Server Cluster", "Rectangle", 1.40, 1.35, "ms_sql_server"),
+                ("SQL Reporting (SSRS)", "FoldedNote", 1.35, 1.25, "ms_ssrs"),
+                ("SQL Integration (SSIS)", "Hexagon", 1.45, 1.15, "ms_ssis"),
                 ("Exchange Server", "Rectangle", 1.45, 1.25, "ms_exchange_srv"),
                 ("SharePoint Server", "Rectangle", 1.45, 1.25, "ms_sharepoint_srv"),
                 ("Hyper-V Host", "Cube3D", 1.55, 1.25, "ms_hyperv"),
                 ("Failover Cluster", "Rectangle", 1.70, 1.15, "ms_failover_cluster"),
                 ("System Center (MECM / SCOM)", "Hexagon", 1.45, 1.20, "ms_system_center"),
+                ("WSUS Patch Server", "Rectangle", 1.45, 1.20, "ms_wsus"),
                 ("Windows 11 Workstation", "Rectangle", 1.45, 1.05, "ms_win11_client"),
             ],
         ),
@@ -1145,16 +1160,31 @@ pub fn build_all_builtin_stencils() -> Vec<StencilPack> {
             "Microsoft Azure",
             &[
                 ("Azure Subscription / RG", "Rectangle", 2.20, 1.45, "az_resource_group"),
+                ("Management Group", "Rectangle", 2.10, 1.35, "az_mgmt_group"),
                 ("Azure Virtual Machine", "Rectangle", 1.50, 1.05, "az_vm"),
+                ("VM Scale Set (VMSS)", "Rectangle", 1.65, 1.15, "az_vmss"),
                 ("Azure Kubernetes (AKS)", "Hexagon", 1.50, 1.30, "az_aks"),
+                ("Azure Container Apps", "Rectangle", 1.55, 1.10, "az_container_apps"),
                 ("Azure App Service", "Circle", 1.15, 1.15, "az_app_service"),
                 ("Azure Functions", "Diamond", 1.30, 1.15, "az_functions"),
+                ("Azure Logic Apps", "Rectangle", 1.50, 1.10, "az_logic_apps"),
+                ("API Management (APIM)", "Octagon", 1.35, 1.20, "az_apim"),
                 ("Azure SQL / Cosmos DB", "Rectangle", 1.35, 1.30, "az_sql_cosmos"),
+                ("Azure SQL Database", "Rectangle", 1.30, 1.25, "az_sql_db"),
                 ("Azure Storage Account", "Rectangle", 1.55, 1.05, "az_storage"),
+                ("Azure Data Lake Gen2", "Parallelogram", 1.60, 1.05, "az_datalake"),
                 ("Azure Virtual Network (VNet)", "Pill", 1.90, 1.05, "az_vnet"),
+                ("Network Security Group (NSG)", "Pentagon", 1.25, 1.25, "az_nsg"),
+                ("Azure Firewall", "Rectangle", 1.65, 1.05, "az_firewall"),
                 ("Azure Front Door / App GW", "Octagon", 1.35, 1.20, "az_front_door"),
+                ("Application Gateway (WAF)", "Hexagon", 1.45, 1.15, "az_app_gw"),
+                ("Azure Load Balancer", "Diamond", 1.40, 1.15, "az_lb"),
+                ("Azure Bastion / NAT GW", "Pentagon", 1.30, 1.20, "az_bastion"),
+                ("Azure VPN Gateway", "Diamond", 1.35, 1.15, "az_vpn_gw"),
                 ("Azure Key Vault", "Circle", 1.15, 1.15, "az_key_vault"),
                 ("Azure Service Bus / Event Hub", "Rectangle", 1.70, 0.95, "az_service_bus"),
+                ("Azure Event Hub", "Pill", 1.65, 0.95, "az_event_hub"),
+                ("Azure Monitor / Log Analytics", "Circle", 1.15, 1.15, "az_monitor"),
                 ("Azure ExpressRoute / VPN", "Diamond", 1.40, 1.10, "az_expressroute"),
                 ("Azure Arc (Hybrid)", "Pill", 1.65, 1.00, "az_arc"),
                 ("Azure AI Foundry / OpenAI", "Hexagon", 1.35, 1.20, "az_openai"),
@@ -1165,15 +1195,181 @@ pub fn build_all_builtin_stencils() -> Vec<StencilPack> {
             "Power Platform",
             &[
                 ("Power BI Dashboard", "Rectangle", 1.50, 1.10, "pp_powerbi"),
+                ("Power BI Semantic Model", "Hexagon", 1.40, 1.15, "pp_pbi_model"),
+                ("Power BI Paginated Report", "FoldedNote", 1.30, 1.30, "pp_pbi_paginated"),
                 ("Power Automate Flow", "Chevron", 1.55, 0.95, "pp_automate"),
+                ("Power Automate Desktop (RPA)", "Rectangle", 1.55, 1.05, "pp_rpa"),
                 ("Power Apps", "Diamond", 1.30, 1.15, "pp_powerapps"),
+                ("Power Apps Model-Driven", "Rectangle", 1.50, 1.05, "pp_model_app"),
                 ("Microsoft Dataverse", "Rectangle", 1.55, 1.05, "pp_dataverse"),
+                ("AI Builder Model", "Hexagon", 1.35, 1.15, "pp_ai_builder"),
                 ("Copilot Studio Agent", "CalloutBubble", 1.50, 1.10, "pp_copilot_studio"),
                 ("Power Pages Portal", "Rectangle", 1.60, 1.10, "pp_power_pages"),
+                ("Custom API Connector", "Pill", 1.55, 0.90, "pp_connector"),
                 ("On-Premises Data Gateway", "Hexagon", 1.40, 1.10, "pp_gateway"),
+                ("Managed Environment", "Rectangle", 1.85, 1.20, "pp_managed_env"),
                 ("Dynamics 365 Sales / CRM", "Rectangle", 1.60, 1.05, "d365_crm"),
+                ("Dynamics 365 Customer Service", "CalloutBubble", 1.60, 1.05, "d365_cs"),
+                ("Dynamics 365 Field Service", "Hexagon", 1.45, 1.15, "d365_fs"),
                 ("Dynamics 365 Finance & ERP", "Rectangle", 1.60, 1.05, "d365_erp"),
+                ("Dynamics 365 Business Central", "Diamond", 1.40, 1.15, "d365_bc"),
                 ("Microsoft Fabric Lakehouse", "Parallelogram", 1.65, 1.10, "ms_fabric"),
+            ],
+        ),
+        make_stencil_pack(
+            "Servers (Standard Roles)",
+            "Servers",
+            &[
+                ("Tower Server", "Rectangle", 1.25, 1.60, "srv_tower"),
+                ("Rackmount Server (1U / 2U)", "Rectangle", 1.90, 0.55, "srv_rack"),
+                ("Rackmount Server (4U)", "Rectangle", 1.90, 0.95, "srv_rack_4u"),
+                ("Blade Server Chassis", "Rectangle", 1.85, 1.25, "srv_blade"),
+                ("Blade Server Module", "Rectangle", 0.75, 1.45, "srv_blade_mod"),
+                ("Mainframe Host", "Rectangle", 1.80, 1.65, "srv_mainframe"),
+                ("Microserver / Edge Node", "Rectangle", 1.25, 1.05, "srv_edge"),
+                ("Web Server", "Rectangle", 1.45, 1.45, "srv_web"),
+                ("Database Server", "Rectangle", 1.45, 1.45, "srv_db"),
+                ("Application Server", "Rectangle", 1.45, 1.45, "srv_app"),
+                ("File Server", "Rectangle", 1.45, 1.45, "srv_file"),
+                ("Print Server", "Rectangle", 1.45, 1.45, "srv_print"),
+                ("Mail / SMTP Server", "Rectangle", 1.45, 1.45, "srv_mail"),
+                ("Directory / LDAP Server", "Rectangle", 1.45, 1.45, "srv_ldap"),
+                ("DNS Server", "Rectangle", 1.45, 1.45, "srv_dns"),
+                ("DHCP Server", "Rectangle", 1.45, 1.45, "srv_dhcp"),
+                ("NTP Time Server", "Rectangle", 1.45, 1.45, "srv_ntp"),
+                ("Proxy / Caching Server", "Rectangle", 1.45, 1.45, "srv_proxy"),
+                ("Firewall / Bastion Server", "Rectangle", 1.45, 1.45, "srv_bastion"),
+                ("FTP / SFTP Transfer Server", "Rectangle", 1.45, 1.45, "srv_ftp"),
+                ("Syslog / SIEM Server", "Rectangle", 1.45, 1.45, "srv_siem"),
+                ("Monitoring / NMS Server", "Rectangle", 1.45, 1.45, "srv_nms"),
+                ("PKI Certificate Server", "Rectangle", 1.45, 1.45, "srv_pki"),
+                ("Terminal / RDS Server", "Rectangle", 1.45, 1.45, "srv_rds"),
+                ("Virtualization / Hypervisor Host", "Rectangle", 1.55, 1.45, "srv_hypervisor"),
+                ("Backup & Storage Server", "Rectangle", 1.45, 1.45, "srv_backup"),
+            ],
+        ),
+        make_stencil_pack(
+            "Network & Rack Equipment",
+            "Network",
+            &[
+                ("Enterprise Firewall", "Rectangle", 1.90, 0.65, "firewall"),
+                ("Next-Gen Firewall (NGFW)", "Rectangle", 1.90, 0.85, "net_ngfw"),
+                ("Web Application Firewall (WAF)", "Octagon", 1.35, 1.20, "net_waf"),
+                ("IDS / IPS Security Appliance", "Hexagon", 1.55, 0.95, "net_ids_ips"),
+                ("DDoS Mitigation Appliance", "Pentagon", 1.35, 1.20, "net_ddos"),
+                ("VPN Concentrator / Gateway", "Rectangle", 1.75, 0.85, "net_vpn_gw"),
+                ("NAC / RADIUS Appliance", "Hexagon", 1.45, 1.05, "net_nac"),
+                ("Core Switch (1U)", "Rectangle", 1.90, 0.45, "switch_1u"),
+                ("Layer 2 Access Switch", "Rectangle", 1.90, 0.55, "net_l2_switch"),
+                ("Layer 3 Multilayer Switch", "Rectangle", 1.45, 1.25, "net_l3_switch"),
+                ("Chassis Core Switch", "Rectangle", 1.85, 1.45, "net_chassis_sw"),
+                ("PoE+ Managed Switch", "Rectangle", 1.90, 0.60, "net_poe_switch"),
+                ("Fiber / SAN Switch", "Rectangle", 1.90, 0.60, "net_fiber_switch"),
+                ("Industrial DIN Switch", "Rectangle", 0.95, 1.40, "net_din_switch"),
+                ("Core Router", "Circle", 1.05, 1.05, "net_router"),
+                ("Edge / Border Router (BGP)", "Circle", 1.15, 1.15, "net_edge_router"),
+                ("Branch ISR Router", "Rectangle", 1.65, 0.75, "net_isr_router"),
+                ("SD-WAN Edge Gateway", "Pill", 1.75, 0.90, "net_sdwan"),
+                ("Load Balancer", "Hexagon", 1.50, 1.00, "net_lb"),
+                ("Reverse Proxy / API Gateway", "Diamond", 1.45, 1.10, "net_rev_proxy"),
+                ("Wi-Fi Access Point", "Circle", 0.95, 0.95, "net_wifi"),
+                ("Outdoor Mesh AP", "Hexagon", 1.10, 1.15, "net_mesh_ap"),
+                ("Wireless LAN Controller (WLC)", "Rectangle", 1.75, 0.80, "net_wlc"),
+                ("Patch Panel (48-Port)", "Rectangle", 1.95, 0.48, "net_patch_panel"),
+                ("Optical ODF Splice Tray", "Rectangle", 1.85, 0.65, "net_odf"),
+                ("Cable / Fiber Modem (ONT)", "Rectangle", 1.55, 0.75, "net_modem"),
+                ("Media Converter (Fiber/RJ45)", "Rectangle", 1.35, 0.70, "net_media_conv"),
+                ("NAS / SAN Disk Array", "Rectangle", 1.65, 1.20, "net_nas_san"),
+                ("Tape Library Autoloader", "Rectangle", 1.75, 1.10, "net_tape_lib"),
+                ("UPS Battery Backup", "Rectangle", 1.35, 1.45, "net_ups"),
+                ("Rack PDU Power Strip", "Rectangle", 1.95, 0.42, "net_pdu"),
+                ("42U Standard Rack", "Rectangle", 2.20, 7.35, "rack_42u"),
+                ("Cloud VPC", "Pill", 2.80, 1.80, "cloud_vpc"),
+                ("Database Cluster", "Rectangle", 1.60, 1.20, "db_cluster"),
+                ("Workstation / Laptop", "Rectangle", 1.30, 0.95, "net_laptop"),
+                ("VoIP Desk Phone", "Rectangle", 1.25, 1.05, "net_voip"),
+                ("IP Security Camera", "Circle", 0.95, 0.95, "net_ip_cam"),
+                ("Network Laser Printer", "Rectangle", 1.40, 1.15, "net_printer"),
+            ],
+        ),
+        make_stencil_pack(
+            "Cloud Architecture (AWS / GCP / Azure)",
+            "Cloud",
+            &[
+                ("Compute VM", "Rectangle", 1.6, 1.0, "cloud_vm"),
+                ("Auto-Scaling Group", "Rectangle", 1.85, 1.15, "cloud_asg"),
+                ("Spot Compute Instance", "Diamond", 1.35, 1.10, "cloud_spot"),
+                ("Kubernetes Cluster", "Hexagon", 1.6, 1.3, "cloud_k8s"),
+                ("Managed Container Pod", "Hexagon", 1.35, 1.15, "cloud_pod"),
+                ("Serverless Function", "Hexagon", 1.4, 1.1, "cloud_fn"),
+                ("Batch Compute Worker", "Rectangle", 1.55, 1.0, "cloud_batch"),
+                ("Object Storage Bucket", "Parallelogram", 1.6, 1.0, "cloud_bucket"),
+                ("Block Volume (SSD)", "Rectangle", 1.45, 0.95, "cloud_ebs"),
+                ("Cold Archive Vault", "Pentagon", 1.30, 1.20, "cloud_glacier"),
+                ("Managed SQL / Spanner", "Pill", 1.7, 1.1, "cloud_sql"),
+                ("NoSQL Key-Value DB", "Hexagon", 1.45, 1.15, "cloud_nosql"),
+                ("In-Memory Cache (Redis)", "Diamond", 1.40, 1.10, "cloud_cache"),
+                ("Cloud Data Warehouse", "Octagon", 1.45, 1.25, "cloud_dwh"),
+                ("Edge CDN / Load Balancer", "Diamond", 1.5, 1.1, "cloud_lb"),
+                ("Cloud NAT Gateway", "Circle", 1.10, 1.10, "cloud_nat"),
+                ("Cloud DNS Zone", "Circle", 1.10, 1.10, "cloud_dns"),
+                ("Pub/Sub Event Bus", "Pill", 2.0, 0.75, "cloud_pubsub"),
+                ("Workflow Orchestrator", "Rectangle", 1.65, 1.05, "cloud_workflow"),
+                ("API Gateway", "Octagon", 1.35, 1.15, "cloud_apigw"),
+                ("Secret Manager / KMS", "Circle", 1.10, 1.10, "cloud_kms"),
+                ("IAM Security Shield", "Pentagon", 1.15, 1.2, "cloud_iam"),
+            ],
+        ),
+        make_stencil_pack(
+            "Arrows & Block Arrows",
+            "Arrows",
+            &[
+                ("Right Block Arrow", "RightArrow", 1.7, 0.85, "basic_arrow_right"),
+                ("Left Block Arrow", "LeftArrow", 1.7, 0.85, "basic_arrow_left"),
+                ("Up Block Arrow", "UpArrow", 0.9, 1.55, "basic_arrow_up"),
+                ("Down Block Arrow", "DownArrow", 0.9, 1.55, "basic_arrow_down"),
+                ("Bidirectional Arrow", "BiArrow", 1.9, 0.8, "basic_arrow_bi"),
+                ("Vertical Bi-Arrow", "Rectangle", 0.85, 1.75, "arrow_vert_bi"),
+                ("Quad 4-Way Arrow", "QuadArrow", 1.4, 1.4, "basic_arrow_quad"),
+                ("Chevron", "Chevron", 1.5, 0.85, "basic_chevron"),
+                ("Double Chevron", "Chevron", 1.75, 0.85, "arrow_dbl_chevron"),
+                ("Striped Right Arrow", "RightArrow", 1.8, 0.85, "arrow_striped"),
+                ("Bent 90° Arrow", "BentArrow", 1.45, 1.35, "basic_arrow_bent"),
+                ("Bent Left-Up Arrow", "BentArrow", 1.45, 1.35, "arrow_bent_lu"),
+                ("U-Turn Arrow", "UTurnArrow", 1.45, 1.3, "basic_arrow_uturn"),
+                ("Notched Signal Arrow", "NotchedArrow", 1.75, 0.85, "basic_arrow_notched"),
+                ("Pentagon Tag Arrow", "RightArrow", 1.65, 0.80, "arrow_tag"),
+                ("Split Fork Arrow", "Rectangle", 1.75, 1.25, "arrow_fork"),
+                ("Merge Join Arrow", "Rectangle", 1.75, 1.25, "arrow_join"),
+                ("Circular Loop Arrow", "RingFrame", 1.25, 1.25, "arrow_loop"),
+                ("Curved Sweep Arrow", "Pill", 1.65, 0.95, "arrow_sweep"),
+                ("Callout Block Arrow", "RightArrow", 1.95, 1.00, "arrow_callout"),
+            ],
+        ),
+        make_stencil_pack(
+            "Callouts, Notes & Containers",
+            "Callouts",
+            &[
+                ("Callout Bubble", "CalloutBubble", 1.7, 1.1, "basic_callout"),
+                ("Oval Callout", "Circle", 1.65, 1.05, "callout_oval"),
+                ("Cloud Thought Bubble", "Pill", 1.75, 1.10, "callout_cloud"),
+                ("Leader Line Callout", "Rectangle", 1.65, 0.95, "callout_leader"),
+                ("Folded Note", "FoldedNote", 1.4, 1.2, "basic_note"),
+                ("Sticky Memo Card", "Rectangle", 1.35, 1.30, "callout_sticky"),
+                ("Pinned Note", "Rectangle", 1.35, 1.25, "callout_pinned"),
+                ("Section Container", "Rectangle", 2.8, 1.8, "callout_container"),
+                ("Dashed Region Group", "Rectangle", 2.6, 1.65, "callout_dashed_group"),
+                ("Swimlane Header Card", "Rectangle", 2.2, 0.75, "callout_lane_hdr"),
+                ("Curly Brace Left", "CurlyBraceLeft", 0.55, 1.5, "callout_brace_l"),
+                ("Curly Brace Right", "CurlyBraceRight", 0.55, 1.5, "callout_brace_r"),
+                ("Square Bracket Left", "Rectangle", 0.45, 1.5, "callout_sq_l"),
+                ("Square Bracket Right", "Rectangle", 0.45, 1.5, "callout_sq_r"),
+                ("Banner Ribbon", "BannerRibbon", 2.0, 0.75, "callout_banner"),
+                ("Corner Tag Ribbon", "Parallelogram", 1.45, 0.65, "callout_tag"),
+                ("Status Badge", "Pill", 1.25, 0.48, "callout_badge"),
+                ("Warning Alert Box", "Rectangle", 1.85, 0.85, "callout_warning"),
+                ("Numbered Step Badge", "Circle", 0.65, 0.65, "callout_step"),
+                ("Title Header", "Rectangle", 2.6, 0.65, "callout_header"),
             ],
         ),
         make_stencil_pack(
@@ -1183,9 +1379,21 @@ pub fn build_all_builtin_stencils() -> Vec<StencilPack> {
                 ("Horizontal Swimlane", "Rectangle", 5.5, 1.5, "swimlane_horiz"),
                 ("Vertical Swimlane", "Rectangle", 1.8, 4.2, "swimlane_vert"),
                 ("Pool Header Frame", "Rectangle", 5.8, 2.2, "bpmn_pool"),
+                ("Dual-Lane Pool", "Rectangle", 5.6, 2.6, "swim_dual_pool"),
+                ("Three-Lane Pool", "Rectangle", 5.6, 3.6, "swim_triple_pool"),
                 ("Phase Divider", "Rectangle", 0.35, 3.2, "swimlane_phase"),
+                ("Milestone Phase Line", "Rectangle", 0.30, 3.2, "swim_milestone_line"),
                 ("Handoff Node", "Chevron", 1.5, 0.8, "swimlane_handoff"),
+                ("Cross-Team Escalation", "UpArrow", 0.95, 1.35, "swim_escalation"),
                 ("Approval Gate", "Diamond", 1.2, 0.95, "Decision"),
+                ("SLA Timer Gate", "Circle", 0.80, 0.80, "swim_sla_timer"),
+                ("Shared Service Lane", "Rectangle", 5.2, 1.35, "swim_shared"),
+                ("External Partner Lane", "Rectangle", 5.2, 1.35, "swim_external"),
+                ("Automated System Lane", "Rectangle", 5.2, 1.35, "swim_system"),
+                ("Customer Touchpoint", "Hexagon", 1.45, 0.85, "swim_touchpoint"),
+                ("Audit / Control Check", "Pentagon", 1.10, 1.10, "swim_audit"),
+                ("Bottleneck Marker", "Octagon", 1.00, 1.00, "swim_bottleneck"),
+                ("Swimlane Summary Card", "Rectangle", 1.95, 1.05, "swim_summary"),
             ],
         ),
         make_stencil_pack(
@@ -1195,16 +1403,31 @@ pub fn build_all_builtin_stencils() -> Vec<StencilPack> {
                 ("Start Event", "Circle", 0.5, 0.5, "start"),
                 ("Message Start Event", "Circle", 0.55, 0.55, "bpmn_msg_start"),
                 ("Timer Event", "Circle", 0.55, 0.55, "bpmn_timer"),
+                ("Signal Start Event", "Circle", 0.55, 0.55, "bpmn_signal_start"),
+                ("Conditional Event", "Circle", 0.55, 0.55, "bpmn_cond_event"),
                 ("Intermediate Event", "Circle", 0.5, 0.5, "intermediate"),
+                ("Catching Message Event", "Circle", 0.55, 0.55, "bpmn_catch_msg"),
+                ("Throwing Message Event", "Circle", 0.55, 0.55, "bpmn_throw_msg"),
+                ("Error Boundary Event", "Circle", 0.55, 0.55, "bpmn_error_ev"),
+                ("Escalation Event", "Circle", 0.55, 0.55, "bpmn_esc_ev"),
                 ("End Event", "Circle", 0.5, 0.5, "end"),
+                ("Terminate End Event", "Circle", 0.55, 0.55, "bpmn_term_end"),
                 ("Task", "Rectangle", 1.6, 0.9, "task"),
                 ("User Task", "Rectangle", 1.65, 0.95, "bpmn_user_task"),
                 ("Service Task", "Rectangle", 1.65, 0.95, "bpmn_service_task"),
+                ("Send Task", "Rectangle", 1.65, 0.95, "bpmn_send_task"),
+                ("Receive Task", "Rectangle", 1.65, 0.95, "bpmn_recv_task"),
+                ("Script Task", "Rectangle", 1.65, 0.95, "bpmn_script_task"),
+                ("Business Rule Task", "Rectangle", 1.65, 0.95, "bpmn_rule_task"),
+                ("Manual Task", "Rectangle", 1.65, 0.95, "bpmn_manual_task"),
                 ("Collapsed Subprocess", "Rectangle", 1.7, 1.0, "bpmn_subprocess"),
+                ("Call Activity", "Rectangle", 1.7, 1.0, "bpmn_call_act"),
                 ("Exclusive Gateway", "Diamond", 0.75, 0.75, "exclusive_gateway"),
                 ("Parallel Gateway", "Diamond", 0.75, 0.75, "parallel_gateway"),
                 ("Inclusive Gateway", "Diamond", 0.75, 0.75, "inclusive_gateway"),
+                ("Event-Based Gateway", "Diamond", 0.80, 0.80, "bpmn_event_gw"),
                 ("Data Object", "FoldedNote", 0.85, 1.05, "bpmn_data_obj"),
+                ("Data Store", "Rectangle", 1.15, 1.05, "db_cluster"),
                 ("Participant Pool", "Rectangle", 5.5, 1.8, "bpmn_pool"),
             ],
         ),
@@ -1213,46 +1436,27 @@ pub fn build_all_builtin_stencils() -> Vec<StencilPack> {
             "Software & Database",
             &[
                 ("Class", "Rectangle", 2.0, 1.4, "uml_class"),
+                ("Abstract Class", "Rectangle", 2.0, 1.35, "uml_abstract"),
                 ("Interface", "Rectangle", 2.0, 1.1, "uml_interface"),
+                ("Enumeration", "Rectangle", 1.85, 1.2, "uml_enum"),
                 ("Component", "Rectangle", 1.8, 1.0, "uml_component"),
                 ("Package", "UmlPackage", 1.9, 1.25, "uml_package"),
+                ("Subsystem", "UmlPackage", 2.1, 1.35, "uml_subsystem"),
+                ("Artifact", "FoldedNote", 1.45, 1.1, "uml_artifact"),
                 ("Use Case", "Circle", 1.65, 0.95, "uml_usecase"),
+                ("Actor", "Rectangle", 0.85, 1.45, "uml_actor"),
+                ("System Boundary", "Rectangle", 2.8, 2.0, "uml_boundary"),
                 ("State", "Pill", 1.6, 0.8, "uml_state"),
+                ("Composite State", "Pill", 2.2, 1.25, "uml_comp_state"),
                 ("Activity Initial", "Circle", 0.42, 0.42, "uml_initial"),
                 ("Activity Final", "Circle", 0.48, 0.48, "uml_final"),
+                ("Flow Final", "Circle", 0.48, 0.48, "uml_flow_final"),
+                ("Fork / Join Bar", "Rectangle", 1.8, 0.16, "uml_fork_join"),
                 ("Actor / Lifeline", "Rectangle", 1.2, 2.5, "uml_lifeline"),
+                ("Activation Bar", "Rectangle", 0.28, 1.35, "uml_activation"),
+                ("Combined Fragment", "Rectangle", 2.5, 1.5, "uml_fragment"),
                 ("Deployment Node (3D)", "Cube3D", 1.8, 1.3, "uml_node"),
                 ("UML Note", "FoldedNote", 1.5, 1.0, "uml_note"),
-            ],
-        ),
-        make_stencil_pack(
-            "Network & Rack Equipment",
-            "Network",
-            &[
-                ("42U Standard Rack", "Rectangle", 2.2, 7.35, "rack_42u"),
-                ("Core Router", "Circle", 1.05, 1.05, "net_router"),
-                ("Core Switch (1U)", "Rectangle", 1.9, 0.35, "switch_1u"),
-                ("Enterprise Firewall", "Rectangle", 1.9, 0.5, "firewall"),
-                ("Load Balancer", "Hexagon", 1.5, 1.0, "net_lb"),
-                ("Wi-Fi Access Point", "Circle", 0.95, 0.95, "net_wifi"),
-                ("Cloud VPC", "Pill", 2.8, 1.8, "cloud_vpc"),
-                ("Database Cluster", "Rectangle", 1.6, 1.2, "db_cluster"),
-                ("Workstation / Laptop", "Rectangle", 1.3, 0.95, "net_laptop"),
-            ],
-        ),
-        make_stencil_pack(
-            "Cloud Architecture (AWS / GCP / Azure)",
-            "Cloud",
-            &[
-                ("Compute VM", "Rectangle", 1.6, 1.0, "cloud_vm"),
-                ("Kubernetes Cluster", "Hexagon", 1.6, 1.3, "cloud_k8s"),
-                ("Serverless Function", "Hexagon", 1.4, 1.1, "cloud_fn"),
-                ("Object Storage Bucket", "Parallelogram", 1.6, 1.0, "cloud_bucket"),
-                ("Managed SQL / Spanner", "Pill", 1.7, 1.1, "cloud_sql"),
-                ("Edge CDN / Load Balancer", "Diamond", 1.5, 1.1, "cloud_lb"),
-                ("Pub/Sub Event Bus", "Pill", 2.0, 0.75, "cloud_pubsub"),
-                ("API Gateway", "Octagon", 1.35, 1.15, "cloud_apigw"),
-                ("IAM Security Shield", "Pentagon", 1.15, 1.2, "cloud_iam"),
             ],
         ),
         make_stencil_pack(
@@ -1261,10 +1465,50 @@ pub fn build_all_builtin_stencils() -> Vec<StencilPack> {
             &[
                 ("Strong Entity", "Rectangle", 2.2, 1.3, "erd_strong"),
                 ("Weak / Associative Entity", "Pill", 2.2, 1.3, "erd_weak"),
+                ("Lookup / Reference Table", "Rectangle", 2.0, 1.15, "erd_lookup"),
+                ("Junction / Bridge Table", "Diamond", 1.65, 1.10, "erd_junction"),
+                ("Temporal History Table", "Rectangle", 2.1, 1.25, "erd_temporal"),
+                ("Audit Log Table", "FoldedNote", 1.85, 1.20, "erd_audit"),
                 ("Materialized View", "Parallelogram", 2.1, 1.1, "erd_view"),
+                ("Standard SQL View", "Parallelogram", 2.0, 1.0, "erd_sql_view"),
+                ("Partitioned Table", "Rectangle", 2.2, 1.35, "erd_partitioned"),
+                ("External Foreign Table", "Rectangle", 2.1, 1.2, "erd_external"),
                 ("PK Attribute", "Rectangle", 1.8, 0.38, "erd_pk"),
                 ("FK Attribute", "Rectangle", 1.8, 0.38, "erd_fk"),
+                ("Unique Key Attribute", "Rectangle", 1.8, 0.38, "erd_uk"),
+                ("Nullable Column", "Pill", 1.7, 0.42, "erd_nullable"),
+                ("JSON / Document Column", "Hexagon", 1.65, 0.65, "erd_json"),
+                ("Vector Embedding Column", "Octagon", 1.65, 0.75, "erd_vector"),
                 ("Index / Trigger", "Hexagon", 1.5, 0.65, "erd_index"),
+                ("Stored Procedure", "Rectangle", 1.75, 0.85, "erd_proc"),
+                ("Sequence Generator", "Circle", 0.95, 0.95, "erd_seq"),
+                ("Schema Container", "Rectangle", 2.8, 1.85, "erd_schema"),
+            ],
+        ),
+        make_stencil_pack(
+            "Organization Chart",
+            "Business",
+            &[
+                ("Executive", "Rectangle", 2.1, 0.95, "org_exec"),
+                ("Board of Directors", "Rectangle", 2.25, 1.0, "org_board"),
+                ("C-Suite Officer (CXO)", "Rectangle", 2.05, 0.95, "org_cxo"),
+                ("VP / Director", "Rectangle", 2.0, 0.9, "org_vp"),
+                ("Senior Manager", "Rectangle", 1.95, 0.88, "org_sr_mgr"),
+                ("Manager", "Rectangle", 1.9, 0.85, "org_mgr"),
+                ("Team Lead", "Rectangle", 1.85, 0.85, "org_lead"),
+                ("Principal / Staff IC", "Rectangle", 1.85, 0.85, "org_staff"),
+                ("Individual Contributor", "Rectangle", 1.8, 0.8, "org_ic"),
+                ("Junior / Associate", "Rectangle", 1.75, 0.78, "org_assoc"),
+                ("Intern / Trainee", "Pill", 1.65, 0.72, "org_intern"),
+                ("Consultant / Contractor", "Rectangle", 1.8, 0.8, "org_consultant"),
+                ("Vendor / Partner Team", "Hexagon", 1.85, 0.88, "org_vendor"),
+                ("Executive Assistant", "Pill", 1.7, 0.75, "org_assistant"),
+                ("Matrix Dotted Role", "Rectangle", 1.8, 0.8, "org_matrix"),
+                ("Open Vacancy", "Rectangle", 1.8, 0.8, "org_vacancy"),
+                ("Agile Squad / Pod", "Rectangle", 2.3, 1.25, "org_squad"),
+                ("Department Header", "BannerRibbon", 2.3, 0.75, "org_dept"),
+                ("Regional Office", "Rectangle", 1.95, 1.05, "org_office"),
+                ("Advisory Council", "Pill", 2.0, 0.85, "org_council"),
             ],
         ),
         make_stencil_pack(
@@ -1273,26 +1517,28 @@ pub fn build_all_builtin_stencils() -> Vec<StencilPack> {
             &[
                 ("Exterior Wall", "Rectangle", 4.0, 0.2, "wall"),
                 ("Interior Partition", "Rectangle", 3.0, 0.12, "wall_inner"),
+                ("Glass Curtain Wall", "Rectangle", 3.2, 0.18, "arch_glass_wall"),
+                ("Structural Column", "Rectangle", 0.55, 0.55, "arch_column"),
                 ("Single Door (90°)", "Rectangle", 0.9, 0.9, "door"),
                 ("Double French Door", "Rectangle", 1.6, 0.85, "door_double"),
+                ("Sliding Pocket Door", "Rectangle", 1.5, 0.28, "arch_sliding_door"),
+                ("Revolving Entrance", "Circle", 1.25, 1.25, "arch_revolving"),
                 ("Casement Window", "Rectangle", 1.5, 0.22, "arch_window"),
+                ("Bay Window", "Trapezoid", 1.75, 0.55, "arch_bay_win"),
                 ("Staircase Flight", "Rectangle", 1.8, 0.95, "arch_stairs"),
-                ("Conference Table", "Pill", 2.2, 1.0, "arch_table"),
-                ("Office Desk Workstation", "Rectangle", 1.6, 0.9, "arch_desk"),
+                ("Spiral Staircase", "Circle", 1.20, 1.20, "arch_spiral"),
                 ("Elevator Shaft", "Rectangle", 1.2, 1.2, "arch_elevator"),
-            ],
-        ),
-        make_stencil_pack(
-            "P&ID Process Engineering",
-            "Process Engineering",
-            &[
-                ("Centrifugal Pump", "Circle", 0.9, 0.9, "pid_pump"),
-                ("Control Valve", "Diamond", 0.7, 0.45, "pid_valve"),
-                ("Check Valve", "Rectangle", 0.8, 0.5, "pid_check_valve"),
-                ("Heat Exchanger", "Circle", 1.05, 1.05, "pid_heatex"),
-                ("Vertical Storage Tank", "Rectangle", 1.2, 1.6, "pid_tank"),
-                ("Pressure Vessel", "Pill", 1.8, 0.9, "pid_vessel"),
-                ("Inline Flow Meter", "Circle", 0.8, 0.8, "pid_flowmeter"),
+                ("Conference Table", "Pill", 2.2, 1.0, "arch_table"),
+                ("Round Collaborator Table", "Circle", 1.25, 1.25, "arch_round_tbl"),
+                ("Office Desk Workstation", "Rectangle", 1.6, 0.9, "arch_desk"),
+                ("L-Shaped Corner Desk", "Rectangle", 1.65, 1.35, "arch_l_desk"),
+                ("Ergonomic Task Chair", "Circle", 0.65, 0.65, "arch_chair"),
+                ("Reception Counter", "Pill", 2.1, 0.85, "arch_reception"),
+                ("Filing Cabinet", "Rectangle", 0.85, 1.05, "arch_cabinet"),
+                ("Restroom Stall", "Rectangle", 1.15, 1.25, "arch_restroom"),
+                ("Kitchenette Counter", "Rectangle", 1.85, 0.85, "arch_kitchen"),
+                ("Emergency Exit Sign", "Rectangle", 0.95, 0.55, "arch_exit"),
+                ("Server Closet", "Rectangle", 1.45, 1.25, "arch_closet"),
             ],
         ),
         make_stencil_pack(
@@ -1300,29 +1546,57 @@ pub fn build_all_builtin_stencils() -> Vec<StencilPack> {
             "Electrical",
             &[
                 ("Resistor (IEEE)", "Zigzag", 1.4, 0.45, "ieee_resistor"),
+                ("Variable Potentiometer", "Zigzag", 1.4, 0.65, "ieee_pot"),
                 ("Capacitor", "Rectangle", 0.9, 0.7, "ieee_capacitor"),
+                ("Polarized Capacitor", "Rectangle", 0.95, 0.7, "ieee_pol_cap"),
                 ("Inductor", "Pill", 1.3, 0.45, "ieee_inductor"),
                 ("Step-Down Transformer", "Rectangle", 1.3, 1.1, "ieee_transformer"),
                 ("PN Diode", "Rectangle", 1.1, 0.65, "ieee_diode"),
+                ("Zener Diode", "Rectangle", 1.1, 0.65, "ieee_zener"),
+                ("LED Emitting Diode", "Rectangle", 1.15, 0.75, "ieee_led"),
+                ("Bridge Rectifier", "Diamond", 1.15, 1.15, "ieee_bridge"),
                 ("NPN Transistor", "Circle", 1.05, 1.05, "ieee_npn"),
+                ("N-Channel MOSFET", "Circle", 1.05, 1.05, "ieee_mosfet"),
                 ("Op-Amp", "Triangle", 1.2, 1.0, "ieee_opamp"),
+                ("Logic AND Gate", "DelayD", 1.25, 0.85, "ieee_and"),
+                ("Logic OR Gate", "Chevron", 1.30, 0.85, "ieee_or"),
+                ("Logic NOT Inverter", "Triangle", 1.10, 0.80, "ieee_not"),
+                ("Crystal Oscillator", "Rectangle", 1.05, 0.75, "ieee_xtal"),
+                ("Fuse / Breaker", "Rectangle", 1.15, 0.50, "ieee_fuse"),
+                ("Relay Coil", "Rectangle", 1.15, 0.85, "ieee_relay"),
                 ("Single-Pole Switch", "Rectangle", 1.1, 0.5, "ieee_switch"),
+                ("Pushbutton Switch", "Rectangle", 1.1, 0.6, "ieee_pushbtn"),
                 ("DC Battery", "Rectangle", 0.95, 0.7, "ieee_battery"),
                 ("Earth Ground", "Triangle", 0.7, 0.55, "ieee_ground"),
                 ("AC Voltage Source", "Circle", 0.85, 0.85, "ieee_ac_source"),
             ],
         ),
         make_stencil_pack(
-            "Organization Chart",
-            "Business",
+            "P&ID Process Engineering",
+            "Process Engineering",
             &[
-                ("Executive", "Rectangle", 2.1, 0.95, "org_exec"),
-                ("VP / Director", "Rectangle", 2.0, 0.9, "org_vp"),
-                ("Manager", "Rectangle", 1.9, 0.85, "org_mgr"),
-                ("Individual Contributor", "Rectangle", 1.8, 0.8, "org_ic"),
-                ("Consultant / Contractor", "Rectangle", 1.8, 0.8, "org_consultant"),
-                ("Executive Assistant", "Pill", 1.7, 0.75, "org_assistant"),
-                ("Open Vacancy", "Rectangle", 1.8, 0.8, "org_vacancy"),
+                ("Centrifugal Pump", "Circle", 0.9, 0.9, "pid_pump"),
+                ("Positive Displacement Pump", "Circle", 0.95, 0.95, "pid_pd_pump"),
+                ("Compressor / Blower", "Trapezoid", 1.15, 0.95, "pid_compressor"),
+                ("Turbine", "Trapezoid", 1.15, 0.95, "pid_turbine"),
+                ("Control Valve", "Diamond", 0.7, 0.45, "pid_valve"),
+                ("Gate Valve", "Diamond", 0.80, 0.50, "pid_gate_valve"),
+                ("Globe Valve", "Diamond", 0.85, 0.55, "pid_globe_valve"),
+                ("Ball Valve", "Diamond", 0.85, 0.55, "pid_ball_valve"),
+                ("Check Valve", "Rectangle", 0.8, 0.5, "pid_check_valve"),
+                ("Pressure Relief Valve", "Rectangle", 0.85, 0.95, "pid_prv"),
+                ("3-Way Valve", "Triangle", 0.90, 0.75, "pid_3way"),
+                ("Heat Exchanger", "Circle", 1.05, 1.05, "pid_heatex"),
+                ("Shell & Tube Condenser", "Pill", 1.65, 0.85, "pid_condenser"),
+                ("Cooling Tower", "Trapezoid", 1.35, 1.55, "pid_cooling_twr"),
+                ("Fired Boiler", "Rectangle", 1.35, 1.50, "pid_boiler"),
+                ("Vertical Storage Tank", "Rectangle", 1.2, 1.6, "pid_tank"),
+                ("Cone-Roof Tank", "Pentagon", 1.30, 1.55, "pid_cone_tank"),
+                ("Mixing Agitator Tank", "Rectangle", 1.25, 1.60, "pid_mixer"),
+                ("Pressure Vessel", "Pill", 1.8, 0.9, "pid_vessel"),
+                ("Distillation Column", "Pill", 0.95, 2.20, "pid_column"),
+                ("Cyclone Separator", "Triangle", 1.05, 1.45, "pid_cyclone"),
+                ("Inline Flow Meter", "Circle", 0.8, 0.8, "pid_flowmeter"),
             ],
         ),
         make_stencil_pack(
@@ -1331,12 +1605,25 @@ pub fn build_all_builtin_stencils() -> Vec<StencilPack> {
             &[
                 ("Browser / Desktop Frame", "Rectangle", 4.2, 2.8, "wf_window"),
                 ("Mobile Phone Frame", "Rectangle", 1.5, 2.8, "wf_mobile"),
+                ("Tablet Landscape Frame", "Rectangle", 3.2, 2.2, "wf_tablet"),
                 ("Top App Bar", "Rectangle", 4.0, 0.45, "wf_appbar"),
+                ("Bottom Tab Bar", "Rectangle", 2.8, 0.50, "wf_tabbar"),
                 ("Navigation Rail", "Rectangle", 0.75, 2.4, "wf_navrail"),
+                ("Breadcrumb Bar", "Rectangle", 2.6, 0.40, "wf_breadcrumb"),
+                ("Hero Banner", "Rectangle", 3.4, 1.35, "wf_hero"),
                 ("KPI Metric Card", "Rectangle", 1.6, 1.0, "wf_card"),
                 ("Data Grid Table", "Rectangle", 3.0, 1.6, "wf_table"),
+                ("Kanban Column", "Rectangle", 1.55, 2.2, "wf_kanban"),
                 ("Primary Action Button", "Pill", 1.3, 0.42, "wf_button"),
+                ("Secondary Outline Button", "Pill", 1.35, 0.42, "wf_sec_btn"),
+                ("Segmented Control", "Pill", 2.0, 0.44, "wf_segmented"),
                 ("Search Input", "Pill", 2.2, 0.42, "wf_input"),
+                ("Text Input Field", "Rectangle", 2.1, 0.48, "wf_textfield"),
+                ("Dropdown Select", "Rectangle", 1.9, 0.46, "wf_dropdown"),
+                ("Checkbox & Radio Group", "Rectangle", 1.65, 1.05, "wf_checks"),
+                ("Slider Control", "Pill", 2.0, 0.36, "wf_slider"),
+                ("Toggle Switch", "Pill", 0.85, 0.42, "wf_toggle"),
+                ("Toast Banner", "Pill", 2.3, 0.50, "wf_toast"),
                 ("Modal Dialog", "Rectangle", 2.4, 1.5, "wf_modal"),
             ],
         ),
@@ -1346,10 +1633,24 @@ pub fn build_all_builtin_stencils() -> Vec<StencilPack> {
             &[
                 ("Timeline Spine", "Pill", 5.0, 0.35, "sched_spine"),
                 ("Milestone Diamond", "Diamond", 0.45, 0.45, "sched_milestone"),
+                ("Major Release Star", "Star5", 0.65, 0.65, "sched_star"),
                 ("Phase Interval Bar", "Pill", 2.4, 0.4, "sched_interval"),
                 ("Gantt Task Bar", "Rectangle", 2.0, 0.35, "sched_gantt_bar"),
+                ("Critical Path Bar", "Rectangle", 2.2, 0.38, "sched_critical"),
+                ("Float / Slack Bar", "Rectangle", 1.6, 0.30, "sched_slack"),
                 ("Summary Rollup Bar", "Rectangle", 3.0, 0.25, "sched_rollup"),
+                ("Sprint Box", "Rectangle", 1.75, 0.85, "sched_sprint"),
+                ("PI Planning Block", "Rectangle", 2.4, 1.10, "sched_pi"),
                 ("Checkpoint Flag", "Rectangle", 0.85, 0.95, "sched_flag"),
+                ("Go / No-Go Gate", "Diamond", 0.85, 0.85, "sched_gate"),
+                ("Code Freeze Window", "Rectangle", 1.8, 0.65, "sched_freeze"),
+                ("Today Marker Line", "Rectangle", 0.22, 2.4, "sched_today"),
+                ("Resource Pill", "Pill", 1.35, 0.42, "sched_resource"),
+                ("Risk Flag", "Pentagon", 0.95, 0.85, "sched_risk"),
+                ("Deliverable Package", "Cube3D", 0.95, 0.95, "sched_deliverable"),
+                ("Dependency Callout", "CalloutBubble", 1.45, 0.80, "sched_dep"),
+                ("Status Header", "BannerRibbon", 2.4, 0.60, "sched_header"),
+                ("Swimlane Track", "Rectangle", 4.5, 0.85, "sched_track"),
             ],
         ),
         make_stencil_pack(
@@ -1359,11 +1660,23 @@ pub fn build_all_builtin_stencils() -> Vec<StencilPack> {
                 ("Customer / Supplier", "Rectangle", 1.6, 1.1, "vsm_customer"),
                 ("Dedicated Process", "Rectangle", 1.8, 1.1, "vsm_dedicated"),
                 ("Shared Process", "Rectangle", 1.8, 1.1, "vsm_shared"),
+                ("U-Shaped Workcell", "Rectangle", 1.45, 1.20, "vsm_workcell"),
+                ("VSM Data Box", "Rectangle", 1.65, 1.25, "vsm_databox"),
                 ("Inventory Triangle", "Triangle", 0.85, 0.8, "vsm_inventory"),
+                ("Safety Buffer", "Rectangle", 0.95, 1.15, "vsm_buffer"),
                 ("Supermarket", "Rectangle", 1.0, 1.2, "vsm_supermarket"),
-                ("Kaizen Burst", "Hexagon", 1.3, 0.85, "vsm_kaizen"),
+                ("Withdrawal Kanban", "FoldedNote", 1.10, 0.85, "vsm_w_kanban"),
+                ("Production Kanban", "FoldedNote", 1.10, 0.85, "vsm_p_kanban"),
+                ("Signal Kanban", "Triangle", 1.05, 0.90, "vsm_sig_kanban"),
+                ("Kanban Post", "Rectangle", 0.75, 1.15, "vsm_post"),
                 ("FIFO Lane", "Rectangle", 1.8, 0.55, "vsm_fifo"),
+                ("Sequenced Pull Ball", "Circle", 0.75, 0.75, "vsm_pull_ball"),
+                ("Heijunka Box", "Rectangle", 1.65, 1.00, "vsm_heijunka"),
+                ("Kaizen Burst", "Hexagon", 1.3, 0.85, "vsm_kaizen"),
+                ("Operator Symbol", "Circle", 0.80, 0.80, "vsm_operator"),
                 ("Truck Shipment", "Rectangle", 1.5, 0.9, "vsm_truck"),
+                ("Air / Rail Freight", "Parallelogram", 1.65, 0.85, "vsm_freight"),
+                ("Lead-Time Ladder", "Rectangle", 2.6, 0.65, "vsm_ladder"),
             ],
         ),
     ]
@@ -1970,10 +2283,26 @@ fn apply_domain_master_styling_and_details(
         ("Software & Database", "uml_initial") => ("15,23,42", "15,23,42", 1.5),
         ("Software & Database", "uml_note") => ("254,252,232", "161,98,7", 1.5),
         ("Software & Database", _) => ("245,243,255", "109,40,217", 1.55),
-        ("Network", "firewall") => ("254,242,242", "220,38,38", 1.65),
-        ("Network", _) => ("240,249,255", "3,105,161", 1.6),
+        ("Network", "firewall") | ("Network", "net_ngfw") | ("Network", "net_waf") => ("254,242,242", "220,38,38", 1.7),
+        ("Network", "net_ids_ips") => ("255,247,237", "194,65,12", 1.65),
+        ("Network", "switch_1u")
+        | ("Network", "net_l2_switch")
+        | ("Network", "net_l3_switch")
+        | ("Network", "net_poe_switch")
+        | ("Network", "net_fiber_switch") => ("236,254,255", "14,116,144", 1.65),
+        ("Network", "rack_42u")
+        | ("Network", "net_patch_panel")
+        | ("Network", "net_nas_san")
+        | ("Network", "net_ups") => ("241,245,249", "51,65,85", 1.65),
+        ("Network", _) => ("240,249,255", "3,105,161", 1.65),
+        ("Servers", "srv_db") => ("254,242,242", "185,28,28", 1.7),
+        ("Servers", "srv_bastion") => ("254,242,242", "220,38,38", 1.7),
+        ("Servers", "srv_web") | ("Servers", "srv_dns") => ("240,249,255", "2,132,199", 1.65),
+        ("Servers", "srv_hypervisor") | ("Servers", "srv_app") => ("238,242,255", "67,56,202", 1.65),
+        ("Servers", "srv_backup") | ("Servers", "srv_file") => ("236,253,245", "5,150,105", 1.65),
+        ("Servers", _) => ("241,245,249", "30,64,175", 1.65),
         ("Engineering & Architecture", _) => ("248,250,252", "51,65,85", 1.65),
-        ("Cloud", "cloud_fn") => ("255,247,237", "234,88,12", 1.65),
+        ("Cloud", "cloud_fn") => ("255,251,235", "234,88,12", 1.65),
         ("Cloud", "cloud_bucket") => ("236,253,245", "22,163,74", 1.6),
         ("Cloud", "cloud_sql") => ("238,242,255", "67,56,202", 1.6),
         ("Cloud", "cloud_iam") => ("254,242,242", "185,28,28", 1.65),
@@ -1992,11 +2321,13 @@ fn apply_domain_master_styling_and_details(
         ("Lean Manufacturing", _) => ("241,245,249", "51,65,85", 1.6),
         ("Database", _) => ("239,246,255", "29,78,216", 1.6),
         ("Microsoft 365", "m365_teams") | ("Microsoft 365", "m365_loop") => ("238,242,255", "79,70,229", 1.65),
+        ("Microsoft 365", "office_visio") => ("239,246,255", "29,78,216", 1.7),
+        ("Microsoft 365", "office_project") => ("236,253,245", "21,128,61", 1.7),
         ("Microsoft 365", "m365_sharepoint") => ("240,253,250", "13,148,136", 1.65),
         ("Microsoft 365", "office_excel") => ("236,253,245", "21,128,61", 1.65),
         ("Microsoft 365", "office_powerpoint") => ("255,247,237", "194,65,12", 1.65),
         ("Microsoft 365", "office_onenote") => ("250,245,255", "126,34,206", 1.65),
-        ("Microsoft 365", "m365_copilot") => ("245,243,255", "109,40,217", 1.7),
+        ("Microsoft 365", "m365_copilot") | ("Microsoft 365", "m365_purview") => ("245,243,255", "109,40,217", 1.7),
         ("Microsoft 365", "m365_defender") => ("239,246,255", "30,64,175", 1.75),
         ("Microsoft 365", _) => ("239,246,255", "2,132,199", 1.65),
         ("Microsoft Servers", "ms_sql_server") => ("254,242,242", "185,28,28", 1.7),
@@ -2004,6 +2335,8 @@ fn apply_domain_master_styling_and_details(
         ("Microsoft Servers", "ms_sharepoint_srv") => ("240,253,250", "13,148,136", 1.65),
         ("Microsoft Servers", "ms_hyperv") => ("238,242,255", "55,48,163", 1.65),
         ("Microsoft Servers", _) => ("241,245,249", "3,105,161", 1.65),
+        ("Microsoft Azure", "az_firewall") => ("254,242,242", "220,38,38", 1.7),
+        ("Microsoft Azure", "az_bastion") => ("241,245,249", "30,64,175", 1.7),
         ("Microsoft Azure", "az_functions") => ("255,251,235", "217,119,6", 1.7),
         ("Microsoft Azure", "az_key_vault") => ("254,249,195", "180,83,9", 1.7),
         ("Microsoft Azure", "az_storage") => ("236,253,245", "5,150,105", 1.65),
@@ -2031,54 +2364,68 @@ fn apply_domain_master_styling_and_details(
         .set_formula("Char.Color", "=RGB(15,23,42)", Some(Unit::Color));
 
     if geom_kind == "Rectangle"
-        && matches!(
-            role,
-            "basic_round_rect"
-                | "Process"
-                | "task"
-                | "bpmn_user_task"
-                | "bpmn_service_task"
-                | "bpmn_subprocess"
-                | "cloud_vm"
-                | "wf_card"
-                | "wf_mobile"
-                | "wf_modal"
-                | "org_exec"
-                | "org_vp"
-                | "org_mgr"
-                | "org_ic"
-                | "org_consultant"
-                | "m365_tenant"
-                | "m365_teams"
-                | "m365_exchange"
-                | "m365_outlook"
-                | "office_powerpoint"
-                | "office_onenote"
-                | "m365_loop"
-                | "m365_intune"
-                | "ms_win_server"
-                | "ms_dns_dhcp"
-                | "ms_iis"
-                | "ms_exchange_srv"
-                | "ms_sharepoint_srv"
-                | "ms_failover_cluster"
-                | "az_resource_group"
-                | "az_vm"
-                | "az_storage"
-                | "az_service_bus"
-                | "pp_powerbi"
-                | "pp_dataverse"
-                | "pp_power_pages"
-                | "d365_crm"
-                | "d365_erp"
-        )
+        && (category == "Servers"
+            || matches!(
+                role,
+                "basic_round_rect"
+                    | "Process"
+                    | "task"
+                    | "bpmn_user_task"
+                    | "bpmn_service_task"
+                    | "bpmn_subprocess"
+                    | "cloud_vm"
+                    | "wf_card"
+                    | "wf_mobile"
+                    | "wf_modal"
+                    | "org_exec"
+                    | "org_vp"
+                    | "org_mgr"
+                    | "org_ic"
+                    | "org_consultant"
+                    | "m365_tenant"
+                    | "m365_teams"
+                    | "m365_exchange"
+                    | "m365_outlook"
+                    | "office_powerpoint"
+                    | "office_onenote"
+                    | "office_visio"
+                    | "office_project"
+                    | "m365_loop"
+                    | "m365_intune"
+                    | "ms_win_server"
+                    | "ms_dns_dhcp"
+                    | "ms_iis"
+                    | "ms_exchange_srv"
+                    | "ms_sharepoint_srv"
+                    | "ms_failover_cluster"
+                    | "az_resource_group"
+                    | "az_vm"
+                    | "az_storage"
+                    | "az_firewall"
+                    | "az_service_bus"
+                    | "pp_powerbi"
+                    | "pp_dataverse"
+                    | "pp_power_pages"
+                    | "d365_crm"
+                    | "d365_erp"
+                    | "net_ngfw"
+                    | "net_vpn_gw"
+                    | "net_l2_switch"
+                    | "net_l3_switch"
+                    | "net_poe_switch"
+                    | "net_fiber_switch"
+                    | "net_wlc"
+                    | "net_modem"
+                    | "net_nas_san"
+                    | "net_ups"
+            ))
     {
         sh.sheet.set_formula(
             "Rounding",
             if role == "basic_round_rect" || role == "wf_mobile" {
                 "0.14 in"
             } else {
-                "0.08 in"
+                "0.07 in"
             },
             Some(Unit::Inch),
         );
@@ -3769,7 +4116,532 @@ fn apply_domain_master_styling_and_details(
             ];
             sh.sheet.add_geometry(detail);
         }
-        _ => {}
+        _ => append_extended_role_vector_details(sh, category, role, detail),
+    }
+}
+
+fn append_extended_role_vector_details(
+    sh: &mut VisioShape,
+    category: &str,
+    role: &str,
+    mut detail: GeometrySection,
+) {
+    match role {
+        // --- Standard Servers (All 26 Visio Server Roles: Chassis + Role Emblem) ---
+        "srv_tower" => {
+            detail.rows = vec![
+                GeometryRow::move_to(1, "=Width*0.18", "=Height*0.84"),
+                GeometryRow::line_to(2, "=Width*0.82", "=Height*0.84"),
+                GeometryRow::move_to(3, "=Width*0.18", "=Height*0.70"),
+                GeometryRow::line_to(4, "=Width*0.82", "=Height*0.70"),
+                GeometryRow::move_to(5, "=Width*0.18", "=Height*0.56"),
+                GeometryRow::line_to(6, "=Width*0.82", "=Height*0.56"),
+                GeometryRow::move_to(7, "=Width*0.24", "=Height*0.16"),
+                GeometryRow::line_to(8, "=Width*0.24", "=Height*0.42"),
+                GeometryRow::move_to(9, "=Width*0.50", "=Height*0.16"),
+                GeometryRow::line_to(10, "=Width*0.50", "=Height*0.42"),
+                GeometryRow::move_to(11, "=Width*0.76", "=Height*0.16"),
+                GeometryRow::line_to(12, "=Width*0.76", "=Height*0.42"),
+            ];
+            sh.sheet.add_geometry(detail);
+        }
+        "srv_rack" | "srv_rack_4u" => {
+            detail.rows = vec![
+                GeometryRow::move_to(1, "=Width*0.08", "0 in"),
+                GeometryRow::line_to(2, "=Width*0.08", "=Height"),
+                GeometryRow::move_to(3, "=Width*0.92", "0 in"),
+                GeometryRow::line_to(4, "=Width*0.92", "=Height"),
+                GeometryRow::move_to(5, "=Width*0.16", "=Height*0.50"),
+                GeometryRow::line_to(6, "=Width*0.46", "=Height*0.50"),
+                GeometryRow::move_to(7, "=Width*0.54", "=Height*0.32"),
+                GeometryRow::line_to(8, "=Width*0.84", "=Height*0.32"),
+                GeometryRow::move_to(9, "=Width*0.54", "=Height*0.68"),
+                GeometryRow::line_to(10, "=Width*0.84", "=Height*0.68"),
+            ];
+            sh.sheet.add_geometry(detail);
+        }
+        "srv_blade" => {
+            detail.rows = vec![
+                GeometryRow::move_to(1, "0 in", "=Height*0.78"),
+                GeometryRow::line_to(2, "=Width", "=Height*0.78"),
+                GeometryRow::move_to(3, "=Width*0.20", "0 in"),
+                GeometryRow::line_to(4, "=Width*0.20", "=Height*0.78"),
+                GeometryRow::move_to(5, "=Width*0.40", "0 in"),
+                GeometryRow::line_to(6, "=Width*0.40", "=Height*0.78"),
+                GeometryRow::move_to(7, "=Width*0.60", "0 in"),
+                GeometryRow::line_to(8, "=Width*0.60", "=Height*0.78"),
+                GeometryRow::move_to(9, "=Width*0.80", "0 in"),
+                GeometryRow::line_to(10, "=Width*0.80", "=Height*0.78"),
+            ];
+            sh.sheet.add_geometry(detail);
+        }
+        "srv_blade_mod" | "srv_edge" => {
+            detail.rows = vec![
+                GeometryRow::move_to(1, "=Width*0.18", "=Height*0.78"),
+                GeometryRow::line_to(2, "=Width*0.82", "=Height*0.78"),
+                GeometryRow::move_to(3, "=Width*0.28", "=Height*0.24"),
+                GeometryRow::line_to(4, "=Width*0.72", "=Height*0.24"),
+                GeometryRow::line_to(5, "=Width*0.72", "=Height*0.62"),
+                GeometryRow::line_to(6, "=Width*0.28", "=Height*0.62"),
+                GeometryRow::line_to(7, "=Width*0.28", "=Height*0.24"),
+            ];
+            sh.sheet.add_geometry(detail);
+        }
+        "srv_mainframe" => {
+            detail.rows = vec![
+                GeometryRow::move_to(1, "=Width*0.33", "0 in"),
+                GeometryRow::line_to(2, "=Width*0.33", "=Height"),
+                GeometryRow::move_to(3, "=Width*0.67", "0 in"),
+                GeometryRow::line_to(4, "=Width*0.67", "=Height"),
+                GeometryRow::move_to(5, "=Width*0.08", "=Height*0.76"),
+                GeometryRow::line_to(6, "=Width*0.92", "=Height*0.76"),
+                GeometryRow::move_to(7, "=Width*0.08", "=Height*0.28"),
+                GeometryRow::line_to(8, "=Width*0.92", "=Height*0.28"),
+            ];
+            sh.sheet.add_geometry(detail);
+        }
+        r if r.starts_with("srv_") => {
+            fn push_seg(rows: &mut Vec<GeometryRow>, x1: &str, y1: &str, x2: &str, y2: &str) {
+                let ix = (rows.len() + 1) as u32;
+                rows.push(GeometryRow::move_to(ix, x1, y1));
+                rows.push(GeometryRow::line_to(ix + 1, x2, y2));
+            }
+            fn push_circle_arcs(rows: &mut Vec<GeometryRow>, x1: &str, x2: &str, y: &str, bow: &str) {
+                let ix = (rows.len() + 1) as u32;
+                rows.push(GeometryRow::move_to(ix, x1, y));
+                rows.push(GeometryRow::arc_to(ix + 1, x2, y, bow));
+                rows.push(GeometryRow::arc_to(ix + 2, x1, y, bow));
+            }
+            // Standard Visio Server top drive-bay bezel + distinct role emblem in lower 65%
+            let mut rows = vec![
+                GeometryRow::move_to(1, "0 in", "=Height*0.76"),
+                GeometryRow::line_to(2, "=Width", "=Height*0.76"),
+                GeometryRow::move_to(3, "=Width*0.16", "=Height*0.88"),
+                GeometryRow::line_to(4, "=Width*0.58", "=Height*0.88"),
+                GeometryRow::move_to(5, "=Width*0.72", "=Height*0.88"),
+                GeometryRow::line_to(6, "=Width*0.84", "=Height*0.88"),
+            ];
+            match r {
+                "srv_web" => {
+                    push_circle_arcs(&mut rows, "=Width*0.28", "=Width*0.72", "=Height*0.38", "0.20 in");
+                    push_seg(&mut rows, "=Width*0.28", "=Height*0.38", "=Width*0.72", "=Height*0.38");
+                    push_seg(&mut rows, "=Width*0.50", "=Height*0.14", "=Width*0.50", "=Height*0.62");
+                }
+                "srv_db" => {
+                    push_seg(&mut rows, "=Width*0.26", "=Height*0.18", "=Width*0.26", "=Height*0.56");
+                    push_seg(&mut rows, "=Width*0.74", "=Height*0.18", "=Width*0.74", "=Height*0.56");
+                    push_circle_arcs(&mut rows, "=Width*0.26", "=Width*0.74", "=Height*0.56", "0.08 in");
+                    let ix = (rows.len() + 1) as u32;
+                    rows.push(GeometryRow::move_to(ix, "=Width*0.26", "=Height*0.18"));
+                    rows.push(GeometryRow::arc_to(ix + 1, "=Width*0.74", "=Height*0.18", "-0.08 in"));
+                }
+                "srv_app" | "srv_rds" => {
+                    push_seg(&mut rows, "=Width*0.22", "=Height*0.18", "=Width*0.78", "=Height*0.18");
+                    push_seg(&mut rows, "=Width*0.78", "=Height*0.18", "=Width*0.78", "=Height*0.60");
+                    push_seg(&mut rows, "=Width*0.78", "=Height*0.60", "=Width*0.22", "=Height*0.60");
+                    push_seg(&mut rows, "=Width*0.22", "=Height*0.60", "=Width*0.22", "=Height*0.18");
+                    push_seg(&mut rows, "=Width*0.22", "=Height*0.48", "=Width*0.78", "=Height*0.48");
+                }
+                "srv_file" => {
+                    push_seg(&mut rows, "=Width*0.20", "=Height*0.18", "=Width*0.80", "=Height*0.18");
+                    push_seg(&mut rows, "=Width*0.80", "=Height*0.18", "=Width*0.80", "=Height*0.52");
+                    push_seg(&mut rows, "=Width*0.80", "=Height*0.52", "=Width*0.48", "=Height*0.52");
+                    push_seg(&mut rows, "=Width*0.48", "=Height*0.52", "=Width*0.40", "=Height*0.62");
+                    push_seg(&mut rows, "=Width*0.40", "=Height*0.62", "=Width*0.20", "=Height*0.62");
+                    push_seg(&mut rows, "=Width*0.20", "=Height*0.62", "=Width*0.20", "=Height*0.18");
+                }
+                "srv_print" => {
+                    push_seg(&mut rows, "=Width*0.20", "=Height*0.26", "=Width*0.80", "=Height*0.26");
+                    push_seg(&mut rows, "=Width*0.80", "=Height*0.26", "=Width*0.80", "=Height*0.50");
+                    push_seg(&mut rows, "=Width*0.80", "=Height*0.50", "=Width*0.20", "=Height*0.50");
+                    push_seg(&mut rows, "=Width*0.20", "=Height*0.50", "=Width*0.20", "=Height*0.26");
+                    push_seg(&mut rows, "=Width*0.32", "=Height*0.50", "=Width*0.68", "=Height*0.62");
+                    push_seg(&mut rows, "=Width*0.32", "=Height*0.14", "=Width*0.68", "=Height*0.14");
+                }
+                "srv_mail" => {
+                    push_seg(&mut rows, "=Width*0.20", "=Height*0.18", "=Width*0.80", "=Height*0.18");
+                    push_seg(&mut rows, "=Width*0.80", "=Height*0.18", "=Width*0.80", "=Height*0.58");
+                    push_seg(&mut rows, "=Width*0.80", "=Height*0.58", "=Width*0.20", "=Height*0.58");
+                    push_seg(&mut rows, "=Width*0.20", "=Height*0.58", "=Width*0.20", "=Height*0.18");
+                    push_seg(&mut rows, "=Width*0.20", "=Height*0.58", "=Width*0.50", "=Height*0.36");
+                    push_seg(&mut rows, "=Width*0.50", "=Height*0.36", "=Width*0.80", "=Height*0.58");
+                }
+                "srv_ldap" => {
+                    push_seg(&mut rows, "=Width*0.50", "=Height*0.62", "=Width*0.50", "=Height*0.38");
+                    push_seg(&mut rows, "=Width*0.24", "=Height*0.38", "=Width*0.76", "=Height*0.38");
+                    push_seg(&mut rows, "=Width*0.24", "=Height*0.38", "=Width*0.24", "=Height*0.18");
+                    push_seg(&mut rows, "=Width*0.50", "=Height*0.38", "=Width*0.50", "=Height*0.18");
+                    push_seg(&mut rows, "=Width*0.76", "=Height*0.38", "=Width*0.76", "=Height*0.18");
+                }
+                "srv_dns" | "srv_ntp" => {
+                    push_circle_arcs(&mut rows, "=Width*0.30", "=Width*0.70", "=Height*0.38", "0.18 in");
+                    push_seg(&mut rows, "=Width*0.50", "=Height*0.38", "=Width*0.50", "=Height*0.56");
+                    push_seg(&mut rows, "=Width*0.50", "=Height*0.38", "=Width*0.64", "=Height*0.32");
+                }
+                "srv_dhcp" | "srv_ftp" => {
+                    push_seg(&mut rows, "=Width*0.34", "=Height*0.18", "=Width*0.34", "=Height*0.60");
+                    push_seg(&mut rows, "=Width*0.24", "=Height*0.48", "=Width*0.34", "=Height*0.60");
+                    push_seg(&mut rows, "=Width*0.44", "=Height*0.48", "=Width*0.34", "=Height*0.60");
+                    push_seg(&mut rows, "=Width*0.66", "=Height*0.60", "=Width*0.66", "=Height*0.18");
+                    push_seg(&mut rows, "=Width*0.56", "=Height*0.30", "=Width*0.66", "=Height*0.18");
+                    push_seg(&mut rows, "=Width*0.76", "=Height*0.30", "=Width*0.66", "=Height*0.18");
+                }
+                "srv_proxy" | "srv_pki" => {
+                    push_seg(&mut rows, "=Width*0.50", "=Height*0.62", "=Width*0.76", "=Height*0.48");
+                    push_seg(&mut rows, "=Width*0.76", "=Height*0.48", "=Width*0.68", "=Height*0.16");
+                    push_seg(&mut rows, "=Width*0.68", "=Height*0.16", "=Width*0.32", "=Height*0.16");
+                    push_seg(&mut rows, "=Width*0.32", "=Height*0.16", "=Width*0.24", "=Height*0.48");
+                    push_seg(&mut rows, "=Width*0.24", "=Height*0.48", "=Width*0.50", "=Height*0.62");
+                }
+                "srv_bastion" => {
+                    push_seg(&mut rows, "=Width*0.16", "=Height*0.50", "=Width*0.84", "=Height*0.50");
+                    push_seg(&mut rows, "=Width*0.16", "=Height*0.30", "=Width*0.84", "=Height*0.30");
+                    push_seg(&mut rows, "=Width*0.38", "=Height*0.50", "=Width*0.38", "=Height*0.66");
+                    push_seg(&mut rows, "=Width*0.62", "=Height*0.30", "=Width*0.62", "=Height*0.50");
+                    push_seg(&mut rows, "=Width*0.38", "=Height*0.14", "=Width*0.38", "=Height*0.30");
+                }
+                "srv_siem" | "srv_nms" => {
+                    push_seg(&mut rows, "=Width*0.16", "=Height*0.38", "=Width*0.36", "=Height*0.38");
+                    push_seg(&mut rows, "=Width*0.36", "=Height*0.38", "=Width*0.46", "=Height*0.62");
+                    push_seg(&mut rows, "=Width*0.46", "=Height*0.62", "=Width*0.56", "=Height*0.16");
+                    push_seg(&mut rows, "=Width*0.56", "=Height*0.16", "=Width*0.66", "=Height*0.38");
+                    push_seg(&mut rows, "=Width*0.66", "=Height*0.38", "=Width*0.84", "=Height*0.38");
+                }
+                "srv_hypervisor" => {
+                    push_seg(&mut rows, "=Width*0.18", "=Height*0.20", "=Width*0.46", "=Height*0.20");
+                    push_seg(&mut rows, "=Width*0.46", "=Height*0.20", "=Width*0.46", "=Height*0.58");
+                    push_seg(&mut rows, "=Width*0.46", "=Height*0.58", "=Width*0.18", "=Height*0.58");
+                    push_seg(&mut rows, "=Width*0.18", "=Height*0.58", "=Width*0.18", "=Height*0.20");
+                    push_seg(&mut rows, "=Width*0.54", "=Height*0.20", "=Width*0.82", "=Height*0.20");
+                    push_seg(&mut rows, "=Width*0.82", "=Height*0.20", "=Width*0.82", "=Height*0.58");
+                    push_seg(&mut rows, "=Width*0.82", "=Height*0.58", "=Width*0.54", "=Height*0.58");
+                    push_seg(&mut rows, "=Width*0.54", "=Height*0.58", "=Width*0.54", "=Height*0.20");
+                }
+                _ => {
+                    push_circle_arcs(&mut rows, "=Width*0.22", "=Width*0.46", "=Height*0.38", "0.11 in");
+                    push_circle_arcs(&mut rows, "=Width*0.54", "=Width*0.78", "=Height*0.38", "0.11 in");
+                }
+            }
+            detail.rows = rows;
+            sh.sheet.add_geometry(detail);
+        }
+
+        // --- Network, Firewalls, Switches, Routers & Peripherals (All 38 Network Shapes) ---
+        "net_ngfw" | "az_firewall" => {
+            detail.rows = vec![
+                // Brick firewall courses + central inspection shield
+                GeometryRow::move_to(1, "0 in", "=Height*0.66"),
+                GeometryRow::line_to(2, "=Width", "=Height*0.66"),
+                GeometryRow::move_to(3, "0 in", "=Height*0.33"),
+                GeometryRow::line_to(4, "=Width", "=Height*0.33"),
+                GeometryRow::move_to(5, "=Width*0.28", "=Height*0.66"),
+                GeometryRow::line_to(6, "=Width*0.28", "=Height"),
+                GeometryRow::move_to(7, "=Width*0.72", "=Height*0.66"),
+                GeometryRow::line_to(8, "=Width*0.72", "=Height"),
+                GeometryRow::move_to(9, "=Width*0.50", "=Height*0.80"),
+                GeometryRow::line_to(10, "=Width*0.66", "=Height*0.52"),
+                GeometryRow::line_to(11, "=Width*0.50", "=Height*0.18"),
+                GeometryRow::line_to(12, "=Width*0.34", "=Height*0.52"),
+                GeometryRow::line_to(13, "=Width*0.50", "=Height*0.80"),
+            ];
+            sh.sheet.add_geometry(detail);
+        }
+        "net_waf" | "az_app_gw" => {
+            detail.rows = vec![
+                GeometryRow::move_to(1, "=Width*0.24", "=Height*0.50"),
+                GeometryRow::arc_to(2, "=Width*0.76", "=Height*0.50", "0.22 in"),
+                GeometryRow::arc_to(3, "=Width*0.24", "=Height*0.50", "0.22 in"),
+                GeometryRow::move_to(4, "=Width*0.16", "=Height*0.28"),
+                GeometryRow::line_to(5, "=Width*0.84", "=Height*0.28"),
+                GeometryRow::move_to(6, "=Width*0.50", "=Height*0.28"),
+                GeometryRow::line_to(7, "=Width*0.50", "=Height*0.78"),
+            ];
+            sh.sheet.add_geometry(detail);
+        }
+        "net_ids_ips" | "net_ddos" | "net_nac" => {
+            detail.rows = vec![
+                GeometryRow::move_to(1, "=Width*0.18", "=Height*0.50"),
+                GeometryRow::arc_to(2, "=Width*0.82", "=Height*0.50", "0.18 in"),
+                GeometryRow::arc_to(3, "=Width*0.18", "=Height*0.50", "0.18 in"),
+                GeometryRow::move_to(4, "=Width*0.40", "=Height*0.50"),
+                GeometryRow::arc_to(5, "=Width*0.60", "=Height*0.50", "0.09 in"),
+                GeometryRow::arc_to(6, "=Width*0.40", "=Height*0.50", "0.09 in"),
+            ];
+            sh.sheet.add_geometry(detail);
+        }
+        "net_vpn_gw" | "az_vpn_gw" | "az_bastion" => {
+            detail.rows = vec![
+                // Tunnel cylinder + central padlock
+                GeometryRow::move_to(1, "=Width*0.14", "=Height*0.26"),
+                GeometryRow::line_to(2, "=Width*0.86", "=Height*0.26"),
+                GeometryRow::move_to(3, "=Width*0.14", "=Height*0.74"),
+                GeometryRow::line_to(4, "=Width*0.86", "=Height*0.74"),
+                GeometryRow::move_to(5, "=Width*0.38", "=Height*0.30"),
+                GeometryRow::line_to(6, "=Width*0.62", "=Height*0.30"),
+                GeometryRow::line_to(7, "=Width*0.62", "=Height*0.56"),
+                GeometryRow::line_to(8, "=Width*0.38", "=Height*0.56"),
+                GeometryRow::line_to(9, "=Width*0.38", "=Height*0.30"),
+                GeometryRow::move_to(10, "=Width*0.42", "=Height*0.56"),
+                GeometryRow::arc_to(11, "=Width*0.58", "=Height*0.56", "0.10 in"),
+            ];
+            sh.sheet.add_geometry(detail);
+        }
+        "net_l2_switch" | "net_poe_switch" | "net_fiber_switch" | "net_din_switch" => {
+            detail.rows = vec![
+                // Opposing Visio L2 switch horizontal arrows + front RJ45/SFP port bank
+                GeometryRow::move_to(1, "=Width*0.14", "=Height*0.70"),
+                GeometryRow::line_to(2, "=Width*0.48", "=Height*0.70"),
+                GeometryRow::line_to(3, "=Width*0.40", "=Height*0.84"),
+                GeometryRow::move_to(4, "=Width*0.86", "=Height*0.70"),
+                GeometryRow::line_to(5, "=Width*0.52", "=Height*0.70"),
+                GeometryRow::line_to(6, "=Width*0.60", "=Height*0.56"),
+                GeometryRow::move_to(7, "=Width*0.14", "=Height*0.26"),
+                GeometryRow::line_to(8, "=Width*0.86", "=Height*0.26"),
+                GeometryRow::move_to(9, "=Width*0.32", "=Height*0.14"),
+                GeometryRow::line_to(10, "=Width*0.32", "=Height*0.38"),
+                GeometryRow::move_to(11, "=Width*0.50", "=Height*0.14"),
+                GeometryRow::line_to(12, "=Width*0.50", "=Height*0.38"),
+                GeometryRow::move_to(13, "=Width*0.68", "=Height*0.14"),
+                GeometryRow::line_to(14, "=Width*0.68", "=Height*0.38"),
+            ];
+            sh.sheet.add_geometry(detail);
+        }
+        "net_l3_switch" | "net_chassis_sw" => {
+            detail.rows = vec![
+                // Classic Visio Layer-3 Multilayer Switch: central hub + 8 radial switching rays
+                GeometryRow::move_to(1, "=Width*0.34", "=Height*0.50"),
+                GeometryRow::arc_to(2, "=Width*0.66", "=Height*0.50", "0.16 in"),
+                GeometryRow::arc_to(3, "=Width*0.34", "=Height*0.50", "0.16 in"),
+                GeometryRow::move_to(4, "=Width*0.50", "=Height*0.12"),
+                GeometryRow::line_to(5, "=Width*0.50", "=Height*0.88"),
+                GeometryRow::move_to(6, "=Width*0.12", "=Height*0.50"),
+                GeometryRow::line_to(7, "=Width*0.88", "=Height*0.50"),
+                GeometryRow::move_to(8, "=Width*0.20", "=Height*0.20"),
+                GeometryRow::line_to(9, "=Width*0.80", "=Height*0.80"),
+                GeometryRow::move_to(10, "=Width*0.20", "=Height*0.80"),
+                GeometryRow::line_to(11, "=Width*0.80", "=Height*0.20"),
+            ];
+            sh.sheet.add_geometry(detail);
+        }
+        "net_edge_router" | "net_isr_router" | "net_sdwan" | "net_rev_proxy" => {
+            detail.rows = vec![
+                // 4-way inward/outward routing crosshairs
+                GeometryRow::move_to(1, "=Width*0.16", "=Height*0.50"),
+                GeometryRow::line_to(2, "=Width*0.84", "=Height*0.50"),
+                GeometryRow::move_to(3, "=Width*0.50", "=Height*0.16"),
+                GeometryRow::line_to(4, "=Width*0.50", "=Height*0.84"),
+                GeometryRow::move_to(5, "=Width*0.32", "=Height*0.64"),
+                GeometryRow::line_to(6, "=Width*0.16", "=Height*0.50"),
+                GeometryRow::line_to(7, "=Width*0.32", "=Height*0.36"),
+                GeometryRow::move_to(8, "=Width*0.68", "=Height*0.64"),
+                GeometryRow::line_to(9, "=Width*0.84", "=Height*0.50"),
+                GeometryRow::line_to(10, "=Width*0.68", "=Height*0.36"),
+            ];
+            sh.sheet.add_geometry(detail);
+        }
+        "net_mesh_ap" | "net_wlc" => {
+            detail.rows = vec![
+                GeometryRow::move_to(1, "=Width*0.20", "=Height*0.62"),
+                GeometryRow::arc_to(2, "=Width*0.80", "=Height*0.62", "0.18 in"),
+                GeometryRow::move_to(3, "=Width*0.32", "=Height*0.44"),
+                GeometryRow::arc_to(4, "=Width*0.68", "=Height*0.44", "0.10 in"),
+                GeometryRow::move_to(5, "=Width*0.18", "=Height*0.22"),
+                GeometryRow::line_to(6, "=Width*0.82", "=Height*0.22"),
+            ];
+            sh.sheet.add_geometry(detail);
+        }
+        "net_patch_panel" | "net_odf" | "net_pdu" | "net_modem" | "net_media_conv" => {
+            detail.rows = vec![
+                GeometryRow::move_to(1, "=Width*0.08", "=Height*0.50"),
+                GeometryRow::line_to(2, "=Width*0.92", "=Height*0.50"),
+                GeometryRow::move_to(3, "=Width*0.22", "=Height*0.20"),
+                GeometryRow::line_to(4, "=Width*0.22", "=Height*0.80"),
+                GeometryRow::move_to(5, "=Width*0.38", "=Height*0.20"),
+                GeometryRow::line_to(6, "=Width*0.38", "=Height*0.80"),
+                GeometryRow::move_to(7, "=Width*0.54", "=Height*0.20"),
+                GeometryRow::line_to(8, "=Width*0.54", "=Height*0.80"),
+                GeometryRow::move_to(9, "=Width*0.70", "=Height*0.20"),
+                GeometryRow::line_to(10, "=Width*0.70", "=Height*0.80"),
+                GeometryRow::move_to(11, "=Width*0.84", "=Height*0.20"),
+                GeometryRow::line_to(12, "=Width*0.84", "=Height*0.80"),
+            ];
+            sh.sheet.add_geometry(detail);
+        }
+        "net_nas_san" | "net_tape_lib" => {
+            detail.rows = vec![
+                GeometryRow::move_to(1, "=Width*0.25", "=Height*0.14"),
+                GeometryRow::line_to(2, "=Width*0.25", "=Height*0.86"),
+                GeometryRow::move_to(3, "=Width*0.50", "=Height*0.14"),
+                GeometryRow::line_to(4, "=Width*0.50", "=Height*0.86"),
+                GeometryRow::move_to(5, "=Width*0.75", "=Height*0.14"),
+                GeometryRow::line_to(6, "=Width*0.75", "=Height*0.86"),
+                GeometryRow::move_to(7, "=Width*0.10", "=Height*0.72"),
+                GeometryRow::line_to(8, "=Width*0.90", "=Height*0.72"),
+            ];
+            sh.sheet.add_geometry(detail);
+        }
+        "net_ups" => {
+            detail.rows = vec![
+                // UPS lightning bolt + battery level bars
+                GeometryRow::move_to(1, "=Width*0.56", "=Height*0.84"),
+                GeometryRow::line_to(2, "=Width*0.36", "=Height*0.52"),
+                GeometryRow::line_to(3, "=Width*0.58", "=Height*0.52"),
+                GeometryRow::line_to(4, "=Width*0.42", "=Height*0.22"),
+                GeometryRow::move_to(5, "=Width*0.20", "=Height*0.12"),
+                GeometryRow::line_to(6, "=Width*0.80", "=Height*0.12"),
+            ];
+            sh.sheet.add_geometry(detail);
+        }
+        "cloud_vpc" => {
+            detail.rows = vec![
+                GeometryRow::move_to(1, "=Width*0.12", "=Height*0.76"),
+                GeometryRow::line_to(2, "=Width*0.88", "=Height*0.76"),
+                GeometryRow::move_to(3, "=Width*0.22", "=Height*0.36"),
+                GeometryRow::arc_to(4, "=Width*0.78", "=Height*0.36", "0.22 in"),
+                GeometryRow::line_to(5, "=Width*0.22", "=Height*0.36"),
+            ];
+            sh.sheet.add_geometry(detail);
+        }
+        "net_voip" | "net_ip_cam" | "net_printer" => {
+            detail.rows = vec![
+                GeometryRow::move_to(1, "=Width*0.24", "=Height*0.32"),
+                GeometryRow::line_to(2, "=Width*0.76", "=Height*0.32"),
+                GeometryRow::line_to(3, "=Width*0.76", "=Height*0.72"),
+                GeometryRow::line_to(4, "=Width*0.24", "=Height*0.72"),
+                GeometryRow::line_to(5, "=Width*0.24", "=Height*0.32"),
+                GeometryRow::move_to(6, "=Width*0.36", "=Height*0.18"),
+                GeometryRow::line_to(7, "=Width*0.64", "=Height*0.18"),
+            ];
+            sh.sheet.add_geometry(detail);
+        }
+
+        // --- Additional Microsoft 365, Servers/AD, Azure & Power Platform Masters ---
+        "office_visio" => {
+            detail.rows = vec![
+                // Connected Visio diamond -> rectangle diagram inside card
+                GeometryRow::move_to(1, "=Width*0.24", "=Height*0.66"),
+                GeometryRow::line_to(2, "=Width*0.38", "=Height*0.80"),
+                GeometryRow::line_to(3, "=Width*0.52", "=Height*0.66"),
+                GeometryRow::line_to(4, "=Width*0.38", "=Height*0.52"),
+                GeometryRow::line_to(5, "=Width*0.24", "=Height*0.66"),
+                GeometryRow::move_to(6, "=Width*0.52", "=Height*0.66"),
+                GeometryRow::line_to(7, "=Width*0.78", "=Height*0.66"),
+                GeometryRow::line_to(8, "=Width*0.78", "=Height*0.32"),
+                GeometryRow::move_to(9, "=Width*0.58", "=Height*0.18"),
+                GeometryRow::line_to(10, "=Width*0.86", "=Height*0.18"),
+                GeometryRow::line_to(11, "=Width*0.86", "=Height*0.36"),
+                GeometryRow::line_to(12, "=Width*0.58", "=Height*0.36"),
+                GeometryRow::line_to(13, "=Width*0.58", "=Height*0.18"),
+            ];
+            sh.sheet.add_geometry(detail);
+        }
+        "office_project" | "m365_planner" => {
+            detail.rows = vec![
+                // Cascade Gantt bars inside Microsoft Project / Planner card
+                GeometryRow::move_to(1, "=Width*0.16", "=Height*0.76"),
+                GeometryRow::line_to(2, "=Width*0.54", "=Height*0.76"),
+                GeometryRow::move_to(3, "=Width*0.30", "=Height*0.50"),
+                GeometryRow::line_to(4, "=Width*0.72", "=Height*0.50"),
+                GeometryRow::move_to(5, "=Width*0.46", "=Height*0.24"),
+                GeometryRow::line_to(6, "=Width*0.86", "=Height*0.24"),
+            ];
+            sh.sheet.add_geometry(detail);
+        }
+        "office_access" | "az_sql_db" => {
+            detail.rows = vec![
+                GeometryRow::move_to(1, "=Width*0.16", "=Height*0.76"),
+                GeometryRow::arc_to(2, "=Width*0.84", "=Height*0.76", "0.10 in"),
+                GeometryRow::arc_to(3, "=Width*0.16", "=Height*0.76", "0.10 in"),
+                GeometryRow::move_to(4, "=Width*0.16", "=Height*0.48"),
+                GeometryRow::line_to(5, "=Width*0.84", "=Height*0.48"),
+                GeometryRow::move_to(6, "=Width*0.16", "=Height*0.24"),
+                GeometryRow::line_to(7, "=Width*0.84", "=Height*0.24"),
+            ];
+            sh.sheet.add_geometry(detail);
+        }
+        r if r.starts_with("office_")
+            || r.starts_with("m365_")
+            || r.starts_with("ms_")
+            || r.starts_with("az_")
+            || r.starts_with("pp_")
+            || r.starts_with("d365_") =>
+        {
+            detail.rows = vec![
+                GeometryRow::move_to(1, "=Width*0.22", "=Height*0.70"),
+                GeometryRow::line_to(2, "=Width*0.78", "=Height*0.70"),
+                GeometryRow::move_to(3, "=Width*0.22", "=Height*0.50"),
+                GeometryRow::line_to(4, "=Width*0.78", "=Height*0.50"),
+                GeometryRow::move_to(5, "=Width*0.34", "=Height*0.26"),
+                GeometryRow::line_to(6, "=Width*0.66", "=Height*0.26"),
+                GeometryRow::line_to(7, "=Width*0.50", "=Height*0.82"),
+                GeometryRow::line_to(8, "=Width*0.34", "=Height*0.26"),
+            ];
+            sh.sheet.add_geometry(detail);
+        }
+
+        // --- Extended Domain Shapes Across Basic, Flowchart, BPMN, UML, DB, Floor Plan, Electrical, P&ID, Wireframe, Schedule & VSM ---
+        "basic_snip_rect" => {
+            let mut g1 = GeometrySection::new(1);
+            g1.rows = vec![
+                GeometryRow::move_to(1, "0 in", "0 in"),
+                GeometryRow::line_to(2, "=Width", "0 in"),
+                GeometryRow::line_to(3, "=Width", "=Height*0.76"),
+                GeometryRow::line_to(4, "=Width*0.82", "=Height"),
+                GeometryRow::line_to(5, "0 in", "=Height"),
+                GeometryRow::line_to(6, "0 in", "0 in"),
+            ];
+            sh.sheet.add_geometry(g1);
+        }
+        "basic_semicircle" => {
+            let mut g1 = GeometrySection::new(1);
+            g1.rows = vec![
+                GeometryRow::move_to(1, "0 in", "=Height*0.15"),
+                GeometryRow::arc_to(2, "=Width", "=Height*0.15", "0.42 in"),
+                GeometryRow::line_to(3, "0 in", "=Height*0.15"),
+            ];
+            sh.sheet.add_geometry(g1);
+        }
+        "basic_pie" => {
+            let mut g1 = GeometrySection::new(1);
+            g1.rows = vec![
+                GeometryRow::move_to(1, "=Width*0.15", "=Height*0.15"),
+                GeometryRow::line_to(2, "=Width*0.90", "=Height*0.15"),
+                GeometryRow::arc_to(3, "=Width*0.15", "=Height*0.90", "-0.26 in"),
+                GeometryRow::line_to(4, "=Width*0.15", "=Height*0.15"),
+            ];
+            sh.sheet.add_geometry(g1);
+        }
+        "basic_inv_triangle" => {
+            let mut g1 = GeometrySection::new(1);
+            g1.rows = vec![
+                GeometryRow::move_to(1, "0 in", "=Height"),
+                GeometryRow::line_to(2, "=Width", "=Height"),
+                GeometryRow::line_to(3, "=Width*0.50", "0 in"),
+                GeometryRow::line_to(4, "0 in", "=Height"),
+            ];
+            sh.sheet.add_geometry(g1);
+        }
+        _ => {
+            // Ensure rich interior technical lines on extended domain masters (never plain empty boxes for complex roles)
+            if !matches!(
+                category,
+                "Basic Shapes" | "Arrows"
+            ) || role.contains("star")
+                || role.contains("bevel")
+                || role.contains("fork")
+                || role.contains("join")
+                || role.contains("vert_bi")
+                || role.contains("striped")
+            {
+                detail.rows = vec![
+                    GeometryRow::move_to(1, "=Width*0.20", "=Height*0.68"),
+                    GeometryRow::line_to(2, "=Width*0.80", "=Height*0.68"),
+                    GeometryRow::move_to(3, "=Width*0.20", "=Height*0.34"),
+                    GeometryRow::line_to(4, "=Width*0.68", "=Height*0.34"),
+                ];
+                sh.sheet.add_geometry(detail);
+            }
+        }
     }
 }
 
@@ -3787,8 +4659,8 @@ pub struct StencilMasterPreview {
     pub svg: String,
 }
 
-/// Render every built-in stencil master across all 21 Visio & Microsoft categories into a crisp, proportional standalone SVG
-/// (`1.50 in × 1.00 in` mini-sheet evaluated through `ReactiveEngine` + `export_page_svg`).
+/// Render every built-in stencil master across all 22 Visio, Microsoft, Server & Network categories into a crisp,
+/// proportional standalone SVG (`1.50 in × 1.00 in` mini-sheet evaluated through `ReactiveEngine` + `export_page_svg`).
 pub fn list_builtin_stencil_previews() -> BTreeMap<String, Vec<StencilMasterPreview>> {
     let packs = build_all_builtin_stencils();
     let mut out: BTreeMap<String, Vec<StencilMasterPreview>> = BTreeMap::new();
@@ -3797,29 +4669,32 @@ pub fn list_builtin_stencil_previews() -> BTreeMap<String, Vec<StencilMasterPrev
     let max_box_w = 1.18;
     let max_box_h = 0.74;
 
+    let mut mini_doc = VisioDocument::new_blank("StencilPreview");
+    if let Some(page) = mini_doc.page_mut(1) {
+        page.page_sheet.set_formula(
+            "PageWidth",
+            format!("{} in", format_clean_f64(preview_w_in)),
+            Some(Unit::Inch),
+        );
+        page.page_sheet.set_formula(
+            "PageHeight",
+            format!("{} in", format_clean_f64(preview_h_in)),
+            Some(Unit::Inch),
+        );
+        page.page_sheet
+            .set_formula("PageColor", "=RGB(248,250,252)", Some(Unit::Color));
+    }
+
     for pack in packs {
         let mut items = Vec::with_capacity(pack.masters.len());
         for master in &pack.masters {
-            let mut mini_doc = VisioDocument::new_blank("StencilPreview");
             let mut orig_w = 1.5;
             let mut orig_h = 1.0;
             let mut fill_formula = "=RGB(239,246,255)".to_string();
             let mut line_formula = "=RGB(37,99,235)".to_string();
 
             if let Some(page) = mini_doc.page_mut(1) {
-                page.page_sheet.set_formula(
-                    "PageWidth",
-                    format!("{} in", format_clean_f64(preview_w_in)),
-                    Some(Unit::Inch),
-                );
-                page.page_sheet.set_formula(
-                    "PageHeight",
-                    format!("{} in", format_clean_f64(preview_h_in)),
-                    Some(Unit::Inch),
-                );
-                page.page_sheet
-                    .set_formula("PageColor", "=RGB(248,250,252)", Some(Unit::Color));
-
+                page.shapes.clear();
                 if let Some(tpl) = master.shapes.first() {
                     let mut sh = tpl.clone();
                     sh.id = 1;
@@ -3882,13 +4757,20 @@ mod stencil_preview_tests {
     use super::*;
 
     #[test]
-    fn all_212_builtin_stencil_masters_generate_distinct_vector_svg_previews() {
+    fn all_builtin_stencil_masters_generate_distinct_vector_svg_previews() {
         let previews = list_builtin_stencil_previews();
-        assert_eq!(previews.len(), 21);
+        assert_eq!(previews.len(), 22, "expected 22 stencil categories");
         let total: usize = previews.values().map(|v| v.len()).sum();
-        assert_eq!(total, 212, "expected 212 masters across 21 packs, got {total}");
+        assert!(
+            total >= 500,
+            "expected >= 500 high-definition masters across 22 packs, got {total}"
+        );
         for (pack_name, masters) in &previews {
-            assert!(!masters.is_empty(), "pack {pack_name} had no masters");
+            assert!(
+                masters.len() >= 18,
+                "every stencil category must have >= 18 rich stencils; {pack_name} only had {}",
+                masters.len()
+            );
             for m in masters {
                 assert!(m.svg.contains("<svg"), "missing <svg> in {}:{}", pack_name, m.name);
                 assert!(
@@ -3897,12 +4779,15 @@ mod stencil_preview_tests {
                     pack_name,
                     m.name
                 );
-                if pack_name.starts_with("Microsoft") {
+                if pack_name.starts_with("Microsoft")
+                    || pack_name.starts_with("Servers")
+                    || pack_name.starts_with("Network")
+                {
                     let prim_count =
                         m.svg.matches("<path").count() + m.svg.matches("<ellipse").count();
                     assert!(
                         prim_count >= 2,
-                        "Microsoft stencil {}:{} must have multi-geometry interior detail (got {prim_count})",
+                        "Stencil {}:{} must have multi-geometry interior detail (got {prim_count})",
                         pack_name,
                         m.name
                     );
@@ -3911,5 +4796,6 @@ mod stencil_preview_tests {
         }
     }
 }
+
 
 

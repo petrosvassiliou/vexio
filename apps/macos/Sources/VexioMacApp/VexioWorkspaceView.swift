@@ -726,10 +726,10 @@ private struct VexioStencilNavigatorSidebar: View {
     @Environment(\.undoManager) private var undoManager
 
     @State private var expandedCategories: Set<String> = [
-        "Basic Shapes",
         "Microsoft 365 & Office",
-        "Basic Flowchart",
-        "BPMN 2.0",
+        "Servers (Standard Roles)",
+        "Network & Rack Equipment",
+        "Basic Shapes",
     ]
 
     private var visibleCategories: [String] {

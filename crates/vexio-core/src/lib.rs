@@ -357,12 +357,12 @@ mod tests {
             build_org_chart_from_csv, build_project_timeline, instantiate_starter_template,
         };
 
-        // 1. Verify all 21 built-in stencil packs (including M365, Servers/AD, Azure, Power Platform) exist and every master round-trips cleanly
+        // 1. Verify all 22 built-in stencil packs (525+ masters across M365, Servers, Network, Azure, Power Platform & Visio domains) round-trip cleanly
         let packs = build_all_builtin_stencils();
-        assert_eq!(packs.len(), 21, "Expected 21 built-in domain stencil packs");
-        let mut sess = DocumentSession::new_blank("Stencil Verification");
+        assert_eq!(packs.len(), 22, "Expected 22 built-in domain stencil packs");
         for pack in &packs {
             assert!(!pack.masters.is_empty(), "Pack {} must have masters", pack.title);
+            let mut sess = DocumentSession::new_blank(&pack.title);
             for m in &pack.masters {
                 let sid = sess
                     .drop_builtin_shape(1, &pack.title, &m.name, 3.0, 4.0)

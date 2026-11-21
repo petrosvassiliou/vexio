@@ -291,7 +291,11 @@ let sharedInputRing: Int32Array | null = null;
 let webgpuSupported = false;
 let latestIssues: EngineSnapshot['validationIssues'] = [];
 
-const WASM_CACHE_TAG = '20261121v4';
+declare const __VEXIO_WASM_HASH__: string | undefined;
+const WASM_CACHE_TAG =
+  typeof __VEXIO_WASM_HASH__ === 'string' && __VEXIO_WASM_HASH__.length > 0
+    ? __VEXIO_WASM_HASH__
+    : '20261121v525';
 
 async function ensureWasmLoaded(): Promise<WasmSessionInstance> {
   if (wasmSession) return wasmSession;

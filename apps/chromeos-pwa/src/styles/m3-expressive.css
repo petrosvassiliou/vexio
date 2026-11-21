@@ -653,8 +653,44 @@ body,
 }
 
 /* ==========================================================================
-   Multi-Category Visio Stencil Accordion Browser (All 21 Categories Visible!)
+   Multi-Category Visio Stencil Accordion Browser (All 22 Categories & 520+ Shapes)
    ========================================================================== */
+.stencil-group-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 2px 0 4px;
+}
+
+.stencil-group-pill {
+  border: 1px solid var(--m3-outline);
+  background: var(--m3-surface-1);
+  color: var(--m3-text-muted);
+  border-radius: 999px;
+  padding: 3px 8px;
+  font-family: inherit;
+  font-size: 10.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 110ms ease;
+}
+
+.stencil-group-pill:hover {
+  background: var(--m3-surface-2);
+  color: var(--m3-text);
+}
+
+.stencil-group-pill.active {
+  background: var(--m3-primary-soft);
+  border-color: var(--m3-primary);
+  color: var(--m3-primary);
+}
+
+.stencil-acc-body.compact-scroll {
+  max-height: 215px;
+  overflow-y: auto;
+}
+
 .stencil-accordion-list {
   display: flex;
   flex-direction: column;

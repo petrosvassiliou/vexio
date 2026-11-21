@@ -87,19 +87,27 @@ jobs:
         run: |
           gradle testDebugUnitTest assembleRelease bundleRelease --no-daemon --stacktrace
 
+      - name: Stage Version-Named Android & Googlebook APK / AAB Installers
+        run: |
+          VERSION_TAG="${GITHUB_REF_NAME:-dev}"
+          OUT_DIR="apps/android-googlebook/app/build/outputs/release-named"
+          mkdir -p "${OUT_DIR}"
+          APK_SRC=$(ls apps/android-googlebook/app/build/outputs/apk/release/*.apk | head -n 1)
+          AAB_SRC=$(ls apps/android-googlebook/app/build/outputs/bundle/release/*.aab | head -n 1)
+          cp -f "${APK_SRC}" "${OUT_DIR}/Vexio-Android-Googlebook-${VERSION_TAG}.apk"
+          cp -f "${AAB_SRC}" "${OUT_DIR}/Vexio-Android-Googlebook-${VERSION_TAG}.aab"
+          ls -lh "${OUT_DIR}/"
+
       - name: Upload Android & Googlebook Release APK / AAB Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: vexio-android-googlebook-release
-          path: |
-            apps/android-googlebook/app/build/outputs/apk/release/*.apk
-            apps/android-googlebook/app/build/outputs/bundle/release/*.aab
+          path: apps/android-googlebook/app/build/outputs/release-named/*
           if-no-files-found: error
 
       - name: Publish APK / AAB to GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: |
-            apps/android-googlebook/app/build/outputs/apk/release/*.apk
-            apps/android-googlebook/app/build/outputs/bundle/release/*.aab
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          files: apps/android-googlebook/app/build/outputs/release-named/*

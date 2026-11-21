@@ -1109,7 +1109,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "vexio-cad"
-version = "0.1.0"
+version = "0.1.0-alpha"
 dependencies = [
  "crc32fast",
  "serde",
@@ -1119,7 +1119,7 @@ dependencies = [
 
 [[package]]
 name = "vexio-core"
-version = "0.1.0"
+version = "0.1.0-alpha"
 dependencies = [
  "base64",
  "bytemuck",
@@ -1144,7 +1144,7 @@ dependencies = [
 
 [[package]]
 name = "vexio-render"
-version = "0.1.0"
+version = "0.1.0-alpha"
 dependencies = [
  "bytemuck",
  "lyon_path",
@@ -1161,7 +1161,7 @@ dependencies = [
 
 [[package]]
 name = "vexio-shapesheet"
-version = "0.1.0"
+version = "0.1.0-alpha"
 dependencies = [
  "serde",
  "thiserror 2.0.21",
@@ -1169,7 +1169,7 @@ dependencies = [
 
 [[package]]
 name = "vexio-vsd-legacy"
-version = "0.1.0"
+version = "0.1.0-alpha"
 dependencies = [
  "cfb",
  "crc32fast",
@@ -1183,7 +1183,7 @@ dependencies = [
 
 [[package]]
 name = "vexio-vsdx"
-version = "0.1.0"
+version = "0.1.0-alpha"
 dependencies = [
  "base64",
  "quick-xml",

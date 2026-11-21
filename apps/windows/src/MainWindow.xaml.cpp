@@ -594,31 +594,32 @@ void MainWindow::RebuildRulerTicks() {
 }
 
 // ===========================================================================
-// 21-Category Stencils Catalog (212 Vector Masters via vexio_doc_list_stencils_json)
+// 22-Category Stencils Catalog (520+ Vector Masters via vexio_doc_list_stencils_json)
 // ===========================================================================
 void MainWindow::InitializeStencilCatalog() {
     m_allMasters.clear();
     m_stencilPackNames.clear();
 
-    constexpr std::array<std::string_view, 21> kCanonicalPackOrder{
+    constexpr std::array<std::string_view, 22> kCanonicalPackOrder{
         "Basic Shapes",
-        "Arrows & Block Arrows",
-        "Callouts, Notes & Containers",
         "Basic Flowchart",
         "Microsoft 365 & Office",
         "Microsoft Servers & Active Directory",
         "Microsoft Azure & Hybrid Cloud",
         "Microsoft Power Platform & Dynamics 365",
+        "Servers (Standard Roles)",
+        "Network & Rack Equipment",
+        "Cloud Architecture (AWS / GCP / Azure)",
+        "Arrows & Block Arrows",
+        "Callouts, Notes & Containers",
         "Cross-Functional Swimlanes",
         "BPMN 2.0",
         "UML 2.5",
-        "Network & Rack Equipment",
-        "Cloud Architecture (AWS / GCP / Azure)",
         "Database Crow's Foot & IDEF1X",
-        "Floor Plan & Architecture",
-        "P&ID Process Engineering",
-        "Electrical & Electronic (IEEE / IEC)",
         "Organization Chart",
+        "Floor Plan & Architecture",
+        "Electrical & Electronic (IEEE / IEC)",
+        "P&ID Process Engineering",
         "UI & Application Wireframes",
         "Project Schedule (Gantt & Timeline)",
         "Value Stream Mapping (Lean VSM)"

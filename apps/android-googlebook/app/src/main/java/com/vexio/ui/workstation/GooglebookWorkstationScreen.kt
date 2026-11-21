@@ -864,7 +864,7 @@ private fun WorkstationHeaderBar(
 
             // Pane Toggles (Stencils, Plan 2 Ribbon, ShapeSheet Shift+F5, Inspector)
             FilledTonalIconButton(onClick = onToggleStencilDrawer) {
-                Icon(Icons.Default.Schema, contentDescription = "Toggle 21-Pack Stencil Navigator")
+                Icon(Icons.Default.Schema, contentDescription = "Toggle 22-Pack Stencil Navigator")
             }
             FilledTonalIconButton(onClick = onTogglePlan2Ribbon) {
                 Icon(Icons.Default.Architecture, contentDescription = "Toggle Advanced Operations Ribbon")
