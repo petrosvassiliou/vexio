@@ -2,5 +2,7 @@
   <PropertyGroup Condition="'$(MSBuildProjectName)' == 'Vexio'">
     <RuntimeIdentifiers>win10-@WASDK_ARCH@</RuntimeIdentifiers>
     <NuGetTargetMoniker>native,Version=v0.0</NuGetTargetMoniker>
+    <XamlLanguage>CppWinRT</XamlLanguage>
+    <CppWinRTProjectLanguage>C++/WinRT</CppWinRTProjectLanguage>
   </PropertyGroup>
 </Project>

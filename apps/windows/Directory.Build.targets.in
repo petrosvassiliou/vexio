@@ -1,8 +1,15 @@
 <Project>
+  <PropertyGroup Condition="'$(MSBuildProjectName)' == 'Vexio'">
+    <XamlLanguage>CppWinRT</XamlLanguage>
+    <CppWinRTProjectLanguage>C++/WinRT</CppWinRTProjectLanguage>
+  </PropertyGroup>
   <ItemGroup Condition="'$(MSBuildProjectName)' == 'Vexio'">
     <ClCompile Include="$(GeneratedFilesDir)module.g.cpp" />
   </ItemGroup>
   <ItemDefinitionGroup Condition="'$(MSBuildProjectName)' == 'Vexio'">
+    <ClCompile>
+      <AdditionalIncludeDirectories>$(GeneratedFilesDir);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ClCompile>
     <Midl>
       <OutputDirectory />
     </Midl>
