@@ -39,11 +39,23 @@ if(DEFINED ENV{WINDOWS_APP_SDK_ROOT})
     set(WASDK_PACKAGE_ROOT "$ENV{WINDOWS_APP_SDK_ROOT}")
 endif()
 
-if(CMAKE_SYSTEM_PROCESSOR MATCHES "ARM64|arm64")
+if(CMAKE_GENERATOR_PLATFORM MATCHES "ARM64|arm64" OR CMAKE_VS_PLATFORM_NAME MATCHES "ARM64|arm64" OR CMAKE_SYSTEM_PROCESSOR MATCHES "ARM64|arm64")
     set(WASDK_ARCH "arm64")
 else()
     set(WASDK_ARCH "x64")
 endif()
+
+# Patch generated Visual Studio .vcxproj for C++20 WinUI 3 + C++/WinRT NuGet PackageReference
+configure_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/Directory.Build.props.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/Directory.Build.props"
+    @ONLY
+)
+configure_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/Directory.Build.targets"
+    "${CMAKE_CURRENT_BINARY_DIR}/Directory.Build.targets"
+    COPYONLY
+)
 
 # Imported target for Rust Core (vexio_core.dll.lib)
 add_library(vexio_core SHARED IMPORTED GLOBAL)
@@ -73,7 +85,6 @@ endif()
 # ---------------------------------------------------------------------------
 set(VEXIO_WINDOWS_SOURCES
     src/pch.h
-    src/pch.cpp
     src/VexioInterop.h
     src/App.idl
     src/App.xaml
@@ -84,7 +95,6 @@ set(VEXIO_WINDOWS_SOURCES
     src/MainWindow.xaml.h
     src/MainWindow.xaml.cpp
     app.manifest
-    Package.appxmanifest
 )
 
 add_executable(Vexio WIN32 ${VEXIO_WINDOWS_SOURCES})
@@ -92,8 +102,6 @@ add_executable(Vexio WIN32 ${VEXIO_WINDOWS_SOURCES})
 if(TARGET vexio_core_cargo_build)
     add_dependencies(Vexio vexio_core_cargo_build)
 endif()
-
-target_precompile_headers(Vexio PRIVATE src/pch.h)
 
 target_include_directories(Vexio PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/src"
@@ -116,7 +124,6 @@ target_compile_definitions(Vexio PRIVATE
 if(MSVC)
     target_compile_options(Vexio PRIVATE
         /W4
-        /WX
         /permissive-
         /utf-8
         /EHsc
@@ -145,20 +152,29 @@ target_link_libraries(Vexio PRIVATE
     dwmapi.lib
 )
 
-# Mark XAML & MSIX files with Visual Studio / MSBuild WinUI 3 item metadata
+# Mark XAML & MIDL files with Visual Studio / MSBuild WinUI 3 item metadata
 set_property(SOURCE src/App.xaml PROPERTY VS_XAML_TYPE "ApplicationDefinition")
 set_property(SOURCE src/MainWindow.xaml PROPERTY VS_XAML_TYPE "Page")
+set_property(SOURCE src/App.idl PROPERTY VS_SETTINGS "SubType=Code" "DependentUpon=src/App.xaml")
+set_property(SOURCE src/MainWindow.idl PROPERTY VS_SETTINGS "SubType=Code" "DependentUpon=src/MainWindow.xaml")
+
 set_property(TARGET Vexio PROPERTY VS_PACKAGE_REFERENCES
-    "Microsoft.WindowsAppSDK_${WINDOWS_APP_SDK_VERSION};Microsoft.Windows.CppWinRT_${CPPWINRT_VERSION}"
+    "Microsoft.Windows.CppWinRT_${CPPWINRT_VERSION};Microsoft.WindowsAppSDK_${WINDOWS_APP_SDK_VERSION};Microsoft.Windows.SDK.BuildTools_10.0.22621.756"
 )
-set_property(TARGET Vexio PROPERTY VS_GLOBAL_UseWinUI "true")
-set_property(TARGET Vexio PROPERTY VS_GLOBAL_EnableMsixTooling "true")
-set_property(TARGET Vexio PROPERTY VS_GLOBAL_CppWinRTOptimized "true")
-set_property(TARGET Vexio PROPERTY VS_GLOBAL_CppWinRTRootNamespaceAutoMerge "true")
-set_property(TARGET Vexio PROPERTY VS_GLOBAL_RootNamespace "VexioWindows")
-set_property(TARGET Vexio PROPERTY VS_GLOBAL_WindowsAppSDKSelfContained "false")
-set_property(TARGET Vexio PROPERTY VS_GLOBAL_WindowsPackageType "MSIX")
-set_property(TARGET Vexio PROPERTY VS_GLOBAL_AppxPackage "false")
+
+set_target_properties(Vexio PROPERTIES
+    VS_GLOBAL_RootNamespace "VexioWindows"
+    VS_GLOBAL_AppContainerApplication "false"
+    VS_GLOBAL_AppxPackage "false"
+    VS_GLOBAL_CppWinRTOptimized "true"
+    VS_GLOBAL_CppWinRTRootNamespaceAutoMerge "true"
+    VS_GLOBAL_UseWinUI "true"
+    VS_GLOBAL_ApplicationType "Windows Store"
+    VS_GLOBAL_ApplicationTypeRevision "10.0"
+    VS_GLOBAL_WindowsPackageType "None"
+    VS_GLOBAL_EnablePreviewMsixTooling "true"
+    VS_GLOBAL_WindowsAppSDKSelfContained "false"
+)
 
 # Stage vexio_core.dll and Package.appxmanifest next to Vexio.exe for immediate launch & MSIX packaging
 add_custom_command(TARGET Vexio POST_BUILD

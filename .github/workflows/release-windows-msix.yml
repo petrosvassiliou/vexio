@@ -85,6 +85,8 @@ jobs:
           New-Item -ItemType Directory -Force -Path "$StageDir/Assets", "$StageDir/Stencils", $OutDir | Out-Null
 
           Copy-Item "$BinDir/Vexio.exe" "$StageDir/Vexio.exe" -Force
+          Get-ChildItem "$BinDir" -Include *.xbf,*.pri,*.dll -File -ErrorAction SilentlyContinue |
+            ForEach-Object { Copy-Item $_.FullName "$StageDir/$($_.Name)" -Force }
           Copy-Item "${{ github.workspace }}/target/${{ matrix.rust_target }}/release/vexio_core.dll" "$StageDir/vexio_core.dll" -Force
           Copy-Item "${{ github.workspace }}/stencils/*.vssx" "$StageDir/Stencils/" -Force
 
@@ -92,14 +94,23 @@ jobs:
           $ManifestContent = $ManifestContent -replace 'ProcessorArchitecture="[^"]*"', 'ProcessorArchitecture="${{ matrix.arch }}"'
           Set-Content -Path "$StageDir/AppxManifest.xml" -Value $ManifestContent -Encoding UTF8
 
-          # Generate crisp placeholder visual tile assets if not externally supplied
+          # Generate crisp exact-dimension MSIX visual tile assets matching Package.appxmanifest
           Add-Type -AssemblyName System.Drawing
-          foreach ($Asset in @("StoreLogo.png", "Square44x44Logo.png", "Square150x150Logo.png", "Wide310x150Logo.png", "VisioFileIcon.png")) {
-            $Bmp = New-Object System.Drawing.Bitmap(150, 150)
+          $TileSpecs = @(
+            @{ Name = "StoreLogo.png";        W = 50;  H = 50  },
+            @{ Name = "Square44x44Logo.png";  W = 44;  H = 44  },
+            @{ Name = "SmallTile.png";        W = 71;  H = 71  },
+            @{ Name = "Square150x150Logo.png";W = 150; H = 150 },
+            @{ Name = "Wide310x150Logo.png";  W = 310; H = 150 },
+            @{ Name = "LargeTile.png";        W = 310; H = 310 },
+            @{ Name = "VisioFileIcon.png";    W = 150; H = 150 }
+          )
+          foreach ($Spec in $TileSpecs) {
+            $Bmp = New-Object System.Drawing.Bitmap([int]$Spec.W, [int]$Spec.H)
             $Gfx = [System.Drawing.Graphics]::FromImage($Bmp)
             $Gfx.Clear([System.Drawing.Color]::FromArgb(255, 29, 78, 216))
             $Gfx.Dispose()
-            $Bmp.Save("$StageDir/Assets/$Asset", [System.Drawing.Imaging.ImageFormat]::Png)
+            $Bmp.Save("$StageDir/Assets/$($Spec.Name)", [System.Drawing.Imaging.ImageFormat]::Png)
             $Bmp.Dispose()
           }
 
