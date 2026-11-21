@@ -56,6 +56,11 @@ configure_file(
     "${CMAKE_CURRENT_BINARY_DIR}/Directory.Build.targets"
     COPYONLY
 )
+configure_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/Vexio.CppWinRT.props"
+    "${CMAKE_CURRENT_BINARY_DIR}/Vexio.CppWinRT.props"
+    COPYONLY
+)
 
 # Imported target for Rust Core (vexio_core.dll.lib)
 add_library(vexio_core SHARED IMPORTED GLOBAL)
@@ -106,6 +111,7 @@ endif()
 target_include_directories(Vexio PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/src"
     "${CMAKE_CURRENT_BINARY_DIR}/Generated Files"
+    "${CMAKE_CURRENT_BINARY_DIR}/Generated Files/src"
     "${VEXIO_INCLUDE_DIR}"
     "${WASDK_PACKAGE_ROOT}/include"
     "${CPPWINRT_PACKAGE_ROOT}/build/native/include"
@@ -158,6 +164,10 @@ set_property(SOURCE src/MainWindow.xaml PROPERTY VS_XAML_TYPE "Page")
 set_property(SOURCE src/App.idl PROPERTY VS_SETTINGS "SubType=Code" "DependentUpon=src/App.xaml")
 set_property(SOURCE src/MainWindow.idl PROPERTY VS_SETTINGS "SubType=Code" "DependentUpon=src/MainWindow.xaml")
 
+set_property(TARGET Vexio PROPERTY VS_USER_PROPS
+    "${CMAKE_CURRENT_BINARY_DIR}/Vexio.CppWinRT.props"
+)
+
 set_property(TARGET Vexio PROPERTY VS_PACKAGE_REFERENCES
     "Microsoft.Windows.CppWinRT_${CPPWINRT_VERSION};Microsoft.WindowsAppSDK_${WINDOWS_APP_SDK_VERSION};Microsoft.Windows.SDK.BuildTools_10.0.22621.756"
 )
@@ -170,7 +180,6 @@ set_target_properties(Vexio PROPERTIES
     VS_GLOBAL_CppWinRTRootNamespaceAutoMerge "true"
     VS_GLOBAL_UseWinUI "true"
     VS_GLOBAL_ApplicationType "Windows Store"
-    VS_GLOBAL_ApplicationTypeRevision "10.0"
     VS_GLOBAL_WindowsPackageType "None"
     VS_GLOBAL_EnablePreviewMsixTooling "true"
     VS_GLOBAL_WindowsAppSDKSelfContained "false"
