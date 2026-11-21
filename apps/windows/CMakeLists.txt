@@ -52,7 +52,7 @@ configure_file(
     @ONLY
 )
 configure_file(
-    "${CMAKE_CURRENT_SOURCE_DIR}/Directory.Build.targets"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Directory.Build.targets.in"
     "${CMAKE_CURRENT_BINARY_DIR}/Directory.Build.targets"
     COPYONLY
 )

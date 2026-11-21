@@ -1,8 +1,8 @@
 <Project>
-  <ItemGroup>
+  <ItemGroup Condition="'$(MSBuildProjectName)' == 'Vexio'">
     <ClCompile Include="$(GeneratedFilesDir)module.g.cpp" />
   </ItemGroup>
-  <ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(MSBuildProjectName)' == 'Vexio'">
     <Midl>
       <OutputDirectory />
     </Midl>
