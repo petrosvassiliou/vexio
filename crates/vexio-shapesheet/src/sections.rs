@@ -346,6 +346,15 @@ pub struct TextFieldRow {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GradientStopRow {
+    pub ix: u32,
+    /// Stop position in `[0.0 .. 1.0]` (or `%`).
+    pub position: String,
+    pub color: String,
+    pub color_trans: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct HyperlinkRow {
     pub name: String,
     pub description: String,
@@ -367,6 +376,8 @@ pub struct ShapeSheet {
     pub shape_data: BTreeMap<String, ShapeDataRow>,
     pub text_fields: Vec<TextFieldRow>,
     pub hyperlinks: Vec<HyperlinkRow>,
+    #[serde(default)]
+    pub fill_gradient_stops: Vec<GradientStopRow>,
 }
 
 impl ShapeSheet {
@@ -567,6 +578,45 @@ impl ShapeSheet {
         for p in &props {
             self.sync_shape_data_to_cells(p);
         }
+        let gstops = self.fill_gradient_stops.clone();
+        for gs in &gstops {
+            self.sync_gradient_stop_to_cells(gs);
+        }
+    }
+
+    pub fn add_fill_gradient_stop(&mut self, stop: GradientStopRow) {
+        self.sync_gradient_stop_to_cells(&stop);
+        if let Some(ex) = self.fill_gradient_stops.iter_mut().find(|s| s.ix == stop.ix) {
+            *ex = stop;
+        } else {
+            self.fill_gradient_stops.push(stop);
+            self.fill_gradient_stops.sort_by_key(|s| s.ix);
+        }
+    }
+
+    fn sync_gradient_stop_to_cells(&mut self, stop: &GradientStopRow) {
+        let ix = stop.ix;
+        if !stop.position.eq_ignore_ascii_case("Inh") && !stop.position.is_empty() {
+            self.set_formula(
+                format!("FillGradient.Stop{ix}.Position"),
+                stop.position.clone(),
+                Some(Unit::Number),
+            );
+        }
+        if !stop.color.eq_ignore_ascii_case("Inh") && !stop.color.is_empty() {
+            self.set_formula(
+                format!("FillGradient.Stop{ix}.Color"),
+                stop.color.clone(),
+                Some(Unit::Color),
+            );
+        }
+        if !stop.color_trans.eq_ignore_ascii_case("Inh") && !stop.color_trans.is_empty() {
+            self.set_formula(
+                format!("FillGradient.Stop{ix}.ColorTrans"),
+                stop.color_trans.clone(),
+                Some(Unit::Number),
+            );
+        }
     }
 
     fn sync_geometry_to_cells(&mut self, sec: &GeometrySection) {
@@ -715,19 +765,39 @@ pub fn default_unit_for_cell(canonical_key: &str) -> Option<Unit> {
         | "rounding" | "leftmargin" | "rightmargin" | "topmargin" | "bottommargin"
         | "drawingscale" | "pagescale" | "xrulerorigin" | "yrulerorigin" | "xgridspacing"
         | "ygridspacing" => Some(Unit::Inch),
-        "angle" | "txtangle" => Some(Unit::Radian),
+        "angle" | "txtangle" | "fillgradientangle" => Some(Unit::Radian),
         "lineweight" | "char.size" => Some(Unit::Point),
         "flipx" | "flipy" | "lockwidth" | "lockheight" | "lockaspect" | "lockmovex"
         | "lockmovey" | "lockrotate" | "lockdelete" | "lockselect" | "lockformat"
-        | "locktextedit" | "char.strikethru" | "char.smallcaps" => Some(Unit::Boolean),
+        | "locktextedit" | "char.strikethru" | "char.smallcaps" | "fillgradientenabled" => {
+            Some(Unit::Boolean)
+        }
         "fillforegnd" | "fillbkgnd" | "linecolor" | "char.color" | "shdwforegnd" | "textbkgnd" => {
             Some(Unit::Color)
         }
         "char.font" => Some(Unit::String),
-        "char.style" | "para.horzalign" | "verticalalign" | "para.bullet" | "textbkgndtrans" => {
-            Some(Unit::Number)
+        "char.style"
+        | "para.horzalign"
+        | "verticalalign"
+        | "para.bullet"
+        | "textbkgndtrans"
+        | "beginarrowsize"
+        | "endarrowsize"
+        | "fillgradientdir"
+        | "quickstylefillmatrix"
+        | "quickstylelinematrix"
+        | "quickstylefontmatrix"
+        | "quickstyleeffectsmatrix"
+        | "quickstylefillcolor"
+        | "quickstylelinecolor"
+        | "quickstylefontcolor"
+        | "quickstyleshadowcolor" => Some(Unit::Number),
+        k if k.ends_with(".fillforegnd")
+            || k.ends_with(".linecolor")
+            || (k.starts_with("fillgradient.") && k.ends_with(".color")) =>
+        {
+            Some(Unit::Color)
         }
-        k if k.ends_with(".fillforegnd") || k.ends_with(".linecolor") => Some(Unit::Color),
         k if k.ends_with(".lineweight") => Some(Unit::Point),
         _ => None,
     }

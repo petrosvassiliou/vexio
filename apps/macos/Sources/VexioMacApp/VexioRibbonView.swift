@@ -797,9 +797,81 @@ public struct VexioHeaderAndRibbonBar: View {
 
             Divider().frame(height: 44)
 
-            // Arrange & Rotate Group for ALL Stencils (Fixes Remark #5)
+            // Arrange, Align, Distribute & Group for ALL Stencils
             ribbonGroup(title: i18n.t("arrange")) {
                 HStack(spacing: 4) {
+                    HoverSwitchMenuButton(
+                        id: "home.align",
+                        title: "Align",
+                        systemImage: "align.horizontal.left",
+                        coordinator: menuCoordinator
+                    ) {
+                        Button("Align Left") {
+                            session.alignSelectedShapes(mode: "left", undoManager: undoManager)
+                            menuCoordinator.activeMenuID = nil
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.vertical, 2)
+                        Button("Align Center") {
+                            session.alignSelectedShapes(mode: "center", undoManager: undoManager)
+                            menuCoordinator.activeMenuID = nil
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.vertical, 2)
+                        Button("Align Right") {
+                            session.alignSelectedShapes(mode: "right", undoManager: undoManager)
+                            menuCoordinator.activeMenuID = nil
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.vertical, 2)
+                        Divider()
+                        Button("Align Top") {
+                            session.alignSelectedShapes(mode: "top", undoManager: undoManager)
+                            menuCoordinator.activeMenuID = nil
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.vertical, 2)
+                        Button("Align Middle") {
+                            session.alignSelectedShapes(mode: "middle", undoManager: undoManager)
+                            menuCoordinator.activeMenuID = nil
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.vertical, 2)
+                        Button("Align Bottom") {
+                            session.alignSelectedShapes(mode: "bottom", undoManager: undoManager)
+                            menuCoordinator.activeMenuID = nil
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.vertical, 2)
+                    }
+
+                    HoverSwitchMenuButton(
+                        id: "home.distribute",
+                        title: "Distribute",
+                        systemImage: "distribute.horizontal",
+                        coordinator: menuCoordinator
+                    ) {
+                        Button("Distribute Horizontally") {
+                            session.distributeSelectedShapes(axis: "horizontal", undoManager: undoManager)
+                            menuCoordinator.activeMenuID = nil
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.vertical, 2)
+                        Button("Distribute Vertically") {
+                            session.distributeSelectedShapes(axis: "vertical", undoManager: undoManager)
+                            menuCoordinator.activeMenuID = nil
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.vertical, 2)
+                    }
+
+                    ribbonCompactButton("square.3.layers.3d", "Group", tip: "Group Selected Shapes (⌘G)") {
+                        session.groupSelectedShapes(undoManager: undoManager)
+                    }
+                    ribbonCompactButton("square.stack.3d.up.slash", "Ungroup", tip: "Ungroup Selected Group (⇧⌘G)") {
+                        session.ungroupSelectedShapes(undoManager: undoManager)
+                    }
+
                     ribbonCompactButton("rotate.left", "↺ 90°", tip: i18n.t("rotateLeft")) {
                         session.rotateOrFlipSelectedShapes(deltaDegrees: 90.0, undoManager: undoManager)
                     }
@@ -1041,6 +1113,13 @@ public struct VexioHeaderAndRibbonBar: View {
                     }
                     ribbonCompactButton("function", i18n.t("shapeSheet")) {
                         session.showShapeSheetDrawer.toggle()
+                    }
+                    LiquidGlassIconButton(
+                        systemImage: "ruler",
+                        title: "Smart Alignment & Equal-Spacing Guides",
+                        isActive: session.smartGuidesEnabled
+                    ) {
+                        session.smartGuidesEnabled.toggle()
                     }
                 }
             }

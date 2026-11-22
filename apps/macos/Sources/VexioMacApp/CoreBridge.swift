@@ -948,6 +948,97 @@ private final class NativeDocumentCore: @unchecked Sendable {
         return vexio_viewport_get_primary_selection(activeViewport)
     }
 
+    func selectionIds() -> [UInt64] {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let activeViewport = viewport else { return [] }
+        var outJSON = VexioOwnedBuffer(ptr: nil, len: 0, cap: 0)
+        guard vexio_viewport_get_selection_json(activeViewport, &outJSON) == VEXIO_OK else {
+            vexio_buffer_free(outJSON)
+            return []
+        }
+        let data = Self.consumeOwnedBufferAsData(outJSON)
+        return (try? JSONDecoder().decode([UInt64].self, from: data)) ?? []
+    }
+
+    func setSelectionIds(_ ids: [UInt64]) {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let activeViewport = viewport else { return }
+        ids.withUnsafeBufferPointer { buf in
+            _ = vexio_viewport_set_selection(activeViewport, doc, buf.baseAddress, buf.count)
+        }
+    }
+
+    func setSmartGuides(enabled: Bool) {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let activeViewport = viewport else { return }
+        _ = vexio_viewport_set_smart_guides(activeViewport, enabled)
+    }
+
+    func alignShapes(pageId: UInt32, shapeIds: [UInt64], mode: String) throws -> UInt32 {
+        guard !shapeIds.isEmpty else { return 0 }
+        lock.lock()
+        defer { lock.unlock() }
+        var count: UInt32 = 0
+        let status = shapeIds.withUnsafeBufferPointer { buf in
+            mode.withCString { modeCStr in
+                vexio_doc_align_shapes(doc, pageId, buf.baseAddress, buf.count, modeCStr, &count)
+            }
+        }
+        if let err = VexioBridgeError.from(status: status, context: "align_shapes(\(mode))") {
+            throw err
+        }
+        return count
+    }
+
+    func distributeShapes(pageId: UInt32, shapeIds: [UInt64], axis: String) throws -> UInt32 {
+        guard shapeIds.count >= 3 else { return 0 }
+        lock.lock()
+        defer { lock.unlock() }
+        var count: UInt32 = 0
+        let status = shapeIds.withUnsafeBufferPointer { buf in
+            axis.withCString { axisCStr in
+                vexio_doc_distribute_shapes(doc, pageId, buf.baseAddress, buf.count, axisCStr, &count)
+            }
+        }
+        if let err = VexioBridgeError.from(status: status, context: "distribute_shapes(\(axis))") {
+            throw err
+        }
+        return count
+    }
+
+    func groupShapes(pageId: UInt32, shapeIds: [UInt64]) throws -> UInt64 {
+        guard shapeIds.count >= 2 else { return 0 }
+        lock.lock()
+        defer { lock.unlock() }
+        var outGroupId: UInt64 = 0
+        let status = shapeIds.withUnsafeBufferPointer { buf in
+            vexio_doc_group_shapes(doc, pageId, buf.baseAddress, buf.count, &outGroupId)
+        }
+        if let err = VexioBridgeError.from(status: status, context: "group_shapes") {
+            throw err
+        }
+        return outGroupId
+    }
+
+    func ungroupShapes(pageId: UInt32, groupIds: [UInt64]) throws -> [UInt64] {
+        guard !groupIds.isEmpty else { return [] }
+        lock.lock()
+        defer { lock.unlock() }
+        var outJSON = VexioOwnedBuffer(ptr: nil, len: 0, cap: 0)
+        let status = groupIds.withUnsafeBufferPointer { buf in
+            vexio_doc_ungroup_shapes(doc, pageId, buf.baseAddress, buf.count, &outJSON)
+        }
+        if let err = VexioBridgeError.from(status: status, context: "ungroup_shapes") {
+            vexio_buffer_free(outJSON)
+            throw err
+        }
+        let data = Self.consumeOwnedBufferAsData(outJSON)
+        return (try? JSONDecoder().decode([UInt64].self, from: data)) ?? []
+    }
+
     func dispatchPointer(_ pointerEvent: VexioPointerEvent) throws -> UInt32 {
         lock.lock()
         defer { lock.unlock() }
@@ -1729,6 +1820,12 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
     @Published public var activeCursorKind: UInt32 = 0
 
     @Published public var connectorRouting: ConnectorRoutingStyle = .orthogonalJumps
+    @Published public var smartGuidesEnabled: Bool = true {
+        didSet {
+            core.setSmartGuides(enabled: smartGuidesEnabled)
+            core.renderViewportFrame()
+        }
+    }
     @Published public var showStencilNavigator: Bool = true
     @Published public var showInspectorSidebar: Bool = true
     @Published public var showShapeSheetDrawer: Bool = false
@@ -2006,10 +2103,16 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
         do {
             let cursorCode = try core.dispatchPointer(pointerEvent)
             activeCursorKind = cursorCode
-            let primary = core.primarySelection()
-            if primary != 0 && primary != selectedShapeId {
-                selectedShapeId = primary
-                selectedShapeIds = [primary]
+            if pointerEvent.kind == 1 || pointerEvent.kind == 2 {
+                let ids = core.selectionIds()
+                if ids != selectedShapeIds {
+                    selectedShapeIds = ids
+                }
+                if let first = ids.first, first != selectedShapeId {
+                    selectedShapeId = first
+                    reloadSelectedShapeSheetCells()
+                    syncSelectedShapeMetadataFromCore()
+                }
             }
             return resolveNSCursor(for: cursorCode)
         } catch let bridgeErr as VexioBridgeError {
@@ -3391,6 +3494,93 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
         } catch let bridgeErr as VexioBridgeError {
             lastBannerError = bridgeErr
             statusMessage = bridgeErr.localizedDescription
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    public func alignSelectedShapes(mode: String, undoManager: UndoManager?) {
+        let vpIds = core.selectionIds()
+        let targets = !vpIds.isEmpty ? vpIds : (selectedShapeIds.isEmpty ? (selectedShapeId != 0 ? [selectedShapeId] : []) : selectedShapeIds)
+        guard !targets.isEmpty else { return }
+        do {
+            let cnt = try core.alignShapes(pageId: activePageId, shapeIds: targets, mode: mode)
+            if cnt > 0 {
+                registerJournalUndoStep(actionName: "Align Shapes", undoManager: undoManager)
+                reloadSelectedShapeSheetCells()
+                syncSelectedShapeMetadataFromCore()
+                core.renderViewportFrame()
+                statusMessage = "Aligned \(cnt) shape(s) (\(mode))"
+            }
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    public func distributeSelectedShapes(axis: String, undoManager: UndoManager?) {
+        let vpIds = core.selectionIds()
+        let targets = !vpIds.isEmpty ? vpIds : selectedShapeIds
+        guard targets.count >= 3 else {
+            statusMessage = "Select at least 3 shapes to distribute evenly"
+            return
+        }
+        do {
+            let cnt = try core.distributeShapes(pageId: activePageId, shapeIds: targets, axis: axis)
+            if cnt > 0 {
+                registerJournalUndoStep(actionName: "Distribute Shapes", undoManager: undoManager)
+                reloadSelectedShapeSheetCells()
+                syncSelectedShapeMetadataFromCore()
+                core.renderViewportFrame()
+                statusMessage = "Distributed \(targets.count) shapes (\(axis))"
+            }
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    public func groupSelectedShapes(undoManager: UndoManager?) {
+        let vpIds = core.selectionIds()
+        let targets = !vpIds.isEmpty ? vpIds : selectedShapeIds
+        guard targets.count >= 2 else {
+            statusMessage = "Select at least 2 shapes to group (⌘G)"
+            return
+        }
+        do {
+            let gid = try core.groupShapes(pageId: activePageId, shapeIds: targets)
+            guard gid > 0 else { return }
+            selectedShapeId = gid
+            selectedShapeIds = [gid]
+            core.setSelectionIds([gid])
+            registerJournalUndoStep(actionName: "Group Shapes", undoManager: undoManager)
+            reloadSelectedShapeSheetCells()
+            syncSelectedShapeMetadataFromCore()
+            core.renderViewportFrame()
+            statusMessage = "Grouped \(targets.count) shapes into Group.\(gid)"
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    public func ungroupSelectedShapes(undoManager: UndoManager?) {
+        let vpIds = core.selectionIds()
+        let targets = !vpIds.isEmpty ? vpIds : (selectedShapeIds.isEmpty ? (selectedShapeId != 0 ? [selectedShapeId] : []) : selectedShapeIds)
+        guard !targets.isEmpty else { return }
+        do {
+            let restored = try core.ungroupShapes(pageId: activePageId, groupIds: targets)
+            guard !restored.isEmpty else {
+                statusMessage = "Selected shape is not a group"
+                return
+            }
+            selectedShapeIds = restored
+            if let first = restored.first {
+                selectedShapeId = first
+            }
+            core.setSelectionIds(restored)
+            registerJournalUndoStep(actionName: "Ungroup Shapes", undoManager: undoManager)
+            reloadSelectedShapeSheetCells()
+            syncSelectedShapeMetadataFromCore()
+            core.renderViewportFrame()
+            statusMessage = "Ungrouped into \(restored.count) shapes"
         } catch {
             statusMessage = error.localizedDescription
         }

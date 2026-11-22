@@ -1074,6 +1074,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "ttf-parser"
+version = "0.25.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d2df906b07856748fa3f6e0ad0cbaa047052d4a7dd609e231c4f72cee8c36f31"
+
+[[package]]
 name = "unicode-ident"
 version = "1.0.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1109,7 +1115,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "vexio-cad"
-version = "0.1.0-alpha"
+version = "0.2.0-alpha"
 dependencies = [
  "crc32fast",
  "serde",
@@ -1119,7 +1125,7 @@ dependencies = [
 
 [[package]]
 name = "vexio-core"
-version = "0.1.0-alpha"
+version = "0.2.0-alpha"
 dependencies = [
  "base64",
  "bytemuck",
@@ -1144,7 +1150,7 @@ dependencies = [
 
 [[package]]
 name = "vexio-render"
-version = "0.1.0-alpha"
+version = "0.2.0-alpha"
 dependencies = [
  "bytemuck",
  "lyon_path",
@@ -1155,6 +1161,7 @@ dependencies = [
  "rstar",
  "serde",
  "thiserror 2.0.21",
+ "ttf-parser",
  "vexio-shapesheet",
  "wasm-bindgen",
  "web-sys",
@@ -1163,7 +1170,7 @@ dependencies = [
 
 [[package]]
 name = "vexio-shapesheet"
-version = "0.1.0-alpha"
+version = "0.2.0-alpha"
 dependencies = [
  "serde",
  "thiserror 2.0.21",
@@ -1171,7 +1178,7 @@ dependencies = [
 
 [[package]]
 name = "vexio-vsd-legacy"
-version = "0.1.0-alpha"
+version = "0.2.0-alpha"
 dependencies = [
  "cfb",
  "crc32fast",
@@ -1185,7 +1192,7 @@ dependencies = [
 
 [[package]]
 name = "vexio-vsdx"
-version = "0.1.0-alpha"
+version = "0.2.0-alpha"
 dependencies = [
  "base64",
  "quick-xml",

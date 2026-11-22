@@ -6,9 +6,9 @@ use quick_xml::events::{BytesStart, Event};
 use std::collections::BTreeMap;
 use vexio_shapesheet::{
     ActionRow, CommentAnnotation, ConnectionPointRow, ControlRow, ForeignMediaData, GeometryRow,
-    GeometryRowKind, GeometrySection, GlueEndpoint, HyperlinkRow, LayerDef, ReactiveEngine,
-    RgbaColor, ShapeDataRow, ShapeDataType, ShapeKind, ShapeSheet, StencilPack, StyleSheetDef,
-    TextFieldRow, Unit, VisioDocument, VisioMaster, VisioPage, VisioShape,
+    GeometryRowKind, GeometrySection, GlueEndpoint, GradientStopRow, HyperlinkRow, LayerDef,
+    ReactiveEngine, RgbaColor, ShapeDataRow, ShapeDataType, ShapeKind, ShapeSheet, StencilPack,
+    StyleSheetDef, TextFieldRow, Unit, VisioDocument, VisioMaster, VisioPage, VisioShape,
 };
 
 pub fn read_vsdx(bytes: &[u8]) -> Result<(VisioDocument, VsdxPackageKind), VsdxError> {
@@ -254,6 +254,7 @@ impl DocParseTables {
 }
 
 fn parse_theme_parts(archive: &RawOpcArchive, doc: &mut VisioDocument) {
+    let mut parsed_themes = Vec::new();
     for (path, bytes) in &archive.files {
         let lower = path.to_ascii_lowercase();
         if lower.starts_with("visio/theme/theme") && lower.ends_with(".xml") {
@@ -261,10 +262,12 @@ fn parse_theme_parts(archive: &RawOpcArchive, doc: &mut VisioDocument) {
                 continue;
             };
             let mut theme = vexio_shapesheet::ThemeDef::default();
+            theme.id = (parsed_themes.len() as u32) + 1;
             let mut reader = Reader::from_str(xml);
             reader.config_mut().trim_text(true);
             let mut buf = Vec::new();
             let mut slot = String::new();
+            let mut font_role = String::new();
             loop {
                 match reader.read_event_into(&mut buf) {
                     Ok(Event::Start(e)) => {
@@ -278,6 +281,18 @@ fn parse_theme_parts(archive: &RawOpcArchive, doc: &mut VisioDocument) {
                             "dk1" | "lt1" | "dk2" | "lt2" | "accent1" | "accent2" | "accent3"
                             | "accent4" | "accent5" | "accent6" => {
                                 slot = ln;
+                            }
+                            "majorfont" | "minorfont" => {
+                                font_role = ln;
+                            }
+                            "latin" if !font_role.is_empty() => {
+                                if let Some(tf) = attr_str(&e, b"typeface").filter(|s| !s.is_empty()) {
+                                    if font_role == "majorfont" {
+                                        theme.heading_font = tf;
+                                    } else {
+                                        theme.body_font = tf;
+                                    }
+                                }
                             }
                             "srgbclr" | "sysclr" if !slot.is_empty() => {
                                 let hex = attr_str(&e, b"val").or_else(|| attr_str(&e, b"lastClr"));
@@ -295,12 +310,22 @@ fn parse_theme_parts(archive: &RawOpcArchive, doc: &mut VisioDocument) {
                             if let Some(c) = hex.and_then(|h| RgbaColor::from_hex(&format!("#{h}"))) {
                                 assign_theme_slot(&mut theme, &slot, c);
                             }
+                        } else if ln == "latin" && !font_role.is_empty() {
+                            if let Some(tf) = attr_str(&e, b"typeface").filter(|s| !s.is_empty()) {
+                                if font_role == "majorfont" {
+                                    theme.heading_font = tf;
+                                } else {
+                                    theme.body_font = tf;
+                                }
+                            }
                         }
                     }
                     Ok(Event::End(e)) => {
                         let ln = String::from_utf8_lossy(e.local_name().as_ref()).to_ascii_lowercase();
                         if ln == slot {
                             slot.clear();
+                        } else if ln == font_role {
+                            font_role.clear();
                         }
                     }
                     Ok(Event::Eof) | Err(_) => break,
@@ -308,8 +333,12 @@ fn parse_theme_parts(archive: &RawOpcArchive, doc: &mut VisioDocument) {
                 }
                 buf.clear();
             }
-            doc.themes.push(theme);
+            parsed_themes.push(theme);
         }
+    }
+    if !parsed_themes.is_empty() {
+        doc.themes = parsed_themes;
+        doc.active_theme_id = Some(1);
     }
 }
 
@@ -691,7 +720,12 @@ fn parse_connect_elem(e: &BytesStart<'_>) -> GlueEndpoint {
     let from_sheet = attr_str(e, b"FromSheet").and_then(|s| s.parse().ok()).unwrap_or(0);
     let from_cell = attr_str(e, b"FromCell").unwrap_or_else(|| "BeginX".into());
     let to_sheet = attr_str(e, b"ToSheet").and_then(|s| s.parse().ok()).unwrap_or(0);
-    let to_cell = attr_str(e, b"ToCell").unwrap_or_else(|| "PinX".into());
+    let to_part = attr_str(e, b"ToPart").and_then(|s| s.parse::<u32>().ok());
+    let mut to_cell = attr_str(e, b"ToCell").unwrap_or_else(|| "PinX".into());
+    if (to_cell.eq_ignore_ascii_case("PinX") || to_cell.is_empty()) && to_part.is_some_and(|p| p >= 100) {
+        let port_ix = to_part.unwrap() - 99;
+        to_cell = format!("Connections.X{port_ix}");
+    }
     let is_dynamic = to_cell.eq_ignore_ascii_case("PinX") || to_cell.eq_ignore_ascii_case("PinY");
     GlueEndpoint {
         connector_shape_id: from_sheet,
@@ -1472,6 +1506,45 @@ fn parse_section_elem(
                         if let Some(bul) = cells.get("Bullet") {
                             sheet.set_formula("Para.Bullet", bul.clone(), Some(Unit::Number));
                         }
+                    }
+                    Event::End(e) if e.local_name().as_ref() == b"Section" => break,
+                    Event::Eof => break,
+                    _ => {}
+                }
+                buf.clear();
+            }
+        }
+        "FillGradient" => {
+            let mut buf = Vec::new();
+            let mut seq = 1u32;
+            loop {
+                match reader.read_event_into(&mut buf)? {
+                    Event::Start(e) if e.local_name().as_ref() == b"Row" => {
+                        let raw_ix = attr_str(&e, b"IX").and_then(|s| s.parse::<u32>().ok());
+                        let ix = raw_ix.map(|n| n + 1).unwrap_or(seq);
+                        seq = seq.max(ix + 1);
+                        let cells = read_row_cells_opt(reader, tables)?;
+                        let pos = cells
+                            .get("GradientStopPosition")
+                            .or_else(|| cells.get("Position"))
+                            .cloned()
+                            .unwrap_or_else(|| "0".into());
+                        let col = cells
+                            .get("GradientStopColor")
+                            .or_else(|| cells.get("Color"))
+                            .cloned()
+                            .unwrap_or_else(|| "=RGB(255,255,255)".into());
+                        let tr = cells
+                            .get("GradientStopColorTrans")
+                            .or_else(|| cells.get("ColorTrans"))
+                            .cloned()
+                            .unwrap_or_else(|| "0".into());
+                        sheet.add_fill_gradient_stop(GradientStopRow {
+                            ix,
+                            position: pos,
+                            color: col,
+                            color_trans: tr,
+                        });
                     }
                     Event::End(e) if e.local_name().as_ref() == b"Section" => break,
                     Event::Eof => break,

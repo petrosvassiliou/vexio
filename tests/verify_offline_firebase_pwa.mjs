@@ -429,7 +429,28 @@ async function main() {
   const autoFgPage = autoFgState.pages.find((p) => p.id === autoFgState.activePageId);
   assert(autoFgPage && !autoFgPage.isBackground, 'get_state_json(0xffffffff) must auto-select first foreground (!isBackground) page');
 
-  console.log('  ✓ Phase 7 + Workstation UX Overhaul (ISO A4 Metric, Rich Text, Rotate/Flip, Page Rename, Foreground Page 0/Sentinel, Stencil Import & CRDT) verified.');
+  // v0.2.0-alpha Dynamic Grid & Connector Ergonomics WASM Verification:
+  // Equal-spacing Smart Guides across 3 shapes, Distribute Horizontally, Group/Ungroup, Static Port Glue & Segment Dragging
+  const v02 = new wasmMod.WasmVexioSession('v0.2.0 Ergonomics WASM');
+  const g1 = v02.draw_rectangle(1, 1.0, 4.0, 2.0, 5.0);
+  const g2 = v02.draw_rectangle(1, 3.0, 4.0, 5.0, 5.0);
+  const g3 = v02.draw_rectangle(1, 6.06, 4.04, 7.56, 5.04);
+  const eqGuide = JSON.parse(v02.compute_smart_guides(1, g3, 6.81, 4.54, 1.5, 1.0));
+  assert(Math.abs(eqGuide.snappedX - 6.75) < 1e-3, `Expected equal-spacing snappedX=6.75, got ${eqGuide.snappedX}`);
+  assert(eqGuide.guides.some((ln) => ln.kind === 'equal_spacing'), 'Expected equal_spacing smart guide in WASM');
+
+  v02.move_shape(1, g3, 9.25, 4.5);
+  assert(v02.distribute_shapes(1, new Uint32Array([g1, g2, g3]), 'horizontal') >= 1, 'distribute_shapes(horizontal) must reposition middle shape');
+  const grpId = v02.group_shapes(1, new Uint32Array([g1, g2]));
+  assert(grpId > 0, 'group_shapes must return new group shape ID');
+  const restoredIds = Array.from(v02.ungroup_shapes(1, new Uint32Array([grpId])));
+  assert.equal(restoredIds.length, 2, 'ungroup_shapes must restore both member shapes');
+
+  const c02 = v02.connect_shapes(1, restoredIds[0], g3);
+  assert.equal(v02.move_connector_endpoint_with_port(1, c02, false, 9.25, 4.5, g3, ''), true);
+  assert.equal(v02.drag_connector_segment(1, c02, 1, 5.5), true);
+
+  console.log('  ✓ Phase 7 + Workstation UX + v0.2.0-alpha (Equal-Spacing Smart Guides, Distribute, Group/Ungroup, Port Glue, Segment Drag & CRDT) verified.');
 
 
   console.log('=== [6/6] Verifying Firebase Auth, Version History & Collab CRDT Security Rules ===');

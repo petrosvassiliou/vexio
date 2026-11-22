@@ -181,22 +181,14 @@ fn render_single_shape_svg(
     let to_svg_x = |x_in: f64| x_in * ppi;
 
     let shape_opt = page.find_shape(vis.shape_id);
-    let fill_pattern = shape_opt
-        .and_then(|s| s.sheet.get_f64("FillPattern"))
-        .unwrap_or(1.0)
-        .round() as i32;
-    let fill_bkgnd = shape_opt
-        .and_then(|s| s.sheet.get_color("FillBkgnd"))
-        .unwrap_or(RgbaColor {
-            r: 241,
-            g: 245,
-            b: 249,
-            a: 255,
-        });
-    let grad_angle_deg = shape_opt
-        .and_then(|s| s.sheet.get_f64("FillGradientAngle"))
-        .map(|r| r.to_degrees())
-        .unwrap_or(45.0);
+    let fill_pattern = vis.fill_pattern;
+    let fill_bkgnd = vis.fill_bkgnd.unwrap_or(RgbaColor {
+        r: 241,
+        g: 245,
+        b: 249,
+        a: 255,
+    });
+    let grad_angle_rad = vis.fill_gradient_angle_rad;
 
     let shdw_pattern = shape_opt
         .and_then(|s| s.sheet.get_f64("ShdwPattern"))
@@ -213,20 +205,64 @@ fn render_single_shape_svg(
         .and_then(|s| s.sheet.get_bool("LineSketchEnabled"))
         .unwrap_or(false);
 
-    // Resolve Fill (`none`, solid hex, `<linearGradient>`, `<radialGradient>`, or `<pattern>` hatch)
+    // Resolve Fill (`none`, solid hex, multi-stop `<linearGradient>`, `<radialGradient>`, or `<pattern>` hatch)
     let fill_paint = if fill_pattern == 0 || vis.paths.iter().all(|p| p.no_fill) {
         String::from("none")
+    } else if vis.gradient_stops.len() >= 2 {
+        let mut stops_xml = String::new();
+        for st in &vis.gradient_stops {
+            let pct = (st.position * 100.0).clamp(0.0, 100.0);
+            let op = (st.color.a as f64 / 255.0).clamp(0.0, 1.0);
+            if op < 0.999 {
+                let _ = write!(
+                    stops_xml,
+                    "<stop offset=\"{pct:.1}%\" stop-color=\"{}\" stop-opacity=\"{op:.2}\"/>",
+                    st.color.to_hex_rgb()
+                );
+            } else {
+                let _ = write!(
+                    stops_xml,
+                    "<stop offset=\"{pct:.1}%\" stop-color=\"{}\"/>",
+                    st.color.to_hex_rgb()
+                );
+            }
+        }
+        if vis.fill_gradient_radial || (36..=40).contains(&fill_pattern) {
+            let gid = format!("vexio-rgrad-{ns_prefix}-{}", vis.shape_id);
+            let _ = writeln!(
+                defs,
+                "<radialGradient id=\"{gid}\" cx=\"50%\" cy=\"50%\" r=\"65%\">{stops_xml}</radialGradient>"
+            );
+            format!("url(#{gid})")
+        } else {
+            let gid = format!("vexio-lgrad-{ns_prefix}-{}", vis.shape_id);
+            // Visio gradient angle is CCW in Y-up space; convert to SVG Y-down percentage vector
+            let dx = 50.0 * grad_angle_rad.cos();
+            let dy = -50.0 * grad_angle_rad.sin();
+            let x1 = (50.0 - dx).clamp(0.0, 100.0);
+            let y1 = (50.0 - dy).clamp(0.0, 100.0);
+            let x2 = (50.0 + dx).clamp(0.0, 100.0);
+            let y2 = (50.0 + dy).clamp(0.0, 100.0);
+            let _ = writeln!(
+                defs,
+                "<linearGradient id=\"{gid}\" x1=\"{x1:.1}%\" y1=\"{y1:.1}%\" x2=\"{x2:.1}%\" y2=\"{y2:.1}%\">{stops_xml}</linearGradient>"
+            );
+            format!("url(#{gid})")
+        }
     } else if let Some(fg) = vis.fill_color {
         let fg_hex = fg.to_hex_rgb();
         let bg_hex = fill_bkgnd.to_hex_rgb();
         if (25..=35).contains(&fill_pattern) {
             let gid = format!("vexio-lgrad-{ns_prefix}-{}", vis.shape_id);
-            let rad = grad_angle_deg.to_radians();
-            let x2 = (50.0 + 50.0 * rad.cos()).clamp(0.0, 100.0);
-            let y2 = (50.0 + 50.0 * rad.sin()).clamp(0.0, 100.0);
+            let dx = 50.0 * grad_angle_rad.cos();
+            let dy = -50.0 * grad_angle_rad.sin();
+            let x1 = (50.0 - dx).clamp(0.0, 100.0);
+            let y1 = (50.0 - dy).clamp(0.0, 100.0);
+            let x2 = (50.0 + dx).clamp(0.0, 100.0);
+            let y2 = (50.0 + dy).clamp(0.0, 100.0);
             let _ = writeln!(
                 defs,
-                "<linearGradient id=\"{gid}\" x1=\"0%\" y1=\"0%\" x2=\"{x2:.1}%\" y2=\"{y2:.1}%\"><stop offset=\"0%\" stop-color=\"{fg_hex}\"/><stop offset=\"100%\" stop-color=\"{bg_hex}\"/></linearGradient>"
+                "<linearGradient id=\"{gid}\" x1=\"{x1:.1}%\" y1=\"{y1:.1}%\" x2=\"{x2:.1}%\" y2=\"{y2:.1}%\"><stop offset=\"0%\" stop-color=\"{fg_hex}\"/><stop offset=\"100%\" stop-color=\"{bg_hex}\"/></linearGradient>"
             );
             format!("url(#{gid})")
         } else if (36..=40).contains(&fill_pattern) {
@@ -369,6 +405,11 @@ fn render_single_shape_svg(
         .map(|c| c.to_hex_rgb())
         .unwrap_or_else(|| "none".into());
     let sw_px = (vis.stroke_weight_in * ppi).max(0.75);
+    let marker_start = if vis.begin_arrow > 0 {
+        " marker-start=\"url(#vexio-arrow)\""
+    } else {
+        ""
+    };
     let marker_end = if vis.end_arrow > 0 {
         " marker-end=\"url(#vexio-arrow)\""
     } else {
@@ -749,7 +790,7 @@ fn render_single_shape_svg(
                 };
                 let _ = writeln!(
                     body,
-                    "<path d=\"{}\" fill=\"{effective_fill}\" stroke=\"{effective_stroke}\" stroke-width=\"{p_sw_px:.2}\" stroke-linejoin=\"round\" stroke-linecap=\"round\"{dash_attr}{marker_end}/>",
+                    "<path d=\"{}\" fill=\"{effective_fill}\" stroke=\"{effective_stroke}\" stroke-width=\"{p_sw_px:.2}\" stroke-linejoin=\"round\" stroke-linecap=\"round\"{dash_attr}{marker_start}{marker_end}/>",
                     d.trim()
                 );
                 if sketchy && !sketch_d.is_empty() && effective_stroke != "none" {
@@ -764,7 +805,7 @@ fn render_single_shape_svg(
         }
     }
 
-    // Embedded `ForeignMediaData` Vector SVG (synchronous zero-flicker inline `<svg>`) or Cropped Raster Image
+    // Embedded `ForeignMediaData` Vector SVG / EMF / WMF or Cropped Raster Image
     let fd_resolved = vis
         .foreign_media
         .as_ref()
@@ -779,7 +820,7 @@ fn render_single_shape_svg(
             let cy = to_svg_y(vis.transform.pin_y);
             let angle_deg = vis.transform.angle_rad.to_degrees();
 
-            let mut inlined_svg = false;
+            let mut inlined_vector = false;
             if fd.media_type.eq_ignore_ascii_case("SVG") {
                 if let Ok(svg_txt) = std::str::from_utf8(&fd.data) {
                     if let Some((vb, inner)) = extract_inline_svg_payload(
@@ -800,12 +841,47 @@ fn render_single_shape_svg(
                         if angle_deg.abs() > 0.01 {
                             body.push_str("</g>");
                         }
-                        inlined_svg = true;
+                        inlined_vector = true;
                     }
+                }
+            } else if fd.media_type.eq_ignore_ascii_case("EMF")
+                || fd.media_type.eq_ignore_ascii_case("WMF")
+            {
+                let mf_mesh = vexio_render::foreign_media::tessellate_foreign_media(
+                    fd,
+                    &vis.transform,
+                    0.005,
+                );
+                if !mf_mesh.indices.is_empty() {
+                    body.push_str("<g class=\"vexio-metafile\">");
+                    for tri in mf_mesh.indices.chunks_exact(3) {
+                        let v0 = &mf_mesh.vertices[tri[0] as usize];
+                        let v1 = &mf_mesh.vertices[tri[1] as usize];
+                        let v2 = &mf_mesh.vertices[tri[2] as usize];
+                        let hex = linear_rgba_to_hex(v0.color);
+                        let op = v0.color[3].clamp(0.0, 1.0);
+                        let op_attr = if op < 0.995 {
+                            format!(" fill-opacity=\"{op:.2}\"")
+                        } else {
+                            String::new()
+                        };
+                        let _ = write!(
+                            body,
+                            "<polygon points=\"{:.2},{:.2} {:.2},{:.2} {:.2},{:.2}\" fill=\"{hex}\" stroke=\"{hex}\" stroke-width=\"0.35\"{op_attr}/>",
+                            to_svg_x(v0.pos[0] as f64),
+                            to_svg_y(v0.pos[1] as f64),
+                            to_svg_x(v1.pos[0] as f64),
+                            to_svg_y(v1.pos[1] as f64),
+                            to_svg_x(v2.pos[0] as f64),
+                            to_svg_y(v2.pos[1] as f64),
+                        );
+                    }
+                    body.push_str("</g>\n");
+                    inlined_vector = true;
                 }
             }
 
-            if !inlined_svg {
+            if !inlined_vector {
                 let mime = match fd.media_type.to_ascii_uppercase().as_str() {
                     "JPG" | "JPEG" => "image/jpeg",
                     "SVG" => "image/svg+xml",
@@ -1216,6 +1292,67 @@ fn emit_inline_styled_tspans(out: &mut String, mut rest: &str) {
 // 2. Vector PDF 1.7 / PDF/A-1b Multi-Page Document Export
 // ============================================================================
 
+#[inline]
+fn linear_channel_to_srgb_f64(c: f32) -> f64 {
+    let x = (c as f64).clamp(0.0, 1.0);
+    if x <= 0.003_130_8 {
+        x * 12.92
+    } else {
+        1.055 * x.powf(1.0 / 2.4) - 0.055
+    }
+}
+
+#[inline]
+fn linear_rgba_to_hex(col: [f32; 4]) -> String {
+    let r = (linear_channel_to_srgb_f64(col[0]) * 255.0).round().clamp(0.0, 255.0) as u8;
+    let g = (linear_channel_to_srgb_f64(col[1]) * 255.0).round().clamp(0.0, 255.0) as u8;
+    let b = (linear_channel_to_srgb_f64(col[2]) * 255.0).round().clamp(0.0, 255.0) as u8;
+    format!("#{r:02X}{g:02X}{b:02X}")
+}
+
+fn emit_pdf_mesh_triangles(stream: &mut String, mesh: &vexio_render::TessellatedMesh) {
+    let mut last_col: Option<[u8; 3]> = None;
+    for tri in mesh.indices.chunks_exact(3) {
+        let v0 = &mesh.vertices[tri[0] as usize];
+        let v1 = &mesh.vertices[tri[1] as usize];
+        let v2 = &mesh.vertices[tri[2] as usize];
+        // Average vertex colors for smooth per-triangle gradient shading
+        let r = (linear_channel_to_srgb_f64((v0.color[0] + v1.color[0] + v2.color[0]) / 3.0)
+            * 255.0)
+            .round()
+            .clamp(0.0, 255.0) as u8;
+        let g = (linear_channel_to_srgb_f64((v0.color[1] + v1.color[1] + v2.color[1]) / 3.0)
+            * 255.0)
+            .round()
+            .clamp(0.0, 255.0) as u8;
+        let b = (linear_channel_to_srgb_f64((v0.color[2] + v1.color[2] + v2.color[2]) / 3.0)
+            * 255.0)
+            .round()
+            .clamp(0.0, 255.0) as u8;
+        let key = [r, g, b];
+        if last_col != Some(key) {
+            let _ = writeln!(
+                stream,
+                "{:.3} {:.3} {:.3} rg",
+                r as f64 / 255.0,
+                g as f64 / 255.0,
+                b as f64 / 255.0
+            );
+            last_col = Some(key);
+        }
+        let _ = writeln!(
+            stream,
+            "{:.2} {:.2} m {:.2} {:.2} l {:.2} {:.2} l h f",
+            v0.pos[0] as f64 * 72.0,
+            v0.pos[1] as f64 * 72.0,
+            v1.pos[0] as f64 * 72.0,
+            v1.pos[1] as f64 * 72.0,
+            v2.pos[0] as f64 * 72.0,
+            v2.pos[1] as f64 * 72.0
+        );
+    }
+}
+
 fn char_to_winansi_byte(ch: char) -> Option<u8> {
     let cp = ch as u32;
     if (0x20..=0x7E).contains(&cp) || (0xA0..=0xFF).contains(&cp) {
@@ -1313,81 +1450,119 @@ pub fn export_document_pdf(doc: &VisioDocument) -> Vec<u8> {
                 .map(|t| t.background_color)
         }) {
             if pbg != RgbaColor::WHITE {
-                let [pr, pg, pb, _] = pbg.to_linear_f32();
+                let pr = pbg.r as f64 / 255.0;
+                let pg = pbg.g as f64 / 255.0;
+                let pb = pbg.b as f64 / 255.0;
                 let _ = writeln!(stream, "{pr:.3} {pg:.3} {pb:.3} rg 0 0 {w_pt:.2} {h_pt:.2} re f");
             }
         }
 
         for vis in &visuals {
-            for path in &vis.paths {
-                if path.no_show || path.verbs_page_space.is_empty() {
-                    continue;
+            let has_grad = vis.gradient_stops.len() >= 2 || (25..=40).contains(&vis.fill_pattern);
+            let has_arrows = vis.begin_arrow > 0 || vis.end_arrow > 0;
+            if has_grad || has_arrows {
+                let mut no_txt = vis.clone();
+                no_txt.text.clear();
+                no_txt.foreign_media = None;
+                let geom_mesh = vexio_render::tessellate::tessellate_shape(&no_txt, 192.0);
+                emit_pdf_mesh_triangles(&mut stream, &geom_mesh);
+            } else {
+                for path in &vis.paths {
+                    if path.no_show || path.verbs_page_space.is_empty() {
+                        continue;
+                    }
+                    let lw = (path.stroke_weight_in.unwrap_or(vis.stroke_weight_in) * 72.0).max(0.5);
+                    let _ = writeln!(stream, "{lw:.2} w");
+                    let eff_stroke = path.stroke_color.or(vis.stroke_color);
+                    let eff_fill = if vis.fill_pattern == 0 {
+                        None
+                    } else {
+                        path.fill_color.or(vis.fill_color)
+                    };
+                    if let Some(sc) = eff_stroke {
+                        let r = sc.r as f64 / 255.0;
+                        let g = sc.g as f64 / 255.0;
+                        let b = sc.b as f64 / 255.0;
+                        let _ = writeln!(stream, "{r:.3} {g:.3} {b:.3} RG");
+                    }
+                    if let Some(fc) = eff_fill {
+                        let r = fc.r as f64 / 255.0;
+                        let g = fc.g as f64 / 255.0;
+                        let b = fc.b as f64 / 255.0;
+                        let _ = writeln!(stream, "{r:.3} {g:.3} {b:.3} rg");
+                    }
+                    for verb in &path.verbs_page_space {
+                        match verb {
+                            EvaluatedPathVerb::MoveTo(p) => {
+                                let _ = writeln!(stream, "{:.2} {:.2} m", p[0] * 72.0, p[1] * 72.0);
+                            }
+                            EvaluatedPathVerb::LineTo(p) | EvaluatedPathVerb::ArcTo { to: p, .. } => {
+                                let _ = writeln!(stream, "{:.2} {:.2} l", p[0] * 72.0, p[1] * 72.0);
+                            }
+                            EvaluatedPathVerb::CubicTo { ctrl1, ctrl2, to } => {
+                                let _ = writeln!(
+                                    stream,
+                                    "{:.2} {:.2} {:.2} {:.2} {:.2} {:.2} c",
+                                    ctrl1[0] * 72.0,
+                                    ctrl1[1] * 72.0,
+                                    ctrl2[0] * 72.0,
+                                    ctrl2[1] * 72.0,
+                                    to[0] * 72.0,
+                                    to[1] * 72.0
+                                );
+                            }
+                            EvaluatedPathVerb::QuadTo { ctrl, to } => {
+                                let _ = writeln!(
+                                    stream,
+                                    "{:.2} {:.2} {:.2} {:.2} v",
+                                    ctrl[0] * 72.0,
+                                    ctrl[1] * 72.0,
+                                    to[0] * 72.0,
+                                    to[1] * 72.0
+                                );
+                            }
+                            EvaluatedPathVerb::Ellipse { center, rx, ry, .. } => {
+                                let _ = writeln!(
+                                    stream,
+                                    "{:.2} {:.2} {:.2} {:.2} re",
+                                    (center[0] - rx) * 72.0,
+                                    (center[1] - ry) * 72.0,
+                                    rx * 2.0 * 72.0,
+                                    ry * 2.0 * 72.0
+                                );
+                            }
+                            EvaluatedPathVerb::Close => stream.push_str("h\n"),
+                        }
+                    }
+                    let paint_op = match (
+                        !path.no_fill && eff_fill.is_some(),
+                        !path.no_line && eff_stroke.is_some(),
+                    ) {
+                        (true, true) => "B",
+                        (true, false) => "f",
+                        (false, true) => "S",
+                        (false, false) => "n",
+                    };
+                    let _ = writeln!(stream, "{paint_op}");
                 }
-                let lw = (path.stroke_weight_in.unwrap_or(vis.stroke_weight_in) * 72.0).max(0.5);
-                let _ = writeln!(stream, "{lw:.2} w");
-                let eff_stroke = path.stroke_color.or(vis.stroke_color);
-                let eff_fill = path.fill_color.or(vis.fill_color);
-                if let Some(sc) = eff_stroke {
-                    let [r, g, b, _] = sc.to_linear_f32();
-                    let _ = writeln!(stream, "{r:.3} {g:.3} {b:.3} RG");
-                }
-                if let Some(fc) = eff_fill {
-                    let [r, g, b, _] = fc.to_linear_f32();
-                    let _ = writeln!(stream, "{r:.3} {g:.3} {b:.3} rg");
-                }
-                for verb in &path.verbs_page_space {
-                    match verb {
-                        EvaluatedPathVerb::MoveTo(p) => {
-                            let _ = writeln!(stream, "{:.2} {:.2} m", p[0] * 72.0, p[1] * 72.0);
-                        }
-                        EvaluatedPathVerb::LineTo(p) | EvaluatedPathVerb::ArcTo { to: p, .. } => {
-                            let _ = writeln!(stream, "{:.2} {:.2} l", p[0] * 72.0, p[1] * 72.0);
-                        }
-                        EvaluatedPathVerb::CubicTo { ctrl1, ctrl2, to } => {
-                            let _ = writeln!(
-                                stream,
-                                "{:.2} {:.2} {:.2} {:.2} {:.2} {:.2} c",
-                                ctrl1[0] * 72.0,
-                                ctrl1[1] * 72.0,
-                                ctrl2[0] * 72.0,
-                                ctrl2[1] * 72.0,
-                                to[0] * 72.0,
-                                to[1] * 72.0
-                            );
-                        }
-                        EvaluatedPathVerb::QuadTo { ctrl, to } => {
-                            let _ = writeln!(
-                                stream,
-                                "{:.2} {:.2} {:.2} {:.2} v",
-                                ctrl[0] * 72.0,
-                                ctrl[1] * 72.0,
-                                to[0] * 72.0,
-                                to[1] * 72.0
-                            );
-                        }
-                        EvaluatedPathVerb::Ellipse { center, rx, ry, .. } => {
-                            let _ = writeln!(
-                                stream,
-                                "{:.2} {:.2} {:.2} {:.2} re",
-                                (center[0] - rx) * 72.0,
-                                (center[1] - ry) * 72.0,
-                                rx * 2.0 * 72.0,
-                                ry * 2.0 * 72.0
-                            );
-                        }
-                        EvaluatedPathVerb::Close => stream.push_str("h\n"),
+            }
+
+            // Render embedded `ForeignMediaData` (EMF/EMF+/WMF/SVG/PNG/JPEG) in PDF
+            let fd_resolved = vis
+                .foreign_media
+                .as_ref()
+                .or_else(|| page.find_shape(vis.shape_id).and_then(|sh| sh.foreign_data.as_ref()));
+            if let Some(fd) = fd_resolved {
+                if !fd.data.is_empty() {
+                    let fd_mesh = vexio_render::foreign_media::tessellate_foreign_media(
+                        fd,
+                        &vis.transform,
+                        0.005,
+                    );
+                    if !fd_mesh.indices.is_empty() {
+                        emit_pdf_mesh_triangles(&mut stream, &fd_mesh);
                     }
                 }
-                let paint_op = match (
-                    !path.no_fill && eff_fill.is_some(),
-                    !path.no_line && eff_stroke.is_some(),
-                ) {
-                    (true, true) => "B",
-                    (true, false) => "f",
-                    (false, true) => "S",
-                    (false, false) => "n",
-                };
-                let _ = writeln!(stream, "{paint_op}");
             }
 
             let trimmed_txt = vis.text.trim();
@@ -1412,6 +1587,8 @@ pub fn export_document_pdf(doc: &VisioDocument) -> Vec<u8> {
                 let (sa, ca) = readable_rad.sin_cos();
                 let cx_pt = vis.txt_pos[0] * 72.0;
                 let cy_pt = vis.txt_pos[1] * 72.0;
+                let is_bold = (vis.char_style & 1) != 0;
+                let is_italic = (vis.char_style & 2) != 0;
 
                 let plain_lines: Vec<String> = cleaned_txt
                     .lines()
@@ -1426,8 +1603,19 @@ pub fn export_document_pdf(doc: &VisioDocument) -> Vec<u8> {
                     let br = bg.r as f64 / 255.0;
                     let bg_g = bg.g as f64 / 255.0;
                     let bb = bg.b as f64 / 255.0;
-                    let max_ch = plain_lines.iter().map(|l| l.chars().count()).max().unwrap_or(1) as f64;
-                    let hw = (max_ch * font_pt * 0.56 + 8.0).min(box_w_pt.max(24.0)) * 0.5;
+                    let max_w_pt = plain_lines
+                        .iter()
+                        .map(|l| {
+                            vexio_render::ttf_shaper::measure_text_width_in(
+                                l,
+                                &vis.font_family,
+                                font_pt,
+                                is_bold,
+                                is_italic,
+                            ) * 72.0
+                        })
+                        .fold(12.0_f64, f64::max);
+                    let hw = (max_w_pt + 8.0).min(box_w_pt.max(24.0)) * 0.5;
                     let hh = ((plain_lines.len().max(1) as f64) * line_h_pt + 4.0) * 0.5;
                     let map_pt = |lx: f64, ly: f64| -> (f64, f64) {
                         (cx_pt + lx * ca - ly * sa, cy_pt + lx * sa + ly * ca)
@@ -1448,30 +1636,45 @@ pub fn export_document_pdf(doc: &VisioDocument) -> Vec<u8> {
                 let tb = vis.text_color.b as f64 / 255.0;
                 let _ = writeln!(stream, "{tr:.3} {tg:.3} {tb:.3} RG\n{tr:.3} {tg:.3} {tb:.3} rg");
 
-                let encoded_lines: Option<Vec<String>> = plain_lines
-                    .iter()
-                    .map(|l| encode_pdf_winansi_literal(l))
-                    .collect();
+                let force_outline = page
+                    .find_shape(vis.shape_id)
+                    .and_then(|s| s.sheet.get_bool("User.PdfOutlineText"))
+                    .unwrap_or(false);
+                let encoded_lines: Option<Vec<String>> = if force_outline {
+                    None
+                } else {
+                    plain_lines
+                        .iter()
+                        .map(|l| encode_pdf_winansi_literal(l))
+                        .collect()
+                };
+
+                let n_lines = plain_lines.len().max(1);
+                let total_block_h = (n_lines.saturating_sub(1) as f64) * line_h_pt;
+                let top_line_y = match vis.vert_align {
+                    0 => box_h_pt * 0.5 - 4.0 - font_pt * 0.85,
+                    2 => -box_h_pt * 0.5 + 4.0 + total_block_h + font_pt * 0.15,
+                    _ => total_block_h * 0.5 - font_pt * 0.35,
+                };
 
                 if let Some(winansi_literals) = encoded_lines {
-                    let font_tag = match (vis.char_style & 1 != 0, vis.char_style & 2 != 0) {
+                    let font_tag = match (is_bold, is_italic) {
                         (true, true) => "/F4",
                         (true, false) => "/F2",
                         (false, true) => "/F3",
                         (false, false) => "/F1",
                     };
-                    let n_lines = plain_lines.len().max(1);
-                    let total_block_h = (n_lines.saturating_sub(1) as f64) * line_h_pt;
-                    let top_line_y = match vis.vert_align {
-                        0 => box_h_pt * 0.5 - 4.0 - font_pt * 0.85,
-                        2 => -box_h_pt * 0.5 + 4.0 + total_block_h + font_pt * 0.15,
-                        _ => total_block_h * 0.5 - font_pt * 0.35,
-                    };
 
                     for (idx, (plain, pdf_lit)) in
                         plain_lines.iter().zip(winansi_literals.iter()).enumerate()
                     {
-                        let est_line_w = (plain.chars().count() as f64) * font_pt * 0.52;
+                        let est_line_w = vexio_render::ttf_shaper::measure_text_width_in(
+                            plain,
+                            &vis.font_family,
+                            font_pt,
+                            is_bold,
+                            is_italic,
+                        ) * 72.0;
                         let local_x = match vis.horiz_align {
                             0 => -box_w_pt * 0.5 + 4.0,
                             2 => box_w_pt * 0.5 - 4.0 - est_line_w,
@@ -1512,49 +1715,112 @@ pub fn export_document_pdf(doc: &VisioDocument) -> Vec<u8> {
                         }
                     }
                 } else {
-                    // Non-WinAnsi scripts (Greek Α-ω with tonos/dialytika, Hebrew, Arabic, CJK):
-                    // emit crisp vector glyph triangles via `vexio_render::typography` so 0 characters vanish!
-                    let block = vexio_render::typography::parse_inline_rich_text_styled_with_font(
-                        trimmed_txt,
-                        font_pt,
-                        vis.text_color,
-                        vis.char_style,
-                        vis.horiz_align,
-                        vis.vert_align,
-                        vis.bullet_style,
-                        &vis.font_family,
-                    );
-                    let glyph_mesh = vexio_render::typography::tessellate_rich_text_in_box(
-                        &block,
-                        vis.txt_pos[0],
-                        vis.txt_pos[1],
-                        box_w_pt / 72.0,
-                        box_h_pt / 72.0,
-                        readable_rad,
-                    );
-                    let mut last_col: Option<[f32; 4]> = None;
-                    for tri in glyph_mesh.indices.chunks_exact(3) {
-                        let v0 = &glyph_mesh.vertices[tri[0] as usize];
-                        let v1 = &glyph_mesh.vertices[tri[1] as usize];
-                        let v2 = &glyph_mesh.vertices[tri[2] as usize];
-                        if last_col != Some(v0.color) {
-                            let _ = writeln!(
-                                stream,
-                                "{:.3} {:.3} {:.3} rg",
-                                v0.color[0], v0.color[1], v0.color[2]
-                            );
-                            last_col = Some(v0.color);
+                    // Non-WinAnsi scripts (Greek, Cyrillic, arrows, math) or `User.PdfOutlineText`:
+                    // Emit exact cubic Bezier TrueType glyph contours (`m`, `l`, `c`, `h`, `f`) via `ttf_shaper`,
+                    // falling back to tessellated glyph triangles for RTL/CJK or custom inline color spans.
+                    let needs_complex_fallback = trimmed_txt.starts_with("[vert]")
+                        || trimmed_txt.contains("[color=")
+                        || plain_lines.iter().any(|l| {
+                            l.chars().any(|c| {
+                                ('\u{0590}'..='\u{08FF}').contains(&c)
+                                    || ('\u{3000}'..='\u{9FFF}').contains(&c)
+                                    || ('\u{AC00}'..='\u{D7AF}').contains(&c)
+                            })
+                        });
+                    let mut emitted_bezier_contours = false;
+                    if !needs_complex_fallback {
+                        let mut contour_buf = String::new();
+                        let mut any_ops = false;
+                        for (idx, plain) in plain_lines.iter().enumerate() {
+                            let baseline_local_y_in =
+                                (top_line_y - (idx as f64) * line_h_pt) / 72.0;
+                            let (ops, syn_bold) =
+                                vexio_render::ttf_shaper::shape_line_to_pdf_contours(
+                                    plain,
+                                    &vis.font_family,
+                                    font_pt,
+                                    is_bold,
+                                    is_italic,
+                                    vis.horiz_align,
+                                    box_w_pt / 72.0,
+                                    4.0 / 72.0,
+                                    baseline_local_y_in,
+                                    vis.txt_pos[0],
+                                    vis.txt_pos[1],
+                                    readable_rad,
+                                );
+                            if !ops.is_empty() {
+                                any_ops = true;
+                                if syn_bold {
+                                    let _ = writeln!(
+                                        contour_buf,
+                                        "{:.2} w",
+                                        (font_pt * 0.036).max(0.35)
+                                    );
+                                }
+                                for op in &ops {
+                                    match *op {
+                                        vexio_render::PdfContourOp::MoveTo(x, y) => {
+                                            let _ = write!(contour_buf, "{x:.2} {y:.2} m ");
+                                        }
+                                        vexio_render::PdfContourOp::LineTo(x, y) => {
+                                            let _ = write!(contour_buf, "{x:.2} {y:.2} l ");
+                                        }
+                                        vexio_render::PdfContourOp::CubicTo(
+                                            x1,
+                                            y1,
+                                            x2,
+                                            y2,
+                                            x,
+                                            y,
+                                        ) => {
+                                            let _ = write!(
+                                                contour_buf,
+                                                "{x1:.2} {y1:.2} {x2:.2} {y2:.2} {x:.2} {y:.2} c "
+                                            );
+                                        }
+                                        vexio_render::PdfContourOp::Close => {
+                                            contour_buf.push_str("h ");
+                                        }
+                                    }
+                                }
+                                if contour_buf.ends_with(' ') {
+                                    contour_buf.pop();
+                                }
+                                if syn_bold {
+                                    contour_buf.push_str(" B\n");
+                                } else {
+                                    contour_buf.push_str(" f\n");
+                                }
+                            }
                         }
-                        let _ = writeln!(
-                            stream,
-                            "{:.2} {:.2} m {:.2} {:.2} l {:.2} {:.2} l h f",
-                            v0.pos[0] * 72.0,
-                            v0.pos[1] * 72.0,
-                            v1.pos[0] * 72.0,
-                            v1.pos[1] * 72.0,
-                            v2.pos[0] * 72.0,
-                            v2.pos[1] * 72.0
+                        if any_ops {
+                            stream.push_str(&contour_buf);
+                            emitted_bezier_contours = true;
+                        }
+                    }
+
+                    if !emitted_bezier_contours {
+                        let block =
+                            vexio_render::typography::parse_inline_rich_text_styled_with_font(
+                                trimmed_txt,
+                                font_pt,
+                                vis.text_color,
+                                vis.char_style,
+                                vis.horiz_align,
+                                vis.vert_align,
+                                vis.bullet_style,
+                                &vis.font_family,
+                            );
+                        let glyph_mesh = vexio_render::typography::tessellate_rich_text_in_box(
+                            &block,
+                            vis.txt_pos[0],
+                            vis.txt_pos[1],
+                            box_w_pt / 72.0,
+                            box_h_pt / 72.0,
+                            readable_rad,
                         );
+                        emit_pdf_mesh_triangles(&mut stream, &glyph_mesh);
                     }
                 }
             }

@@ -48,6 +48,7 @@ export interface EngineShapeSummary {
   endY?: number | null;
   pathPoints?: Array<[number, number]>;
   ports?: Array<[number, number]>;
+  portCells?: string[];
   routeStyle?: number;
   beginArrow?: number;
   endArrow?: number;
@@ -82,7 +83,7 @@ export interface SmartGuideLine {
   posIn: number;
   fromIn: number;
   toIn: number;
-  kind: 'center' | 'edge';
+  kind: 'center' | 'edge' | 'equal_spacing';
 }
 
 export interface SmartGuidesResult {
@@ -311,6 +312,20 @@ interface WasmSessionInstance {
   import_cloud_discovery(page_id: number, discovery_json: string): number;
   import_entra_or_ldif(page_id: number, text: string): number;
   import_sqlite_recordset(page_id: number, sqlite_bytes: Uint8Array, table_name: string, key_col: string): number;
+  register_font_bytes(bytes: Uint8Array, family_override: string): boolean;
+  distribute_shapes(page_id: number, shape_ids: Uint32Array, axis: string): number;
+  group_shapes(page_id: number, shape_ids: Uint32Array): number;
+  ungroup_shapes(page_id: number, group_ids: Uint32Array): Uint32Array;
+  move_connector_endpoint_with_port(
+    page_id: number,
+    shape_id: number,
+    is_begin: boolean,
+    x_in: number,
+    y_in: number,
+    target_shape_id: number,
+    target_port_cell: string
+  ): boolean;
+  drag_connector_segment(page_id: number, shape_id: number, seg_index: number, coord_in: number): boolean;
 }
 
 let wasmSession: WasmSessionInstance | null = null;
@@ -1181,6 +1196,98 @@ self.onmessage = async (ev: MessageEvent) => {
       case 'replayWal': {
         session.replay_wal(payload.bytes);
         self.postMessage({ id, ok: true, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'registerFontBytes': {
+        const registered =
+          typeof session.register_font_bytes === 'function'
+            ? session.register_font_bytes(
+                payload.bytes as Uint8Array,
+                String(payload.familyOverride ?? '')
+              )
+            : false;
+        self.postMessage({ id, ok: true, registered, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'distributeShapes': {
+        const distributedCount =
+          typeof session.distribute_shapes === 'function'
+            ? session.distribute_shapes(
+                activePageId,
+                new Uint32Array(payload.shapeIds ?? []),
+                String(payload.axis ?? 'horizontal')
+              )
+            : session.align_shapes(
+                activePageId,
+                new Uint32Array(payload.shapeIds ?? []),
+                payload.axis === 'vertical' ? 'distribute_v' : 'distribute_h'
+              );
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, distributedCount, wal, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'groupShapes': {
+        const groupId =
+          typeof session.group_shapes === 'function'
+            ? session.group_shapes(activePageId, new Uint32Array(payload.shapeIds ?? []))
+            : 0;
+        if (groupId > 0) {
+          selectedShapeIds = [groupId];
+        }
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, groupId, wal, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'ungroupShapes': {
+        const ungroupedIds =
+          typeof session.ungroup_shapes === 'function'
+            ? Array.from(
+                session.ungroup_shapes(activePageId, new Uint32Array(payload.groupIds ?? []))
+              )
+            : [];
+        if (ungroupedIds.length > 0) {
+          selectedShapeIds = ungroupedIds;
+        }
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, ungroupedIds, wal, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'moveConnectorEndpointWithPort': {
+        const moved =
+          typeof session.move_connector_endpoint_with_port === 'function'
+            ? session.move_connector_endpoint_with_port(
+                activePageId,
+                Number(payload.shapeId),
+                Boolean(payload.isBegin),
+                Number(payload.xIn),
+                Number(payload.yIn),
+                Number(payload.targetShapeId ?? 0),
+                String(payload.targetPortCell ?? '')
+              )
+            : session.move_connector_endpoint(
+                activePageId,
+                Number(payload.shapeId),
+                Boolean(payload.isBegin),
+                Number(payload.xIn),
+                Number(payload.yIn),
+                Number(payload.targetShapeId ?? 0)
+              );
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, moved, wal, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'dragConnectorSegment': {
+        const dragged =
+          typeof session.drag_connector_segment === 'function'
+            ? session.drag_connector_segment(
+                activePageId,
+                Number(payload.shapeId),
+                Number(payload.segIndex ?? 1),
+                Number(payload.coordIn ?? 0)
+              )
+            : false;
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, dragged, wal, snapshot: buildSnapshot(session) });
         break;
       }
     }

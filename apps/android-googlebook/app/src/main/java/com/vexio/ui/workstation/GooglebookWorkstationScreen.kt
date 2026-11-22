@@ -375,6 +375,15 @@ fun GooglebookWorkstationScreen(
                         viewModel.duplicateSelectedShapes()
                         true
                     }
+                    // Ctrl + G / Ctrl + Shift + G -> Group / Ungroup Selected Shapes
+                    ctrlOrMeta && !shift && keyEvent.key == Key.G -> {
+                        viewModel.groupSelectedShapes()
+                        true
+                    }
+                    ctrlOrMeta && shift && keyEvent.key == Key.G -> {
+                        viewModel.ungroupSelectedShapes()
+                        true
+                    }
                     // Escape -> Cancel Inline Edit / Close Backstage / Return to Select Tool
                     !ctrlOrMeta && keyEvent.key == Key.Escape -> {
                         when {
@@ -1571,7 +1580,73 @@ private fun ClassicVisioM3Ribbon(
 
                             VerticalDivider(modifier = Modifier.height(20.dp), color = MaterialTheme.colorScheme.outlineVariant)
 
-                            // Rotate 90° & Flip for All Stencils
+                            // Arrange, Align, Distribute, Group, Rotate 90° & Flip for All Stencils
+                            var alignMenuOpen by remember { mutableStateOf(false) }
+                            var distributeMenuOpen by remember { mutableStateOf(false) }
+                            Box {
+                                ExpressivePlan2ActionPill(
+                                    label = "Align ▾",
+                                    selected = false,
+                                    onClick = { alignMenuOpen = true }
+                                )
+                                DropdownMenu(
+                                    expanded = alignMenuOpen,
+                                    onDismissRequest = { alignMenuOpen = false }
+                                ) {
+                                    listOf(
+                                        "left" to "Align Left",
+                                        "center" to "Align Center",
+                                        "right" to "Align Right",
+                                        "top" to "Align Top",
+                                        "middle" to "Align Middle",
+                                        "bottom" to "Align Bottom"
+                                    ).forEach { (modeSlug, title) ->
+                                        DropdownMenuItem(
+                                            text = { Text(title) },
+                                            onClick = {
+                                                alignMenuOpen = false
+                                                viewModel.alignSelectedShapes(modeSlug)
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                            Box {
+                                ExpressivePlan2ActionPill(
+                                    label = "Distribute ▾",
+                                    selected = false,
+                                    onClick = { distributeMenuOpen = true }
+                                )
+                                DropdownMenu(
+                                    expanded = distributeMenuOpen,
+                                    onDismissRequest = { distributeMenuOpen = false }
+                                ) {
+                                    DropdownMenuItem(
+                                        text = { Text("Distribute Horizontally") },
+                                        onClick = {
+                                            distributeMenuOpen = false
+                                            viewModel.distributeSelectedShapes("horizontal")
+                                        }
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Distribute Vertically") },
+                                        onClick = {
+                                            distributeMenuOpen = false
+                                            viewModel.distributeSelectedShapes("vertical")
+                                        }
+                                    )
+                                }
+                            }
+                            ExpressivePlan2ActionPill(
+                                label = "Group",
+                                selected = false,
+                                onClick = { viewModel.groupSelectedShapes() }
+                            )
+                            ExpressivePlan2ActionPill(
+                                label = "Ungroup",
+                                selected = false,
+                                onClick = { viewModel.ungroupSelectedShapes() }
+                            )
                             ExpressivePlan2ActionPill(
                                 label = "↺ 90°",
                                 selected = false,
@@ -1714,6 +1789,11 @@ private fun ClassicVisioM3Ribbon(
                         }
 
                         "View" -> {
+                            ExpressivePlan2ActionPill(
+                                label = "Smart Guides",
+                                selected = uiState.smartGuidesEnabled,
+                                onClick = { viewModel.toggleSmartGuides() }
+                            )
                             ExpressivePlan2ActionPill(
                                 label = "Stencils Navigator",
                                 selected = uiState.isStencilDrawerExpanded,
@@ -3609,6 +3689,20 @@ private fun VulkanCanvasDropZone(
                 onClick = {
                     contextMenuVisible = false
                     viewModel.beginInlineTextEdit(uiState.selectedShapeId)
+                }
+            )
+            DropdownMenuItem(
+                text = { Text("Group Selected Shapes (Ctrl+G)") },
+                onClick = {
+                    contextMenuVisible = false
+                    viewModel.groupSelectedShapes()
+                }
+            )
+            DropdownMenuItem(
+                text = { Text("Ungroup Selected Group (Ctrl+Shift+G)") },
+                onClick = {
+                    contextMenuVisible = false
+                    viewModel.ungroupSelectedShapes()
                 }
             )
             DropdownMenuItem(

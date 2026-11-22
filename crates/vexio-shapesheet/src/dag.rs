@@ -134,6 +134,19 @@ pub struct EvaluatedGeometryPath {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EvaluatedGradientStop {
+    pub position: f32,
+    pub color: RgbaColor,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EvaluatedConnectionPort {
+    pub ix: u32,
+    pub cell_name: String,
+    pub pos_page_in: [f64; 2],
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct EvaluatedShapeVisual {
     pub shape_id: u64,
     pub kind: ShapeKind,
@@ -142,6 +155,16 @@ pub struct EvaluatedShapeVisual {
     pub aabb_max: [f64; 2],
     pub paths: Vec<EvaluatedGeometryPath>,
     pub fill_color: Option<RgbaColor>,
+    #[serde(default)]
+    pub fill_bkgnd: Option<RgbaColor>,
+    #[serde(default)]
+    pub fill_pattern: u8,
+    #[serde(default)]
+    pub fill_gradient_angle_rad: f64,
+    #[serde(default)]
+    pub fill_gradient_radial: bool,
+    #[serde(default)]
+    pub gradient_stops: Vec<EvaluatedGradientStop>,
     pub stroke_color: Option<RgbaColor>,
     pub stroke_weight_in: f64,
     #[serde(default)]
@@ -149,6 +172,10 @@ pub struct EvaluatedShapeVisual {
     pub rounding_in: f64,
     pub end_arrow: u8,
     pub begin_arrow: u8,
+    #[serde(default = "default_arrow_size")]
+    pub end_arrow_size: u8,
+    #[serde(default = "default_arrow_size")]
+    pub begin_arrow_size: u8,
     pub text: String,
     pub txt_pos: [f64; 2],
     #[serde(default)]
@@ -169,6 +196,12 @@ pub struct EvaluatedShapeVisual {
     pub text_bg_color: Option<RgbaColor>,
     #[serde(default)]
     pub foreign_media: Option<ForeignMediaData>,
+    #[serde(default)]
+    pub connection_points: Vec<EvaluatedConnectionPort>,
+}
+
+fn default_arrow_size() -> u8 {
+    2
 }
 
 pub struct ReactiveEngine;
@@ -289,6 +322,21 @@ impl<'a> EvalSession<'a> {
             }
         }
         ids
+    }
+
+    fn lookup_quickstyle_num(&mut self, ctx_sheet: &SheetKey, canonical_key: &str) -> Option<i32> {
+        let qid = GlobalCellId {
+            sheet: ctx_sheet.clone(),
+            cell: canonical_key.to_string(),
+        };
+        if self.visiting.contains(&qid) {
+            return None;
+        }
+        self.eval_cell_id(&qid)
+            .as_internal_f64()
+            .ok()
+            .filter(|v| v.is_finite())
+            .map(|v| v.round() as i32)
     }
 
     fn eval_cell_id(&mut self, id: &GlobalCellId) -> CellValue {
@@ -1435,8 +1483,41 @@ impl<'a> EvalSession<'a> {
                     a: 255,
                 })
             }
+            "LUMMOD" | "LUMOFF" | "SATMOD" => {
+                if args.len() < 2 {
+                    return CellValue::Err(CellError::Value);
+                }
+                let base = match self.eval_expr(ctx_sheet, ctx_cell, &args[0]) {
+                    CellValue::Color(c) => c,
+                    CellValue::Num { internal, .. } if internal >= 0.0 => {
+                        visio_standard_palette_color(internal.round() as u32)
+                            .unwrap_or(RgbaColor::WHITE)
+                    }
+                    _ => return CellValue::Err(CellError::Value),
+                };
+                let raw = self
+                    .eval_expr(ctx_sheet, ctx_cell, &args[1])
+                    .as_internal_f64()
+                    .unwrap_or(1.0);
+                let norm = if raw.abs() > 1.5 { raw / 100.0 } else { raw };
+                let (h, mut s, mut l) = base.to_visio_hsl();
+                match upper.as_str() {
+                    "LUMMOD" => l = (l * norm).clamp(0.0, 240.0),
+                    "LUMOFF" => l = (l + norm * 240.0).clamp(0.0, 240.0),
+                    _ => s = (s * norm).clamp(0.0, 240.0),
+                }
+                let mut out = RgbaColor::from_hsl(h, s, l);
+                out.a = base.a;
+                CellValue::Color(out)
+            }
             "THEMEVAL" | "THEME" => {
-                let theme = self.doc.themes.first().cloned().unwrap_or_default();
+                let theme = self
+                    .doc
+                    .active_theme_id
+                    .and_then(|tid| self.doc.themes.iter().find(|t| t.id == tid))
+                    .or_else(|| self.doc.themes.first())
+                    .cloned()
+                    .unwrap_or_default();
                 let key = args
                     .first()
                     .and_then(|a| self.eval_expr(ctx_sheet, ctx_cell, a).as_str_coerced().ok())
@@ -1455,12 +1536,55 @@ impl<'a> EvalSession<'a> {
                     CellValue::Color(theme.background_color)
                 } else if key.contains("fillforegndtrans") || key.contains("trans") {
                     CellValue::number(0.0)
-                } else if key.contains("fillpattern") || key.contains("linepattern") {
+                } else if key.contains("fillpattern") {
+                    let qs_mat = self
+                        .lookup_quickstyle_num(ctx_sheet, "quickstylefillmatrix")
+                        .unwrap_or(0);
+                    if (25..=36).contains(&qs_mat) {
+                        CellValue::number(28.0) // Top-to-bottom linear gradient
+                    } else {
+                        CellValue::number(1.0)
+                    }
+                } else if key.contains("linepattern") {
                     CellValue::number(1.0)
+                } else if key.contains("fillbkgnd") {
+                    let qs_mat = self
+                        .lookup_quickstyle_num(ctx_sheet, "quickstylefillmatrix")
+                        .unwrap_or(0);
+                    let qs_col = self.lookup_quickstyle_num(ctx_sheet, "quickstylefillcolor");
+                    CellValue::Color(resolve_quickstyle_fill_bkgnd(&theme, qs_mat, qs_col))
                 } else if key.contains("fill") {
-                    CellValue::Color(theme.light_color)
+                    let qs_mat = self
+                        .lookup_quickstyle_num(ctx_sheet, "quickstylefillmatrix")
+                        .unwrap_or(0);
+                    let qs_col = self.lookup_quickstyle_num(ctx_sheet, "quickstylefillcolor");
+                    CellValue::Color(resolve_quickstyle_fill_color(&theme, qs_mat, qs_col))
+                } else if key.contains("linecolor") {
+                    let qs_mat = self
+                        .lookup_quickstyle_num(ctx_sheet, "quickstylelinematrix")
+                        .unwrap_or(0);
+                    let qs_col = self.lookup_quickstyle_num(ctx_sheet, "quickstylelinecolor");
+                    CellValue::Color(resolve_quickstyle_line_color(&theme, qs_mat, qs_col))
+                } else if key.contains("char.color") || key.contains("fontcolor") {
+                    let qs_fmat = self
+                        .lookup_quickstyle_num(ctx_sheet, "quickstylefontmatrix")
+                        .unwrap_or(0);
+                    let qs_fill_mat = self
+                        .lookup_quickstyle_num(ctx_sheet, "quickstylefillmatrix")
+                        .unwrap_or(0);
+                    let qs_col = self.lookup_quickstyle_num(ctx_sheet, "quickstylefontcolor");
+                    CellValue::Color(resolve_quickstyle_font_color(
+                        &theme,
+                        qs_fmat,
+                        qs_fill_mat,
+                        qs_col,
+                    ))
                 } else if key.contains("font") {
-                    CellValue::Str(theme.body_font)
+                    if key.contains("heading") || key.contains("major") {
+                        CellValue::Str(theme.heading_font)
+                    } else {
+                        CellValue::Str(theme.body_font)
+                    }
                 } else {
                     CellValue::Color(theme.dark_color)
                 }
@@ -2021,11 +2145,24 @@ fn collect_shape_cell_ids_page(page_id: u32, s: &VisioShape, out: &mut Vec<Globa
             "fillforegnd",
             "fillforegndtrans",
             "fillbkgnd",
+            "fillgradientenabled",
+            "fillgradientangle",
+            "fillgradientdir",
             "linepattern",
             "linecolor",
             "linecolortrans",
             "lineweight",
+            "beginarrow",
+            "endarrow",
+            "beginarrowsize",
+            "endarrowsize",
             "rounding",
+            "quickstylefillmatrix",
+            "quickstylelinematrix",
+            "quickstylefontmatrix",
+            "quickstylefillcolor",
+            "quickstylelinecolor",
+            "quickstylefontcolor",
             "char.size",
             "char.color",
             "char.style",
@@ -2413,7 +2550,24 @@ fn collect_shape_visuals(
         aabb_max = mx;
     }
 
-    let fill_pat = ss.get_f64("FillPattern").unwrap_or(1.0).round() as i32;
+    let active_theme = doc
+        .active_theme_id
+        .and_then(|tid| doc.themes.iter().find(|t| t.id == tid))
+        .or_else(|| doc.themes.first())
+        .cloned()
+        .unwrap_or_default();
+
+    let qs_fill_mat = ss.get_f64("QuickStyleFillMatrix").map(|v| v.round() as i32).unwrap_or(0);
+    let qs_fill_col = ss.get_f64("QuickStyleFillColor").map(|v| v.round() as i32);
+    let qs_line_mat = ss.get_f64("QuickStyleLineMatrix").map(|v| v.round() as i32).unwrap_or(0);
+    let qs_line_col = ss.get_f64("QuickStyleLineColor").map(|v| v.round() as i32);
+    let qs_font_mat = ss.get_f64("QuickStyleFontMatrix").map(|v| v.round() as i32).unwrap_or(0);
+    let qs_font_col = ss.get_f64("QuickStyleFontColor").map(|v| v.round() as i32);
+
+    let mut fill_pat = ss.get_f64("FillPattern").unwrap_or(1.0).round() as i32;
+    if fill_pat == 1 && (25..=36).contains(&qs_fill_mat) && ss.get_cell("FillPattern").is_none() {
+        fill_pat = 28;
+    }
     let line_pat = ss.get_f64("LinePattern").unwrap_or(1.0).round() as i32;
     let fill_trans = ss.get_f64("FillForegndTrans").unwrap_or(0.0).clamp(0.0, 1.0);
     let line_trans = ss.get_f64("LineColorTrans").unwrap_or(0.0).clamp(0.0, 1.0);
@@ -2431,6 +2585,13 @@ fn collect_shape_visuals(
     } else {
         layer_color_override
             .or_else(|| ss.get_color("FillForegnd"))
+            .or_else(|| {
+                if qs_fill_mat > 0 || qs_fill_col.is_some() {
+                    Some(resolve_quickstyle_fill_color(&active_theme, qs_fill_mat, qs_fill_col))
+                } else {
+                    None
+                }
+            })
             .or(Some(RgbaColor::WHITE))
             .map(|mut c| {
                 if fill_trans > 0.001 {
@@ -2439,6 +2600,87 @@ fn collect_shape_visuals(
                 c
             })
     };
+
+    let fill_bkgnd = if fill_color.is_some() {
+        ss.get_color("FillBkgnd").or_else(|| {
+            if (25..=36).contains(&qs_fill_mat) {
+                Some(resolve_quickstyle_fill_bkgnd(&active_theme, qs_fill_mat, qs_fill_col))
+            } else {
+                None
+            }
+        })
+    } else {
+        None
+    };
+
+    // Resolve linear/radial gradient parameters & stops (`FillPattern 25..=40`, `FillGradientEnabled`, or `<Section N="FillGradient">`).
+    let grad_enabled = ss.get_bool("FillGradientEnabled").unwrap_or(false)
+        || (25..=40).contains(&fill_pat)
+        || !ss.fill_gradient_stops.is_empty();
+    let fill_gradient_radial = (36..=40).contains(&fill_pat)
+        || matches!(ss.get_f64("FillGradientDir").map(|v| v.round() as i32), Some(5..=9));
+    let fill_gradient_angle_rad = ss.get_f64("FillGradientAngle").unwrap_or_else(|| {
+        // Visio FillPattern preset angles (`25`=L->R 0°, `27`=R->L 180°, `28`=T->B -90°, `30`=B->T +90°, `31..35`=diagonals)
+        match fill_pat {
+            25 | 26 => 0.0,
+            27 => std::f64::consts::PI,
+            28 | 29 => -std::f64::consts::FRAC_PI_2,
+            30 => std::f64::consts::FRAC_PI_2,
+            31 | 32 => -std::f64::consts::FRAC_PI_4,
+            33 | 34 => std::f64::consts::FRAC_PI_4,
+            _ => -std::f64::consts::FRAC_PI_2,
+        }
+    });
+
+    let mut gradient_stops: Vec<EvaluatedGradientStop> = Vec::new();
+    if grad_enabled && fill_color.is_some() {
+        let stop_source = if !ss.fill_gradient_stops.is_empty() {
+            &ss.fill_gradient_stops
+        } else if let Some(ms) = master_shape.filter(|m| !m.sheet.fill_gradient_stops.is_empty()) {
+            &ms.sheet.fill_gradient_stops
+        } else {
+            &ss.fill_gradient_stops
+        };
+        for st in stop_source {
+            let pos_key = format!("FillGradient.Stop{}.Position", st.ix);
+            let col_key = format!("FillGradient.Stop{}.Color", st.ix);
+            let tr_key = format!("FillGradient.Stop{}.ColorTrans", st.ix);
+            let raw_pos = ss
+                .get_f64(&pos_key)
+                .or_else(|| st.position.trim().trim_end_matches('%').parse::<f64>().ok().map(|v| if v > 1.0 { v / 100.0 } else { v }))
+                .unwrap_or(0.0)
+                .clamp(0.0, 1.0) as f32;
+            let mut col = ss
+                .get_color(&col_key)
+                .or_else(|| RgbaColor::from_hex(&st.color))
+                .unwrap_or_else(|| fill_color.unwrap_or(RgbaColor::WHITE));
+            let tr = ss.get_f64(&tr_key).unwrap_or(0.0).clamp(0.0, 1.0);
+            if tr > 0.001 {
+                col.a = (((1.0 - tr) * (col.a as f64)).round() as u8).max(1);
+            }
+            gradient_stops.push(EvaluatedGradientStop {
+                position: raw_pos,
+                color: col,
+            });
+        }
+        gradient_stops.sort_by(|a, b| a.position.partial_cmp(&b.position).unwrap_or(std::cmp::Ordering::Equal));
+        if gradient_stops.len() < 2 {
+            gradient_stops.clear();
+            if let (Some(fg), Some(bg)) = (fill_color, fill_bkgnd) {
+                if fg != bg {
+                    gradient_stops.push(EvaluatedGradientStop {
+                        position: 0.0,
+                        color: fg,
+                    });
+                    gradient_stops.push(EvaluatedGradientStop {
+                        position: 1.0,
+                        color: bg,
+                    });
+                }
+            }
+        }
+    }
+
     let stroke_color = if line_pat == 0
         || line_trans >= 0.995
         || (!has_drawable_paths
@@ -2452,6 +2694,13 @@ fn collect_shape_visuals(
     } else {
         layer_color_override
             .or_else(|| ss.get_color("LineColor"))
+            .or_else(|| {
+                if qs_line_mat > 0 || qs_line_col.is_some() {
+                    Some(resolve_quickstyle_line_color(&active_theme, qs_line_mat, qs_line_col))
+                } else {
+                    None
+                }
+            })
             .or(Some(RgbaColor::BLACK))
             .map(|mut c| {
                 if line_trans > 0.001 {
@@ -2551,7 +2800,9 @@ fn collect_shape_visuals(
         aabb_max[1] = aabb_max[1].max(txt_py + half_th);
     }
 
-    let fallback_text_color = {
+    let fallback_text_color = if qs_font_mat > 0 || qs_fill_mat > 0 || qs_font_col.is_some() {
+        resolve_quickstyle_font_color(&active_theme, qs_font_mat, qs_fill_mat, qs_font_col)
+    } else {
         let bg = page
             .page_sheet
             .get_color("PageColor")
@@ -2574,6 +2825,64 @@ fn collect_shape_visuals(
         }
     };
 
+    // Evaluate world-space connection ports (`Connections.X{ix}` / `Connections.Y{ix}` + cardinal fallback for 2D shapes).
+    let mut connection_points: Vec<EvaluatedConnectionPort> = Vec::new();
+    if matches!(shape.kind, ShapeKind::Shape2D | ShapeKind::Group) && parent_tf.is_none() {
+        let cp_rows = if !ss.connection_points.is_empty() {
+            &ss.connection_points
+        } else if let Some(ms) = master_shape.filter(|m| !m.sheet.connection_points.is_empty()) {
+            &ms.sheet.connection_points
+        } else {
+            &ss.connection_points
+        };
+        for cp in cp_rows {
+            let xk = format!("Connections.X{}", cp.ix);
+            let yk = format!("Connections.Y{}", cp.ix);
+            let lx = ss
+                .get_f64(&xk)
+                .or_else(|| master_shape.and_then(|ms| ms.sheet.get_f64(&xk)))
+                .unwrap_or(w * 0.5);
+            let ly = ss
+                .get_f64(&yk)
+                .or_else(|| master_shape.and_then(|ms| ms.sheet.get_f64(&yk)))
+                .unwrap_or(h * 0.5);
+            let (wx, wy) = world_tf.local_to_parent(lx, ly);
+            if wx.is_finite() && wy.is_finite() {
+                connection_points.push(EvaluatedConnectionPort {
+                    ix: cp.ix,
+                    cell_name: xk,
+                    pos_page_in: [wx, wy],
+                });
+            }
+        }
+        if connection_points.is_empty() && w.abs() > 0.05 && h.abs() > 0.05 {
+            for (ix, lx, ly) in [
+                (1u32, w * 0.5, 0.0),
+                (2u32, w * 0.5, h),
+                (3u32, 0.0, h * 0.5),
+                (4u32, w, h * 0.5),
+            ] {
+                let (wx, wy) = world_tf.local_to_parent(lx, ly);
+                connection_points.push(EvaluatedConnectionPort {
+                    ix,
+                    cell_name: format!("Connections.X{ix}"),
+                    pos_page_in: [wx, wy],
+                });
+            }
+        }
+    }
+
+    let end_arrow_size = ss
+        .get_f64("EndArrowSize")
+        .unwrap_or(2.0)
+        .round()
+        .clamp(0.0, 6.0) as u8;
+    let begin_arrow_size = ss
+        .get_f64("BeginArrowSize")
+        .unwrap_or(2.0)
+        .round()
+        .clamp(0.0, 6.0) as u8;
+
     out.push(EvaluatedShapeVisual {
         shape_id: shape.id,
         kind: shape.kind,
@@ -2582,12 +2891,19 @@ fn collect_shape_visuals(
         aabb_max,
         paths,
         fill_color,
+        fill_bkgnd,
+        fill_pattern: fill_pat.clamp(0, 255) as u8,
+        fill_gradient_angle_rad,
+        fill_gradient_radial,
+        gradient_stops,
         stroke_color,
         stroke_weight_in: ss.get_f64("LineWeight").unwrap_or(1.0 / 72.0),
         line_pattern: line_pat.clamp(0, 255) as u8,
         rounding_in: ss.get_f64("Rounding").unwrap_or(0.0),
         end_arrow: ss.get_f64("EndArrow").unwrap_or(0.0) as u8,
         begin_arrow: ss.get_f64("BeginArrow").unwrap_or(0.0) as u8,
+        end_arrow_size,
+        begin_arrow_size,
         text: effective_text,
         txt_pos: [txt_px, txt_py],
         txt_width,
@@ -2600,7 +2916,7 @@ fn collect_shape_visuals(
         font_family: ss
             .get_str("Char.Font")
             .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| "Inter".to_string()),
+            .unwrap_or_else(|| active_theme.body_font.clone()),
         char_style,
         horiz_align: ss
             .get_f64("Para.HorzAlign")
@@ -2620,6 +2936,7 @@ fn collect_shape_visuals(
             .clamp(0.0, 4.0) as u8,
         text_bg_color,
         foreign_media,
+        connection_points,
     });
 
     if !shape.children.is_empty() {
@@ -2630,6 +2947,121 @@ fn collect_shape_visuals(
         for child in &ms.children {
             collect_shape_visuals(doc, page, child, Some(&world_tf), out);
         }
+    }
+}
+
+fn quickstyle_base_color(theme: &crate::model::ThemeDef, matrix: i32, color_idx: Option<i32>) -> RgbaColor {
+    if let Some(ci) = color_idx {
+        match ci {
+            0 | 106 => return theme.dark_color,
+            1 | 107 => return theme.light_color,
+            2..=7 => return theme.accent_colors[(ci - 2) as usize],
+            100..=105 => return theme.accent_colors[((ci - 100) as usize) % 6],
+            _ => {}
+        }
+    }
+    if (1..=36).contains(&matrix) {
+        return theme.accent_colors[((matrix - 1) as usize) % 6];
+    }
+    if (100..=105).contains(&matrix) {
+        return theme.accent_colors[((matrix - 100) as usize) % 6];
+    }
+    theme.accent_colors[0]
+}
+
+fn tint_rgb(c: RgbaColor, amount: f64) -> RgbaColor {
+    let t = amount.clamp(0.0, 1.0);
+    RgbaColor {
+        r: ((c.r as f64) + (255.0 - c.r as f64) * t).round().clamp(0.0, 255.0) as u8,
+        g: ((c.g as f64) + (255.0 - c.g as f64) * t).round().clamp(0.0, 255.0) as u8,
+        b: ((c.b as f64) + (255.0 - c.b as f64) * t).round().clamp(0.0, 255.0) as u8,
+        a: c.a,
+    }
+}
+
+fn shade_rgb(c: RgbaColor, amount: f64) -> RgbaColor {
+    let f = (1.0 - amount.clamp(0.0, 1.0)).clamp(0.0, 1.0);
+    RgbaColor {
+        r: ((c.r as f64) * f).round().clamp(0.0, 255.0) as u8,
+        g: ((c.g as f64) * f).round().clamp(0.0, 255.0) as u8,
+        b: ((c.b as f64) * f).round().clamp(0.0, 255.0) as u8,
+        a: c.a,
+    }
+}
+
+fn resolve_quickstyle_fill_color(
+    theme: &crate::model::ThemeDef,
+    matrix: i32,
+    color_idx: Option<i32>,
+) -> RgbaColor {
+    if matrix <= 0 && color_idx.is_none() {
+        return theme.light_color;
+    }
+    let base = quickstyle_base_color(theme, matrix, color_idx);
+    match matrix {
+        1..=6 => tint_rgb(base, 0.82),
+        7..=12 => tint_rgb(base, 0.90),
+        13..=18 | 100 | 101 => base,
+        19..=24 | 102 | 103 => shade_rgb(base, 0.24),
+        25..=30 => tint_rgb(base, 0.74),
+        31..=36 => base,
+        _ => base,
+    }
+}
+
+fn resolve_quickstyle_fill_bkgnd(
+    theme: &crate::model::ThemeDef,
+    matrix: i32,
+    color_idx: Option<i32>,
+) -> RgbaColor {
+    let base = quickstyle_base_color(theme, matrix, color_idx);
+    match matrix {
+        25..=30 => tint_rgb(base, 0.94),
+        31..=36 => shade_rgb(base, 0.28),
+        _ => tint_rgb(base, 0.88),
+    }
+}
+
+fn resolve_quickstyle_line_color(
+    theme: &crate::model::ThemeDef,
+    matrix: i32,
+    color_idx: Option<i32>,
+) -> RgbaColor {
+    if matrix <= 0 && color_idx.is_none() {
+        return theme.dark_color;
+    }
+    let base = quickstyle_base_color(theme, matrix, color_idx);
+    match matrix {
+        1..=6 => shade_rgb(base, 0.15),
+        7..=12 | 25..=30 => base,
+        13..=18 => shade_rgb(base, 0.22),
+        19..=24 | 31..=36 => shade_rgb(base, 0.36),
+        _ => base,
+    }
+}
+
+fn resolve_quickstyle_font_color(
+    theme: &crate::model::ThemeDef,
+    font_matrix: i32,
+    fill_matrix: i32,
+    color_idx: Option<i32>,
+) -> RgbaColor {
+    if let Some(ci) = color_idx {
+        match ci {
+            0 | 106 => return theme.dark_color,
+            1 | 107 => return theme.light_color,
+            2..=7 => return shade_rgb(theme.accent_colors[(ci - 2) as usize], 0.35),
+            _ => {}
+        }
+    }
+    let fill = resolve_quickstyle_fill_color(theme, fill_matrix, None);
+    let lum = (0.2126 * (fill.r as f64) + 0.7152 * (fill.g as f64) + 0.0722 * (fill.b as f64)) / 255.0;
+    if matches!(fill_matrix, 13..=24 | 31..=36 | 100..=103) || lum < 0.45 {
+        RgbaColor::WHITE
+    } else if (7..=12).contains(&font_matrix) {
+        shade_rgb(quickstyle_base_color(theme, font_matrix, None), 0.45)
+    } else {
+        theme.dark_color
     }
 }
 

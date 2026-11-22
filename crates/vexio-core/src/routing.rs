@@ -74,6 +74,7 @@ impl ObstacleRect {
 /// Re-resolve all glued endpoints, route all 1D connectors around obstacles, and apply line jumps on `page_id`.
 pub fn route_page_connectors(doc: &mut VisioDocument, page_id: u32) {
     ReactiveEngine::recalculate_document(doc);
+    let masters_snapshot = doc.masters.clone();
     let Some(page) = doc.page_mut(page_id) else {
         return;
     };
@@ -120,7 +121,13 @@ pub fn route_page_connectors(doc: &mut VisioDocument, page_id: u32) {
         let entry = conn_endpoints
             .entry(c.connector_shape_id)
             .or_insert((None, None));
-        let target_pt = resolve_glue_point(page, c.target_shape_id, &c.to_cell, c.is_dynamic);
+        let target_pt = resolve_glue_point(
+            page,
+            &masters_snapshot,
+            c.target_shape_id,
+            &c.to_cell,
+            c.is_dynamic,
+        );
         if let Some(pt) = target_pt {
             if c.from_cell.to_ascii_lowercase().starts_with("begin") {
                 entry.0 = Some((c.target_shape_id, pt));
@@ -243,11 +250,30 @@ pub fn route_page_connectors(doc: &mut VisioDocument, page_id: u32) {
             .map(|o| o.padded(margin))
             .collect();
 
+        let mid_axis = s
+            .sheet
+            .get_f64("User.MidAxis")
+            .map(|v| v.round() as i32)
+            .unwrap_or(0);
+        let mid_coord = s.sheet.get_f64("User.MidCoord").filter(|v| v.is_finite());
+
         let poly = match mode {
             ConnectorRouteMode::Straight => vec![[bx, by], [ex, ey]],
             ConnectorRouteMode::Curved => vec![[bx, by], [ex, ey]],
             ConnectorRouteMode::Orthogonal => {
-                orthogonal_astar_route([bx, by], [ex, ey], &active_obs)
+                if let Some(mc) = mid_coord {
+                    if mid_axis == 1 {
+                        // User-dragged vertical middle segment at `x = mc`
+                        compact_orthogonal_polyline(&[[bx, by], [mc, by], [mc, ey], [ex, ey]])
+                    } else if mid_axis == 2 {
+                        // User-dragged horizontal middle segment at `y = mc`
+                        compact_orthogonal_polyline(&[[bx, by], [bx, mc], [ex, mc], [ex, ey]])
+                    } else {
+                        orthogonal_astar_route([bx, by], [ex, ey], &active_obs)
+                    }
+                } else {
+                    orthogonal_astar_route([bx, by], [ex, ey], &active_obs)
+                }
             }
         };
         routed_polylines.push((s.id, mode, poly));
@@ -453,27 +479,114 @@ pub fn route_page_connectors(doc: &mut VisioDocument, page_id: u32) {
     ReactiveEngine::recalculate_document(doc);
 }
 
+fn compact_orthogonal_polyline(pts: &[[f64; 2]]) -> Vec<[f64; 2]> {
+    let mut out: Vec<[f64; 2]> = Vec::with_capacity(pts.len());
+    for &p in pts {
+        if let Some(&last) = out.last() {
+            if (last[0] - p[0]).hypot(last[1] - p[1]) < 1e-5 {
+                continue;
+            }
+        }
+        if out.len() >= 2 {
+            let a = out[out.len() - 2];
+            let b = out[out.len() - 1];
+            let collinear_x = (a[0] - b[0]).abs() < 1e-5 && (b[0] - p[0]).abs() < 1e-5;
+            let collinear_y = (a[1] - b[1]).abs() < 1e-5 && (b[1] - p[1]).abs() < 1e-5;
+            if collinear_x || collinear_y {
+                out.pop();
+            }
+        }
+        out.push(p);
+    }
+    if out.len() < 2 && !pts.is_empty() {
+        vec![pts[0], *pts.last().unwrap_or(&pts[0])]
+    } else {
+        out
+    }
+}
+
 fn resolve_glue_point(
     page: &VisioPage,
+    masters: &[vexio_shapesheet::VisioMaster],
     target_id: u64,
     to_cell: &str,
     is_dynamic: bool,
 ) -> Option<[f64; 2]> {
     let sh = page.find_shape(target_id)?;
+    let master_shape = sh
+        .master_id
+        .and_then(|mid| masters.iter().find(|m| m.id == mid))
+        .and_then(|m| {
+            if let Some(msid) = sh.master_shape_id {
+                m.shapes.iter().find(|s| s.id == msid).or_else(|| m.shapes.first())
+            } else {
+                m.shapes.first()
+            }
+        });
+    let w = sh
+        .sheet
+        .get_f64("Width")
+        .or_else(|| master_shape.and_then(|ms| ms.sheet.get_f64("Width")))
+        .unwrap_or(1.0);
+    let h = sh
+        .sheet
+        .get_f64("Height")
+        .or_else(|| master_shape.and_then(|ms| ms.sheet.get_f64("Height")))
+        .unwrap_or(1.0);
     let px = sh.sheet.get_f64("PinX").unwrap_or(0.0);
     let py = sh.sheet.get_f64("PinY").unwrap_or(0.0);
-    let w = sh.sheet.get_f64("Width").unwrap_or(1.0);
-    let h = sh.sheet.get_f64("Height").unwrap_or(1.0);
     let lpx = sh.sheet.get_f64("LocPinX").unwrap_or(w * 0.5);
     let lpy = sh.sheet.get_f64("LocPinY").unwrap_or(h * 0.5);
+    let ang = sh.sheet.get_f64("Angle").unwrap_or(0.0);
+    let flip_x = sh.sheet.get_bool("FlipX").unwrap_or(false);
+    let flip_y = sh.sheet.get_bool("FlipY").unwrap_or(false);
+    let tf = vexio_shapesheet::ShapeTransform2D {
+        pin_x: px,
+        pin_y: py,
+        width: w,
+        height: h,
+        loc_pin_x: lpx,
+        loc_pin_y: lpy,
+        angle_rad: ang,
+        flip_x,
+        flip_y,
+    };
 
     if !is_dynamic {
         // Check explicit ConnectionPoint cell (`Connections.X1` -> `(Connections.X1, Connections.Y1)`)
         let lower = to_cell.to_ascii_lowercase();
-        if let Some(suffix) = lower.strip_prefix("connections.x") {
-            let cx = sh.sheet.get_f64(&format!("Connections.X{suffix}"))?;
-            let cy = sh.sheet.get_f64(&format!("Connections.Y{suffix}"))?;
-            return Some([px - lpx + cx, py - lpy + cy]);
+        let suffix_opt = lower
+            .strip_prefix("connections.x")
+            .or_else(|| lower.strip_prefix("connections.y"));
+        if let Some(suffix) = suffix_opt {
+            let xk = format!("Connections.X{suffix}");
+            let yk = format!("Connections.Y{suffix}");
+            let cx_opt = sh
+                .sheet
+                .get_f64(&xk)
+                .or_else(|| master_shape.and_then(|ms| ms.sheet.get_f64(&xk)));
+            let cy_opt = sh
+                .sheet
+                .get_f64(&yk)
+                .or_else(|| master_shape.and_then(|ms| ms.sheet.get_f64(&yk)));
+            if let (Some(cx), Some(cy)) = (cx_opt, cy_opt) {
+                let (wx, wy) = tf.local_to_parent(cx, cy);
+                return Some([wx, wy]);
+            }
+            // Fallback cardinal ports `1..=4` matching `EvaluatedShapeVisual::connection_points`
+            if let Ok(ix) = suffix.parse::<u32>() {
+                let cardinal = match ix {
+                    1 => Some((w * 0.5, 0.0)),
+                    2 => Some((w * 0.5, h)),
+                    3 => Some((0.0, h * 0.5)),
+                    4 => Some((w, h * 0.5)),
+                    _ => None,
+                };
+                if let Some((lx, ly)) = cardinal {
+                    let (wx, wy) = tf.local_to_parent(lx, ly);
+                    return Some([wx, wy]);
+                }
+            }
         }
     }
     Some([px, py])

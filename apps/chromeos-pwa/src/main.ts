@@ -4,6 +4,7 @@ import {
   bindWindowControlsOverlay,
   copyDiagramVectorToClipboard,
   enumerateChromeOsSystemFonts,
+  loadChromeOsFontBytes,
   openLocalDiagramFile,
   pickLocalBinaryFile,
   registerChromeOsFileLaunchHandler,
@@ -765,7 +766,7 @@ class VexioChromeOsApp {
       return true;
     }
   })();
-  private updateStatusText = 'Vexio v0.1.0-alpha • Automatic updates enabled';
+  private updateStatusText = 'Vexio v0.2.0-alpha • Automatic updates enabled';
   private latestReleaseTag: string | null = null;
   private latestReleaseUrl = 'https://github.com/petrosvassiliou/vexio/releases';
 
@@ -811,6 +812,7 @@ class VexioChromeOsApp {
   private showShapeSheet = false;
   private showRulers = true;
   private showGrid = true;
+  private showSmartGuides = true;
   private showMinimap = false;
   private activeFormulaCell = 'Width';
   private activeFormulaDraft = '=2.4 in';
@@ -967,7 +969,23 @@ class VexioChromeOsApp {
     colorHex?: string;
     bgColorHex?: string;
   }): Promise<void> {
-    if (patch.fontFamily !== undefined) this.textFontFamily = patch.fontFamily;
+    if (patch.fontFamily !== undefined) {
+      this.textFontFamily = patch.fontFamily;
+      void loadChromeOsFontBytes(patch.fontFamily).then(async (fontBytes) => {
+        if (fontBytes && fontBytes.byteLength > 0) {
+          const copy = new Uint8Array(fontBytes);
+          const r = await this.callEngine(
+            'registerFontBytes',
+            { bytes: copy, familyOverride: patch.fontFamily },
+            [copy.buffer]
+          );
+          if (r?.snapshot) {
+            this.snapshot = r.snapshot;
+            this.render();
+          }
+        }
+      });
+    }
     if (patch.fontSizePt !== undefined) {
       this.textFontSizePt = Math.max(6, Math.min(96, Math.round(patch.fontSizePt)));
     }
@@ -1009,6 +1027,72 @@ class VexioChromeOsApp {
     if (res.snapshot) this.snapshot = res.snapshot;
     this.persistMutationSideEffects(res.wal);
     this.render();
+  }
+
+  private async groupSelectedShapes(): Promise<void> {
+    if (this.selectedShapeIds.length < 2) {
+      this.showToast('Select 2 or more shapes to group (Ctrl+G).', 'info');
+      return;
+    }
+    const res = await this.callEngine('groupShapes', { shapeIds: this.selectedShapeIds });
+    if (res.groupId > 0) {
+      this.snapshot = res.snapshot;
+      this.setSingleSelection(res.groupId);
+      this.persistMutationSideEffects(res.wal);
+      this.showToast(`Grouped into Sheet.${res.groupId}`, 'info');
+      this.render();
+    }
+  }
+
+  private async ungroupSelectedShapes(): Promise<void> {
+    if (this.selectedShapeIds.length === 0) return;
+    const res = await this.callEngine('ungroupShapes', { groupIds: this.selectedShapeIds });
+    if (Array.isArray(res.ungroupedIds) && res.ungroupedIds.length > 0) {
+      this.snapshot = res.snapshot;
+      this.selectedShapeIds = res.ungroupedIds;
+      this.persistMutationSideEffects(res.wal);
+      this.showToast(`Ungrouped ${res.ungroupedIds.length} member shape(s)`, 'info');
+      this.render();
+    } else {
+      this.showToast('Select a grouped shape to ungroup (Ctrl+Shift+G).', 'info');
+    }
+  }
+
+  private findNearestPortOnPage(
+    xIn: number,
+    yIn: number,
+    excludeShapeId = 0,
+    maxDistIn = 0.24
+  ): { shapeId: number; xIn: number; yIn: number; portCell: string } | null {
+    if (!this.snapshot) return null;
+    let best: { shapeId: number; xIn: number; yIn: number; portCell: string; dist: number } | null = null;
+    for (const sh of this.snapshot.shapes) {
+      if (sh.kind === 'Connector1D' || sh.id === excludeShapeId) continue;
+      const ports =
+        sh.ports && sh.ports.length > 0
+          ? sh.ports
+          : ([
+              [sh.pinX - sh.width * 0.5, sh.pinY],
+              [sh.pinX + sh.width * 0.5, sh.pinY],
+              [sh.pinX, sh.pinY - sh.height * 0.5],
+              [sh.pinX, sh.pinY + sh.height * 0.5],
+            ] as Array<[number, number]>);
+      const cells = sh.portCells ?? ['Connections.X1', 'Connections.X2', 'Connections.X3', 'Connections.X4'];
+      for (let i = 0; i < ports.length; i++) {
+        const [px, py] = ports[i];
+        const d = Math.hypot(xIn - px, yIn - py);
+        if (d <= maxDistIn && (!best || d < best.dist)) {
+          best = {
+            shapeId: sh.id,
+            xIn: px,
+            yIn: py,
+            portCell: cells[i] ?? `Connections.X${i + 1}`,
+            dist: d,
+          };
+        }
+      }
+    }
+    return best ? { shapeId: best.shapeId, xIn: best.xIn, yIn: best.yIn, portCell: best.portCell } : null;
   }
 
   private async rotateOrFlipSelected(
@@ -1108,7 +1192,7 @@ class VexioChromeOsApp {
       return;
     }
 
-    const currentVersion = '0.1.0-alpha';
+    const currentVersion = '0.2.0-alpha';
     try {
       const resp = await fetch('https://api.github.com/repos/petrosvassiliou/vexio/releases', {
         headers: { Accept: 'application/vnd.github+json' },
@@ -1152,6 +1236,7 @@ class VexioChromeOsApp {
           | 'rotate'
           | 'connect'
           | 'conn_endpoint'
+          | 'conn_segment'
           | 'primitive'
           | 'line'
           | 'arc'
@@ -1167,6 +1252,8 @@ class VexioChromeOsApp {
         panStartScroll?: [number, number];
         shapeId?: number;
         connIsBegin?: boolean;
+        segIndex?: number;
+        segAxis?: 'x' | 'y';
         origPin?: [number, number];
         origSize?: [number, number];
         origAngleDeg?: number;
@@ -1881,6 +1968,15 @@ class VexioChromeOsApp {
         await this.rotateOrFlipSelected(90);
         return;
       }
+      if (!inInput && (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'g') {
+        e.preventDefault();
+        if (e.shiftKey) {
+          await this.ungroupSelectedShapes();
+        } else {
+          await this.groupSelectedShapes();
+        }
+        return;
+      }
 
       if (!inInput && (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
         e.preventDefault();
@@ -2314,6 +2410,8 @@ class VexioChromeOsApp {
           <div class="ctx-sep"></div>
           <button class="ctx-item" data-ctx="bring-front"><span>Bring to Front</span><span class="ctx-kbd">Top</span></button>
           <button class="ctx-item" data-ctx="send-back"><span>Send to Back</span><span class="ctx-kbd">Back</span></button>
+          <button class="ctx-item" data-ctx="group" ${this.selectedShapeIds.length >= 2 ? '' : 'disabled'}><span>Group</span><span class="ctx-kbd">Ctrl+G</span></button>
+          <button class="ctx-item" data-ctx="ungroup" ${sh?.kind === 'Group' || snap.shapes.some((s) => this.selectedShapeIds.includes(s.id) && s.kind === 'Group') ? '' : 'disabled'}><span>Ungroup</span><span class="ctx-kbd">Ctrl+Shift+G</span></button>
           ${
             is1D
               ? `
@@ -2384,6 +2482,7 @@ class VexioChromeOsApp {
         <button class="ctx-item" data-ctx="zoom-fit"><span>Fit Page to Window</span></button>
         <button class="ctx-item" data-ctx="toggle-grid"><span>${this.showGrid ? '✓ ' : ''}Show Dot Grid</span></button>
         <button class="ctx-item" data-ctx="toggle-rulers"><span>${this.showRulers ? '✓ ' : ''}Show Rulers</span></button>
+        <button class="ctx-item" data-ctx="toggle-smart-guides"><span>${this.showSmartGuides ? '✓ ' : ''}Smart Guides</span></button>
       </div>
     `;
   }
@@ -2417,6 +2516,10 @@ class VexioChromeOsApp {
     const selDisabled = this.selectedShapeIds.length === 0 ? 'disabled' : '';
     const multiDisabled = this.selectedShapeIds.length < 2 ? 'disabled' : '';
     const distDisabled = this.selectedShapeIds.length < 3 ? 'disabled' : '';
+    const hasGroupSelected = snap.shapes.some(
+      (s) => this.selectedShapeIds.includes(s.id) && s.kind === 'Group'
+    );
+    const ungroupDisabled = hasGroupSelected ? '' : 'disabled';
     const hasClip = this.clipboardShapeIds.length > 0 || this.clipboardSpecs.length > 0;
     const primarySh = this.primarySelectedId ? snap.shapes.find((s) => s.id === this.primarySelectedId) : null;
     const fontList = this.getAvailableOsFontList(primarySh?.fontFamily);
@@ -2511,8 +2614,14 @@ class VexioChromeOsApp {
           <button class="m3-btn" data-zorder="back" ${selDisabled} title="Send Selected to Back">Back</button>
           <button class="m3-btn" data-align="left" ${multiDisabled} title="Align Left">Align L</button>
           <button class="m3-btn" data-align="center" ${multiDisabled} title="Align Center">Center</button>
+          <button class="m3-btn" data-align="right" ${multiDisabled} title="Align Right">Align R</button>
+          <button class="m3-btn" data-align="top" ${multiDisabled} title="Align Top">Top</button>
           <button class="m3-btn" data-align="middle" ${multiDisabled} title="Align Middle">Middle</button>
-          <button class="m3-btn" data-align="distribute_h" ${distDisabled} title="Distribute Horizontally">Dist H</button>
+          <button class="m3-btn" data-align="bottom" ${multiDisabled} title="Align Bottom">Bottom</button>
+          <button class="m3-btn" data-align="distribute_h" ${distDisabled} title="Distribute Horizontally (Equal Gaps)">Dist H</button>
+          <button class="m3-btn" data-align="distribute_v" ${distDisabled} title="Distribute Vertically (Equal Gaps)">Dist V</button>
+          <button class="m3-btn tonal" id="btn-group-sel" ${multiDisabled} title="Group Selected Shapes (Ctrl+G)">Group</button>
+          <button class="m3-btn" id="btn-ungroup-sel" ${ungroupDisabled} title="Ungroup Selected Group (Ctrl+Shift+G)">Ungroup</button>
           <button class="m3-btn tonal" data-layout="tb" title="Auto-Arrange Diagram Top-Down">Auto-Layout</button>
         `;
       case 'Insert':
@@ -2628,6 +2737,7 @@ class VexioChromeOsApp {
           <span class="ribbon-group-label">Canvas Aids</span>
           <button class="m3-btn ${this.showRulers ? 'active' : ''}" id="btn-toggle-rulers">Rulers</button>
           <button class="m3-btn ${this.showGrid ? 'active' : ''}" id="btn-toggle-grid">Dot Grid</button>
+          <button class="m3-btn ${this.showSmartGuides ? 'active' : ''}" id="btn-toggle-smart-guides" title="Toggle Dynamic Grid Smart Alignment &amp; Equal-Spacing Guides (Hold Alt to bypass)">Smart Guides</button>
           <button class="m3-btn" id="btn-open-layers">Layers (${snap.layers.length})</button>
           <button class="m3-btn" id="btn-fit-window">Fit Sheet</button>
           <button class="m3-btn" id="btn-zoom-100">100%</button>
@@ -2679,11 +2789,14 @@ class VexioChromeOsApp {
               [sh.pinX, sh.pinY - sh.height * 0.5],
               [sh.pinX - sh.width * 0.5, sh.pinY],
             ] as Array<[number, number]>);
-      for (const [px, py] of ports) {
+      const cells = sh.portCells ?? [];
+      for (let i = 0; i < ports.length; i++) {
+        const [px, py] = ports[i];
         const lx = px * ppi;
         const ty = (snap.pageHeightIn - py) * ppi;
+        const portCell = cells[i] ?? `Connections.X${i + 1}`;
         dots.push(
-          `<div class="connection-port-dot" data-port-shape="${sh.id}" data-port-x="${px.toFixed(4)}" data-port-y="${py.toFixed(4)}" style="left:${lx.toFixed(1)}px;top:${ty.toFixed(1)}px" title="Drag from Connection Port to Connect"></div>`
+          `<div class="connection-port-dot" data-port-shape="${sh.id}" data-port-cell="${portCell}" data-port-x="${px.toFixed(4)}" data-port-y="${py.toFixed(4)}" style="left:${lx.toFixed(1)}px;top:${ty.toFixed(1)}px" title="Drag from Connection Port (${portCell}) to Connect"></div>`
         );
       }
     }
@@ -2716,6 +2829,28 @@ class VexioChromeOsApp {
     const selected1D = snap.shapes.filter(
       (s) => this.selectedShapeIds.includes(s.id) && s.kind === 'Connector1D'
     );
+
+    let groupFrameHtml = '';
+    if (selected2D.length >= 2) {
+      let minX = Infinity;
+      let maxX = -Infinity;
+      let minY = Infinity;
+      let maxY = -Infinity;
+      for (const sh of selected2D) {
+        minX = Math.min(minX, sh.pinX - sh.width * 0.5);
+        maxX = Math.max(maxX, sh.pinX + sh.width * 0.5);
+        minY = Math.min(minY, sh.pinY - sh.height * 0.5);
+        maxY = Math.max(maxY, sh.pinY + sh.height * 0.5);
+      }
+      if (Number.isFinite(minX)) {
+        const padPx = 6;
+        const fl = minX * ppi - padPx;
+        const ft = (snap.pageHeightIn - maxY) * ppi - padPx;
+        const fw = (maxX - minX) * ppi + padPx * 2;
+        const fh = (maxY - minY) * ppi + padPx * 2;
+        groupFrameHtml = `<div class="multi-selection-bounding-frame" style="left:${fl.toFixed(1)}px;top:${ft.toFixed(1)}px;width:${fw.toFixed(1)}px;height:${fh.toFixed(1)}px"></div>`;
+      }
+    }
 
     const boxesHtml = selected2D
       .map((sh, idx) => {
@@ -2788,13 +2923,33 @@ class VexioChromeOsApp {
         const by = (snap.pageHeightIn - (sh.beginY ?? pts[0][1])) * ppi;
         const ex = (sh.endX ?? pts[pts.length - 1][0]) * ppi;
         const ey = (snap.pageHeightIn - (sh.endY ?? pts[pts.length - 1][1])) * ppi;
+
+        const segDiamonds: string[] = [];
+        const isOrtho = (sh.routeStyle ?? 16) !== 1 && (sh.routeStyle ?? 16) !== 2;
+        if (isOrtho && pts.length >= 4) {
+          for (let seg = 1; seg <= pts.length - 3; seg++) {
+            const p0 = pts[seg];
+            const p1 = pts[seg + 1];
+            const segLen = Math.hypot(p1[0] - p0[0], p1[1] - p0[1]);
+            if (segLen < 0.12) continue;
+            const mx = (p0[0] + p1[0]) * 0.5 * ppi;
+            const my = (snap.pageHeightIn - (p0[1] + p1[1]) * 0.5) * ppi;
+            const isVerticalSeg = Math.abs(p1[0] - p0[0]) <= Math.abs(p1[1] - p0[1]);
+            const axis = isVerticalSeg ? 'x' : 'y';
+            segDiamonds.push(
+              `<div class="connector-segment-grip" data-seg-shape="${sh.id}" data-seg-index="${seg}" data-seg-axis="${axis}" style="left:${mx.toFixed(1)}px;top:${my.toFixed(1)}px" title="Drag Orthogonal Segment"></div>`
+            );
+          }
+        }
+
         return `
           <svg class="live-overlay-svg" viewBox="0 0 ${snap.pageWidthIn * ppi} ${snap.pageHeightIn * ppi}">
             <polyline points="${polyPts}" fill="none" stroke="#2563eb" stroke-width="4.5" stroke-opacity="0.28" stroke-linecap="round" stroke-linejoin="round"/>
             <polyline points="${polyPts}" fill="none" stroke="#2563eb" stroke-width="1.8" stroke-dasharray="5,3" stroke-linecap="round"/>
           </svg>
-          <div class="connector-endpoint-grip" data-conn-shape="${sh.id}" data-conn-end="begin" style="left:${bx.toFixed(1)}px;top:${by.toFixed(1)}px" title="Drag Begin Endpoint (Glues to Shape)"></div>
-          <div class="connector-endpoint-grip" data-conn-shape="${sh.id}" data-conn-end="end" style="left:${ex.toFixed(1)}px;top:${ey.toFixed(1)}px" title="Drag End Endpoint (Glues to Shape)"></div>
+          <div class="connector-endpoint-grip" data-conn-shape="${sh.id}" data-conn-end="begin" style="left:${bx.toFixed(1)}px;top:${by.toFixed(1)}px" title="Drag Begin Endpoint (Glues to Shape or Port)"></div>
+          <div class="connector-endpoint-grip" data-conn-shape="${sh.id}" data-conn-end="end" style="left:${ex.toFixed(1)}px;top:${ey.toFixed(1)}px" title="Drag End Endpoint (Glues to Shape or Port)"></div>
+          ${segDiamonds.join('')}
         `;
       })
       .join('');
@@ -2833,7 +2988,7 @@ class VexioChromeOsApp {
       }
     }
 
-    return `<div id="port-overlay-layer" class="live-overlay-svg">${this.renderPortsHtml(snap, ppi)}</div>${boxesHtml}${connHtml}${inlineEditorHtml}`;
+    return `<div id="port-overlay-layer" class="live-overlay-svg">${this.renderPortsHtml(snap, ppi)}</div>${groupFrameHtml}${boxesHtml}${connHtml}${inlineEditorHtml}`;
   }
 
   public render(): void {
@@ -3017,6 +3172,9 @@ class VexioChromeOsApp {
                   ? `<div class="top-menu-dropdown" role="menu">
                       <button class="ctx-item" data-top-cmd="undo" ${snap.canUndo ? '' : 'disabled'}><span>Undo</span><span class="ctx-kbd">Ctrl+Z</span></button>
                       <button class="ctx-item" data-top-cmd="redo" ${snap.canRedo ? '' : 'disabled'}><span>Redo</span><span class="ctx-kbd">Ctrl+Y</span></button>
+                      <div class="ctx-sep"></div>
+                      <button class="ctx-item" data-top-cmd="group" ${this.selectedShapeIds.length >= 2 ? '' : 'disabled'}><span>Group Shapes</span><span class="ctx-kbd">Ctrl+G</span></button>
+                      <button class="ctx-item" data-top-cmd="ungroup" ${snap.shapes.some((s) => this.selectedShapeIds.includes(s.id) && s.kind === 'Group') ? '' : 'disabled'}><span>Ungroup Shapes</span><span class="ctx-kbd">Ctrl+Shift+G</span></button>
                       <div class="ctx-sep"></div>
                       <button class="ctx-item" data-top-cmd="rotate-left" ${this.selectedShapeIds.length ? '' : 'disabled'}><span>${t.rotateLeft90}</span><span class="ctx-kbd">Ctrl+L</span></button>
                       <button class="ctx-item" data-top-cmd="rotate-right" ${this.selectedShapeIds.length ? '' : 'disabled'}><span>${t.rotateRight90}</span><span class="ctx-kbd">Ctrl+R</span></button>
@@ -3570,6 +3728,7 @@ class VexioChromeOsApp {
           <div style="display:flex;flex-direction:column;gap:6px;font-size:12px">
             <label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" id="chk-insp-grid" ${this.showGrid ? 'checked' : ''} /> Show Dot Grid</label>
             <label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" id="chk-insp-rulers" ${this.showRulers ? 'checked' : ''} /> Show Rulers (${this.metricUnits ? 'mm' : 'in'})</label>
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" id="chk-insp-smart-guides" ${this.showSmartGuides ? 'checked' : ''} /> Smart Guides &amp; Equal Spacing</label>
             <label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" id="chk-insp-minimap" ${this.showMinimap ? 'checked' : ''} /> Show Overview Minimap</label>
             <label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" id="chk-insp-fx" ${this.showFormulaBar ? 'checked' : ''} /> Show Developer Formula Bar (fx)</label>
           </div>
@@ -3762,7 +3921,7 @@ class VexioChromeOsApp {
             </div>
             <div class="list-row-card" style="flex-direction:column;align-items:flex-start;gap:6px">
               <strong>${this.updateStatusText}</strong>
-              <span style="font-size:11.5px;color:var(--m3-text-muted)">Installed build: Vexio v0.1.0-alpha • Offline-First Workbox PWA + GitHub Releases channel</span>
+              <span style="font-size:11.5px;color:var(--m3-text-muted)">Installed build: Vexio v0.2.0-alpha • Offline-First Workbox PWA + GitHub Releases channel</span>
             </div>
             <label style="display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer">
               <input type="checkbox" id="chk-auto-updates" ${this.autoCheckUpdates ? 'checked' : ''} />
@@ -4337,6 +4496,12 @@ class VexioChromeOsApp {
             this.render();
             break;
           }
+          case 'group':
+            await this.groupSelectedShapes();
+            break;
+          case 'ungroup':
+            await this.ungroupSelectedShapes();
+            break;
           case 'rotate-left':
             await this.rotateOrFlipSelected(-90);
             break;
@@ -4696,16 +4861,29 @@ class VexioChromeOsApp {
 
     document.querySelectorAll('[data-align]').forEach((btn) => {
       btn.addEventListener('click', async () => {
-        if (this.selectedShapeIds.length < 2) return;
         const mode = (btn as HTMLElement).dataset.align ?? 'left';
-        const res = await this.callEngine('alignShapes', {
-          shapeIds: this.selectedShapeIds,
-          mode,
-        });
+        const isDist = mode === 'distribute_h' || mode === 'distribute_v';
+        if (this.selectedShapeIds.length < (isDist ? 3 : 2)) return;
+        const res = isDist
+          ? await this.callEngine('distributeShapes', {
+              shapeIds: this.selectedShapeIds,
+              axis: mode === 'distribute_v' ? 'vertical' : 'horizontal',
+            })
+          : await this.callEngine('alignShapes', {
+              shapeIds: this.selectedShapeIds,
+              mode,
+            });
         this.persistMutationSideEffects(res.wal);
         this.snapshot = res.snapshot;
         this.render();
       });
+    });
+
+    document.getElementById('btn-group-sel')?.addEventListener('click', () => {
+      void this.groupSelectedShapes();
+    });
+    document.getElementById('btn-ungroup-sel')?.addEventListener('click', () => {
+      void this.ungroupSelectedShapes();
     });
 
     document.querySelectorAll('[data-bool-op]').forEach((btn) => {
@@ -5143,12 +5321,25 @@ class VexioChromeOsApp {
       this.render();
     });
 
+    document.getElementById('btn-toggle-smart-guides')?.addEventListener('click', () => {
+      this.showSmartGuides = !this.showSmartGuides;
+      this.latestSmartGuides = [];
+      this.latestSnappedPin = null;
+      this.render();
+    });
+
     document.getElementById('chk-insp-grid')?.addEventListener('change', (e) => {
       this.showGrid = (e.target as HTMLInputElement).checked;
       this.render();
     });
     document.getElementById('chk-insp-rulers')?.addEventListener('change', (e) => {
       this.showRulers = (e.target as HTMLInputElement).checked;
+      this.render();
+    });
+    document.getElementById('chk-insp-smart-guides')?.addEventListener('change', (e) => {
+      this.showSmartGuides = (e.target as HTMLInputElement).checked;
+      this.latestSmartGuides = [];
+      this.latestSnappedPin = null;
       this.render();
     });
     document.getElementById('chk-insp-minimap')?.addEventListener('change', (e) => {
@@ -6007,7 +6198,22 @@ class VexioChromeOsApp {
           return;
         }
 
-        // 0C. Check 1D Connector Begin/End Endpoint Grip
+        // 0C. Check 1D Connector Begin/End Endpoint Grip OR Interior Orthogonal Segment Diamond
+        const segShapeAttr = targetEl?.dataset.segShape;
+        if (segShapeAttr) {
+          ev.stopPropagation();
+          host.setPointerCapture(ev.pointerId);
+          this.dragState = {
+            mode: 'conn_segment',
+            startPageIn: ptIn,
+            curPageIn: ptIn,
+            shapeId: Number(segShapeAttr),
+            segIndex: Number(targetEl?.dataset.segIndex ?? 1),
+            segAxis: (targetEl?.dataset.segAxis === 'y' ? 'y' : 'x') as 'x' | 'y',
+          };
+          return;
+        }
+
         const connShapeAttr = targetEl?.dataset.connShape;
         if (connShapeAttr) {
           ev.stopPropagation();
@@ -6312,8 +6518,22 @@ class VexioChromeOsApp {
           const mx = (x1 + x2) * 0.5 - (y2 - y1) * 0.28;
           const my = (y1 + y2) * 0.5 + (x2 - x1) * 0.28;
           overlay.innerHTML = `<path d="M ${x1.toFixed(1)} ${y1.toFixed(1)} Q ${mx.toFixed(1)} ${my.toFixed(1)} ${x2.toFixed(1)} ${y2.toFixed(1)}" fill="none" stroke="#2563eb" stroke-width="2.2" stroke-dasharray="5,3"/>`;
-        } else if (this.dragState.mode === 'control' || this.dragState.mode === 'vertex' || this.dragState.mode === 'conn_endpoint') {
-          const fill = this.dragState.mode === 'control' ? '#facc15' : this.dragState.mode === 'conn_endpoint' ? '#10b981' : '#22d3ee';
+        } else if (this.dragState.mode === 'conn_segment') {
+          const axis = this.dragState.segAxis ?? 'x';
+          if (axis === 'x') {
+            overlay.innerHTML = `<line x1="${sx(ptIn[0]).toFixed(1)}" y1="0" x2="${sx(ptIn[0]).toFixed(1)}" y2="${sy(0).toFixed(1)}" stroke="#0284c7" stroke-width="2" stroke-dasharray="5,3"/><circle cx="${sx(ptIn[0]).toFixed(1)}" cy="${sy(ptIn[1]).toFixed(1)}" r="6" fill="#38bdf8" stroke="#0369a1" stroke-width="2"/>`;
+          } else {
+            overlay.innerHTML = `<line x1="0" y1="${sy(ptIn[1]).toFixed(1)}" x2="${sx(this.snapshot.pageWidthIn).toFixed(1)}" y2="${sy(ptIn[1]).toFixed(1)}" stroke="#0284c7" stroke-width="2" stroke-dasharray="5,3"/><circle cx="${sx(ptIn[0]).toFixed(1)}" cy="${sy(ptIn[1]).toFixed(1)}" r="6" fill="#38bdf8" stroke="#0369a1" stroke-width="2"/>`;
+          }
+        } else if (this.dragState.mode === 'conn_endpoint') {
+          const nearPort = this.findNearestPortOnPage(ptIn[0], ptIn[1], this.dragState.shapeId ?? 0);
+          const drawPt: [number, number] = nearPort ? [nearPort.xIn, nearPort.yIn] : ptIn;
+          const snapRing = nearPort
+            ? `<circle cx="${sx(nearPort.xIn).toFixed(1)}" cy="${sy(nearPort.yIn).toFixed(1)}" r="11" fill="rgba(22,163,74,0.16)" stroke="#16a34a" stroke-width="2.2"/>`
+            : '';
+          overlay.innerHTML = `${snapRing}<circle cx="${sx(drawPt[0]).toFixed(1)}" cy="${sy(drawPt[1]).toFixed(1)}" r="6.5" fill="#10b981" stroke="#111827" stroke-width="2"/>`;
+        } else if (this.dragState.mode === 'control' || this.dragState.mode === 'vertex') {
+          const fill = this.dragState.mode === 'control' ? '#facc15' : '#22d3ee';
           overlay.innerHTML = `<circle cx="${sx(ptIn[0]).toFixed(1)}" cy="${sy(ptIn[1]).toFixed(1)}" r="7" fill="${fill}" stroke="#111827" stroke-width="2"/>`;
         } else if (this.dragState.mode === 'primitive' || this.dragState.mode === 'lasso') {
           const x0 = Math.min(sx(this.dragState.startPageIn[0]), sx(ptIn[0]));
@@ -6338,15 +6558,19 @@ class VexioChromeOsApp {
             overlay.innerHTML = `<rect x="${x0}" y="${y0}" width="${rw}" height="${rh}" rx="${rx}" fill="${fill}" stroke="${stroke}" stroke-dasharray="5,4" stroke-width="1.8"/>`;
           }
         } else if (this.dragState.mode === 'connect') {
-          const target2D = this.hitTestSnapshotSync(ptIn[0], ptIn[1], true);
+          const nearPort = this.findNearestPortOnPage(ptIn[0], ptIn[1], this.dragState.shapeId ?? 0);
+          const target2D = nearPort ? nearPort.shapeId : this.hitTestSnapshotSync(ptIn[0], ptIn[1], true);
           let targetRing = '';
-          if (target2D > 0) {
+          if (nearPort) {
+            targetRing = `<circle cx="${sx(nearPort.xIn).toFixed(1)}" cy="${sy(nearPort.yIn).toFixed(1)}" r="10" fill="rgba(22,163,74,0.18)" stroke="#16a34a" stroke-width="2.4"/>`;
+          } else if (target2D > 0) {
             const tsh = this.snapshot.shapes.find((s) => s.id === target2D);
             if (tsh) {
               targetRing = `<rect x="${sx(tsh.pinX - tsh.width * 0.5) - 3}" y="${sy(tsh.pinY + tsh.height * 0.5) - 3}" width="${tsh.width * ppi + 6}" height="${tsh.height * ppi + 6}" rx="4" fill="none" stroke="#16a34a" stroke-width="2.2"/>`;
             }
           }
-          overlay.innerHTML = `${targetRing}<line x1="${sx(this.dragState.startPageIn[0])}" y1="${sy(this.dragState.startPageIn[1])}" x2="${sx(ptIn[0])}" y2="${sy(ptIn[1])}" stroke="#10b981" stroke-width="2.5" stroke-dasharray="6,4"/>`;
+          const endPt: [number, number] = nearPort ? [nearPort.xIn, nearPort.yIn] : ptIn;
+          overlay.innerHTML = `${targetRing}<line x1="${sx(this.dragState.startPageIn[0])}" y1="${sy(this.dragState.startPageIn[1])}" x2="${sx(endPt[0])}" y2="${sy(endPt[1])}" stroke="#10b981" stroke-width="2.5" stroke-dasharray="6,4"/>`;
         } else if (this.dragState.mode === 'rotate' && this.dragState.origPin && this.dragState.origSize) {
           const [cx, cy] = this.dragState.origPin;
           const [w, h] = this.dragState.origSize;
@@ -6390,8 +6614,12 @@ class VexioChromeOsApp {
           if (sh) {
             const candX = this.dragState.origPin[0] + dx;
             const candY = this.dragState.origPin[1] + dy;
+            const useGuides = this.showSmartGuides && !ev.altKey;
 
-            if (!this.smartGuideReqInFlight && this.selectedShapeIds.length <= 1) {
+            if (!useGuides) {
+              this.latestSmartGuides = [];
+              this.latestSnappedPin = null;
+            } else if (!this.smartGuideReqInFlight && this.selectedShapeIds.length <= 1) {
               this.smartGuideReqInFlight = true;
               this.callEngine('computeSmartGuides', {
                 shapeId: sh.id,
@@ -6409,16 +6637,30 @@ class VexioChromeOsApp {
                 });
             }
 
-            const drawX = this.latestSnappedPin ? this.latestSnappedPin[0] : candX;
-            const drawY = this.latestSnappedPin ? this.latestSnappedPin[1] : candY;
-            const guideSvg = this.latestSmartGuides
-              .map((g) => {
-                const col = g.kind === 'center' ? '#ec4899' : '#06b6d4';
-                return g.axis === 'x'
-                  ? `<line x1="${sx(g.posIn)}" y1="${sy(g.toIn)}" x2="${sx(g.posIn)}" y2="${sy(g.fromIn)}" stroke="${col}" stroke-width="1.6" stroke-dasharray="4,2"/>`
-                  : `<line x1="${sx(g.fromIn)}" y1="${sy(g.posIn)}" x2="${sx(g.toIn)}" y2="${sy(g.posIn)}" stroke="${col}" stroke-width="1.6" stroke-dasharray="4,2"/>`;
-              })
-              .join('');
+            const drawX = useGuides && this.latestSnappedPin ? this.latestSnappedPin[0] : candX;
+            const drawY = useGuides && this.latestSnappedPin ? this.latestSnappedPin[1] : candY;
+            const guideSvg = useGuides
+              ? this.latestSmartGuides
+                  .map((g) => {
+                    if (g.kind === 'equal_spacing') {
+                      if (g.axis === 'x') {
+                        const x = sx(g.posIn);
+                        const y1 = sy(g.toIn);
+                        const y2 = sy(g.fromIn);
+                        return `<line x1="${x}" y1="${y1}" x2="${x}" y2="${y2}" stroke="#f97316" stroke-width="1.8"/><line x1="${x - 5}" y1="${y1}" x2="${x + 5}" y2="${y1}" stroke="#f97316" stroke-width="1.8"/><line x1="${x - 5}" y1="${y2}" x2="${x + 5}" y2="${y2}" stroke="#f97316" stroke-width="1.8"/>`;
+                      }
+                      const y = sy(g.posIn);
+                      const x1 = sx(g.fromIn);
+                      const x2 = sx(g.toIn);
+                      return `<line x1="${x1}" y1="${y}" x2="${x2}" y2="${y}" stroke="#f97316" stroke-width="1.8"/><line x1="${x1}" y1="${y - 5}" x2="${x1}" y2="${y + 5}" stroke="#f97316" stroke-width="1.8"/><line x1="${x2}" y1="${y - 5}" x2="${x2}" y2="${y + 5}" stroke="#f97316" stroke-width="1.8"/>`;
+                    }
+                    const col = g.kind === 'center' ? '#ec4899' : '#06b6d4';
+                    return g.axis === 'x'
+                      ? `<line x1="${sx(g.posIn)}" y1="${sy(g.toIn)}" x2="${sx(g.posIn)}" y2="${sy(g.fromIn)}" stroke="${col}" stroke-width="1.6" stroke-dasharray="4,2"/>`
+                      : `<line x1="${sx(g.fromIn)}" y1="${sy(g.posIn)}" x2="${sx(g.toIn)}" y2="${sy(g.posIn)}" stroke="${col}" stroke-width="1.6" stroke-dasharray="4,2"/>`;
+                  })
+                  .join('')
+              : '';
 
             overlay.innerHTML = `
               ${guideSvg}
@@ -6535,33 +6777,57 @@ class VexioChromeOsApp {
             this.inlineTextDraft = '';
           }
           this.render();
+        } else if (st.mode === 'conn_segment' && st.shapeId) {
+          const coordIn = st.segAxis === 'y' ? ptIn[1] : ptIn[0];
+          const res = await this.callEngine('dragConnectorSegment', {
+            shapeId: st.shapeId,
+            segIndex: st.segIndex ?? 1,
+            coordIn,
+          });
+          this.persistMutationSideEffects(res.wal);
+          this.snapshot = res.snapshot;
+          this.render();
         } else if (st.mode === 'conn_endpoint' && st.shapeId) {
-          const target2D = this.hitTestSnapshotSync(ptIn[0], ptIn[1], true);
-          const res = await this.callEngine('moveConnectorEndpoint', {
+          const nearPort = !ev.altKey ? this.findNearestPortOnPage(ptIn[0], ptIn[1], st.shapeId) : null;
+          const target2D = nearPort ? nearPort.shapeId : this.hitTestSnapshotSync(ptIn[0], ptIn[1], true);
+          const res = await this.callEngine('moveConnectorEndpointWithPort', {
             shapeId: st.shapeId,
             isBegin: Boolean(st.connIsBegin),
-            xIn: ptIn[0],
-            yIn: ptIn[1],
+            xIn: nearPort ? nearPort.xIn : ptIn[0],
+            yIn: nearPort ? nearPort.yIn : ptIn[1],
             targetShapeId: target2D,
+            targetPortCell: nearPort ? nearPort.portCell : '',
           });
           this.persistMutationSideEffects(res.wal);
           this.snapshot = res.snapshot;
           this.render();
         } else if (st.mode === 'connect') {
-          const to2D = this.hitTestSnapshotSync(ptIn[0], ptIn[1], true);
+          const nearPort = !ev.altKey ? this.findNearestPortOnPage(ptIn[0], ptIn[1], st.shapeId ?? 0) : null;
+          const to2D = nearPort ? nearPort.shapeId : this.hitTestSnapshotSync(ptIn[0], ptIn[1], true);
           const fromId = st.shapeId ?? 0;
           const dist = Math.hypot(ptIn[0] - st.startPageIn[0], ptIn[1] - st.startPageIn[1]);
           if ((fromId > 0 && to2D > 0 && fromId !== to2D) || dist > 0.12) {
             const res = await this.callEngine('connectPointsOrShapes', {
               x1: st.startPageIn[0],
               y1: st.startPageIn[1],
-              x2: ptIn[0],
-              y2: ptIn[1],
+              x2: nearPort ? nearPort.xIn : ptIn[0],
+              y2: nearPort ? nearPort.yIn : ptIn[1],
               fromId,
               toId: to2D === fromId ? 0 : to2D,
             });
-            this.persistMutationSideEffects(res.wal);
-            this.snapshot = res.snapshot;
+            let finalRes = res;
+            if (res.connId > 0 && nearPort && to2D !== fromId) {
+              finalRes = await this.callEngine('moveConnectorEndpointWithPort', {
+                shapeId: res.connId,
+                isBegin: false,
+                xIn: nearPort.xIn,
+                yIn: nearPort.yIn,
+                targetShapeId: nearPort.shapeId,
+                targetPortCell: nearPort.portCell,
+              });
+            }
+            this.persistMutationSideEffects(finalRes.wal);
+            this.snapshot = finalRes.snapshot;
             if (res.connId > 0) {
               this.setSingleSelection(res.connId);
             }
@@ -6655,8 +6921,9 @@ class VexioChromeOsApp {
               this.persistMutationSideEffects(res.wal);
               this.snapshot = res.snapshot;
             } else {
-              const finalX = this.latestSnappedPin ? this.latestSnappedPin[0] : st.origPin[0] + dx;
-              const finalY = this.latestSnappedPin ? this.latestSnappedPin[1] : st.origPin[1] + dy;
+              const useSnap = this.showSmartGuides && !ev.altKey && this.latestSnappedPin;
+              const finalX = useSnap ? this.latestSnappedPin![0] : st.origPin[0] + dx;
+              const finalY = useSnap ? this.latestSnappedPin![1] : st.origPin[1] + dy;
               const res = await this.callEngine('moveShape', {
                 shapeId: st.shapeId,
                 xIn: finalX,
@@ -6920,6 +7187,12 @@ class VexioChromeOsApp {
             this.render();
             break;
           }
+          case 'group':
+            await this.groupSelectedShapes();
+            break;
+          case 'ungroup':
+            await this.ungroupSelectedShapes();
+            break;
           case 'route-ortho':
           case 'route-curved':
           case 'route-straight': {
@@ -7078,6 +7351,12 @@ class VexioChromeOsApp {
             break;
           case 'toggle-rulers':
             this.showRulers = !this.showRulers;
+            this.render();
+            break;
+          case 'toggle-smart-guides':
+            this.showSmartGuides = !this.showSmartGuides;
+            this.latestSmartGuides = [];
+            this.latestSnappedPin = null;
             this.render();
             break;
           case 'page-rename': {

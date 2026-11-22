@@ -1275,6 +1275,38 @@ body,
   transform: translate(-50%, -50%) scale(1.25);
 }
 
+.connector-segment-grip {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  background: #38bdf8;
+  border: 2px solid #0369a1;
+  transform: translate(-50%, -50%) rotate(45deg);
+  cursor: ew-resize;
+  pointer-events: auto;
+  z-index: 9;
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.28);
+  transition: transform 110ms ease, background 110ms ease;
+}
+
+.connector-segment-grip[data-seg-axis="y"] {
+  cursor: ns-resize;
+}
+
+.connector-segment-grip:hover {
+  background: #0284c7;
+  transform: translate(-50%, -50%) rotate(45deg) scale(1.28);
+}
+
+.multi-selection-bounding-frame {
+  position: absolute;
+  border: 1.5px dashed #0284c7;
+  background: rgba(2, 132, 199, 0.03);
+  border-radius: 2px;
+  pointer-events: none;
+  z-index: 18;
+}
+
 .connection-port-dot {
   position: absolute;
   width: 9px;

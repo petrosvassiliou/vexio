@@ -1027,7 +1027,7 @@ impl DocumentSession {
         self.connect_points_or_shapes(page_id, 0.0, 0.0, 1.0, 0.0, Some(from_id), Some(to_id))
     }
 
-    /// Move a 1D connector or line endpoint (`Begin` or `End`), optionally gluing or ungluing to `target_shape_id`.
+    /// Move a 1D connector or line endpoint (`Begin` or `End`), optionally gluing dynamically to `target_shape_id`.
     pub fn move_connector_endpoint(
         &mut self,
         page_id: u32,
@@ -1037,7 +1037,35 @@ impl DocumentSession {
         y_in: f64,
         target_shape_id: Option<u64>,
     ) -> Result<bool, CoreError> {
+        self.move_connector_endpoint_with_port(
+            page_id,
+            shape_id,
+            is_begin,
+            x_in,
+            y_in,
+            target_shape_id,
+            None,
+        )
+    }
+
+    /// Move a 1D connector endpoint (`Begin` or `End`), supporting both static port glue (`Connections.X{ix}`)
+    /// when `target_port_cell` is provided and dynamic shape walking glue (`PinX`) when `None`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn move_connector_endpoint_with_port(
+        &mut self,
+        page_id: u32,
+        shape_id: u64,
+        is_begin: bool,
+        x_in: f64,
+        y_in: f64,
+        target_shape_id: Option<u64>,
+        target_port_cell: Option<&str>,
+    ) -> Result<bool, CoreError> {
         let mut ok = false;
+        let port_owned = target_port_cell
+            .map(str::trim)
+            .filter(|s| !s.is_empty() && !s.eq_ignore_ascii_case("PinX"))
+            .map(str::to_string);
         self.journal
             .record_mutation(&mut self.doc, "Move 1D Endpoint", |doc| {
                 let Some(page) = doc.page_mut(page_id) else {
@@ -1063,6 +1091,8 @@ impl DocumentSession {
                         format!("{} in", format_clean_f64(y_in)),
                         false,
                     );
+                    sh.sheet
+                        .set_formula("User.Preserve1DGeometry", "FALSE", Some(Unit::Boolean));
                     ok = true;
                 }
                 if ok {
@@ -1071,18 +1101,1171 @@ impl DocumentSession {
                             && c.from_cell.eq_ignore_ascii_case(from_cell))
                     });
                     if let Some(tid) = target_shape_id.filter(|&id| id > 0 && id != shape_id) {
-                        page.connects.push(GlueEndpoint {
-                            connector_shape_id: shape_id,
-                            from_cell: from_cell.into(),
-                            target_shape_id: tid,
-                            to_cell: "PinX".into(),
-                            is_dynamic: true,
-                        });
+                        if let Some(ref pcell) = port_owned {
+                            page.connects.push(GlueEndpoint {
+                                connector_shape_id: shape_id,
+                                from_cell: from_cell.into(),
+                                target_shape_id: tid,
+                                to_cell: pcell.clone(),
+                                is_dynamic: false,
+                            });
+                        } else {
+                            page.connects.push(GlueEndpoint {
+                                connector_shape_id: shape_id,
+                                from_cell: from_cell.into(),
+                                target_shape_id: tid,
+                                to_cell: "PinX".into(),
+                                is_dynamic: true,
+                            });
+                        }
                     }
                     route_page_connectors(doc, page_id);
                 }
             });
         Ok(ok)
+    }
+
+    /// Slide an interior orthogonal segment (`seg_index`, 0-based along routed polyline) of a 1D connector
+    /// to `coord_in` (X in inches for a vertical segment, Y in inches for a horizontal segment).
+    pub fn drag_connector_segment(
+        &mut self,
+        page_id: u32,
+        shape_id: u64,
+        seg_index: usize,
+        coord_in: f64,
+    ) -> Result<bool, CoreError> {
+        if !coord_in.is_finite() {
+            return Ok(false);
+        }
+        let visuals = ReactiveEngine::evaluate_page_visuals(&self.doc, page_id);
+        let Some(vis) = visuals.iter().find(|v| v.shape_id == shape_id) else {
+            return Ok(false);
+        };
+        if vis.kind != ShapeKind::Connector1D {
+            return Ok(false);
+        }
+        let poly = vexio_render::tessellate::extract_connector_polyline_in(vis);
+        let axis = if poly.len() >= 2 {
+            let idx = if seg_index + 1 < poly.len() {
+                seg_index
+            } else {
+                poly.len() / 2
+            };
+            let idx = idx.min(poly.len() - 2);
+            let p0 = poly[idx];
+            let p1 = poly[idx + 1];
+            if (p0[0] - p1[0]).abs() <= (p0[1] - p1[1]).abs() {
+                1 // Vertical segment -> slide X coordinate
+            } else {
+                2 // Horizontal segment -> slide Y coordinate
+            }
+        } else {
+            1
+        };
+
+        let mut ok = false;
+        self.journal
+            .record_mutation(&mut self.doc, "Slide Connector Segment", |doc| {
+                if let Some(page) = doc.page_mut(page_id) {
+                    if let Some(sh) = page.find_shape_mut(shape_id) {
+                        if sh.kind == ShapeKind::Connector1D {
+                            sh.sheet
+                                .set_formula("ShapeRouteStyle", "16", Some(Unit::Number));
+                            sh.sheet.set_formula(
+                                "User.Preserve1DGeometry",
+                                "FALSE",
+                                Some(Unit::Boolean),
+                            );
+                            sh.sheet.set_formula(
+                                "User.MidAxis",
+                                format!("{axis}"),
+                                Some(Unit::Number),
+                            );
+                            sh.sheet.set_formula(
+                                "User.MidCoord",
+                                format!("{} in", format_clean_f64(coord_in)),
+                                Some(Unit::Inch),
+                            );
+                            ok = true;
+                        }
+                    }
+                }
+                if ok {
+                    route_page_connectors(doc, page_id);
+                }
+            });
+        Ok(ok)
+    }
+
+    /// Translate one or more selected shapes by `(dx_in, dy_in)` in a single undoable transaction,
+    /// respecting `LockMoveX`, `LockMoveY`, and `GUARD` expressions, then re-routing attached connectors.
+    pub fn move_shapes_delta(
+        &mut self,
+        page_id: u32,
+        shape_ids: &[u64],
+        dx_in: f64,
+        dy_in: f64,
+    ) -> Result<usize, CoreError> {
+        if shape_ids.is_empty() || (dx_in.abs() < 1e-7 && dy_in.abs() < 1e-7) {
+            return Ok(0);
+        }
+        let id_set: std::collections::BTreeSet<u64> = shape_ids.iter().copied().collect();
+        let mut moved = 0usize;
+        self.journal
+            .record_mutation(&mut self.doc, "Move Shapes", |doc| {
+                let Some(page) = doc.page_mut(page_id) else {
+                    return;
+                };
+                let connects_snap = page.connects.clone();
+                for sh in &mut page.shapes {
+                    if !id_set.contains(&sh.id) {
+                        continue;
+                    }
+                    let lock_x = sh.sheet.get_bool("LockMoveX").unwrap_or(false);
+                    let lock_y = sh.sheet.get_bool("LockMoveY").unwrap_or(false);
+                    let eff_dx = if lock_x { 0.0 } else { dx_in };
+                    let eff_dy = if lock_y { 0.0 } else { dy_in };
+                    if eff_dx.abs() < 1e-7 && eff_dy.abs() < 1e-7 {
+                        continue;
+                    }
+                    if sh.kind == ShapeKind::Connector1D {
+                        let beg_glued = connects_snap.iter().any(|c| {
+                            c.connector_shape_id == sh.id
+                                && c.from_cell.to_ascii_lowercase().starts_with("begin")
+                        });
+                        let end_glued = connects_snap.iter().any(|c| {
+                            c.connector_shape_id == sh.id
+                                && !c.from_cell.to_ascii_lowercase().starts_with("begin")
+                        });
+                        if !beg_glued {
+                            let bx = sh.sheet.get_f64("BeginX").unwrap_or(0.0) + eff_dx;
+                            let by = sh.sheet.get_f64("BeginY").unwrap_or(0.0) + eff_dy;
+                            let _ = sh.sheet.try_set_formula_respecting_guard(
+                                "BeginX",
+                                format!("{} in", format_clean_f64(bx)),
+                                false,
+                            );
+                            let _ = sh.sheet.try_set_formula_respecting_guard(
+                                "BeginY",
+                                format!("{} in", format_clean_f64(by)),
+                                false,
+                            );
+                        }
+                        if !end_glued {
+                            let ex = sh.sheet.get_f64("EndX").unwrap_or(1.0) + eff_dx;
+                            let ey = sh.sheet.get_f64("EndY").unwrap_or(0.0) + eff_dy;
+                            let _ = sh.sheet.try_set_formula_respecting_guard(
+                                "EndX",
+                                format!("{} in", format_clean_f64(ex)),
+                                false,
+                            );
+                            let _ = sh.sheet.try_set_formula_respecting_guard(
+                                "EndY",
+                                format!("{} in", format_clean_f64(ey)),
+                                false,
+                            );
+                        }
+                        if let Some(mc) = sh.sheet.get_f64("User.MidCoord") {
+                            let axis = sh
+                                .sheet
+                                .get_f64("User.MidAxis")
+                                .map(|v| v.round() as i32)
+                                .unwrap_or(0);
+                            let delta = if axis == 1 {
+                                eff_dx
+                            } else if axis == 2 {
+                                eff_dy
+                            } else {
+                                0.0
+                            };
+                            if delta.abs() > 1e-7 {
+                                sh.sheet.set_formula(
+                                    "User.MidCoord",
+                                    format!("{} in", format_clean_f64(mc + delta)),
+                                    Some(Unit::Inch),
+                                );
+                            }
+                        }
+                        moved += 1;
+                    } else {
+                        let px = sh.sheet.get_f64("PinX").unwrap_or(0.0) + eff_dx;
+                        let py = sh.sheet.get_f64("PinY").unwrap_or(0.0) + eff_dy;
+                        let mut changed = false;
+                        if eff_dx.abs() > 1e-7
+                            && sh
+                                .sheet
+                                .try_set_formula_respecting_guard(
+                                    "PinX",
+                                    format!("{} in", format_clean_f64(px)),
+                                    false,
+                                )
+                                .is_ok()
+                        {
+                            changed = true;
+                        }
+                        if eff_dy.abs() > 1e-7
+                            && sh
+                                .sheet
+                                .try_set_formula_respecting_guard(
+                                    "PinY",
+                                    format!("{} in", format_clean_f64(py)),
+                                    false,
+                                )
+                                .is_ok()
+                        {
+                            changed = true;
+                        }
+                        if changed {
+                            moved += 1;
+                        }
+                    }
+                }
+                if moved > 0 {
+                    route_page_connectors(doc, page_id);
+                }
+            });
+        Ok(moved)
+    }
+
+    /// Align selected 2D/Group shapes (`left`, `center`, `right`, `top`, `middle`, `bottom`).
+    /// When 2+ shapes are selected, aligns to their union bounding box; when 1 shape is selected, aligns to the page.
+    pub fn align_shapes(
+        &mut self,
+        page_id: u32,
+        shape_ids: &[u64],
+        mode: &str,
+    ) -> Result<usize, CoreError> {
+        let Some(page_ref) = self.doc.page(page_id) else {
+            return Ok(0);
+        };
+        let page_w = page_ref.width_in();
+        let page_h = page_ref.height_in();
+        let id_set: std::collections::BTreeSet<u64> = shape_ids.iter().copied().collect();
+        if id_set.is_empty() {
+            return Ok(0);
+        }
+        let visuals = ReactiveEngine::evaluate_page_visuals(&self.doc, page_id);
+        let selected_vis: Vec<&vexio_shapesheet::EvaluatedShapeVisual> = visuals
+            .iter()
+            .filter(|v| id_set.contains(&v.shape_id) && v.kind != ShapeKind::Connector1D)
+            .collect();
+        if selected_vis.is_empty() {
+            return Ok(0);
+        }
+
+        let (ref_min_x, ref_min_y, ref_max_x, ref_max_y) = if selected_vis.len() == 1 {
+            (0.0, 0.0, page_w, page_h)
+        } else {
+            let mut mnx = f64::INFINITY;
+            let mut mny = f64::INFINITY;
+            let mut mxx = f64::NEG_INFINITY;
+            let mut mxy = f64::NEG_INFINITY;
+            for v in &selected_vis {
+                let (bmn, bmx) = v.transform.world_aabb();
+                mnx = mnx.min(bmn[0]);
+                mny = mny.min(bmn[1]);
+                mxx = mxx.max(bmx[0]);
+                mxy = mxy.max(bmx[1]);
+            }
+            (mnx, mny, mxx, mxy)
+        };
+
+        let m = mode.trim().to_ascii_lowercase();
+        let mut deltas: Vec<(u64, f64, f64)> = Vec::with_capacity(selected_vis.len());
+        for v in &selected_vis {
+            let (bmn, bmx) = v.transform.world_aabb();
+            let (dx, dy) = match m.as_str() {
+                "left" | "l" => (ref_min_x - bmn[0], 0.0),
+                "center" | "centre" | "c" | "hcenter" => (
+                    (ref_min_x + ref_max_x) * 0.5 - (bmn[0] + bmx[0]) * 0.5,
+                    0.0,
+                ),
+                "right" | "r" => (ref_max_x - bmx[0], 0.0),
+                "bottom" | "b" => (0.0, ref_min_y - bmn[1]),
+                "middle" | "mid" | "m" | "vcenter" => (
+                    0.0,
+                    (ref_min_y + ref_max_y) * 0.5 - (bmn[1] + bmx[1]) * 0.5,
+                ),
+                "top" | "t" => (0.0, ref_max_y - bmx[1]),
+                _ => return Ok(0),
+            };
+            if dx.abs() > 1e-6 || dy.abs() > 1e-6 {
+                deltas.push((v.shape_id, dx, dy));
+            }
+        }
+        if deltas.is_empty() {
+            return Ok(selected_vis.len());
+        }
+        let stationary_aligned = selected_vis.len().saturating_sub(deltas.len());
+
+        let mut updated = 0usize;
+        self.journal
+            .record_mutation(&mut self.doc, "Align Shapes", |doc| {
+                if let Some(page) = doc.page_mut(page_id) {
+                    for &(sid, dx, dy) in &deltas {
+                        if let Some(sh) = page.find_shape_mut(sid) {
+                            let lock_x = sh.sheet.get_bool("LockMoveX").unwrap_or(false);
+                            let lock_y = sh.sheet.get_bool("LockMoveY").unwrap_or(false);
+                            let mut changed = false;
+                            if dx.abs() > 1e-6 && !lock_x {
+                                let px = sh.sheet.get_f64("PinX").unwrap_or(0.0) + dx;
+                                if sh
+                                    .sheet
+                                    .try_set_formula_respecting_guard(
+                                        "PinX",
+                                        format!("{} in", format_clean_f64(px)),
+                                        false,
+                                    )
+                                    .is_ok()
+                                {
+                                    changed = true;
+                                }
+                            }
+                            if dy.abs() > 1e-6 && !lock_y {
+                                let py = sh.sheet.get_f64("PinY").unwrap_or(0.0) + dy;
+                                if sh
+                                    .sheet
+                                    .try_set_formula_respecting_guard(
+                                        "PinY",
+                                        format!("{} in", format_clean_f64(py)),
+                                        false,
+                                    )
+                                    .is_ok()
+                                {
+                                    changed = true;
+                                }
+                            }
+                            if changed {
+                                updated += 1;
+                            }
+                        }
+                    }
+                }
+                if updated > 0 {
+                    route_page_connectors(doc, page_id);
+                }
+            });
+        Ok(if updated > 0 {
+            stationary_aligned + updated
+        } else {
+            0
+        })
+    }
+
+    /// Distribute 3+ selected 2D/Group shapes with equal bounding-box gap spacing along `horizontal` or `vertical` axis.
+    pub fn distribute_shapes(
+        &mut self,
+        page_id: u32,
+        shape_ids: &[u64],
+        axis: &str,
+    ) -> Result<usize, CoreError> {
+        let id_set: std::collections::BTreeSet<u64> = shape_ids.iter().copied().collect();
+        if id_set.len() < 3 {
+            return Ok(0);
+        }
+        let is_horiz = matches!(
+            axis.trim().to_ascii_lowercase().as_str(),
+            "horizontal" | "horiz" | "h" | "x"
+        );
+        let visuals = ReactiveEngine::evaluate_page_visuals(&self.doc, page_id);
+        let mut items: Vec<(u64, f64, f64)> = visuals
+            .iter()
+            .filter(|v| id_set.contains(&v.shape_id) && v.kind != ShapeKind::Connector1D)
+            .map(|v| {
+                let (bmn, bmx) = v.transform.world_aabb();
+                if is_horiz {
+                    (v.shape_id, bmn[0], bmx[0])
+                } else {
+                    (v.shape_id, bmn[1], bmx[1])
+                }
+            })
+            .collect();
+        if items.len() < 3 {
+            return Ok(0);
+        }
+
+        items.sort_by(|a, b| {
+            let ca = (a.1 + a.2) * 0.5;
+            let cb = (b.1 + b.2) * 0.5;
+            ca.partial_cmp(&cb).unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        let outer_min = items.iter().map(|i| i.1).fold(f64::INFINITY, f64::min);
+        let outer_max = items.iter().map(|i| i.2).fold(f64::NEG_INFINITY, f64::max);
+        let sum_spans: f64 = items.iter().map(|i| (i.2 - i.1).max(0.0)).sum();
+        let gap = (outer_max - outer_min - sum_spans) / ((items.len() - 1) as f64);
+
+        let mut cursor = outer_min;
+        let mut shifts: Vec<(u64, f64)> = Vec::with_capacity(items.len());
+        for (idx, &(sid, lo, hi)) in items.iter().enumerate() {
+            let span = (hi - lo).max(0.0);
+            if idx > 0 && idx + 1 < items.len() {
+                let delta = cursor - lo;
+                if delta.abs() > 1e-6 {
+                    shifts.push((sid, delta));
+                }
+            }
+            cursor += span + gap;
+        }
+        if shifts.is_empty() {
+            return Ok(items.len());
+        }
+        let stationary_distributed = items.len().saturating_sub(shifts.len());
+
+        let mut updated = 0usize;
+        self.journal
+            .record_mutation(&mut self.doc, "Distribute Shapes", |doc| {
+                if let Some(page) = doc.page_mut(page_id) {
+                    for &(sid, delta) in &shifts {
+                        if let Some(sh) = page.find_shape_mut(sid) {
+                            if is_horiz {
+                                if !sh.sheet.get_bool("LockMoveX").unwrap_or(false) {
+                                    let px = sh.sheet.get_f64("PinX").unwrap_or(0.0) + delta;
+                                    if sh
+                                        .sheet
+                                        .try_set_formula_respecting_guard(
+                                            "PinX",
+                                            format!("{} in", format_clean_f64(px)),
+                                            false,
+                                        )
+                                        .is_ok()
+                                    {
+                                        updated += 1;
+                                    }
+                                }
+                            } else if !sh.sheet.get_bool("LockMoveY").unwrap_or(false) {
+                                let py = sh.sheet.get_f64("PinY").unwrap_or(0.0) + delta;
+                                if sh
+                                    .sheet
+                                    .try_set_formula_respecting_guard(
+                                        "PinY",
+                                        format!("{} in", format_clean_f64(py)),
+                                        false,
+                                    )
+                                    .is_ok()
+                                {
+                                    updated += 1;
+                                }
+                            }
+                        }
+                    }
+                }
+                if updated > 0 {
+                    route_page_connectors(doc, page_id);
+                }
+            });
+        Ok(if updated > 0 {
+            stationary_distributed + updated
+        } else {
+            0
+        })
+    }
+
+    /// Group 2+ top-level shapes on `page_id` into a new `ShapeKind::Group` container (`⌘G` / `Ctrl+G`),
+    /// converting child coordinates into group-local space and preserving undo/redo & connectors.
+    pub fn group_shapes(&mut self, page_id: u32, shape_ids: &[u64]) -> Result<u64, CoreError> {
+        let id_set: std::collections::BTreeSet<u64> = shape_ids.iter().copied().collect();
+        if id_set.len() < 2 {
+            return Ok(0);
+        }
+        let visuals = ReactiveEngine::evaluate_page_visuals(&self.doc, page_id);
+        let mut g_min_x = f64::INFINITY;
+        let mut g_min_y = f64::INFINITY;
+        let mut g_max_x = f64::NEG_INFINITY;
+        let mut g_max_y = f64::NEG_INFINITY;
+        let mut matched_count = 0usize;
+        for v in &visuals {
+            if id_set.contains(&v.shape_id) {
+                let (bmn, bmx) = if v.kind == ShapeKind::Connector1D {
+                    (v.aabb_min, v.aabb_max)
+                } else {
+                    v.transform.world_aabb()
+                };
+                g_min_x = g_min_x.min(bmn[0]);
+                g_min_y = g_min_y.min(bmn[1]);
+                g_max_x = g_max_x.max(bmx[0]);
+                g_max_y = g_max_y.max(bmx[1]);
+                matched_count += 1;
+            }
+        }
+        if matched_count < 2 || !g_min_x.is_finite() || !g_max_x.is_finite() {
+            return Ok(0);
+        }
+
+        let gw = (g_max_x - g_min_x).max(0.1);
+        let gh = (g_max_y - g_min_y).max(0.1);
+        let g_cx = (g_min_x + g_max_x) * 0.5;
+        let g_cy = (g_min_y + g_max_y) * 0.5;
+
+        let mut created_gid = 0u64;
+        self.journal
+            .record_mutation(&mut self.doc, "Group Shapes", |doc| {
+                let Some(page) = doc.page_mut(page_id) else {
+                    return;
+                };
+                let gid = page.next_shape_id();
+                let mut children = Vec::new();
+                let mut insert_pos: Option<usize> = None;
+                let mut remaining = Vec::with_capacity(page.shapes.len());
+
+                for (idx, mut sh) in page.shapes.drain(..).enumerate() {
+                    if id_set.contains(&sh.id) {
+                        if insert_pos.is_none() {
+                            insert_pos = Some(remaining.len().max(idx.min(remaining.len())));
+                        }
+                        if sh.kind == ShapeKind::Connector1D {
+                            let bx = sh.sheet.get_f64("BeginX").unwrap_or(g_min_x) - g_min_x;
+                            let by = sh.sheet.get_f64("BeginY").unwrap_or(g_min_y) - g_min_y;
+                            let ex = sh.sheet.get_f64("EndX").unwrap_or(g_min_x + 1.0) - g_min_x;
+                            let ey = sh.sheet.get_f64("EndY").unwrap_or(g_min_y) - g_min_y;
+                            sh.sheet.set_formula(
+                                "BeginX",
+                                format!("{} in", format_clean_f64(bx)),
+                                Some(Unit::Inch),
+                            );
+                            sh.sheet.set_formula(
+                                "BeginY",
+                                format!("{} in", format_clean_f64(by)),
+                                Some(Unit::Inch),
+                            );
+                            sh.sheet.set_formula(
+                                "EndX",
+                                format!("{} in", format_clean_f64(ex)),
+                                Some(Unit::Inch),
+                            );
+                            sh.sheet.set_formula(
+                                "EndY",
+                                format!("{} in", format_clean_f64(ey)),
+                                Some(Unit::Inch),
+                            );
+                            let cpx = sh.sheet.get_f64("PinX").unwrap_or(g_min_x) - g_min_x;
+                            let cpy = sh.sheet.get_f64("PinY").unwrap_or(g_min_y) - g_min_y;
+                            sh.sheet.set_formula(
+                                "PinX",
+                                format!("{} in", format_clean_f64(cpx)),
+                                Some(Unit::Inch),
+                            );
+                            sh.sheet.set_formula(
+                                "PinY",
+                                format!("{} in", format_clean_f64(cpy)),
+                                Some(Unit::Inch),
+                            );
+                        } else {
+                            let px = sh.sheet.get_f64("PinX").unwrap_or(g_cx) - g_min_x;
+                            let py = sh.sheet.get_f64("PinY").unwrap_or(g_cy) - g_min_y;
+                            sh.sheet.set_formula(
+                                "PinX",
+                                format!("{} in", format_clean_f64(px)),
+                                Some(Unit::Inch),
+                            );
+                            sh.sheet.set_formula(
+                                "PinY",
+                                format!("{} in", format_clean_f64(py)),
+                                Some(Unit::Inch),
+                            );
+                        }
+                        children.push(sh);
+                    } else {
+                        remaining.push(sh);
+                    }
+                }
+
+                if children.len() < 2 {
+                    remaining.extend(children);
+                    page.shapes = remaining;
+                    return;
+                }
+
+                let mut grp = VisioShape::new_rect(gid, format!("Group.{gid}"), g_cx, g_cy, gw, gh);
+                grp.kind = ShapeKind::Group;
+                grp.sheet.set_formula("FillPattern", "0", Some(Unit::Number));
+                grp.sheet.set_formula("LinePattern", "0", Some(Unit::Number));
+                grp.sheet
+                    .set_formula("User.OrigWidth", format!("{} in", format_clean_f64(gw)), Some(Unit::Inch));
+                grp.sheet
+                    .set_formula("User.OrigHeight", format!("{} in", format_clean_f64(gh)), Some(Unit::Inch));
+                let mut g_sec = GeometrySection::rectangle(1);
+                g_sec.no_fill = "TRUE".into();
+                g_sec.no_line = "TRUE".into();
+                g_sec.no_show = "TRUE".into();
+                grp.sheet.add_geometry(g_sec);
+                attach_cardinal_ports_to_shape(&mut grp);
+                grp.children = children;
+
+                // Re-target external dynamic connectors pointing at grouped member shapes to the group container
+                for c in &mut page.connects {
+                    if !id_set.contains(&c.connector_shape_id) && id_set.contains(&c.target_shape_id)
+                    {
+                        c.target_shape_id = gid;
+                        c.to_cell = "PinX".into();
+                        c.is_dynamic = true;
+                    }
+                }
+
+                let pos = insert_pos.unwrap_or(remaining.len()).min(remaining.len());
+                remaining.insert(pos, grp);
+                page.shapes = remaining;
+                created_gid = gid;
+                route_page_connectors(doc, page_id);
+            });
+        Ok(created_gid)
+    }
+
+    /// Ungroup one or more `ShapeKind::Group` shapes (`⇧⌘G` / `Ctrl+Shift+G`), restoring member
+    /// shapes back to page-space coordinates at the group's Z-order position.
+    pub fn ungroup_shapes(
+        &mut self,
+        page_id: u32,
+        group_ids: &[u64],
+    ) -> Result<Vec<u64>, CoreError> {
+        let id_set: std::collections::BTreeSet<u64> = group_ids.iter().copied().collect();
+        if id_set.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut restored_ids = Vec::new();
+        self.journal
+            .record_mutation(&mut self.doc, "Ungroup Shapes", |doc| {
+                let Some(page) = doc.page_mut(page_id) else {
+                    return;
+                };
+                let mut used_ids: std::collections::BTreeSet<u64> = page
+                    .shapes
+                    .iter()
+                    .filter(|e| !id_set.contains(&e.id))
+                    .map(|e| e.id)
+                    .collect();
+                let mut out_shapes = Vec::with_capacity(page.shapes.len() + 4);
+                let mut any_ungrouped = false;
+
+                for sh in page.shapes.drain(..) {
+                    if id_set.contains(&sh.id)
+                        && (sh.kind == ShapeKind::Group || !sh.children.is_empty())
+                        && !sh.children.is_empty()
+                    {
+                        any_ungrouped = true;
+                        let gw = sh.sheet.get_f64("Width").unwrap_or(1.0);
+                        let gh = sh.sheet.get_f64("Height").unwrap_or(1.0);
+                        let orig_gw = sh.sheet.get_f64("User.OrigWidth").unwrap_or(gw).max(1e-4);
+                        let orig_gh = sh.sheet.get_f64("User.OrigHeight").unwrap_or(gh).max(1e-4);
+                        let sx = (gw / orig_gw).clamp(0.05, 50.0);
+                        let sy = (gh / orig_gh).clamp(0.05, 50.0);
+                        let gpx = sh.sheet.get_f64("PinX").unwrap_or(0.0);
+                        let gpy = sh.sheet.get_f64("PinY").unwrap_or(0.0);
+                        let glpx = sh.sheet.get_f64("LocPinX").unwrap_or(gw * 0.5);
+                        let glpy = sh.sheet.get_f64("LocPinY").unwrap_or(gh * 0.5);
+                        let gang = sh.sheet.get_f64("Angle").unwrap_or(0.0);
+                        let g_tf = vexio_shapesheet::ShapeTransform2D {
+                            pin_x: gpx,
+                            pin_y: gpy,
+                            width: gw,
+                            height: gh,
+                            loc_pin_x: glpx,
+                            loc_pin_y: glpy,
+                            angle_rad: gang,
+                            flip_x: sh.sheet.get_bool("FlipX").unwrap_or(false),
+                            flip_y: sh.sheet.get_bool("FlipY").unwrap_or(false),
+                        };
+
+                        let first_child_id = sh.children.first().map(|c| c.id);
+                        for mut child in sh.children {
+                            let cid = if used_ids.contains(&child.id) {
+                                let nid = used_ids.iter().copied().max().unwrap_or(sh.id) + 1;
+                                child.id = nid;
+                                nid
+                            } else {
+                                child.id
+                            };
+                            used_ids.insert(cid);
+
+                            if child.kind == ShapeKind::Connector1D {
+                                let cbx = child.sheet.get_f64("BeginX").unwrap_or(0.0) * sx;
+                                let cby = child.sheet.get_f64("BeginY").unwrap_or(0.0) * sy;
+                                let cex = child.sheet.get_f64("EndX").unwrap_or(1.0) * sx;
+                                let cey = child.sheet.get_f64("EndY").unwrap_or(0.0) * sy;
+                                let (wbx, wby) = g_tf.local_to_parent(cbx, cby);
+                                let (wex, wey) = g_tf.local_to_parent(cex, cey);
+                                child.sheet.set_formula(
+                                    "BeginX",
+                                    format!("{} in", format_clean_f64(wbx)),
+                                    Some(Unit::Inch),
+                                );
+                                child.sheet.set_formula(
+                                    "BeginY",
+                                    format!("{} in", format_clean_f64(wby)),
+                                    Some(Unit::Inch),
+                                );
+                                child.sheet.set_formula(
+                                    "EndX",
+                                    format!("{} in", format_clean_f64(wex)),
+                                    Some(Unit::Inch),
+                                );
+                                child.sheet.set_formula(
+                                    "EndY",
+                                    format!("{} in", format_clean_f64(wey)),
+                                    Some(Unit::Inch),
+                                );
+                                child.sheet.set_formula(
+                                    "PinX",
+                                    format!("{} in", format_clean_f64(wbx)),
+                                    Some(Unit::Inch),
+                                );
+                                child.sheet.set_formula(
+                                    "PinY",
+                                    format!("{} in", format_clean_f64(wby)),
+                                    Some(Unit::Inch),
+                                );
+                            } else {
+                                let cpx = child.sheet.get_f64("PinX").unwrap_or(0.0) * sx;
+                                let cpy = child.sheet.get_f64("PinY").unwrap_or(0.0) * sy;
+                                let (wpx, wpy) = g_tf.local_to_parent(cpx, cpy);
+                                child.sheet.set_formula(
+                                    "PinX",
+                                    format!("{} in", format_clean_f64(wpx)),
+                                    Some(Unit::Inch),
+                                );
+                                child.sheet.set_formula(
+                                    "PinY",
+                                    format!("{} in", format_clean_f64(wpy)),
+                                    Some(Unit::Inch),
+                                );
+                                if (sx - 1.0).abs() > 1e-4 {
+                                    if let Some(cw) = child.sheet.get_f64("Width") {
+                                        let new_w = cw * sx;
+                                        child.sheet.set_formula(
+                                            "Width",
+                                            format!("{} in", format_clean_f64(new_w)),
+                                            Some(Unit::Inch),
+                                        );
+                                        child.sheet.set_formula(
+                                            "LocPinX",
+                                            format!("{} in", format_clean_f64(new_w * 0.5)),
+                                            Some(Unit::Inch),
+                                        );
+                                    }
+                                }
+                                if (sy - 1.0).abs() > 1e-4 {
+                                    if let Some(ch_h) = child.sheet.get_f64("Height") {
+                                        let new_h = ch_h * sy;
+                                        child.sheet.set_formula(
+                                            "Height",
+                                            format!("{} in", format_clean_f64(new_h)),
+                                            Some(Unit::Inch),
+                                        );
+                                        child.sheet.set_formula(
+                                            "LocPinY",
+                                            format!("{} in", format_clean_f64(new_h * 0.5)),
+                                            Some(Unit::Inch),
+                                        );
+                                    }
+                                }
+                                if gang.abs() > 1e-6 {
+                                    let cang = child.sheet.get_f64("Angle").unwrap_or(0.0) + gang;
+                                    child.sheet.set_formula(
+                                        "Angle",
+                                        format!("{} rad", format_clean_f64(cang)),
+                                        Some(Unit::Radian),
+                                    );
+                                }
+                            }
+                            restored_ids.push(cid);
+                            out_shapes.push(child);
+                        }
+
+                        if let Some(fcid) = first_child_id {
+                            for c in &mut page.connects {
+                                if c.target_shape_id == sh.id {
+                                    c.target_shape_id = fcid;
+                                }
+                            }
+                        }
+                    } else {
+                        out_shapes.push(sh);
+                    }
+                }
+
+                page.shapes = out_shapes;
+                if any_ungrouped {
+                    route_page_connectors(doc, page_id);
+                }
+            });
+        Ok(restored_ids)
+    }
+
+    /// Compute Visio Dynamic Grid Smart Alignment & Equal-Spacing Guides for a candidate moving/resizing
+    /// bounding box `cand_min..cand_max` (excluding `moving_ids`).
+    /// Returns `([snap_dx_in, snap_dy_in], guide_lines)`.
+    pub fn compute_smart_guides(
+        &self,
+        page_id: u32,
+        moving_ids: &[u64],
+        cand_min: [f64; 2],
+        cand_max: [f64; 2],
+        snap_tol_in: f64,
+    ) -> ([f64; 2], Vec<vexio_render::SmartGuideLine>) {
+        let tol = snap_tol_in.clamp(0.005, 0.5);
+        let Some(page) = self.doc.page(page_id) else {
+            return ([0.0, 0.0], Vec::new());
+        };
+        let page_w = page.width_in();
+        let page_h = page.height_in();
+        let moving_set: std::collections::BTreeSet<u64> = moving_ids.iter().copied().collect();
+        let visuals = ReactiveEngine::evaluate_page_visuals(&self.doc, page_id);
+
+        let others: Vec<([f64; 2], [f64; 2])> = visuals
+            .iter()
+            .filter(|v| !moving_set.contains(&v.shape_id) && v.kind != ShapeKind::Connector1D)
+            .map(|v| v.transform.world_aabb())
+            .collect();
+
+        let cand_w = (cand_max[0] - cand_min[0]).max(0.0);
+        let cand_h = (cand_max[1] - cand_min[1]).max(0.0);
+        let cand_cx = (cand_min[0] + cand_max[0]) * 0.5;
+        let cand_cy = (cand_min[1] + cand_max[1]) * 0.5;
+
+        let mut best_dx: Option<(f64, f64)> = None; // (weighted_score, signed_dx)
+        let mut best_dy: Option<(f64, f64)> = None; // (weighted_score, signed_dy)
+
+        let mut consider_dx = |dx: f64, weight: f64| {
+            let ad = dx.abs();
+            let score = ad * weight;
+            if ad <= tol && best_dx.is_none_or(|(best_sc, _)| score < best_sc - 1e-7) {
+                best_dx = Some((score, dx));
+            }
+        };
+        let mut consider_dy = |dy: f64, weight: f64| {
+            let ad = dy.abs();
+            let score = ad * weight;
+            if ad <= tol && best_dy.is_none_or(|(best_sc, _)| score < best_sc - 1e-7) {
+                best_dy = Some((score, dy));
+            }
+        };
+
+        // 1. Page Center X & Y
+        consider_dx(page_w * 0.5 - cand_cx, 0.5);
+        consider_dy(page_h * 0.5 - cand_cy, 0.5);
+
+        // 2. Stationary Shape Edges & Centers (center-to-center weighted 0.35 per Visio Dynamic Grid)
+        for &(omn, omx) in &others {
+            let ocx = (omn[0] + omx[0]) * 0.5;
+            let ocy = (omn[1] + omx[1]) * 0.5;
+            consider_dx(ocx - cand_cx, 0.35);
+            consider_dy(ocy - cand_cy, 0.35);
+
+            for &ox in &[omn[0], ocx, omx[0]] {
+                for &cx in &[cand_min[0], cand_cx, cand_max[0]] {
+                    consider_dx(ox - cx, 1.0);
+                }
+            }
+            for &oy in &[omn[1], ocy, omx[1]] {
+                for &cy in &[cand_min[1], cand_cy, cand_max[1]] {
+                    consider_dy(oy - cy, 1.0);
+                }
+            }
+        }
+
+        // 3. Equal-Spacing Gaps across 3+ Shapes (Horizontal & Vertical)
+        let mut row_peers: Vec<([f64; 2], [f64; 2])> = others
+            .iter()
+            .copied()
+            .filter(|&(omn, omx)| {
+                let oy_mid = (omn[1] + omx[1]) * 0.5;
+                (oy_mid - cand_cy).abs() <= (cand_h + (omx[1] - omn[1])).max(1.5)
+            })
+            .collect();
+        row_peers.sort_by(|a, b| {
+            a.0[0]
+                .partial_cmp(&b.0[0])
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        for i in 0..row_peers.len() {
+            for j in (i + 1)..row_peers.len() {
+                let (amn, amx) = row_peers[i];
+                let (bmn, bmx) = row_peers[j];
+                let gap = bmn[0] - amx[0];
+                if gap > 0.05 {
+                    consider_dx((bmx[0] + gap) - cand_min[0], 0.6);
+                    consider_dx((amn[0] - gap) - cand_max[0], 0.6);
+                }
+                if bmn[0] - amx[0] > cand_w + 0.1 {
+                    consider_dx((amx[0] + bmn[0]) * 0.5 - cand_cx, 0.6);
+                }
+            }
+        }
+
+        let mut col_peers: Vec<([f64; 2], [f64; 2])> = others
+            .iter()
+            .copied()
+            .filter(|&(omn, omx)| {
+                let ox_mid = (omn[0] + omx[0]) * 0.5;
+                (ox_mid - cand_cx).abs() <= (cand_w + (omx[0] - omn[0])).max(1.5)
+            })
+            .collect();
+        col_peers.sort_by(|a, b| {
+            a.0[1]
+                .partial_cmp(&b.0[1])
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        for i in 0..col_peers.len() {
+            for j in (i + 1)..col_peers.len() {
+                let (amn, amx) = col_peers[i];
+                let (bmn, bmx) = col_peers[j];
+                let gap = bmn[1] - amx[1];
+                if gap > 0.05 {
+                    consider_dy((bmx[1] + gap) - cand_min[1], 0.6);
+                    consider_dy((amn[1] - gap) - cand_max[1], 0.6);
+                }
+                if bmn[1] - amx[1] > cand_h + 0.1 {
+                    consider_dy((amx[1] + bmn[1]) * 0.5 - cand_cy, 0.6);
+                }
+            }
+        }
+
+        let snap_dx = best_dx.map(|(_, d)| d).unwrap_or(0.0);
+        let snap_dy = best_dy.map(|(_, d)| d).unwrap_or(0.0);
+        let s_min = [cand_min[0] + snap_dx, cand_min[1] + snap_dy];
+        let s_max = [cand_max[0] + snap_dx, cand_max[1] + snap_dy];
+        let s_cx = (s_min[0] + s_max[0]) * 0.5;
+        let s_cy = (s_min[1] + s_max[1]) * 0.5;
+
+        let mut guides = Vec::new();
+        let eps = 1e-4;
+
+        if best_dx.is_some() {
+            if (s_cx - page_w * 0.5).abs() <= eps {
+                guides.push(vexio_render::SmartGuideLine {
+                    is_vertical: true,
+                    coord_in: page_w * 0.5,
+                    span_min_in: 0.0,
+                    span_max_in: page_h,
+                    is_equal_spacing: false,
+                });
+            }
+            for &(omn, omx) in &others {
+                let oxs = [omn[0], (omn[0] + omx[0]) * 0.5, omx[0]];
+                for &ox in &oxs {
+                    if [s_min[0], s_cx, s_max[0]]
+                        .iter()
+                        .any(|&sx| (sx - ox).abs() <= eps)
+                    {
+                        let y_lo = s_min[1].min(omn[1]) - 0.2;
+                        let y_hi = s_max[1].max(omx[1]) + 0.2;
+                        guides.push(vexio_render::SmartGuideLine {
+                            is_vertical: true,
+                            coord_in: ox,
+                            span_min_in: y_lo,
+                            span_max_in: y_hi,
+                            is_equal_spacing: false,
+                        });
+                    }
+                }
+            }
+            for i in 0..row_peers.len() {
+                for j in (i + 1)..row_peers.len() {
+                    let (amn, amx) = row_peers[i];
+                    let (bmn, bmx) = row_peers[j];
+                    let gap_ab = bmn[0] - amx[0];
+                    let mid_y = s_cy;
+                    if gap_ab > 0.05 && ((s_min[0] - bmx[0]) - gap_ab).abs() <= eps {
+                        guides.push(vexio_render::SmartGuideLine {
+                            is_vertical: false,
+                            coord_in: mid_y,
+                            span_min_in: amx[0],
+                            span_max_in: bmn[0],
+                            is_equal_spacing: true,
+                        });
+                        guides.push(vexio_render::SmartGuideLine {
+                            is_vertical: false,
+                            coord_in: mid_y,
+                            span_min_in: bmx[0],
+                            span_max_in: s_min[0],
+                            is_equal_spacing: true,
+                        });
+                    } else if gap_ab > 0.05 && ((amn[0] - s_max[0]) - gap_ab).abs() <= eps {
+                        guides.push(vexio_render::SmartGuideLine {
+                            is_vertical: false,
+                            coord_in: mid_y,
+                            span_min_in: s_max[0],
+                            span_max_in: amn[0],
+                            is_equal_spacing: true,
+                        });
+                        guides.push(vexio_render::SmartGuideLine {
+                            is_vertical: false,
+                            coord_in: mid_y,
+                            span_min_in: amx[0],
+                            span_max_in: bmn[0],
+                            is_equal_spacing: true,
+                        });
+                    } else if s_min[0] > amx[0] + 0.02
+                        && bmn[0] > s_max[0] + 0.02
+                        && ((s_min[0] - amx[0]) - (bmn[0] - s_max[0])).abs() <= eps
+                    {
+                        guides.push(vexio_render::SmartGuideLine {
+                            is_vertical: false,
+                            coord_in: mid_y,
+                            span_min_in: amx[0],
+                            span_max_in: s_min[0],
+                            is_equal_spacing: true,
+                        });
+                        guides.push(vexio_render::SmartGuideLine {
+                            is_vertical: false,
+                            coord_in: mid_y,
+                            span_min_in: s_max[0],
+                            span_max_in: bmn[0],
+                            is_equal_spacing: true,
+                        });
+                    }
+                }
+            }
+        }
+
+        if best_dy.is_some() {
+            if (s_cy - page_h * 0.5).abs() <= eps {
+                guides.push(vexio_render::SmartGuideLine {
+                    is_vertical: false,
+                    coord_in: page_h * 0.5,
+                    span_min_in: 0.0,
+                    span_max_in: page_w,
+                    is_equal_spacing: false,
+                });
+            }
+            for &(omn, omx) in &others {
+                let oys = [omn[1], (omn[1] + omx[1]) * 0.5, omx[1]];
+                for &oy in &oys {
+                    if [s_min[1], s_cy, s_max[1]]
+                        .iter()
+                        .any(|&sy| (sy - oy).abs() <= eps)
+                    {
+                        let x_lo = s_min[0].min(omn[0]) - 0.2;
+                        let x_hi = s_max[0].max(omx[0]) + 0.2;
+                        guides.push(vexio_render::SmartGuideLine {
+                            is_vertical: false,
+                            coord_in: oy,
+                            span_min_in: x_lo,
+                            span_max_in: x_hi,
+                            is_equal_spacing: false,
+                        });
+                    }
+                }
+            }
+            for i in 0..col_peers.len() {
+                for j in (i + 1)..col_peers.len() {
+                    let (amn, amx) = col_peers[i];
+                    let (bmn, bmx) = col_peers[j];
+                    let gap_ab = bmn[1] - amx[1];
+                    let mid_x = s_cx;
+                    if gap_ab > 0.05 && ((s_min[1] - bmx[1]) - gap_ab).abs() <= eps {
+                        guides.push(vexio_render::SmartGuideLine {
+                            is_vertical: true,
+                            coord_in: mid_x,
+                            span_min_in: amx[1],
+                            span_max_in: bmn[1],
+                            is_equal_spacing: true,
+                        });
+                        guides.push(vexio_render::SmartGuideLine {
+                            is_vertical: true,
+                            coord_in: mid_x,
+                            span_min_in: bmx[1],
+                            span_max_in: s_min[1],
+                            is_equal_spacing: true,
+                        });
+                    } else if gap_ab > 0.05 && ((amn[1] - s_max[1]) - gap_ab).abs() <= eps {
+                        guides.push(vexio_render::SmartGuideLine {
+                            is_vertical: true,
+                            coord_in: mid_x,
+                            span_min_in: s_max[1],
+                            span_max_in: amn[1],
+                            is_equal_spacing: true,
+                        });
+                        guides.push(vexio_render::SmartGuideLine {
+                            is_vertical: true,
+                            coord_in: mid_x,
+                            span_min_in: amx[1],
+                            span_max_in: bmn[1],
+                            is_equal_spacing: true,
+                        });
+                    } else if s_min[1] > amx[1] + 0.02
+                        && bmn[1] > s_max[1] + 0.02
+                        && ((s_min[1] - amx[1]) - (bmn[1] - s_max[1])).abs() <= eps
+                    {
+                        guides.push(vexio_render::SmartGuideLine {
+                            is_vertical: true,
+                            coord_in: mid_x,
+                            span_min_in: amx[1],
+                            span_max_in: s_min[1],
+                            is_equal_spacing: true,
+                        });
+                        guides.push(vexio_render::SmartGuideLine {
+                            is_vertical: true,
+                            coord_in: mid_x,
+                            span_min_in: s_max[1],
+                            span_max_in: bmn[1],
+                            is_equal_spacing: true,
+                        });
+                    }
+                }
+            }
+        }
+
+        ([snap_dx, snap_dy], guides)
+    }
+
+    /// Locate a static connection port (`Some("Connections.X{ix}")`) or dynamic shape body (`None`)
+    /// near `(x_in, y_in)` on `page_id`, returning `(target_shape_id, optional_port_cell, snap_pos_in, all_shape_ports_in)`.
+    pub fn find_nearest_connection_port(
+        &self,
+        page_id: u32,
+        exclude_shape_id: u64,
+        x_in: f64,
+        y_in: f64,
+        tol_in: f64,
+    ) -> Option<(u64, Option<String>, [f64; 2], Vec<[f64; 2]>)> {
+        let visuals = ReactiveEngine::evaluate_page_visuals(&self.doc, page_id);
+        let mut best_port: Option<(f64, u64, String, [f64; 2], Vec<[f64; 2]>)> = None;
+        let mut hovered_body: Option<(u64, [f64; 2], Vec<[f64; 2]>)> = None;
+
+        for v in visuals.iter().rev() {
+            if v.shape_id == exclude_shape_id || v.kind == ShapeKind::Connector1D {
+                continue;
+            }
+            let all_pts: Vec<[f64; 2]> =
+                v.connection_points.iter().map(|cp| cp.pos_page_in).collect();
+            for cp in &v.connection_points {
+                let d = (cp.pos_page_in[0] - x_in).hypot(cp.pos_page_in[1] - y_in);
+                if d <= tol_in && best_port.as_ref().is_none_or(|b| d < b.0) {
+                    best_port = Some((
+                        d,
+                        v.shape_id,
+                        cp.cell_name.clone(),
+                        cp.pos_page_in,
+                        all_pts.clone(),
+                    ));
+                }
+            }
+            if hovered_body.is_none()
+                && x_in >= v.aabb_min[0] - tol_in * 0.4
+                && x_in <= v.aabb_max[0] + tol_in * 0.4
+                && y_in >= v.aabb_min[1] - tol_in * 0.4
+                && y_in <= v.aabb_max[1] + tol_in * 0.4
+            {
+                hovered_body = Some((
+                    v.shape_id,
+                    [v.transform.pin_x, v.transform.pin_y],
+                    all_pts,
+                ));
+            }
+        }
+
+        if let Some((_, sid, cell, pos, pts)) = best_port {
+            Some((sid, Some(cell), pos, pts))
+        } else {
+            hovered_body.map(|(sid, pos, pts)| (sid, None, pos, pts))
+        }
+    }
+
+    /// Register custom TrueType/OpenType font bytes (`.ttf`/`.otf`) into the process-wide `vexio-render`
+    /// shaper registry (used for ChromeOS Local Font Access API `.blob()` streaming and user fonts).
+    pub fn register_font_bytes(bytes: &[u8], family_override: Option<&str>) -> bool {
+        vexio_render::register_font_bytes(family_override.unwrap_or(""), bytes.to_vec()) > 0
     }
 
     pub fn delete_shapes(&mut self, page_id: u32, shape_ids: &[u64]) -> Result<usize, CoreError> {

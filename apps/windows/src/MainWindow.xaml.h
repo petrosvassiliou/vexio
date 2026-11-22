@@ -103,6 +103,10 @@ struct MainWindow : MainWindowT<MainWindow> {
                                        winrt::Microsoft::UI::Xaml::Input::KeyboardAcceleratorInvokedEventArgs const& args);
     void OnMacroEditorAccelerator(winrt::Microsoft::UI::Xaml::Input::KeyboardAccelerator const& sender,
                                   winrt::Microsoft::UI::Xaml::Input::KeyboardAcceleratorInvokedEventArgs const& args);
+    void OnGroupAccelerator(winrt::Microsoft::UI::Xaml::Input::KeyboardAccelerator const& sender,
+                            winrt::Microsoft::UI::Xaml::Input::KeyboardAcceleratorInvokedEventArgs const& args);
+    void OnUngroupAccelerator(winrt::Microsoft::UI::Xaml::Input::KeyboardAccelerator const& sender,
+                              winrt::Microsoft::UI::Xaml::Input::KeyboardAcceleratorInvokedEventArgs const& args);
 
     // Quick Access Toolbar & File Backstage Commands
     void OnSaveClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
@@ -142,8 +146,16 @@ struct MainWindow : MainWindowT<MainWindow> {
     void OnConnectorRoutingChanged(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::Controls::SelectionChangedEventArgs const& e);
     void OnQuickStyleAccentClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
     void OnQuickStyleNeutralClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
+    void OnAlignLeftClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
     void OnAlignCenterClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
+    void OnAlignRightClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
+    void OnAlignTopClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
+    void OnAlignMiddleClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
+    void OnAlignBottomClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
     void OnDistributeHorizontallyClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
+    void OnDistributeVerticallyClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
+    void OnGroupShapesClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
+    void OnUngroupShapesClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
     void OnAutoLayoutQuickClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
 
     void OnInsertBlankPageClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
@@ -201,6 +213,7 @@ struct MainWindow : MainWindowT<MainWindow> {
     void OnViewRulersChanged(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
     void OnViewGridChanged(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
     void OnViewAutoConnectChanged(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
+    void OnViewSmartGuidesChanged(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
     void OnToggleLeftStencilDockClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
     void OnToggleRightTaskPanesClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
     void OnToggleShapeSheetClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
@@ -368,6 +381,10 @@ private:
     void MarkDocumentDirty(bool dirty);
 
     // Phase 7/8 Plan 2 Operations & Dialog Helpers
+    void SyncMultiSelectionFromViewport();
+    [[nodiscard]] std::vector<uint64_t> ResolveTargetSelectionIds();
+    void ExecuteAlignMode(std::string_view modeUtf8, std::wstring_view label);
+    void ExecuteDistributeAxis(std::string_view axisUtf8, std::wstring_view label);
     void ApplySelectedThemeAndVariant();
     void ApplyVisualPresetSlug(std::string_view presetSlugUtf8, std::wstring_view displayLabel);
     void ExecuteBooleanOp(std::string_view opSlugUtf8, std::wstring_view displayLabel, double offsetIn = 0.18);
@@ -409,6 +426,7 @@ private:
     uint32_t     m_activePageId{1};
     uint64_t     m_selectedShapeId{1};
     uint64_t     m_previousSelectedShapeId{1};
+    std::vector<uint64_t> m_selectedShapeIds{1};
     uint64_t     m_nextShapeId{2};
     uint64_t     m_inlineEditingShapeId{0};
     std::string  m_selectedCellName{"Width"};
@@ -423,6 +441,7 @@ private:
     bool   m_ribbonCollapsed{false};
     bool   m_touchMode{false};
     bool   m_metricUnits{true};
+    bool   m_smartGuidesEnabled{true};
     bool   m_forceSetf{false};
     bool   m_autoCheckUpdates{true};
     bool   m_committingInlineEdit{false};

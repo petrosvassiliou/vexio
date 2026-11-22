@@ -22,6 +22,8 @@
             <KeyboardAccelerator Key="F4" Modifiers="Shift" Invoked="OnPageSetupAccelerator" />
             <KeyboardAccelerator Key="F5" Modifiers="Shift" Invoked="OnToggleShapeSheetAccelerator" />
             <KeyboardAccelerator Key="F9" Modifiers="Menu" Invoked="OnMacroEditorAccelerator" />
+            <KeyboardAccelerator Key="G" Modifiers="Control" Invoked="OnGroupAccelerator" />
+            <KeyboardAccelerator Key="G" Modifiers="Control,Shift" Invoked="OnUngroupAccelerator" />
         </Grid.KeyboardAccelerators>
 
         <Grid.RowDefinitions>
@@ -419,9 +421,32 @@
                             </StackPanel>
                             <AppBarSeparator />
 
-                            <!-- Arrange, Rotate & Flip Group (Works on ALL Built-in & Imported Stencils) -->
+                            <!-- Arrange, Align, Distribute, Group, Rotate & Flip Group -->
                             <StackPanel>
                                 <StackPanel Orientation="Horizontal" Spacing="4" Height="56">
+                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Content="Align ▾" ToolTipService.ToolTip="Align Selected Shapes (Left, Center, Right, Top, Middle, Bottom)">
+                                        <Button.Flyout>
+                                            <MenuFlyout>
+                                                <MenuFlyoutItem Text="Align Left" Click="OnAlignLeftClick" />
+                                                <MenuFlyoutItem Text="Align Center" Click="OnAlignCenterClick" />
+                                                <MenuFlyoutItem Text="Align Right" Click="OnAlignRightClick" />
+                                                <MenuFlyoutSeparator />
+                                                <MenuFlyoutItem Text="Align Top" Click="OnAlignTopClick" />
+                                                <MenuFlyoutItem Text="Align Middle" Click="OnAlignMiddleClick" />
+                                                <MenuFlyoutItem Text="Align Bottom" Click="OnAlignBottomClick" />
+                                            </MenuFlyout>
+                                        </Button.Flyout>
+                                    </Button>
+                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Content="Distribute ▾" ToolTipService.ToolTip="Distribute Selected Shapes with Equal Spacing">
+                                        <Button.Flyout>
+                                            <MenuFlyout>
+                                                <MenuFlyoutItem Text="Distribute Horizontally" Click="OnDistributeHorizontallyClick" />
+                                                <MenuFlyoutItem Text="Distribute Vertically" Click="OnDistributeVerticallyClick" />
+                                            </MenuFlyout>
+                                        </Button.Flyout>
+                                    </Button>
+                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnGroupShapesClick" Content="Group" ToolTipService.ToolTip="Group Selected Shapes (Ctrl+G)" />
+                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnUngroupShapesClick" Content="Ungroup" ToolTipService.ToolTip="Ungroup Selected Group (Ctrl+Shift+G)" />
                                     <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnRotateLeft90Click" Content="↺ 90°" ToolTipService.ToolTip="Rotate Selected Stencil / Shape Left 90°" />
                                     <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnRotateRight90Click" Content="↻ 90°" ToolTipService.ToolTip="Rotate Selected Stencil / Shape Right 90°" />
                                     <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnFlipHorizontalClick" Content="⇆ Flip H" ToolTipService.ToolTip="Flip Selected Stencil Horizontally" />
@@ -430,7 +455,7 @@
                                     <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnSendBackClick" Content="Send Back" />
                                     <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnAutoLayoutQuickClick" Content="Auto-Layout" />
                                 </StackPanel>
-                                <TextBlock Text="Rotate, Flip &amp; Arrange" Style="{StaticResource VexioRibbonGroupLabelStyle}" />
+                                <TextBlock Text="Arrange, Align &amp; Group" Style="{StaticResource VexioRibbonGroupLabelStyle}" />
                             </StackPanel>
                         </StackPanel>
 
@@ -666,6 +691,7 @@
                                 <StackPanel Orientation="Horizontal" Spacing="8" Height="56" VerticalAlignment="Center">
                                     <CheckBox x:Name="ViewRulersCheck" Content="Rulers" IsChecked="True" Checked="OnViewRulersChanged" Unchecked="OnViewRulersChanged" />
                                     <CheckBox x:Name="ViewGridCheck" Content="Grid" IsChecked="True" Checked="OnViewGridChanged" Unchecked="OnViewGridChanged" />
+                                    <CheckBox x:Name="ViewSmartGuidesCheck" Content="Smart Guides" IsChecked="True" Checked="OnViewSmartGuidesChanged" Unchecked="OnViewSmartGuidesChanged" />
                                     <CheckBox x:Name="ViewAutoConnectCheck" Content="AutoConnect" IsChecked="True" Checked="OnViewAutoConnectChanged" Unchecked="OnViewAutoConnectChanged" />
                                 </StackPanel>
                                 <TextBlock Text="Show &amp; Visual Aids" Style="{StaticResource VexioRibbonGroupLabelStyle}" />
@@ -1464,7 +1490,7 @@
                                 </StackPanel>
                                 <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
                                     <Button Click="OnCheckUpdatesClick" Content="Check for Updates Now" />
-                                    <TextBlock x:Name="BackstageUpdateStatusText" Text="Vexio v0.1.0 • Automatic background update check enabled."
+                                    <TextBlock x:Name="BackstageUpdateStatusText" Text="Vexio v0.2.0-alpha • Automatic background update check enabled."
                                                FontSize="12" Opacity="0.8" VerticalAlignment="Center" />
                                 </StackPanel>
                             </StackPanel>

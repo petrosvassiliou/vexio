@@ -8,10 +8,12 @@ use lyon_tessellation::{
     BuffersBuilder, FillOptions, FillRule, FillTessellator, FillVertex, LineCap, LineJoin,
     StrokeOptions, StrokeTessellator, StrokeVertex, VertexBuffers,
 };
-use std::collections::HashMap;
+use serde::{Deserialize, Serialize};
+use std::collections::{BTreeMap, HashMap};
 use std::f64::consts::{FRAC_PI_4, PI, TAU};
 use vexio_shapesheet::{
-    EvaluatedGeometryPath, EvaluatedPathVerb, EvaluatedShapeVisual, MarkupInkStroke, RgbaColor,
+    EvaluatedGeometryPath, EvaluatedGradientStop, EvaluatedPathVerb, EvaluatedShapeVisual,
+    MarkupInkStroke, RgbaColor, ShapeKind,
 };
 
 /// Primitive kind constants stored in `GpuVertex::flags[0]`.
@@ -330,6 +332,17 @@ pub fn tessellate_shape_full(
     };
     let fill_rgba = visual.fill_color.map(RgbaColor::to_linear_f32);
     let stroke_rgba = visual.stroke_color.map(RgbaColor::to_linear_f32);
+    let grad_spec = if visual.gradient_stops.len() >= 2 && visual.fill_color.is_some() {
+        Some(GradientFillSpec {
+            aabb_min: visual.aabb_min,
+            aabb_max: visual.aabb_max,
+            angle_rad: visual.fill_gradient_angle_rad,
+            radial: visual.fill_gradient_radial,
+            stops: &visual.gradient_stops,
+        })
+    } else {
+        None
+    };
 
     let mut first_tangent: Option<([f64; 2], [f64; 2])> = None;
     let mut last_tangent: Option<([f64; 2], [f64; 2])> = None;
@@ -339,6 +352,11 @@ pub fn tessellate_shape_full(
             continue;
         }
         let g_fill = geom.fill_color.map(RgbaColor::to_linear_f32).or(fill_rgba);
+        let g_grad = if geom.fill_color.is_some() {
+            None
+        } else {
+            grad_spec.as_ref()
+        };
         let g_stroke = geom.stroke_color.map(RgbaColor::to_linear_f32).or(stroke_rgba);
         let g_sw = geom
             .stroke_weight_in
@@ -350,6 +368,7 @@ pub fn tessellate_shape_full(
             rounding,
             visual.line_pattern,
             g_fill,
+            g_grad,
             g_stroke,
             g_sw,
             tol,
@@ -368,6 +387,7 @@ pub fn tessellate_shape_full(
                 // Arrow points backward toward `tip` from `next_pt`.
                 tessellate_arrowhead(
                     visual.begin_arrow,
+                    visual.begin_arrow_size,
                     next_pt,
                     tip,
                     stroke_w,
@@ -383,6 +403,7 @@ pub fn tessellate_shape_full(
             if let Some((prev_pt, tip)) = last_tangent {
                 tessellate_arrowhead(
                     visual.end_arrow,
+                    visual.end_arrow_size,
                     prev_pt,
                     tip,
                     stroke_w,
@@ -407,16 +428,15 @@ pub fn tessellate_shape_full(
         out_mesh.append(&foreign_mesh);
     }
 
-    // Crisp full-Unicode vector text for shape labels (supporting lowercase, punctuation like '&',
-    // German umlauts/'ß', Greek, Bidi, word-wrap, and Sans/Serif/Monospace OS font families).
+    // Crisp full-Unicode TrueType/OpenType vector text for shape labels.
     let trimmed_txt = visual.text.trim();
     if !trimmed_txt.is_empty() {
-        let default_w = if visual.kind == vexio_shapesheet::ShapeKind::Connector1D {
+        let default_w = if visual.kind == ShapeKind::Connector1D {
             visual.transform.width.abs().max(2.2)
         } else {
             visual.transform.width.abs().max(0.45)
         };
-        let default_h = if visual.kind == vexio_shapesheet::ShapeKind::Connector1D {
+        let default_h = if visual.kind == ShapeKind::Connector1D {
             visual.transform.height.abs().max(0.5)
         } else {
             visual.transform.height.abs().max(0.28)
@@ -425,17 +445,20 @@ pub fn tessellate_shape_full(
         let box_h = visual.txt_height.unwrap_or(default_h).abs().max(0.28);
         let text_angle = readable_text_angle_rad(visual.transform.angle_rad);
 
+        let block = crate::typography::parse_inline_rich_text_styled_with_font(
+            trimmed_txt,
+            visual.font_size_pt,
+            visual.text_color,
+            visual.char_style,
+            visual.horiz_align,
+            visual.vert_align,
+            visual.bullet_style,
+            &visual.font_family,
+        );
+
         if let Some(bg) = visual.text_bg_color {
             let bg_rgba = bg.to_linear_f32();
-            let font_in = (visual.font_size_pt.clamp(4.0, 144.0)) / 72.0;
-            let n_lines = trimmed_txt.lines().count().max(1) as f64;
-            let max_chars = trimmed_txt
-                .lines()
-                .map(|l| l.chars().count())
-                .max()
-                .unwrap_or(1) as f64;
-            let span_w = (max_chars * font_in * 0.62 + 0.12).min(box_w).max(0.22);
-            let span_h = (n_lines * font_in * 1.32 + 0.06).min(box_h).max(font_in * 1.15);
+            let (span_w, span_h) = crate::typography::measure_rich_text_bounds_in(&block, box_w, box_h);
             let pad = 0.05;
             let local_cx = match visual.horiz_align {
                 0 => -box_w * 0.5 + pad + span_w * 0.5,
@@ -473,16 +496,6 @@ pub fn tessellate_shape_full(
                 .extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
         }
 
-        let block = crate::typography::parse_inline_rich_text_styled_with_font(
-            trimmed_txt,
-            visual.font_size_pt,
-            visual.text_color,
-            visual.char_style,
-            visual.horiz_align,
-            visual.vert_align,
-            visual.bullet_style,
-            &visual.font_family,
-        );
         let rich_mesh = crate::typography::tessellate_rich_text_in_box(
             &block,
             visual.txt_pos[0],
@@ -497,12 +510,106 @@ pub fn tessellate_shape_full(
     out_mesh
 }
 
+struct GradientFillSpec<'a> {
+    aabb_min: [f64; 2],
+    aabb_max: [f64; 2],
+    angle_rad: f64,
+    radial: bool,
+    stops: &'a [EvaluatedGradientStop],
+}
+
+impl GradientFillSpec<'_> {
+    fn sample_linear_rgba(&self, px: f32, py: f32) -> [f32; 4] {
+        let cx = ((self.aabb_min[0] + self.aabb_max[0]) * 0.5) as f32;
+        let cy = ((self.aabb_min[1] + self.aabb_max[1]) * 0.5) as f32;
+        let hw = (((self.aabb_max[0] - self.aabb_min[0]).abs() * 0.5).max(1e-4)) as f32;
+        let hh = (((self.aabb_max[1] - self.aabb_min[1]).abs() * 0.5).max(1e-4)) as f32;
+
+        let t = if self.radial {
+            let nx = (px - cx) / hw;
+            let ny = (py - cy) / hh;
+            ((nx * nx + ny * ny).sqrt() / std::f32::consts::SQRT_2).clamp(0.0, 1.0)
+        } else {
+            let (sa, ca) = (self.angle_rad as f32).sin_cos();
+            let proj = (px - cx) * ca + (py - cy) * sa;
+            let half_ext = (hw * ca.abs() + hh * sa.abs()).max(1e-4);
+            ((proj / half_ext) * 0.5 + 0.5).clamp(0.0, 1.0)
+        };
+
+        if self.stops.is_empty() {
+            return [1.0, 1.0, 1.0, 1.0];
+        }
+        if t <= self.stops[0].position {
+            return self.stops[0].color.to_linear_f32();
+        }
+        let last = self.stops.last().unwrap();
+        if t >= last.position {
+            return last.color.to_linear_f32();
+        }
+        for w in self.stops.windows(2) {
+            if t >= w[0].position && t <= w[1].position {
+                let span = (w[1].position - w[0].position).max(1e-5);
+                let u = ((t - w[0].position) / span).clamp(0.0, 1.0);
+                let c0 = w[0].color.to_linear_f32();
+                let c1 = w[1].color.to_linear_f32();
+                return [
+                    c0[0] + (c1[0] - c0[0]) * u,
+                    c0[1] + (c1[1] - c0[1]) * u,
+                    c0[2] + (c1[2] - c0[2]) * u,
+                    c0[3] + (c1[3] - c0[3]) * u,
+                ];
+            }
+        }
+        last.color.to_linear_f32()
+    }
+}
+
+fn subdivide_triangles_midpoint(
+    verts: &mut Vec<[f32; 2]>,
+    indices: &mut Vec<u32>,
+    passes: usize,
+) {
+    for _ in 0..passes {
+        if indices.len() / 3 > 512 {
+            break;
+        }
+        let mut next_idx = Vec::with_capacity(indices.len() * 4);
+        let mut edge_mid: BTreeMap<(u32, u32), u32> = BTreeMap::new();
+        let mut midpoint_of = |a: u32, b: u32, vs: &mut Vec<[f32; 2]>| -> u32 {
+            let key = if a <= b { (a, b) } else { (b, a) };
+            if let Some(&m) = edge_mid.get(&key) {
+                return m;
+            }
+            let pa = vs[a as usize];
+            let pb = vs[b as usize];
+            let mid_id = vs.len() as u32;
+            vs.push([0.5 * (pa[0] + pb[0]), 0.5 * (pa[1] + pb[1])]);
+            edge_mid.insert(key, mid_id);
+            mid_id
+        };
+        for tri in indices.chunks_exact(3) {
+            let (i0, i1, i2) = (tri[0], tri[1], tri[2]);
+            let m01 = midpoint_of(i0, i1, verts);
+            let m12 = midpoint_of(i1, i2, verts);
+            let m20 = midpoint_of(i2, i0, verts);
+            next_idx.extend_from_slice(&[
+                i0, m01, m20,
+                m01, i1, m12,
+                m20, m12, i2,
+                m01, m12, m20,
+            ]);
+        }
+        *indices = next_idx;
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn tessellate_geometry_section(
     geom: &EvaluatedGeometryPath,
     rounding_in: f64,
     line_pattern: u8,
     fill_rgba: Option<[f32; 4]>,
+    grad_spec: Option<&GradientFillSpec<'_>>,
     stroke_rgba: Option<[f32; 4]>,
     stroke_w: f32,
     tol: f32,
@@ -522,7 +629,32 @@ fn tessellate_geometry_section(
     // Visio ShapeSheet rule: only explicitly or geometrically CLOSED figures are filled.
     // Open figures (`MoveTo -> LineTo -> LineTo` where end != start) never fill across the diagonal!
     if !geom.no_fill {
-        if let Some(fc) = fill_rgba {
+        if let Some(grad) = grad_spec {
+            let mut pos_buf: VertexBuffers<[f32; 2], u32> = VertexBuffers::new();
+            let _ = fill_tess.tessellate_path(
+                &fill_path,
+                &FillOptions::tolerance(tol).with_fill_rule(FillRule::EvenOdd),
+                &mut BuffersBuilder::new(&mut pos_buf, |vertex: FillVertex| {
+                    let p = vertex.position();
+                    [p.x, p.y]
+                }),
+            );
+            if !pos_buf.indices.is_empty() {
+                if grad.radial || grad.stops.len() >= 3 {
+                    subdivide_triangles_midpoint(&mut pos_buf.vertices, &mut pos_buf.indices, 2);
+                }
+                let base = lyon_buf.vertices.len() as u32;
+                for p in &pos_buf.vertices {
+                    let col = grad.sample_linear_rgba(p[0], p[1]);
+                    lyon_buf
+                        .vertices
+                        .push(GpuVertex::new(*p, col, [PRIM_FLAG_SHAPE, 0.0]));
+                }
+                for &idx in &pos_buf.indices {
+                    lyon_buf.indices.push(base + idx);
+                }
+            }
+        } else if let Some(fc) = fill_rgba {
             let _ = fill_tess.tessellate_path(
                 &fill_path,
                 &FillOptions::tolerance(tol).with_fill_rule(FillRule::EvenOdd),
@@ -1261,9 +1393,24 @@ fn compute_corner_fillet(
     (t_in, t_out, true)
 }
 
+/// Scale multiplier for Visio `BeginArrowSize` / `EndArrowSize` (`0=VerySmall .. 6=Colossal`).
+#[inline]
+pub fn visio_arrow_size_scale(size_code: u8) -> f64 {
+    match size_code {
+        0 => 0.60, // Very Small
+        1 => 0.78, // Small
+        2 => 1.00, // Medium (Visio Default)
+        3 => 1.32, // Large
+        4 => 1.68, // Extra Large
+        5 => 2.15, // Jumbo
+        _ => 2.75, // Colossal
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn tessellate_arrowhead(
     arrow_code: u8,
+    size_code: u8,
     from_pt: [f64; 2],
     tip_pt: [f64; 2],
     stroke_w: f32,
@@ -1284,8 +1431,62 @@ fn tessellate_arrowhead(
     let nx = -uy;
     let ny = ux;
 
-    let arrow_len = ((stroke_w as f64) * 6.5).clamp(0.09, 0.32);
+    let size_mul = visio_arrow_size_scale(size_code);
+    let arrow_len = (((stroke_w as f64) * 6.5).clamp(0.09, 0.32) * size_mul).clamp(0.055, 0.90);
     let arrow_half_w = arrow_len * 0.52;
+    let white = [1.0f32, 1.0, 1.0, 1.0];
+
+    let fill_poly = |pts: &[[f64; 2]],
+                     col: [f32; 4],
+                     ft: &mut FillTessellator,
+                     buf: &mut VertexBuffers<GpuVertex, u32>| {
+        if pts.len() < 3 {
+            return;
+        }
+        let mut b = Path::builder();
+        b.begin(point(pts[0][0] as f32, pts[0][1] as f32));
+        for p in pts.iter().skip(1) {
+            b.line_to(point(p[0] as f32, p[1] as f32));
+        }
+        b.end(true);
+        let built = b.build();
+        let _ = ft.tessellate_path(
+            &built,
+            &FillOptions::tolerance(tol),
+            &mut BuffersBuilder::new(buf, |v: FillVertex| {
+                let pt = v.position();
+                GpuVertex::new([pt.x, pt.y], col, [PRIM_FLAG_SHAPE, 0.0])
+            }),
+        );
+    };
+
+    let stroke_poly = |pts: &[[f64; 2]],
+                       closed: bool,
+                       col: [f32; 4],
+                       st: &mut StrokeTessellator,
+                       buf: &mut VertexBuffers<GpuVertex, u32>| {
+        if pts.len() < 2 {
+            return;
+        }
+        let mut b = Path::builder();
+        b.begin(point(pts[0][0] as f32, pts[0][1] as f32));
+        for p in pts.iter().skip(1) {
+            b.line_to(point(p[0] as f32, p[1] as f32));
+        }
+        b.end(closed);
+        let built = b.build();
+        let _ = st.tessellate_path(
+            &built,
+            &StrokeOptions::tolerance(tol)
+                .with_line_width(stroke_w)
+                .with_line_cap(LineCap::Round)
+                .with_line_join(LineJoin::Miter),
+            &mut BuffersBuilder::new(buf, |v: StrokeVertex| {
+                let pt = v.position();
+                GpuVertex::new([pt.x, pt.y], col, [PRIM_FLAG_SHAPE, 0.0])
+            }),
+        );
+    };
 
     match arrow_code {
         1 => {
@@ -1294,26 +1495,30 @@ fn tessellate_arrowhead(
             let by = tip_pt[1] - uy * arrow_len;
             let left = [bx + nx * arrow_half_w, by + ny * arrow_half_w];
             let right = [bx - nx * arrow_half_w, by - ny * arrow_half_w];
-            let mut b = Path::builder();
-            b.begin(point(left[0] as f32, left[1] as f32));
-            b.line_to(point(tip_pt[0] as f32, tip_pt[1] as f32));
-            b.line_to(point(right[0] as f32, right[1] as f32));
-            b.end(false);
-            let p = b.build();
-            let _ = stroke_tess.tessellate_path(
-                &p,
-                &StrokeOptions::tolerance(tol)
-                    .with_line_width(stroke_w)
-                    .with_line_cap(LineCap::Round)
-                    .with_line_join(LineJoin::Miter),
-                &mut BuffersBuilder::new(lyon_buf, |v: StrokeVertex| {
-                    let pt = v.position();
-                    GpuVertex::new([pt.x, pt.y], color, [PRIM_FLAG_SHAPE, 0.0])
-                }),
-            );
+            stroke_poly(&[left, tip_pt, right], false, color, stroke_tess, lyon_buf);
         }
-        10 | 11 | 20 => {
-            // Circular dot marker at endpoint.
+        2 | 14 => {
+            // Visio Code 2 / 14: Hollow triangle / hollow stealth (UML Generalization / Realization).
+            let bx = tip_pt[0] - ux * arrow_len;
+            let by = tip_pt[1] - uy * arrow_len;
+            let left = [bx + nx * arrow_half_w, by + ny * arrow_half_w];
+            let right = [bx - nx * arrow_half_w, by - ny * arrow_half_w];
+            if arrow_code == 14 {
+                let notch = [
+                    tip_pt[0] - ux * (arrow_len * 0.78),
+                    tip_pt[1] - uy * (arrow_len * 0.78),
+                ];
+                let poly = [tip_pt, left, notch, right];
+                fill_poly(&poly, white, fill_tess, lyon_buf);
+                stroke_poly(&poly, true, color, stroke_tess, lyon_buf);
+            } else {
+                let poly = [tip_pt, left, right];
+                fill_poly(&poly, white, fill_tess, lyon_buf);
+                stroke_poly(&poly, true, color, stroke_tess, lyon_buf);
+            }
+        }
+        10 | 20 => {
+            // Filled circular dot marker at endpoint.
             let r = arrow_len * 0.42;
             let mut b = Path::builder();
             emit_rotated_ellipse(&mut b, tip_pt, r, r, 0.0);
@@ -1327,30 +1532,109 @@ fn tessellate_arrowhead(
                 }),
             );
         }
-        5 | 12 => {
-            // Diamond arrowhead (UML composition / aggregation).
-            let mid = [tip_pt[0] - ux * (arrow_len * 0.6), tip_pt[1] - uy * (arrow_len * 0.6)];
-            let tail = [tip_pt[0] - ux * (arrow_len * 1.2), tip_pt[1] - uy * (arrow_len * 1.2)];
-            let left = [mid[0] + nx * arrow_half_w, mid[1] + ny * arrow_half_w];
-            let right = [mid[0] - nx * arrow_half_w, mid[1] - ny * arrow_half_w];
+        22 => {
+            // Hollow circular marker (UML / BPMN message start).
+            let r = arrow_len * 0.42;
             let mut b = Path::builder();
-            b.begin(point(tip_pt[0] as f32, tip_pt[1] as f32));
-            b.line_to(point(left[0] as f32, left[1] as f32));
-            b.line_to(point(tail[0] as f32, tail[1] as f32));
-            b.line_to(point(right[0] as f32, right[1] as f32));
-            b.end(true);
+            emit_rotated_ellipse(&mut b, tip_pt, r, r, 0.0);
             let p = b.build();
             let _ = fill_tess.tessellate_path(
                 &p,
                 &FillOptions::tolerance(tol),
                 &mut BuffersBuilder::new(lyon_buf, |v: FillVertex| {
                     let pt = v.position();
+                    GpuVertex::new([pt.x, pt.y], white, [PRIM_FLAG_SHAPE, 0.0])
+                }),
+            );
+            let _ = stroke_tess.tessellate_path(
+                &p,
+                &StrokeOptions::tolerance(tol).with_line_width(stroke_w),
+                &mut BuffersBuilder::new(lyon_buf, |v: StrokeVertex| {
+                    let pt = v.position();
                     GpuVertex::new([pt.x, pt.y], color, [PRIM_FLAG_SHAPE, 0.0])
                 }),
             );
         }
+        5 | 11 | 12 => {
+            // Diamond arrowhead: `5`/`12` filled (UML Composition), `11` hollow (UML Aggregation).
+            let mid = [
+                tip_pt[0] - ux * (arrow_len * 0.6),
+                tip_pt[1] - uy * (arrow_len * 0.6),
+            ];
+            let tail = [
+                tip_pt[0] - ux * (arrow_len * 1.2),
+                tip_pt[1] - uy * (arrow_len * 1.2),
+            ];
+            let left = [mid[0] + nx * arrow_half_w, mid[1] + ny * arrow_half_w];
+            let right = [mid[0] - nx * arrow_half_w, mid[1] - ny * arrow_half_w];
+            let poly = [tip_pt, left, tail, right];
+            if arrow_code == 11 {
+                fill_poly(&poly, white, fill_tess, lyon_buf);
+                stroke_poly(&poly, true, color, stroke_tess, lyon_buf);
+            } else {
+                fill_poly(&poly, color, fill_tess, lyon_buf);
+            }
+        }
+        15 | 16 => {
+            // Double filled triangle arrowhead.
+            for k in [0.0, 0.72] {
+                let t = [tip_pt[0] - ux * (arrow_len * k), tip_pt[1] - uy * (arrow_len * k)];
+                let b_pt = [t[0] - ux * (arrow_len * 0.78), t[1] - uy * (arrow_len * 0.78)];
+                let left = [b_pt[0] + nx * (arrow_half_w * 0.85), b_pt[1] + ny * (arrow_half_w * 0.85)];
+                let right = [b_pt[0] - nx * (arrow_half_w * 0.85), b_pt[1] - ny * (arrow_half_w * 0.85)];
+                fill_poly(&[t, left, right], color, fill_tess, lyon_buf);
+            }
+        }
+        24 => {
+            // Architectural dimension tick (45° oblique slash across endpoint).
+            let d = arrow_half_w * 1.05;
+            let p0 = [tip_pt[0] - (ux - nx) * d, tip_pt[1] - (uy - ny) * d];
+            let p1 = [tip_pt[0] + (ux - nx) * d, tip_pt[1] + (uy - ny) * d];
+            stroke_poly(&[p0, p1], false, color, stroke_tess, lyon_buf);
+        }
+        27 | 28 | 29 => {
+            // Crow's Foot ERD arrowheads (`27`=Many, `28`=One-and-Many, `29`=Zero-or-Many).
+            let neck = [tip_pt[0] - ux * arrow_len, tip_pt[1] - uy * arrow_len];
+            let splay_l = [tip_pt[0] + nx * arrow_half_w, tip_pt[1] + ny * arrow_half_w];
+            let splay_r = [tip_pt[0] - nx * arrow_half_w, tip_pt[1] - ny * arrow_half_w];
+            stroke_poly(&[splay_l, neck, splay_r], false, color, stroke_tess, lyon_buf);
+            if arrow_code == 28 {
+                let bar_c = [
+                    tip_pt[0] - ux * (arrow_len * 1.15),
+                    tip_pt[1] - uy * (arrow_len * 1.15),
+                ];
+                let bl = [bar_c[0] + nx * (arrow_half_w * 0.75), bar_c[1] + ny * (arrow_half_w * 0.75)];
+                let br = [bar_c[0] - nx * (arrow_half_w * 0.75), bar_c[1] - ny * (arrow_half_w * 0.75)];
+                stroke_poly(&[bl, br], false, color, stroke_tess, lyon_buf);
+            } else if arrow_code == 29 {
+                let r = arrow_len * 0.28;
+                let ring_c = [
+                    tip_pt[0] - ux * (arrow_len * 1.32),
+                    tip_pt[1] - uy * (arrow_len * 1.32),
+                ];
+                let mut b = Path::builder();
+                emit_rotated_ellipse(&mut b, ring_c, r, r, 0.0);
+                let p = b.build();
+                let _ = fill_tess.tessellate_path(
+                    &p,
+                    &FillOptions::tolerance(tol),
+                    &mut BuffersBuilder::new(lyon_buf, |v: FillVertex| {
+                        let pt = v.position();
+                        GpuVertex::new([pt.x, pt.y], white, [PRIM_FLAG_SHAPE, 0.0])
+                    }),
+                );
+                let _ = stroke_tess.tessellate_path(
+                    &p,
+                    &StrokeOptions::tolerance(tol).with_line_width(stroke_w),
+                    &mut BuffersBuilder::new(lyon_buf, |v: StrokeVertex| {
+                        let pt = v.position();
+                        GpuVertex::new([pt.x, pt.y], color, [PRIM_FLAG_SHAPE, 0.0])
+                    }),
+                );
+            }
+        }
         _ => {
-            // Classic filled Visio stealth/triangle arrowhead (Codes 2, 3, 4, 13, etc.).
+            // Classic filled Visio stealth/triangle arrowhead (Codes 3, 4, 13, etc.).
             let bx = tip_pt[0] - ux * arrow_len;
             let by = tip_pt[1] - uy * arrow_len;
             let notch = if arrow_code == 4 || arrow_code == 13 {
@@ -1363,21 +1647,7 @@ fn tessellate_arrowhead(
             };
             let left = [bx + nx * arrow_half_w, by + ny * arrow_half_w];
             let right = [bx - nx * arrow_half_w, by - ny * arrow_half_w];
-            let mut b = Path::builder();
-            b.begin(point(tip_pt[0] as f32, tip_pt[1] as f32));
-            b.line_to(point(left[0] as f32, left[1] as f32));
-            b.line_to(point(notch[0] as f32, notch[1] as f32));
-            b.line_to(point(right[0] as f32, right[1] as f32));
-            b.end(true);
-            let p = b.build();
-            let _ = fill_tess.tessellate_path(
-                &p,
-                &FillOptions::tolerance(tol),
-                &mut BuffersBuilder::new(lyon_buf, |v: FillVertex| {
-                    let pt = v.position();
-                    GpuVertex::new([pt.x, pt.y], color, [PRIM_FLAG_SHAPE, 0.0])
-                }),
-            );
+            fill_poly(&[tip_pt, left, notch, right], color, fill_tess, lyon_buf);
         }
     }
 }
@@ -1555,12 +1825,154 @@ pub fn tessellate_ink_stroke(stroke: &MarkupInkStroke, tolerance_in: f32) -> Tes
     }
 }
 
+/// Extract clean deduplicated polyline vertices in page inches for a `Connector1D` shape.
+pub fn extract_connector_polyline_in(visual: &EvaluatedShapeVisual) -> Vec<[f64; 2]> {
+    let mut pts: Vec<[f64; 2]> = Vec::new();
+    for g in &visual.paths {
+        if g.no_show {
+            continue;
+        }
+        for v in &g.verbs_page_space {
+            let next_pt = match *v {
+                EvaluatedPathVerb::MoveTo(p)
+                | EvaluatedPathVerb::LineTo(p)
+                | EvaluatedPathVerb::ArcTo { to: p, .. }
+                | EvaluatedPathVerb::QuadTo { to: p, .. }
+                | EvaluatedPathVerb::CubicTo { to: p, .. } => Some(p),
+                _ => None,
+            };
+            if let Some(p) = next_pt {
+                if pts.last().is_none_or(|prev| dist_2d(*prev, p) > 1e-4) {
+                    pts.push(p);
+                }
+            }
+        }
+    }
+    pts
+}
+
+/// Tessellate Visio 1D Connector selection handles: green `Begin`/`End` glue knobs
+/// (solid green when glued, white-center with green ring when unglued) plus cyan
+/// interior orthogonal segment midpoint diamonds for manual route dragging!
+pub fn tessellate_connector_1d_handles(
+    visual: &EvaluatedShapeVisual,
+    zoom_ppi: f64,
+    begin_glued: bool,
+    end_glued: bool,
+) -> TessellatedMesh {
+    let pts = extract_connector_polyline_in(visual);
+    if pts.len() < 2 {
+        return TessellatedMesh::new();
+    }
+    let ppi = zoom_ppi.max(1.0);
+    let inv_ppi = 1.0 / ppi;
+    let stroke_w = (1.6 * inv_ppi) as f32;
+    let end_r = 4.6 * inv_ppi;
+    let seg_r = (3.8 * inv_ppi) as f32;
+    let tol = (0.3 * inv_ppi).clamp(0.0002, 0.02) as f32;
+
+    let glue_green = [0.020, 0.580, 0.215, 1.0]; // Visio glue green (#16A34A in linear RGB)
+    let cyan_seg = [0.015, 0.485, 0.850, 1.0];   // Visio segment diamond blue
+    let white = [1.0, 1.0, 1.0, 1.0];
+
+    let mut lyon_buf: VertexBuffers<GpuVertex, u32> = VertexBuffers::new();
+    let mut fill_tess = FillTessellator::new();
+    let mut stroke_tess = StrokeTessellator::new();
+
+    // Subtle selection highlight along the connector path
+    let mut hl_b = Path::builder();
+    hl_b.begin(point(pts[0][0] as f32, pts[0][1] as f32));
+    for p in pts.iter().skip(1) {
+        hl_b.line_to(point(p[0] as f32, p[1] as f32));
+    }
+    hl_b.end(false);
+    let hl_path = hl_b.build();
+    let _ = stroke_tess.tessellate_path(
+        &hl_path,
+        &StrokeOptions::tolerance(tol).with_line_width((1.2 * inv_ppi) as f32),
+        &mut BuffersBuilder::new(&mut lyon_buf, |v: StrokeVertex| {
+            let p = v.position();
+            GpuVertex::new([p.x, p.y], [0.145, 0.388, 0.922, 0.65], [PRIM_FLAG_OVERLAY_UI, 0.0])
+        }),
+    );
+
+    // Begin & End circular glue handles
+    for (pt, is_glued) in [(pts[0], begin_glued), (*pts.last().unwrap(), end_glued)] {
+        let mut b = Path::builder();
+        emit_rotated_ellipse(&mut b, pt, end_r, end_r, 0.0);
+        let p = b.build();
+        let fill_col = if is_glued { glue_green } else { white };
+        let ring_col = if is_glued { white } else { glue_green };
+        let _ = fill_tess.tessellate_path(
+            &p,
+            &FillOptions::tolerance(tol),
+            &mut BuffersBuilder::new(&mut lyon_buf, |v: FillVertex| {
+                let pos = v.position();
+                GpuVertex::new([pos.x, pos.y], fill_col, [PRIM_FLAG_OVERLAY_UI, 0.0])
+            }),
+        );
+        let _ = stroke_tess.tessellate_path(
+            &p,
+            &StrokeOptions::tolerance(tol).with_line_width(stroke_w),
+            &mut BuffersBuilder::new(&mut lyon_buf, |v: StrokeVertex| {
+                let pos = v.position();
+                GpuVertex::new([pos.x, pos.y], ring_col, [PRIM_FLAG_OVERLAY_UI, 0.0])
+            }),
+        );
+    }
+
+    let mut mesh = TessellatedMesh {
+        vertices: lyon_buf.vertices,
+        indices: lyon_buf.indices,
+    };
+
+    // Interior orthogonal segment midpoint diamond grips (`1 .. pts.len() - 2`)
+    if pts.len() >= 4 {
+        for seg_idx in 1..(pts.len() - 2) {
+            let a = pts[seg_idx];
+            let b = pts[seg_idx + 1];
+            let is_horiz = (a[1] - b[1]).abs() < 1e-3 && (a[0] - b[0]).abs() > 8.0 * inv_ppi;
+            let is_vert = (a[0] - b[0]).abs() < 1e-3 && (a[1] - b[1]).abs() > 8.0 * inv_ppi;
+            if is_horiz || is_vert {
+                let mx = ((a[0] + b[0]) * 0.5) as f32;
+                let my = ((a[1] + b[1]) * 0.5) as f32;
+                let r_out = seg_r + stroke_w;
+                mesh.push_quad_points(
+                    [
+                        [mx, my + r_out],
+                        [mx + r_out, my],
+                        [mx, my - r_out],
+                        [mx - r_out, my],
+                    ],
+                    cyan_seg,
+                    [PRIM_FLAG_OVERLAY_UI, 0.0],
+                );
+                mesh.push_quad_points(
+                    [
+                        [mx, my + seg_r],
+                        [mx + seg_r, my],
+                        [mx, my - seg_r],
+                        [mx - seg_r, my],
+                    ],
+                    white,
+                    [PRIM_FLAG_OVERLAY_UI, 0.0],
+                );
+            }
+        }
+    }
+
+    mesh
+}
+
 /// Tessellate Visio interactive selection frame, 8 resize handles, and top rotation handle
 /// in page-space inches scaled consistently for the current `zoom_ppi`.
 pub fn tessellate_selection_handles(
     visual: &EvaluatedShapeVisual,
     zoom_ppi: f64,
 ) -> TessellatedMesh {
+    if visual.kind == ShapeKind::Connector1D {
+        return tessellate_connector_1d_handles(visual, zoom_ppi, false, false);
+    }
     let ppi = zoom_ppi.max(1.0);
     let inv_ppi = 1.0 / ppi;
     let stroke_w = (1.5 * inv_ppi) as f32;
@@ -1659,6 +2071,224 @@ pub fn tessellate_selection_handles(
         indices: knob_buf.indices,
     });
 
+    mesh
+}
+
+/// Tessellate a dashed Visio multi-selection group bounding frame + 8 outer resize grips.
+pub fn tessellate_multi_selection_frame(
+    aabb_min: [f64; 2],
+    aabb_max: [f64; 2],
+    zoom_ppi: f64,
+) -> TessellatedMesh {
+    let ppi = zoom_ppi.max(1.0);
+    let inv_ppi = (1.0 / ppi) as f32;
+    let stroke_w = 1.4 * inv_ppi;
+    let handle_half = 3.6 * inv_ppi;
+    let accent = [0.055, 0.450, 0.910, 0.92];
+    let white = [1.0, 1.0, 1.0, 1.0];
+
+    let mut fb = Path::builder();
+    let x0 = aabb_min[0] as f32;
+    let y0 = aabb_min[1] as f32;
+    let x1 = aabb_max[0] as f32;
+    let y1 = aabb_max[1] as f32;
+    fb.begin(point(x0, y0));
+    fb.line_to(point(x1, y0));
+    fb.line_to(point(x1, y1));
+    fb.line_to(point(x0, y1));
+    fb.end(true);
+    let dashed = dash_lyon_path(&fb.build(), 2, stroke_w, (0.3 * inv_ppi).max(0.0004));
+
+    let mut lyon_buf: VertexBuffers<GpuVertex, u32> = VertexBuffers::new();
+    let mut stroke_tess = StrokeTessellator::new();
+    let _ = stroke_tess.tessellate_path(
+        &dashed,
+        &StrokeOptions::tolerance((0.3 * inv_ppi).max(0.0004)).with_line_width(stroke_w),
+        &mut BuffersBuilder::new(&mut lyon_buf, |v: StrokeVertex| {
+            let p = v.position();
+            GpuVertex::new([p.x, p.y], accent, [PRIM_FLAG_OVERLAY_UI, 0.0])
+        }),
+    );
+    let mut mesh = TessellatedMesh {
+        vertices: lyon_buf.vertices,
+        indices: lyon_buf.indices,
+    };
+
+    let mx = 0.5 * (x0 + x1);
+    let my = 0.5 * (y0 + y1);
+    let outer = handle_half + stroke_w;
+    for [hx, hy] in [
+        [x0, y0],
+        [x1, y0],
+        [x1, y1],
+        [x0, y1],
+        [mx, y1],
+        [mx, y0],
+        [x0, my],
+        [x1, my],
+    ] {
+        mesh.push_quad([hx - outer, hy - outer], [hx + outer, hy + outer], accent, [PRIM_FLAG_OVERLAY_UI, 0.0]);
+        mesh.push_quad([hx - handle_half, hy - handle_half], [hx + handle_half, hy + handle_half], white, [PRIM_FLAG_OVERLAY_UI, 0.0]);
+    }
+    mesh
+}
+
+/// Visio Dynamic Grid Smart Guide line (edge/center alignment or equal-gap spacing indicator).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SmartGuideLine {
+    /// `true` = vertical line at `x = coord_in` spanning `y in [span_min_in .. span_max_in]`;
+    /// `false` = horizontal line at `y = coord_in` spanning `x in [span_min_in .. span_max_in]`.
+    pub is_vertical: bool,
+    pub coord_in: f64,
+    pub span_min_in: f64,
+    pub span_max_in: f64,
+    /// When `true`, renders perpendicular Visio equal-spacing ticks at both ends of the gap segment.
+    pub is_equal_spacing: bool,
+}
+
+/// Transient interactive canvas overlays rendered above shapes in `PRIM_FLAG_OVERLAY_UI`.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct InteractiveCanvasOverlay {
+    /// Rubber-band marquee selection rectangle `(min_in, max_in)`.
+    pub marquee_rect_in: Option<([f64; 2], [f64; 2])>,
+    /// Live Dynamic Grid alignment and equal-spacing guides during shape move/resize.
+    pub smart_guides: Vec<SmartGuideLine>,
+    /// Connection points on hovered/targeted 2D shapes `(pos_page_in, is_active_snap_target)`.
+    pub highlighted_ports: Vec<([f64; 2], bool)>,
+    /// Live preview line `(start_in, current_in)` while drawing a new connector.
+    pub connector_preview_in: Option<([f64; 2], [f64; 2])>,
+    /// Per-connector `(begin_glued, end_glued)` state for selected `Connector1D` shapes.
+    pub glued_connector_ends: BTreeMap<u64, (bool, bool)>,
+}
+
+/// Tessellate transient interactive overlays (rubber-band marquee, smart alignment & equal-spacing
+/// guides, hovered connection point snap rings, and live connector preview).
+pub fn tessellate_interactive_overlay(
+    overlay: &InteractiveCanvasOverlay,
+    zoom_ppi: f64,
+) -> TessellatedMesh {
+    let ppi = zoom_ppi.max(1.0);
+    let inv_ppi = 1.0 / ppi;
+    let tol = (0.3 * inv_ppi).clamp(0.0002, 0.02) as f32;
+    let mut mesh = TessellatedMesh::new();
+
+    // 1. Rubber-band Marquee Selection Box
+    if let Some((mn, mx)) = overlay.marquee_rect_in {
+        let x0 = mn[0].min(mx[0]) as f32;
+        let y0 = mn[1].min(mx[1]) as f32;
+        let x1 = mn[0].max(mx[0]) as f32;
+        let y1 = mn[1].max(mx[1]) as f32;
+        let fill = [0.145, 0.388, 0.922, 0.14];
+        let border = [0.145, 0.388, 0.922, 0.92];
+        let bw = (1.35 * inv_ppi) as f32;
+        mesh.push_quad([x0, y0], [x1, y1], fill, [PRIM_FLAG_OVERLAY_UI, 0.0]);
+        mesh.push_quad([x0, y0], [x1, y0 + bw], border, [PRIM_FLAG_OVERLAY_UI, 0.0]);
+        mesh.push_quad([x0, y1 - bw], [x1, y1], border, [PRIM_FLAG_OVERLAY_UI, 0.0]);
+        mesh.push_quad([x0, y0], [x0 + bw, y1], border, [PRIM_FLAG_OVERLAY_UI, 0.0]);
+        mesh.push_quad([x1 - bw, y0], [x1, y1], border, [PRIM_FLAG_OVERLAY_UI, 0.0]);
+    }
+
+    // 2. Dynamic Grid Smart Alignment & Equal-Spacing Guides
+    let align_col = [0.012, 0.580, 0.250, 0.95]; // Crisp Visio Dynamic Grid green/emerald
+    let space_col = [0.850, 0.120, 0.480, 0.95]; // Crisp magenta equal-spacing dimension bar
+    let half_lw = (0.85 * inv_ppi) as f32;
+    let cap_len = (4.5 * inv_ppi) as f32;
+
+    for g in &overlay.smart_guides {
+        let col = if g.is_equal_spacing { space_col } else { align_col };
+        let s0 = g.span_min_in.min(g.span_max_in) as f32;
+        let s1 = g.span_min_in.max(g.span_max_in) as f32;
+        let c = g.coord_in as f32;
+        if g.is_vertical {
+            mesh.push_quad([c - half_lw, s0], [c + half_lw, s1], col, [PRIM_FLAG_OVERLAY_UI, 0.0]);
+            if g.is_equal_spacing {
+                mesh.push_quad([c - cap_len, s0 - half_lw], [c + cap_len, s0 + half_lw], col, [PRIM_FLAG_OVERLAY_UI, 0.0]);
+                mesh.push_quad([c - cap_len, s1 - half_lw], [c + cap_len, s1 + half_lw], col, [PRIM_FLAG_OVERLAY_UI, 0.0]);
+            }
+        } else {
+            mesh.push_quad([s0, c - half_lw], [s1, c + half_lw], col, [PRIM_FLAG_OVERLAY_UI, 0.0]);
+            if g.is_equal_spacing {
+                mesh.push_quad([s0 - half_lw, c - cap_len], [s0 + half_lw, c + cap_len], col, [PRIM_FLAG_OVERLAY_UI, 0.0]);
+                mesh.push_quad([s1 - half_lw, c - cap_len], [s1 + half_lw, c + cap_len], col, [PRIM_FLAG_OVERLAY_UI, 0.0]);
+            }
+        }
+    }
+
+    let mut lyon_buf: VertexBuffers<GpuVertex, u32> = VertexBuffers::new();
+    let mut fill_tess = FillTessellator::new();
+    let mut stroke_tess = StrokeTessellator::new();
+
+    // 3. Live Connector Drag Preview Line
+    if let Some((p0, p1)) = overlay.connector_preview_in {
+        let mut b = Path::builder();
+        b.begin(point(p0[0] as f32, p0[1] as f32));
+        b.line_to(point(p1[0] as f32, p1[1] as f32));
+        b.end(false);
+        let sw = (1.6 * inv_ppi) as f32;
+        let dashed = dash_lyon_path(&b.build(), 2, sw, tol);
+        let _ = stroke_tess.tessellate_path(
+            &dashed,
+            &StrokeOptions::tolerance(tol).with_line_width(sw),
+            &mut BuffersBuilder::new(&mut lyon_buf, |v: StrokeVertex| {
+                let p = v.position();
+                GpuVertex::new([p.x, p.y], [0.020, 0.580, 0.215, 0.92], [PRIM_FLAG_OVERLAY_UI, 0.0])
+            }),
+        );
+    }
+
+    // 4. Connection Point Snap Targets (`×` markers + glowing green ring on active snap port)
+    for &(pt, snapped) in &overlay.highlighted_ports {
+        if snapped {
+            let r = 6.2 * inv_ppi;
+            let mut b = Path::builder();
+            emit_rotated_ellipse(&mut b, pt, r, r, 0.0);
+            let p = b.build();
+            let _ = fill_tess.tessellate_path(
+                &p,
+                &FillOptions::tolerance(tol),
+                &mut BuffersBuilder::new(&mut lyon_buf, |v: FillVertex| {
+                    let pos = v.position();
+                    GpuVertex::new([pos.x, pos.y], [0.020, 0.580, 0.215, 0.25], [PRIM_FLAG_OVERLAY_UI, 0.0])
+                }),
+            );
+            let _ = stroke_tess.tessellate_path(
+                &p,
+                &StrokeOptions::tolerance(tol).with_line_width((2.0 * inv_ppi) as f32),
+                &mut BuffersBuilder::new(&mut lyon_buf, |v: StrokeVertex| {
+                    let pos = v.position();
+                    GpuVertex::new([pos.x, pos.y], [0.020, 0.580, 0.215, 1.0], [PRIM_FLAG_OVERLAY_UI, 0.0])
+                }),
+            );
+        }
+        // Crisp connection point `×` cross
+        let d = 3.0 * inv_ppi;
+        let mut xb = Path::builder();
+        xb.begin(point((pt[0] - d) as f32, (pt[1] - d) as f32));
+        xb.line_to(point((pt[0] + d) as f32, (pt[1] + d) as f32));
+        xb.end(false);
+        xb.begin(point((pt[0] - d) as f32, (pt[1] + d) as f32));
+        xb.line_to(point((pt[0] + d) as f32, (pt[1] - d) as f32));
+        xb.end(false);
+        let xp = xb.build();
+        let x_col = if snapped {
+            [0.020, 0.580, 0.215, 1.0]
+        } else {
+            [0.145, 0.388, 0.922, 0.88]
+        };
+        let _ = stroke_tess.tessellate_path(
+            &xp,
+            &StrokeOptions::tolerance(tol).with_line_width((1.35 * inv_ppi) as f32),
+            &mut BuffersBuilder::new(&mut lyon_buf, |v: StrokeVertex| {
+                let pos = v.position();
+                GpuVertex::new([pos.x, pos.y], x_col, [PRIM_FLAG_OVERLAY_UI, 0.0])
+            }),
+        );
+    }
+
+    mesh.append(&TessellatedMesh {
+        vertices: lyon_buf.vertices,
+        indices: lyon_buf.indices,
+    });
     mesh
 }
 
@@ -1771,11 +2401,28 @@ pub fn compute_visual_content_hash(v: &EvaluatedShapeVisual) -> u64 {
     hash_f64(&mut h, v.transform.height);
     hash_f64(&mut h, v.transform.angle_rad);
     hash_rgba(&mut h, v.fill_color);
+    hash_rgba(&mut h, v.fill_bkgnd);
+    hash_u64(
+        &mut h,
+        (v.fill_pattern as u64) | ((v.fill_gradient_radial as u64) << 8),
+    );
+    hash_f64(&mut h, v.fill_gradient_angle_rad);
+    hash_u64(&mut h, v.gradient_stops.len() as u64);
+    for gs in &v.gradient_stops {
+        hash_f64(&mut h, gs.position as f64);
+        hash_rgba(&mut h, Some(gs.color));
+    }
     hash_rgba(&mut h, v.stroke_color);
     hash_f64(&mut h, v.stroke_weight_in);
     hash_u64(&mut h, v.line_pattern as u64);
     hash_f64(&mut h, v.rounding_in);
-    hash_u64(&mut h, (v.begin_arrow as u64) | ((v.end_arrow as u64) << 8));
+    hash_u64(
+        &mut h,
+        (v.begin_arrow as u64)
+            | ((v.end_arrow as u64) << 8)
+            | ((v.begin_arrow_size as u64) << 16)
+            | ((v.end_arrow_size as u64) << 24),
+    );
     hash_f64(&mut h, v.font_size_pt);
     hash_f64(&mut h, v.txt_pos[0]);
     hash_f64(&mut h, v.txt_pos[1]);

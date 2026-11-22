@@ -249,6 +249,16 @@ class NativeBridgePacketTest {
         verifyNative("nativeRenamePage", boolT, longT, intT, String::class.java)
         verifyNative("nativeConnectShapes", longT, longT, intT, longT, longT)
         verifyNative("nativeValidateJson", String::class.java, longT, String::class.java)
+        verifyNative("nativeRegisterFontBytes", boolT, ByteArray::class.java, String::class.java)
+        verifyNative("nativeAlignShapes", intT, longT, intT, LongArray::class.java, String::class.java)
+        verifyNative("nativeDistributeShapes", intT, longT, intT, LongArray::class.java, String::class.java)
+        verifyNative("nativeGroupShapes", longT, longT, intT, LongArray::class.java)
+        verifyNative("nativeUngroupShapes", LongArray::class.java, longT, intT, LongArray::class.java)
+        verifyNative("nativeDragConnectorSegment", boolT, longT, intT, longT, intT, doubleT)
+        verifyNative("nativeSetSmartGuides", boolT, longT, boolT)
+        verifyNative("nativeGetSmartGuides", boolT, longT)
+        verifyNative("nativeGetSelectionIds", LongArray::class.java, longT)
+        verifyNative("nativeSetSelectionIds", boolT, longT, longT, LongArray::class.java)
     }
 
     @Test
@@ -621,6 +631,40 @@ class NativeBridgePacketTest {
             assertTrue(lang.inspectorGeometryTab.isNotBlank())
             assertTrue(lang.inspectorValidateTab.isNotBlank())
         }
+    }
+
+    @Test
+    fun v020ArrangeGroupSmartGuidesAndFontRegistrationWorkDeterministically() {
+        val vm = VexioSessionViewModel()
+
+        // 1. Smart Guides enabled by default and toggles deterministically
+        assertTrue(vm.uiState.value.smartGuidesEnabled)
+        vm.toggleSmartGuides()
+        assertFalse(vm.uiState.value.smartGuidesEnabled)
+        vm.toggleSmartGuides(true)
+        assertTrue(vm.uiState.value.smartGuidesEnabled)
+
+        // 2. Align & Distribute across multi-selection
+        vm.setSelectionIds(listOf(1L, 2L, 3L))
+        assertEquals(listOf(1L, 2L, 3L), vm.uiState.value.selectedShapeIds)
+        for (mode in listOf("left", "center", "right", "top", "middle", "bottom")) {
+            assertEquals(3, vm.alignSelectedShapes(mode))
+        }
+        assertEquals(3, vm.distributeSelectedShapes("horizontal"))
+        assertEquals(3, vm.distributeSelectedShapes("vertical"))
+
+        // 3. Group (Ctrl+G) and Ungroup (Ctrl+Shift+G) preserve member IDs
+        val gid = vm.groupSelectedShapes()
+        assertTrue(gid > 0L)
+        assertEquals(listOf(gid), vm.uiState.value.selectedShapeIds)
+        val restored = vm.ungroupSelectedShapes()
+        assertEquals(listOf(1L, 2L, 3L), restored)
+        assertEquals(listOf(1L, 2L, 3L), vm.uiState.value.selectedShapeIds)
+
+        // 4. 1D Orthogonal Connector Segment Drag & Custom TrueType Font Registration
+        assertTrue(vm.dragConnectorSegment(shapeId = 2L, segIndex = 1, coordInches = 4.25))
+        assertTrue(vm.registerCustomFontBytes(ByteArray(64) { 1 }, "Custom Corporate Sans"))
+        assertTrue(vm.uiState.value.availableFontFamilies.contains("Custom Corporate Sans"))
     }
 }
 

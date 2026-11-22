@@ -194,6 +194,7 @@ struct WasmShapeInfo {
     end_y: Option<f64>,
     path_points: Vec<[f64; 2]>,
     ports: Vec<[f64; 2]>,
+    port_cells: Vec<String>,
     route_style: i32,
     begin_arrow: i32,
     end_arrow: i32,
@@ -496,15 +497,15 @@ impl WasmVexioSession {
             .into_iter()
             .filter(|&id| {
                 page.find_shape(id)
-                    .map(|s| s.kind == ShapeKind::Shape2D)
+                    .map(|s| matches!(s.kind, ShapeKind::Shape2D | ShapeKind::Group))
                     .unwrap_or(false)
             })
             .map(|id| id as u32)
             .collect()
     }
 
-    /// Compute Dynamic Grid Smart Alignment Guides (center-X, center-Y, left/right/top/bottom edges)
-    /// against sibling 2D shapes on `page_id` within `0.10 in` magnetic threshold.
+    /// Compute Dynamic Grid Smart Alignment & Equal-Spacing Guides (center-X, center-Y, left/right/top/bottom edges,
+    /// page center, and equal gaps across 3+ shapes) within `0.10 in` magnetic threshold.
     pub fn compute_smart_guides(
         &self,
         page_id: u32,
@@ -514,81 +515,41 @@ impl WasmVexioSession {
         width_in: f64,
         height_in: f64,
     ) -> String {
-        let tol = 0.10;
-        let mut snapped_x = cand_x_in;
-        let mut snapped_y = cand_y_in;
-        let mut guides = Vec::new();
+        let hw = width_in.abs() * 0.5;
+        let hh = height_in.abs() * 0.5;
+        let cand_min = [cand_x_in - hw, cand_y_in - hh];
+        let cand_max = [cand_x_in + hw, cand_y_in + hh];
+        let (snap_d, raw_guides) = self.inner.compute_smart_guides(
+            page_id,
+            &[moving_shape_id as u64],
+            cand_min,
+            cand_max,
+            0.10,
+        );
+        let snapped_x = cand_x_in + snap_d[0];
+        let snapped_y = cand_y_in + snap_d[1];
 
-        if let Some(page) = self.inner.doc.page(page_id) {
-            let mut best_dx = tol;
-            let mut best_dy = tol;
-            let mut gx: Option<SmartGuideLine> = None;
-            let mut gy: Option<SmartGuideLine> = None;
-
-            let my_xs = [
-                (cand_x_in, "center"),
-                (cand_x_in - width_in * 0.5, "edge"),
-                (cand_x_in + width_in * 0.5, "edge"),
-            ];
-            let my_ys = [
-                (cand_y_in, "center"),
-                (cand_y_in - height_in * 0.5, "edge"),
-                (cand_y_in + height_in * 0.5, "edge"),
-            ];
-
-            for other in &page.shapes {
-                if other.id == moving_shape_id as u64 || other.kind != ShapeKind::Shape2D {
-                    continue;
+        let guides: Vec<SmartGuideLine> = raw_guides
+            .into_iter()
+            .map(|g| {
+                let kind_str = if g.is_equal_spacing {
+                    "equal_spacing"
+                } else if g.is_vertical && (g.coord_in - snapped_x).abs() < 1e-3 {
+                    "center"
+                } else if !g.is_vertical && (g.coord_in - snapped_y).abs() < 1e-3 {
+                    "center"
+                } else {
+                    "edge"
+                };
+                SmartGuideLine {
+                    axis: if g.is_vertical { "x" } else { "y" },
+                    pos_in: g.coord_in,
+                    from_in: g.span_min_in,
+                    to_in: g.span_max_in,
+                    kind: kind_str,
                 }
-                let ox = other.sheet.get_f64("PinX").unwrap_or(0.0);
-                let oy = other.sheet.get_f64("PinY").unwrap_or(0.0);
-                let ow = other.sheet.get_f64("Width").unwrap_or(1.0);
-                let oh = other.sheet.get_f64("Height").unwrap_or(1.0);
-
-                let target_xs = [ox, ox - ow * 0.5, ox + ow * 0.5];
-                for &(mx, mkind) in &my_xs {
-                    for &tx in &target_xs {
-                        let d = (tx - mx).abs();
-                        if d < best_dx {
-                            best_dx = d;
-                            snapped_x = cand_x_in + (tx - mx);
-                            gx = Some(SmartGuideLine {
-                                axis: "x",
-                                pos_in: tx,
-                                from_in: (snapped_y - height_in * 0.5).min(oy - oh * 0.5) - 0.25,
-                                to_in: (snapped_y + height_in * 0.5).max(oy + oh * 0.5) + 0.25,
-                                kind: mkind,
-                            });
-                        }
-                    }
-                }
-
-                let target_ys = [oy, oy - oh * 0.5, oy + oh * 0.5];
-                for &(my, mkind) in &my_ys {
-                    for &ty in &target_ys {
-                        let d = (ty - my).abs();
-                        if d < best_dy {
-                            best_dy = d;
-                            snapped_y = cand_y_in + (ty - my);
-                            gy = Some(SmartGuideLine {
-                                axis: "y",
-                                pos_in: ty,
-                                from_in: (snapped_x - width_in * 0.5).min(ox - ow * 0.5) - 0.25,
-                                to_in: (snapped_x + width_in * 0.5).max(ox + ow * 0.5) + 0.25,
-                                kind: mkind,
-                            });
-                        }
-                    }
-                }
-            }
-
-            if let Some(g) = gx {
-                guides.push(g);
-            }
-            if let Some(g) = gy {
-                guides.push(g);
-            }
-        }
+            })
+            .collect();
 
         serde_json::to_string(&SmartGuidesResponse {
             snapped_x,
@@ -713,61 +674,10 @@ impl WasmVexioSession {
         dx_in: f64,
         dy_in: f64,
     ) -> usize {
-        let Some(page) = self.inner.doc.page(page_id) else {
-            return 0;
-        };
-        let mut cmds = Vec::new();
-        for &id32 in shape_ids {
-            let sid = id32 as u64;
-            let Some(sh) = page.find_shape(sid) else {
-                continue;
-            };
-            if sh.kind != ShapeKind::Shape2D
-                || sh.sheet.get_bool("LockMoveX").unwrap_or(false)
-                || sh.sheet.get_bool("LockMoveY").unwrap_or(false)
-            {
-                continue;
-            }
-            let cur_x = sh.sheet.get_f64("PinX").unwrap_or(0.0);
-            let cur_y = sh.sheet.get_f64("PinY").unwrap_or(0.0);
-            let old_x = sh.sheet.get_cell("PinX").map(|c| c.formula.clone()).unwrap_or_default();
-            let old_y = sh.sheet.get_cell("PinY").map(|c| c.formula.clone()).unwrap_or_default();
-            cmds.push(DocCommand::SetCellFormula {
-                page_id,
-                shape_id: sid,
-                cell_name: "PinX".into(),
-                old_formula: old_x,
-                new_formula: format!("{} in", format_clean_f64(cur_x + dx_in)),
-                force_setf: false,
-            });
-            cmds.push(DocCommand::SetCellFormula {
-                page_id,
-                shape_id: sid,
-                cell_name: "PinY".into(),
-                old_formula: old_y,
-                new_formula: format!("{} in", format_clean_f64(cur_y + dy_in)),
-                force_setf: false,
-            });
-        }
-        let moved = cmds.len() / 2;
-        if moved > 0
-            && self
-                .inner
-                .journal
-                .execute(
-                    &mut self.inner.doc,
-                    DocCommand::Batch {
-                        label: "Batch Move Shapes".into(),
-                        commands: cmds,
-                    },
-                )
-                .is_ok()
-        {
-            route_page_connectors(&mut self.inner.doc, page_id);
-            moved
-        } else {
-            0
-        }
+        let ids64: Vec<u64> = shape_ids.iter().map(|&i| i as u64).collect();
+        self.inner
+            .move_shapes_delta(page_id, &ids64, dx_in, dy_in)
+            .unwrap_or(0)
     }
 
     /// 8-Handle Interactive Resize + Top Rotation Knob transaction respecting `LockWidth`,
@@ -815,153 +725,17 @@ impl WasmVexioSession {
     /// Multi-shape Align (`left`, `center`, `right`, `top`, `middle`, `bottom`) and
     /// Distribute (`distribute_h`, `distribute_v`) matching Visio Home -> Position!
     pub fn align_shapes(&mut self, page_id: u32, shape_ids: &[u32], mode: &str) -> usize {
-        if shape_ids.len() < 2 {
-            return 0;
-        }
-        let Some(page) = self.inner.doc.page(page_id) else {
-            return 0;
-        };
-        let mut items: Vec<(u64, f64, f64, f64, f64, String, String)> = shape_ids
-            .iter()
-            .filter_map(|&id32| {
-                let sh = page.find_shape(id32 as u64)?;
-                if sh.kind != ShapeKind::Shape2D {
-                    return None;
-                }
-                Some((
-                    sh.id,
-                    sh.sheet.get_f64("PinX").unwrap_or(0.0),
-                    sh.sheet.get_f64("PinY").unwrap_or(0.0),
-                    sh.sheet.get_f64("Width").unwrap_or(1.0),
-                    sh.sheet.get_f64("Height").unwrap_or(1.0),
-                    sh.sheet.get_cell("PinX").map(|c| c.formula.clone()).unwrap_or_default(),
-                    sh.sheet.get_cell("PinY").map(|c| c.formula.clone()).unwrap_or_default(),
-                ))
-            })
-            .collect();
-
-        if items.len() < 2 {
-            return 0;
-        }
-
-        let min_left = items.iter().map(|i| i.1 - i.3 * 0.5).fold(f64::INFINITY, f64::min);
-        let max_right = items.iter().map(|i| i.1 + i.3 * 0.5).fold(f64::NEG_INFINITY, f64::max);
-        let min_bot = items.iter().map(|i| i.2 - i.4 * 0.5).fold(f64::INFINITY, f64::min);
-        let max_top = items.iter().map(|i| i.2 + i.4 * 0.5).fold(f64::NEG_INFINITY, f64::max);
-        let mid_x = (min_left + max_right) * 0.5;
-        let mid_y = (min_bot + max_top) * 0.5;
-
-        let mut cmds = Vec::new();
-        match mode {
-            "distribute_h" if items.len() >= 3 => {
-                items.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
-                let first_x = items.first().unwrap().1;
-                let last_x = items.last().unwrap().1;
-                let step = (last_x - first_x) / (items.len() - 1) as f64;
-                for (idx, it) in items.iter().enumerate() {
-                    let nx = first_x + idx as f64 * step;
-                    cmds.push(DocCommand::SetCellFormula {
-                        page_id,
-                        shape_id: it.0,
-                        cell_name: "PinX".into(),
-                        old_formula: it.5.clone(),
-                        new_formula: format!("{} in", format_clean_f64(nx)),
-                        force_setf: false,
-                    });
-                }
-            }
-            "distribute_v" if items.len() >= 3 => {
-                items.sort_by(|a, b| a.2.partial_cmp(&b.2).unwrap_or(std::cmp::Ordering::Equal));
-                let first_y = items.first().unwrap().2;
-                let last_y = items.last().unwrap().2;
-                let step = (last_y - first_y) / (items.len() - 1) as f64;
-                for (idx, it) in items.iter().enumerate() {
-                    let ny = first_y + idx as f64 * step;
-                    cmds.push(DocCommand::SetCellFormula {
-                        page_id,
-                        shape_id: it.0,
-                        cell_name: "PinY".into(),
-                        old_formula: it.6.clone(),
-                        new_formula: format!("{} in", format_clean_f64(ny)),
-                        force_setf: false,
-                    });
-                }
-            }
-            _ => {
-                for it in &items {
-                    match mode {
-                        "left" => cmds.push(DocCommand::SetCellFormula {
-                            page_id,
-                            shape_id: it.0,
-                            cell_name: "PinX".into(),
-                            old_formula: it.5.clone(),
-                            new_formula: format!("{} in", format_clean_f64(min_left + it.3 * 0.5)),
-                            force_setf: false,
-                        }),
-                        "center" => cmds.push(DocCommand::SetCellFormula {
-                            page_id,
-                            shape_id: it.0,
-                            cell_name: "PinX".into(),
-                            old_formula: it.5.clone(),
-                            new_formula: format!("{} in", format_clean_f64(mid_x)),
-                            force_setf: false,
-                        }),
-                        "right" => cmds.push(DocCommand::SetCellFormula {
-                            page_id,
-                            shape_id: it.0,
-                            cell_name: "PinX".into(),
-                            old_formula: it.5.clone(),
-                            new_formula: format!("{} in", format_clean_f64(max_right - it.3 * 0.5)),
-                            force_setf: false,
-                        }),
-                        "top" => cmds.push(DocCommand::SetCellFormula {
-                            page_id,
-                            shape_id: it.0,
-                            cell_name: "PinY".into(),
-                            old_formula: it.6.clone(),
-                            new_formula: format!("{} in", format_clean_f64(max_top - it.4 * 0.5)),
-                            force_setf: false,
-                        }),
-                        "middle" => cmds.push(DocCommand::SetCellFormula {
-                            page_id,
-                            shape_id: it.0,
-                            cell_name: "PinY".into(),
-                            old_formula: it.6.clone(),
-                            new_formula: format!("{} in", format_clean_f64(mid_y)),
-                            force_setf: false,
-                        }),
-                        "bottom" => cmds.push(DocCommand::SetCellFormula {
-                            page_id,
-                            shape_id: it.0,
-                            cell_name: "PinY".into(),
-                            old_formula: it.6.clone(),
-                            new_formula: format!("{} in", format_clean_f64(min_bot + it.4 * 0.5)),
-                            force_setf: false,
-                        }),
-                        _ => {}
-                    }
-                }
-            }
-        }
-
-        let count = cmds.len();
-        if count > 0
-            && self
+        let ids64: Vec<u64> = shape_ids.iter().map(|&i| i as u64).collect();
+        match mode.trim().to_ascii_lowercase().as_str() {
+            "distribute_h" | "horizontal" => self
                 .inner
-                .journal
-                .execute(
-                    &mut self.inner.doc,
-                    DocCommand::Batch {
-                        label: format!("Align {mode}"),
-                        commands: cmds,
-                    },
-                )
-                .is_ok()
-        {
-            route_page_connectors(&mut self.inner.doc, page_id);
-            count
-        } else {
-            0
+                .distribute_shapes(page_id, &ids64, "horizontal")
+                .unwrap_or(0),
+            "distribute_v" | "vertical" => self
+                .inner
+                .distribute_shapes(page_id, &ids64, "vertical")
+                .unwrap_or(0),
+            m => self.inner.align_shapes(page_id, &ids64, m).unwrap_or(0),
         }
     }
 
@@ -1833,20 +1607,18 @@ impl WasmVexioSession {
                         } else {
                             Vec::new()
                         };
-                        let ports = if s.kind == ShapeKind::Shape2D {
+                        let (ports, port_cells) = if matches!(s.kind, ShapeKind::Shape2D | ShapeKind::Group) {
                             if let Some(v) = vis_by_id.get(&s.id) {
-                                let w = v.transform.width;
-                                let h = v.transform.height;
-                                let (wx, wy) = v.transform.local_to_parent(0.0, h * 0.5);
-                                let (ex, ey) = v.transform.local_to_parent(w, h * 0.5);
-                                let (sx, sy) = v.transform.local_to_parent(w * 0.5, 0.0);
-                                let (nx, ny) = v.transform.local_to_parent(w * 0.5, h);
-                                vec![[wx, wy], [ex, ey], [sx, sy], [nx, ny]]
+                                let pts: Vec<[f64; 2]> =
+                                    v.connection_points.iter().map(|cp| cp.pos_page_in).collect();
+                                let cells_v: Vec<String> =
+                                    v.connection_points.iter().map(|cp| cp.cell_name.clone()).collect();
+                                (pts, cells_v)
                             } else {
-                                Vec::new()
+                                (Vec::new(), Vec::new())
                             }
                         } else {
-                            Vec::new()
+                            (Vec::new(), Vec::new())
                         };
                         let route_style = s.sheet.get_f64("ShapeRouteStyle").unwrap_or(16.0).round() as i32;
                         let begin_arrow = s.sheet.get_f64("BeginArrow").unwrap_or(0.0).round() as i32;
@@ -1920,6 +1692,7 @@ impl WasmVexioSession {
                             end_y,
                             path_points,
                             ports,
+                            port_cells,
                             route_style,
                             begin_arrow,
                             end_arrow,
@@ -2432,5 +2205,85 @@ impl WasmVexioSession {
             return Err(JsValue::from_str(&e));
         }
         serde_json::to_string(&rep.unwrap()).map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
+    /// Stream custom `.ttf` / `.otf` TrueType/OpenType bytes (e.g., from ChromeOS Local Font Access API `.blob()`)
+    /// directly into the `vexio-render` TrueType shaper & PDF contour engine.
+    pub fn register_font_bytes(&self, bytes: &[u8], family_override: &str) -> bool {
+        let fam_opt = if family_override.trim().is_empty() {
+            None
+        } else {
+            Some(family_override.trim())
+        };
+        DocumentSession::register_font_bytes(bytes, fam_opt)
+    }
+
+    pub fn distribute_shapes(&mut self, page_id: u32, shape_ids: &[u32], axis: &str) -> usize {
+        let ids64: Vec<u64> = shape_ids.iter().map(|&i| i as u64).collect();
+        self.inner
+            .distribute_shapes(page_id, &ids64, axis)
+            .unwrap_or(0)
+    }
+
+    pub fn group_shapes(&mut self, page_id: u32, shape_ids: &[u32]) -> u32 {
+        let ids64: Vec<u64> = shape_ids.iter().map(|&i| i as u64).collect();
+        self.inner
+            .group_shapes(page_id, &ids64)
+            .unwrap_or(0) as u32
+    }
+
+    pub fn ungroup_shapes(&mut self, page_id: u32, group_ids: &[u32]) -> Vec<u32> {
+        let ids64: Vec<u64> = group_ids.iter().map(|&i| i as u64).collect();
+        self.inner
+            .ungroup_shapes(page_id, &ids64)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|id| id as u32)
+            .collect()
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn move_connector_endpoint_with_port(
+        &mut self,
+        page_id: u32,
+        shape_id: u32,
+        is_begin: bool,
+        x_in: f64,
+        y_in: f64,
+        target_shape_id: u32,
+        target_port_cell: &str,
+    ) -> Result<bool, JsValue> {
+        let port_opt = if target_port_cell.trim().is_empty() {
+            None
+        } else {
+            Some(target_port_cell.trim())
+        };
+        self.inner
+            .move_connector_endpoint_with_port(
+                page_id,
+                shape_id as u64,
+                is_begin,
+                x_in,
+                y_in,
+                if target_shape_id > 0 {
+                    Some(target_shape_id as u64)
+                } else {
+                    None
+                },
+                port_opt,
+            )
+            .map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
+    pub fn drag_connector_segment(
+        &mut self,
+        page_id: u32,
+        shape_id: u32,
+        seg_index: u32,
+        coord_in: f64,
+    ) -> Result<bool, JsValue> {
+        self.inner
+            .drag_connector_segment(page_id, shape_id as u64, seg_index as usize, coord_in)
+            .map_err(|e| JsValue::from_str(&e.to_string()))
     }
 }

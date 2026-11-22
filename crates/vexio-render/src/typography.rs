@@ -2,11 +2,15 @@
 //! and multi-run rich-text tessellator (`LeftToRight`, `RightToLeft` Bidi, and `VerticalTopToBottom` CJK).
 
 use crate::tessellate::{GpuVertex, TessellatedMesh, PRIM_FLAG_TEXT_GLYPH};
+use crate::ttf_shaper::{
+    append_glyph_to_lyon_builder, bundled_unicode_fallback, glyph_advance_in, resolve_font_data,
+    tessellate_glyph_outline_batch,
+};
 use lyon_path::math::point;
 use lyon_path::Path;
 use lyon_tessellation::{
-    BuffersBuilder, LineCap, LineJoin, StrokeOptions, StrokeTessellator, StrokeVertex,
-    VertexBuffers,
+    BuffersBuilder, FillTessellator, LineCap, LineJoin, StrokeOptions, StrokeTessellator,
+    StrokeVertex, VertexBuffers,
 };
 use serde::{Deserialize, Serialize};
 use vexio_shapesheet::RgbaColor;
@@ -568,6 +572,67 @@ fn mirror_bidi_bracket(ch: char) -> char {
     }
 }
 
+/// Measure the tight `(span_width_in, span_height_in)` of a shaped `RichTextBlock` inside `(box_w_in, box_h_in)`.
+pub fn measure_rich_text_bounds_in(
+    block: &RichTextBlock,
+    box_w_in: f64,
+    box_h_in: f64,
+) -> (f64, f64) {
+    let fam_class = FontFamilyClass::from_family_name(&block.font_family);
+    let paragraphs = expand_runs_into_paragraphs_with_class(&block.runs, fam_class);
+    if paragraphs.iter().all(Vec::is_empty) {
+        return (0.0, 0.0);
+    }
+    let eff_w = box_w_in.abs().max(0.15);
+    let eff_h = box_h_in.abs().max(0.15);
+    let line_spacing = block.line_spacing.clamp(0.85, 3.0);
+    let pad_x = (eff_w * 0.04).min(0.08);
+    let default_cap_h = paragraphs
+        .iter()
+        .flatten()
+        .next()
+        .map(|c| (c.font_size_pt / 72.0) * 0.72)
+        .unwrap_or((10.0 / 72.0) * 0.72);
+    let bullet_indent = if block.bullet != BulletStyle::None {
+        default_cap_h * 1.65
+    } else {
+        0.0
+    };
+    let avail_w = (eff_w - 2.0 * pad_x - bullet_indent).max(default_cap_h * 1.5);
+    let mut max_line_w = 0.0f64;
+    let mut line_caps: Vec<f64> = Vec::new();
+    for para in &paragraphs {
+        if para.is_empty() {
+            line_caps.push(default_cap_h);
+            continue;
+        }
+        for sub in wrap_paragraph_cells_with_font(para, avail_w, &block.font_family) {
+            let cap = sub
+                .iter()
+                .map(|c| (c.font_size_pt / 72.0) * 0.72)
+                .fold(default_cap_h, f64::max);
+            let lw = measure_cells_advance_in(&sub, &block.font_family) + bullet_indent;
+            max_line_w = max_line_w.max(lw);
+            line_caps.push(cap);
+        }
+    }
+    let total_h: f64 = line_caps
+        .iter()
+        .enumerate()
+        .map(|(i, &ch)| {
+            if i + 1 == line_caps.len() {
+                ch * 1.30
+            } else {
+                ch * line_spacing
+            }
+        })
+        .sum();
+    (
+        (max_line_w + 0.10).min(eff_w).max(0.18),
+        (total_h + 0.06).min(eff_h).max(default_cap_h * 1.25),
+    )
+}
+
 /// Tessellate a multi-run `RichTextBlock` inside `(box_w_in, box_h_in)` centered at
 /// `(pin_x_in, pin_y_in)` and rotated by `angle_rad`, emitting `TessellatedMesh` triangles
 /// tagged with `PRIM_FLAG_TEXT_GLYPH`.
@@ -598,28 +663,39 @@ pub fn tessellate_rich_text_in_box(
     let eff_h = box_h_in.abs().max(0.15);
     let line_spacing = block.line_spacing.clamp(0.85, 3.0);
 
+    let (sin_a, cos_a) = angle_rad.sin_cos();
+    let mut lyon_buf: VertexBuffers<GpuVertex, u32> = VertexBuffers::new();
+    let mut fill_tess = FillTessellator::new();
+    let mut stroke_tess = StrokeTessellator::new();
     let mut commands: Vec<StrokeCommand> = Vec::new();
+
     if block.direction == TextDirection::VerticalTopToBottom {
         layout_vertical_cjk_columns(block, &paragraphs, eff_w, eff_h, line_spacing, &mut commands);
     } else {
-        layout_horizontal_lines(block, &paragraphs, eff_w, eff_h, line_spacing, &mut commands);
+        layout_horizontal_lines(
+            block,
+            &paragraphs,
+            eff_w,
+            eff_h,
+            line_spacing,
+            pin_x_in,
+            pin_y_in,
+            sin_a,
+            cos_a,
+            &mut fill_tess,
+            &mut stroke_tess,
+            &mut lyon_buf,
+            &mut commands,
+        );
     }
 
-    if commands.is_empty() {
-        return TessellatedMesh::new();
-    }
-
-    let (sin_a, cos_a) = angle_rad.sin_cos();
     let to_page = |lx: f64, ly: f64| -> [f32; 2] {
         let px = pin_x_in + lx * cos_a - ly * sin_a;
         let py = pin_y_in + lx * sin_a + ly * cos_a;
         [px as f32, py as f32]
     };
 
-    let mut lyon_buf: VertexBuffers<GpuVertex, u32> = VertexBuffers::new();
-    let mut stroke_tess = StrokeTessellator::new();
-
-    // Coalesce consecutive stroke polylines sharing identical `(color, stroke_w)` into a single Lyon pass.
+    // Coalesce consecutive stroke polylines (underlines, strikethroughs, bullets, CJK fallback glyphs).
     let mut idx = 0usize;
     while idx < commands.len() {
         let group_color = commands[idx].color;
@@ -757,12 +833,80 @@ fn metrics_for_cell(cell: &StyledCharCell) -> (f64, f64, f64, f32) {
     (cap_h, glyph_w, advance, stroke_w)
 }
 
+fn measure_cells_advance_in(cells: &[StyledCharCell], font_family: &str) -> f64 {
+    if cells.is_empty() {
+        return 0.0;
+    }
+    let fam_class = cells[0].family_class;
+    let reg_font = resolve_font_data(font_family, fam_class, false, false);
+    let bold_font = resolve_font_data(font_family, fam_class, true, false);
+    let fb_reg = bundled_unicode_fallback(false);
+    let fb_bold = bundled_unicode_fallback(true);
+
+    let reg_face = reg_font.parse_face();
+    let bold_face = bold_font.parse_face();
+    let fb_reg_face = fb_reg.parse_face();
+    let fb_bold_face = fb_bold.parse_face();
+
+    let mut prev_gid: Option<(bool, bool, ttf_parser::GlyphId)> = None;
+    let mut total = 0.0f64;
+
+    for cell in cells {
+        let pri_opt = if cell.bold {
+            bold_face.as_ref().map(|f| (f, !bold_font.native_bold))
+        } else {
+            reg_face.as_ref().map(|f| (f, false))
+        };
+        let mut matched = false;
+        if let Some((pf, syn_b)) = pri_opt {
+            let p_prev = prev_gid
+                .filter(|(is_p, b, _)| *is_p && *b == cell.bold)
+                .map(|(_, _, g)| g);
+            if let Some((adv, gid)) = glyph_advance_in(pf, cell.ch, p_prev, cell.font_size_pt, syn_b) {
+                total += adv;
+                prev_gid = Some((true, cell.bold, gid));
+                matched = true;
+            }
+        }
+        if !matched {
+            let fb_opt = if cell.bold {
+                fb_bold_face.as_ref().map(|f| (f, !fb_bold.native_bold))
+            } else {
+                fb_reg_face.as_ref().map(|f| (f, false))
+            };
+            if let Some((ff, syn_b)) = fb_opt {
+                let f_prev = prev_gid
+                    .filter(|(is_p, b, _)| !*is_p && *b == cell.bold)
+                    .map(|(_, _, g)| g);
+                if let Some((adv, gid)) = glyph_advance_in(ff, cell.ch, f_prev, cell.font_size_pt, syn_b) {
+                    total += adv;
+                    prev_gid = Some((false, cell.bold, gid));
+                    matched = true;
+                }
+            }
+        }
+        if !matched {
+            prev_gid = None;
+            total += metrics_for_cell(cell).2;
+        }
+    }
+    total
+}
+
+#[allow(clippy::too_many_arguments)]
 fn layout_horizontal_lines(
     block: &RichTextBlock,
     paragraphs: &[Vec<StyledCharCell>],
     box_w_in: f64,
     box_h_in: f64,
     line_spacing: f64,
+    pin_x_in: f64,
+    pin_y_in: f64,
+    sin_a: f64,
+    cos_a: f64,
+    fill_tess: &mut FillTessellator,
+    stroke_tess: &mut StrokeTessellator,
+    lyon_buf: &mut VertexBuffers<GpuVertex, u32>,
     commands: &mut Vec<StrokeCommand>,
 ) {
     let pad_x = (box_w_in * 0.04).min(0.08);
@@ -794,7 +938,7 @@ fn layout_horizontal_lines(
             continue;
         }
         let para_col = para[0].color;
-        let sub_lines = wrap_paragraph_cells(para, avail_w);
+        let sub_lines = wrap_paragraph_cells_with_font(para, avail_w, &block.font_family);
         for (sub_idx, cells) in sub_lines.into_iter().enumerate() {
             let max_cap = cells
                 .iter()
@@ -813,6 +957,21 @@ fn layout_horizontal_lines(
     if wrapped_lines.is_empty() {
         return;
     }
+
+    let fam_class = FontFamilyClass::from_family_name(&block.font_family);
+    let reg_font = resolve_font_data(&block.font_family, fam_class, false, false);
+    let bold_font = resolve_font_data(&block.font_family, fam_class, true, false);
+    let italic_font = resolve_font_data(&block.font_family, fam_class, false, true);
+    let bold_italic_font = resolve_font_data(&block.font_family, fam_class, true, true);
+    let fb_reg = bundled_unicode_fallback(false);
+    let fb_bold = bundled_unicode_fallback(true);
+
+    let reg_face = reg_font.parse_face();
+    let bold_face = bold_font.parse_face();
+    let italic_face = italic_font.parse_face();
+    let bold_italic_face = bold_italic_font.parse_face();
+    let fb_reg_face = fb_reg.parse_face();
+    let fb_bold_face = fb_bold.parse_face();
 
     let total_h: f64 = wrapped_lines
         .iter()
@@ -843,14 +1002,7 @@ fn layout_horizontal_lines(
         }
 
         let visual_cells = reorder_bidi_visual_line(&line.cells, block.direction);
-        let text_w: f64 = visual_cells
-            .iter()
-            .enumerate()
-            .map(|(i, c)| {
-                let (_, gw, adv, _) = metrics_for_cell(c);
-                if i + 1 == visual_cells.len() { gw } else { adv }
-            })
-            .sum();
+        let text_w = measure_cells_advance_in(&visual_cells, &block.font_family);
 
         let is_rtl = block.direction == TextDirection::RightToLeft;
         let start_x = match block.horiz_align {
@@ -877,44 +1029,194 @@ fn layout_horizontal_lines(
         }
 
         let mut cx = start_x;
-        for (ci, cell) in visual_cells.iter().enumerate() {
-            let (cap_h, glyph_w, advance, stroke_w) = metrics_for_cell(cell);
-            let shear = if cell.italic { 0.22 } else { 0.0 };
+        let mut prev_gid: Option<(bool, bool, bool, ttf_parser::GlyphId)> = None;
 
-            for stroke in glyph_strokes_styled(cell.ch, cell.family_class) {
-                let mapped: Vec<[f64; 2]> = stroke
-                    .into_iter()
-                    .map(|pt| {
-                        let y_off = (pt[1] as f64) * cap_h;
-                        let x_off = (pt[0] as f64) * glyph_w + shear * y_off;
-                        [cx + x_off, base_y + y_off]
-                    })
-                    .collect();
-                commands.push(StrokeCommand {
-                    polyline_local: mapped,
-                    stroke_w_in: stroke_w,
-                    color: cell.color,
-                });
+        // Batch consecutive TrueType glyphs sharing `(color, font_size_pt, synthetic_bold)` into one Lyon fill pass.
+        let mut batch_builder = Path::builder();
+        let mut batch_count = 0usize;
+        let mut batch_key: Option<(RgbaColor, i32, bool)> = None;
+
+        let flush_ttf_batch = |b_builder: &mut lyon_path::path::Builder,
+                               b_count: &mut usize,
+                               b_key: &mut Option<(RgbaColor, i32, bool)>,
+                               f_tess: &mut FillTessellator,
+                               s_tess: &mut StrokeTessellator,
+                               l_buf: &mut VertexBuffers<GpuVertex, u32>| {
+            if *b_count > 0 {
+                let built = std::mem::replace(b_builder, Path::builder()).build();
+                if let Some((col, size_tenths, syn_b)) = b_key.take() {
+                    tessellate_glyph_outline_batch(
+                        &built,
+                        col,
+                        (size_tenths as f64) * 0.1,
+                        syn_b,
+                        f_tess,
+                        s_tess,
+                        l_buf,
+                    );
+                }
+                *b_count = 0;
+            }
+        };
+
+        for cell in &visual_cells {
+            let (cap_h, fallback_gw, fallback_adv, stroke_w) = metrics_for_cell(cell);
+            let pri_entry = match (cell.bold, cell.italic) {
+                (true, true) => bold_italic_face.as_ref().map(|f| {
+                    (
+                        f,
+                        !bold_italic_font.native_bold,
+                        !bold_italic_font.native_italic,
+                    )
+                }),
+                (true, false) => bold_face
+                    .as_ref()
+                    .map(|f| (f, !bold_font.native_bold, false)),
+                (false, true) => italic_face
+                    .as_ref()
+                    .map(|f| (f, false, !italic_font.native_italic)),
+                (false, false) => reg_face.as_ref().map(|f| (f, false, false)),
+            };
+
+            let mut used_adv: Option<f64> = None;
+
+            if let Some((pf, syn_b, syn_i)) = pri_entry {
+                let p_prev = prev_gid
+                    .filter(|(is_p, b, it, _)| *is_p && *b == cell.bold && *it == cell.italic)
+                    .map(|(_, _, _, g)| g);
+                if let Some((adv, gid)) =
+                    glyph_advance_in(pf, cell.ch, p_prev, cell.font_size_pt, syn_b)
+                {
+                    let want_key = (
+                        cell.color,
+                        (cell.font_size_pt * 10.0).round() as i32,
+                        syn_b,
+                    );
+                    if batch_key.is_some() && batch_key != Some(want_key) {
+                        flush_ttf_batch(
+                            &mut batch_builder,
+                            &mut batch_count,
+                            &mut batch_key,
+                            fill_tess,
+                            stroke_tess,
+                            lyon_buf,
+                        );
+                    }
+                    batch_key = Some(want_key);
+                    if append_glyph_to_lyon_builder(
+                        pf,
+                        gid,
+                        cell.ch,
+                        cx,
+                        base_y,
+                        cell.font_size_pt,
+                        syn_i,
+                        pin_x_in,
+                        pin_y_in,
+                        sin_a,
+                        cos_a,
+                        &mut batch_builder,
+                    ) {
+                        if !cell.ch.is_whitespace() {
+                            batch_count += 1;
+                        }
+                        prev_gid = Some((true, cell.bold, cell.italic, gid));
+                        used_adv = Some(adv);
+                    }
+                }
             }
 
-            let span_w = if ci + 1 == visual_cells.len() {
-                glyph_w
+            if used_adv.is_none() {
+                let fb_entry = if cell.bold {
+                    fb_bold_face
+                        .as_ref()
+                        .map(|f| (f, !fb_bold.native_bold, cell.italic))
+                } else {
+                    fb_reg_face.as_ref().map(|f| (f, false, cell.italic))
+                };
+                if let Some((ff, syn_b, syn_i)) = fb_entry {
+                    let f_prev = prev_gid
+                        .filter(|(is_p, b, it, _)| !*is_p && *b == cell.bold && *it == cell.italic)
+                        .map(|(_, _, _, g)| g);
+                    if let Some((adv, gid)) =
+                        glyph_advance_in(ff, cell.ch, f_prev, cell.font_size_pt, syn_b)
+                    {
+                        let want_key = (
+                            cell.color,
+                            (cell.font_size_pt * 10.0).round() as i32,
+                            syn_b,
+                        );
+                        if batch_key.is_some() && batch_key != Some(want_key) {
+                            flush_ttf_batch(
+                                &mut batch_builder,
+                                &mut batch_count,
+                                &mut batch_key,
+                                fill_tess,
+                                stroke_tess,
+                                lyon_buf,
+                            );
+                        }
+                        batch_key = Some(want_key);
+                        if append_glyph_to_lyon_builder(
+                            ff,
+                            gid,
+                            cell.ch,
+                            cx,
+                            base_y,
+                            cell.font_size_pt,
+                            syn_i,
+                            pin_x_in,
+                            pin_y_in,
+                            sin_a,
+                            cos_a,
+                            &mut batch_builder,
+                        ) {
+                            if !cell.ch.is_whitespace() {
+                                batch_count += 1;
+                            }
+                            prev_gid = Some((false, cell.bold, cell.italic, gid));
+                            used_adv = Some(adv);
+                        }
+                    }
+                }
+            }
+
+            let advance = if let Some(adv) = used_adv {
+                adv
             } else {
-                advance
+                prev_gid = None;
+                let shear = if cell.italic { 0.22 } else { 0.0 };
+                for stroke in glyph_strokes_styled(cell.ch, cell.family_class) {
+                    let mapped: Vec<[f64; 2]> = stroke
+                        .into_iter()
+                        .map(|pt| {
+                            let y_off = (pt[1] as f64) * cap_h;
+                            let x_off = (pt[0] as f64) * fallback_gw + shear * y_off;
+                            [cx + x_off, base_y + y_off]
+                        })
+                        .collect();
+                    commands.push(StrokeCommand {
+                        polyline_local: mapped,
+                        stroke_w_in: stroke_w,
+                        color: cell.color,
+                    });
+                }
+                fallback_adv
             };
-            let deco_sw = (stroke_w * 0.78).max(0.003);
+
+            let deco_sw = (stroke_w * 0.72).max(0.003);
             if cell.underline {
-                let uy = base_y - 0.12 * cap_h;
+                let uy = base_y - 0.14 * cap_h;
                 commands.push(StrokeCommand {
-                    polyline_local: vec![[cx, uy], [cx + span_w, uy]],
+                    polyline_local: vec![[cx, uy], [cx + advance, uy]],
                     stroke_w_in: deco_sw,
                     color: cell.color,
                 });
             }
             if cell.strikethrough {
-                let sy = base_y + 0.38 * cap_h;
+                let sy = base_y + 0.36 * cap_h;
                 commands.push(StrokeCommand {
-                    polyline_local: vec![[cx, sy], [cx + span_w, sy]],
+                    polyline_local: vec![[cx, sy], [cx + advance, sy]],
                     stroke_w_in: deco_sw,
                     color: cell.color,
                 });
@@ -922,10 +1224,23 @@ fn layout_horizontal_lines(
 
             cx += advance;
         }
+
+        flush_ttf_batch(
+            &mut batch_builder,
+            &mut batch_count,
+            &mut batch_key,
+            fill_tess,
+            stroke_tess,
+            lyon_buf,
+        );
     }
 }
 
-fn wrap_paragraph_cells(para: &[StyledCharCell], max_w_in: f64) -> Vec<Vec<StyledCharCell>> {
+fn wrap_paragraph_cells_with_font(
+    para: &[StyledCharCell],
+    max_w_in: f64,
+    font_family: &str,
+) -> Vec<Vec<StyledCharCell>> {
     // Group into breakable units: whitespace tokens, individual CJK ideographs, and word tokens.
     let mut tokens: Vec<Vec<StyledCharCell>> = Vec::new();
     for cell in para {
@@ -943,9 +1258,8 @@ fn wrap_paragraph_cells(para: &[StyledCharCell], max_w_in: f64) -> Vec<Vec<Style
         }
     }
 
-    let token_width = |tok: &[StyledCharCell]| -> f64 {
-        tok.iter().map(|c| metrics_for_cell(c).2).sum()
-    };
+    let token_width =
+        |tok: &[StyledCharCell]| -> f64 { measure_cells_advance_in(tok, font_family) };
 
     let mut lines: Vec<Vec<StyledCharCell>> = Vec::new();
     let mut cur_line: Vec<StyledCharCell> = Vec::new();
@@ -973,7 +1287,7 @@ fn wrap_paragraph_cells(para: &[StyledCharCell], max_w_in: f64) -> Vec<Vec<Style
         // Hard-break an oversized single word if needed.
         if tw > max_w_in && tok.len() > 1 {
             for cell in tok {
-                let cw = metrics_for_cell(&cell).2;
+                let cw = measure_cells_advance_in(std::slice::from_ref(&cell), font_family);
                 if !cur_line.is_empty() && cur_w + cw > max_w_in {
                     lines.push(std::mem::take(&mut cur_line));
                     cur_w = 0.0;

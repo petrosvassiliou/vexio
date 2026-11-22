@@ -203,6 +203,36 @@ public struct VexioGlobalMenuCommands: Commands {
                 session?.applyTextStyle(horizAlign: 2, undoManager: NSApp.keyWindow?.undoManager)
             }
             .disabled(session == nil)
+            Divider()
+
+            Button("Group Shapes") {
+                session?.groupSelectedShapes(undoManager: NSApp.keyWindow?.undoManager)
+            }
+            .keyboardShortcut("g", modifiers: [.command])
+            .disabled(session == nil)
+
+            Button("Ungroup Shapes") {
+                session?.ungroupSelectedShapes(undoManager: NSApp.keyWindow?.undoManager)
+            }
+            .keyboardShortcut("g", modifiers: [.command, .shift])
+            .disabled(session == nil)
+
+            Menu("Align Shapes") {
+                Button("Align Left") { session?.alignSelectedShapes(mode: "left", undoManager: NSApp.keyWindow?.undoManager) }
+                Button("Align Center") { session?.alignSelectedShapes(mode: "center", undoManager: NSApp.keyWindow?.undoManager) }
+                Button("Align Right") { session?.alignSelectedShapes(mode: "right", undoManager: NSApp.keyWindow?.undoManager) }
+                Divider()
+                Button("Align Top") { session?.alignSelectedShapes(mode: "top", undoManager: NSApp.keyWindow?.undoManager) }
+                Button("Align Middle") { session?.alignSelectedShapes(mode: "middle", undoManager: NSApp.keyWindow?.undoManager) }
+                Button("Align Bottom") { session?.alignSelectedShapes(mode: "bottom", undoManager: NSApp.keyWindow?.undoManager) }
+            }
+            .disabled(session == nil)
+
+            Menu("Distribute Shapes") {
+                Button("Distribute Horizontally") { session?.distributeSelectedShapes(axis: "horizontal", undoManager: NSApp.keyWindow?.undoManager) }
+                Button("Distribute Vertically") { session?.distributeSelectedShapes(axis: "vertical", undoManager: NSApp.keyWindow?.undoManager) }
+            }
+            .disabled(session == nil)
         }
 
         // Deterministic Journal Undo / Redo
@@ -223,6 +253,11 @@ public struct VexioGlobalMenuCommands: Commands {
         // Workspace Panels & Viewport Zoom
         CommandGroup(after: .sidebar) {
             Divider()
+
+            Button(session?.smartGuidesEnabled == false ? "Enable Smart Guides" : "Disable Smart Guides") {
+                session?.smartGuidesEnabled.toggle()
+            }
+            .disabled(session == nil)
 
             Button(session?.showStencilNavigator == true ? "Hide Stencil Navigator" : "Show Stencil Navigator") {
                 withAnimation(LiquidGlassPhysics.standardSpring) {

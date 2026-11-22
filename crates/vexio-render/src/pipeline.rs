@@ -4,13 +4,15 @@
 
 use crate::spatial::SpatialIndex;
 use crate::tessellate::{
-    tessellate_ink_stroke, tessellate_ruler_and_grid_ticks, tessellate_selection_handles,
-    GpuVertex, MeshCache, TessellatedMesh, PRIM_FLAG_PAGE_GRID, PRIM_FLAG_SHAPE,
+    tessellate_connector_1d_handles, tessellate_ink_stroke, tessellate_interactive_overlay,
+    tessellate_multi_selection_frame, tessellate_ruler_and_grid_ticks,
+    tessellate_selection_handles, GpuVertex, InteractiveCanvasOverlay, MeshCache, TessellatedMesh,
+    PRIM_FLAG_PAGE_GRID, PRIM_FLAG_SHAPE,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use vexio_shapesheet::{
-    EvaluatedShapeVisual, ReactiveEngine, RgbaColor, VisioDocument, VisioPage,
+    EvaluatedShapeVisual, ReactiveEngine, RgbaColor, ShapeKind, VisioDocument, VisioPage,
 };
 
 /// WGSL shader source embedded at compile time.
@@ -276,6 +278,32 @@ pub fn build_page_scene_mesh(
     show_rulers: bool,
     selected_shapes: &[u64],
 ) -> Result<(TessellatedMesh, FrameStats, f64), RenderError> {
+    build_page_scene_mesh_with_overlay(
+        doc,
+        page_id,
+        camera,
+        mesh_cache,
+        show_grid,
+        show_rulers,
+        selected_shapes,
+        None,
+    )
+}
+
+/// Assemble the complete vector scene mesh for `page_id` including transient interactive overlays
+/// (rubber-band marquee, smart alignment & equal-spacing guides, connection-point snap targets,
+/// 1D glued connector grips, and multi-selection bounding frame).
+#[allow(clippy::too_many_arguments)]
+pub fn build_page_scene_mesh_with_overlay(
+    doc: &VisioDocument,
+    page_id: u32,
+    camera: &ViewportCamera,
+    mesh_cache: &mut MeshCache,
+    show_grid: bool,
+    show_rulers: bool,
+    selected_shapes: &[u64],
+    overlay: Option<&InteractiveCanvasOverlay>,
+) -> Result<(TessellatedMesh, FrameStats, f64), RenderError> {
     let t0 = monotonic_now_ms();
     let page = doc
         .page(page_id)
@@ -294,7 +322,7 @@ pub fn build_page_scene_mesh(
 
     let mut scene = TessellatedMesh::with_capacity(512, 1024);
 
-    // Subtle drop-shadow behind page sheet when zoomed out enough to see canvaspasteboard.
+    // Subtle drop-shadow behind page sheet when zoomed out enough to see canvas pasteboard.
     let inv_ppi = (1.0 / camera.effective_ppi().max(1.0)) as f32;
     let shadow_off = 4.0 * inv_ppi;
     scene.push_quad(
@@ -358,18 +386,58 @@ pub fn build_page_scene_mesh(
         prepare_visible_shape_batch(&spatial, &visuals, camera, mesh_cache, &mut scene);
 
     // Foreground Markup Ink strokes.
-    let ink_tol = (0.35 / camera.effective_ppi()).clamp(0.0004, 0.01) as f32;
+    let ppi = camera.effective_ppi();
+    let ink_tol = (0.35 / ppi).clamp(0.0004, 0.01) as f32;
     for stroke in &page.ink_strokes {
         scene.append(&tessellate_ink_stroke(stroke, ink_tol));
     }
 
-    // Selection handles for active selection.
+    // Selection handles for active selection (1D glued/unglued grips, single 2D handles, and multi-select group frame).
     if !selected_shapes.is_empty() {
+        let mut union_min = [f64::INFINITY, f64::INFINITY];
+        let mut union_max = [f64::NEG_INFINITY, f64::NEG_INFINITY];
+        let mut sel_2d_count = 0usize;
+
         for vis in &visuals {
             if selected_shapes.contains(&vis.shape_id) {
-                scene.append(&tessellate_selection_handles(vis, camera.effective_ppi()));
+                if vis.kind == ShapeKind::Connector1D {
+                    let (beg_glued, end_glued) = overlay
+                        .and_then(|ov| ov.glued_connector_ends.get(&vis.shape_id).copied())
+                        .unwrap_or_else(|| {
+                            let bg = page.connects.iter().any(|c| {
+                                c.connector_shape_id == vis.shape_id
+                                    && c.from_cell.to_ascii_lowercase().starts_with("begin")
+                            });
+                            let eg = page.connects.iter().any(|c| {
+                                c.connector_shape_id == vis.shape_id
+                                    && !c.from_cell.to_ascii_lowercase().starts_with("begin")
+                            });
+                            (bg, eg)
+                        });
+                    scene.append(&tessellate_connector_1d_handles(vis, ppi, beg_glued, end_glued));
+                } else {
+                    scene.append(&tessellate_selection_handles(vis, ppi));
+                    union_min[0] = union_min[0].min(vis.aabb_min[0]);
+                    union_min[1] = union_min[1].min(vis.aabb_min[1]);
+                    union_max[0] = union_max[0].max(vis.aabb_max[0]);
+                    union_max[1] = union_max[1].max(vis.aabb_max[1]);
+                    sel_2d_count += 1;
+                }
             }
         }
+        if sel_2d_count >= 2 && union_min[0].is_finite() && union_max[0].is_finite() {
+            let pad = 4.0 / ppi.max(1.0);
+            scene.append(&tessellate_multi_selection_frame(
+                [union_min[0] - pad, union_min[1] - pad],
+                [union_max[0] + pad, union_max[1] + pad],
+                ppi,
+            ));
+        }
+    }
+
+    // Transient interactive overlays (smart guides, marquee box, connection-point snap targets, connector preview).
+    if let Some(ov) = overlay {
+        scene.append(&tessellate_interactive_overlay(ov, ppi));
     }
 
     // Optional interactive rulers along top/left viewport edges.
@@ -379,7 +447,7 @@ pub fn build_page_scene_mesh(
             vmin,
             vmax,
             grid_spacing.max(0.25),
-            camera.effective_ppi(),
+            ppi,
         ));
     }
 
@@ -420,6 +488,7 @@ pub struct WgpuCanvasRenderer {
     pub show_grid: bool,
     pub show_rulers: bool,
     pub selected_shapes: Vec<u64>,
+    pub interactive_overlay: InteractiveCanvasOverlay,
     pub pasteboard_color: RgbaColor,
 }
 
@@ -685,6 +754,7 @@ impl WgpuCanvasRenderer {
             show_grid: true,
             show_rulers: false,
             selected_shapes: Vec::new(),
+            interactive_overlay: InteractiveCanvasOverlay::default(),
             pasteboard_color: RgbaColor {
                 r: 226,
                 g: 232,
@@ -855,7 +925,7 @@ impl WgpuCanvasRenderer {
         doc: &VisioDocument,
         page_id: u32,
     ) -> Result<FrameStats, RenderError> {
-        let (mesh, stats, grid_spacing) = build_page_scene_mesh(
+        let (mesh, stats, grid_spacing) = build_page_scene_mesh_with_overlay(
             doc,
             page_id,
             &self.camera,
@@ -863,6 +933,7 @@ impl WgpuCanvasRenderer {
             self.show_grid,
             self.show_rulers,
             &self.selected_shapes,
+            Some(&self.interactive_overlay),
         )?;
 
         let Some(att_fmt) = self.attached_surface.as_ref().map(|a| a.config.format) else {
@@ -1285,6 +1356,18 @@ pub fn render_page_software_rgba_with_selection(
     show_grid: bool,
     selected_shapes: &[u64],
 ) -> Result<Vec<u8>, RenderError> {
+    render_page_software_rgba_with_overlay(doc, page_id, camera, show_grid, selected_shapes, None)
+}
+
+/// Deterministic 4x-RGSS software rasterizer with `selected_shapes` and transient `InteractiveCanvasOverlay`.
+pub fn render_page_software_rgba_with_overlay(
+    doc: &VisioDocument,
+    page_id: u32,
+    camera: &ViewportCamera,
+    show_grid: bool,
+    selected_shapes: &[u64],
+    overlay: Option<&InteractiveCanvasOverlay>,
+) -> Result<Vec<u8>, RenderError> {
     let width = camera.width_px;
     let height = camera.height_px;
     if width == 0 || height == 0 {
@@ -1292,7 +1375,7 @@ pub fn render_page_software_rgba_with_selection(
     }
 
     let mut cache = MeshCache::new();
-    let (mesh, _stats, grid_spacing_in) = build_page_scene_mesh(
+    let (mesh, _stats, grid_spacing_in) = build_page_scene_mesh_with_overlay(
         doc,
         page_id,
         camera,
@@ -1300,6 +1383,7 @@ pub fn render_page_software_rgba_with_selection(
         show_grid,
         false,
         selected_shapes,
+        overlay,
     )?;
 
     let pasteboard = RgbaColor {

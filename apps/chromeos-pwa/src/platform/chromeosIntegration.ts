@@ -28,6 +28,7 @@ interface LocalFontData {
   fullName: string;
   postscriptName: string;
   style: string;
+  blob?: () => Promise<Blob>;
 }
 
 declare global {
@@ -300,6 +301,9 @@ export function bindWindowControlsOverlay(onChange?: (visible: boolean) => void)
   wco.addEventListener('geometrychange', sync);
 }
 
+let cachedLocalFonts: LocalFontData[] | null = null;
+const registeredLocalFontFamilies = new Set<string>();
+
 /**
  * Enumerate installed ChromeOS system fonts via Local Font Access API for 1:1 Visio typography parity.
  */
@@ -308,10 +312,39 @@ export async function enumerateChromeOsSystemFonts(): Promise<string[]> {
   if (!window.queryLocalFonts) return defaults;
   try {
     const fonts = await window.queryLocalFonts();
+    cachedLocalFonts = fonts;
     const families = Array.from(new Set([...defaults, ...fonts.map((f) => f.family)])).sort();
     return families;
   } catch {
     return defaults;
+  }
+}
+
+/**
+ * Stream raw `.ttf` / `.otf` TrueType/OpenType bytes from ChromeOS Local Font Access API (`LocalFontData.blob()`)
+ * once per font family so the Rust WASM `ttf-parser` shaper & PDF contour exporter render exact OS glyphs.
+ */
+export async function loadChromeOsFontBytes(family: string): Promise<Uint8Array | null> {
+  const clean = family.trim();
+  if (!clean || registeredLocalFontFamilies.has(clean.toLowerCase())) return null;
+  if (!window.queryLocalFonts) return null;
+  try {
+    const fonts = cachedLocalFonts ?? (await window.queryLocalFonts());
+    cachedLocalFonts = fonts;
+    const targetLower = clean.toLowerCase();
+    const candidates = fonts.filter((f) => f.family.toLowerCase() === targetLower);
+    const chosen =
+      candidates.find((f) => /regular|normal|book|roman/i.test(f.style)) ?? candidates[0];
+    if (!chosen || typeof chosen.blob !== 'function') return null;
+    const blob = await chosen.blob();
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    if (bytes.byteLength > 0) {
+      registeredLocalFontFamilies.add(targetLower);
+      return bytes;
+    }
+    return null;
+  } catch {
+    return null;
   }
 }
 

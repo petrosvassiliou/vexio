@@ -974,6 +974,100 @@ public:
         return vexio_doc_set_title(m_ptr, title.c_str());
     }
 
+    [[nodiscard]] static VexioStatus RegisterFontBytes(
+        std::span<const uint8_t> fontBytes,
+        std::string_view familyOverrideUtf8 = {})
+    {
+        if (fontBytes.empty()) {
+            return VEXIO_ERR_INVALID_ARG;
+        }
+        const VexioByteSlice slice{fontBytes.data(), fontBytes.size()};
+        const std::string family{familyOverrideUtf8};
+        return vexio_register_font_bytes(
+            slice,
+            familyOverrideUtf8.empty() ? nullptr : family.c_str());
+    }
+
+    [[nodiscard]] VexioResult<uint32_t> AlignShapes(
+        uint32_t pageId,
+        std::span<const uint64_t> shapeIds,
+        std::string_view modeUtf8)
+    {
+        if (m_ptr == nullptr || shapeIds.empty() || modeUtf8.empty()) {
+            return VexioResult<uint32_t>{VEXIO_ERR_INVALID_ARG, std::nullopt};
+        }
+        const std::string mode{modeUtf8};
+        uint32_t outCount = 0;
+        const VexioStatus status = vexio_doc_align_shapes(
+            m_ptr, pageId, shapeIds.data(), shapeIds.size(), mode.c_str(), &outCount);
+        if (status != VEXIO_OK) {
+            return VexioResult<uint32_t>{status, std::nullopt};
+        }
+        return VexioResult<uint32_t>{VEXIO_OK, outCount};
+    }
+
+    [[nodiscard]] VexioResult<uint32_t> DistributeShapes(
+        uint32_t pageId,
+        std::span<const uint64_t> shapeIds,
+        std::string_view axisUtf8)
+    {
+        if (m_ptr == nullptr || shapeIds.empty() || axisUtf8.empty()) {
+            return VexioResult<uint32_t>{VEXIO_ERR_INVALID_ARG, std::nullopt};
+        }
+        const std::string axis{axisUtf8};
+        uint32_t outCount = 0;
+        const VexioStatus status = vexio_doc_distribute_shapes(
+            m_ptr, pageId, shapeIds.data(), shapeIds.size(), axis.c_str(), &outCount);
+        if (status != VEXIO_OK) {
+            return VexioResult<uint32_t>{status, std::nullopt};
+        }
+        return VexioResult<uint32_t>{VEXIO_OK, outCount};
+    }
+
+    [[nodiscard]] VexioResult<uint64_t> GroupShapes(
+        uint32_t pageId,
+        std::span<const uint64_t> shapeIds)
+    {
+        if (m_ptr == nullptr || shapeIds.size() < 2) {
+            return VexioResult<uint64_t>{VEXIO_ERR_INVALID_ARG, std::nullopt};
+        }
+        uint64_t groupId = 0;
+        const VexioStatus status = vexio_doc_group_shapes(
+            m_ptr, pageId, shapeIds.data(), shapeIds.size(), &groupId);
+        if (status != VEXIO_OK) {
+            return VexioResult<uint64_t>{status, std::nullopt};
+        }
+        return VexioResult<uint64_t>{VEXIO_OK, groupId};
+    }
+
+    [[nodiscard]] VexioResult<winrt::hstring> UngroupShapesJson(
+        uint32_t pageId,
+        std::span<const uint64_t> groupIds)
+    {
+        if (m_ptr == nullptr || groupIds.empty()) {
+            return VexioResult<winrt::hstring>{VEXIO_ERR_INVALID_ARG, std::nullopt};
+        }
+        OwnedBufferGuard jsonBuf;
+        const VexioStatus status = vexio_doc_ungroup_shapes(
+            m_ptr, pageId, groupIds.data(), groupIds.size(), jsonBuf.OutPtr());
+        if (status != VEXIO_OK) {
+            return VexioResult<winrt::hstring>{status, std::nullopt};
+        }
+        return VexioResult<winrt::hstring>{VEXIO_OK, jsonBuf.ToWinRtString()};
+    }
+
+    [[nodiscard]] VexioStatus DragConnectorSegment(
+        uint32_t pageId,
+        uint64_t shapeId,
+        uint32_t segIndex,
+        double coordIn)
+    {
+        if (m_ptr == nullptr || shapeId == 0) {
+            return VEXIO_ERR_INVALID_ARG;
+        }
+        return vexio_doc_drag_connector_segment(m_ptr, pageId, shapeId, segIndex, coordIn);
+    }
+
 private:
     VexioDoc* m_ptr{nullptr};
 };
@@ -1170,6 +1264,37 @@ public:
             return VexioResult<ScreenRectPx>{status, std::nullopt};
         }
         return VexioResult<ScreenRectPx>{VEXIO_OK, rect};
+    }
+
+    [[nodiscard]] VexioStatus SetSmartGuides(bool enabled) const noexcept {
+        if (m_ptr == nullptr) return VEXIO_ERR_INVALID_ARG;
+        return vexio_viewport_set_smart_guides(m_ptr, enabled);
+    }
+
+    [[nodiscard]] bool GetSmartGuides() const noexcept {
+        if (m_ptr == nullptr) return true;
+        return vexio_viewport_get_smart_guides(m_ptr);
+    }
+
+    [[nodiscard]] VexioResult<winrt::hstring> GetSelectionJson() const {
+        if (m_ptr == nullptr) {
+            return VexioResult<winrt::hstring>{VEXIO_ERR_INVALID_ARG, std::nullopt};
+        }
+        OwnedBufferGuard jsonBuf;
+        const VexioStatus status = vexio_viewport_get_selection_json(m_ptr, jsonBuf.OutPtr());
+        if (status != VEXIO_OK) {
+            return VexioResult<winrt::hstring>{status, std::nullopt};
+        }
+        return VexioResult<winrt::hstring>{VEXIO_OK, jsonBuf.ToWinRtString()};
+    }
+
+    [[nodiscard]] VexioStatus SetSelection(const DocHandle& doc, std::span<const uint64_t> shapeIds) const noexcept {
+        if (m_ptr == nullptr || !doc) return VEXIO_ERR_INVALID_ARG;
+        return vexio_viewport_set_selection(
+            m_ptr,
+            doc.Get(),
+            shapeIds.empty() ? nullptr : shapeIds.data(),
+            shapeIds.size());
     }
 
     [[nodiscard]] VexioResult<uint32_t> DispatchPointer(

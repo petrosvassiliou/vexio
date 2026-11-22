@@ -246,8 +246,57 @@ void MainWindow::AttachOrResizeDx12SwapChain() {
     if (m_viewport) {
         (void)m_viewport.SetPage(m_doc, m_activePageId);
         (void)m_viewport.SetTool(static_cast<uint32_t>(m_activeTool));
+        (void)m_viewport.SetSmartGuides(m_smartGuidesEnabled);
         PresentViewportFrame();
     }
+}
+
+void MainWindow::SyncMultiSelectionFromViewport() {
+    if (!m_viewport) {
+        return;
+    }
+    const auto selJsonRes = m_viewport.GetSelectionJson();
+    if (selJsonRes.ok() && !selJsonRes.value->empty()) {
+        Windows::Data::Json::JsonArray arr{nullptr};
+        if (Windows::Data::Json::JsonArray::TryParse(*selJsonRes.value, arr)) {
+            std::vector<uint64_t> parsed{};
+            parsed.reserve(arr.Size());
+            for (uint32_t i = 0; i < arr.Size(); ++i) {
+                const uint64_t sid = static_cast<uint64_t>(arr.GetNumberAt(i));
+                if (sid > 0) {
+                    parsed.push_back(sid);
+                }
+            }
+            if (!parsed.empty()) {
+                m_selectedShapeIds = std::move(parsed);
+            }
+        }
+    }
+    const uint64_t sel = m_viewport.GetPrimarySelection();
+    if (sel > 0 && sel != m_selectedShapeId) {
+        m_previousSelectedShapeId = m_selectedShapeId;
+        m_selectedShapeId = sel;
+    }
+    if (m_selectedShapeIds.empty() && m_selectedShapeId > 0) {
+        m_selectedShapeIds.push_back(m_selectedShapeId);
+    }
+}
+
+std::vector<uint64_t> MainWindow::ResolveTargetSelectionIds() {
+    SyncMultiSelectionFromViewport();
+    std::vector<uint64_t> ids = m_selectedShapeIds;
+    if (ids.size() < 2 && m_previousSelectedShapeId > 0 && m_previousSelectedShapeId != m_selectedShapeId) {
+        if (ids.empty() && m_selectedShapeId > 0) {
+            ids.push_back(m_selectedShapeId);
+        }
+        if (std::find(ids.begin(), ids.end(), m_previousSelectedShapeId) == ids.end()) {
+            ids.insert(ids.begin(), m_previousSelectedShapeId);
+        }
+    }
+    if (ids.empty() && m_selectedShapeId > 0) {
+        ids.push_back(m_selectedShapeId);
+    }
+    return ids;
 }
 
 void MainWindow::PresentViewportFrame() {
@@ -256,17 +305,12 @@ void MainWindow::PresentViewportFrame() {
     }
 
     (void)m_viewport.RenderFrame(m_doc);
-
-    const uint64_t sel = m_viewport.GetPrimarySelection();
-    if (sel > 0 && sel != m_selectedShapeId) {
-        m_previousSelectedShapeId = m_selectedShapeId;
-        m_selectedShapeId = sel;
-    }
+    SyncMultiSelectionFromViewport();
 
     if (m_usingHeadlessFallback) {
         const uint32_t wPx = std::max<uint32_t>(320u, static_cast<uint32_t>(std::lround(DiagramSwapChainPanel().ActualWidth())));
         const uint32_t hPx = std::max<uint32_t>(200u, static_cast<uint32_t>(std::lround(DiagramSwapChainPanel().ActualHeight())));
-        const auto rgbaRes = m_doc.RenderPreviewRgba(m_activePageId, wPx, hPx);
+        const auto rgbaRes = m_viewport.RenderRgba(m_doc);
         if (rgbaRes.ok()) {
             const auto src = rgbaRes.value->Bytes();
             const size_t expected = static_cast<size_t>(wPx) * static_cast<size_t>(hPx) * 4u;
@@ -469,6 +513,12 @@ void MainWindow::OnCanvasRightTapped(IInspectable const&, RightTappedRoutedEvent
         if (m_selectedShapeId > 0) {
             BeginInlineCanvasShapeTextEdit(m_selectedShapeId, false);
         }
+    });
+    addItem(L"Group Selected Shapes (Ctrl+G)", [this](IInspectable const&, RoutedEventArgs const&) {
+        OnGroupShapesClick(nullptr, nullptr);
+    });
+    addItem(L"Ungroup Selected Group (Ctrl+Shift+G)", [this](IInspectable const&, RoutedEventArgs const&) {
+        OnUngroupShapesClick(nullptr, nullptr);
     });
     addItem(L"Rotate Left 90° (↺)", [this](IInspectable const&, RoutedEventArgs const&) {
         OnRotateLeft90Click(nullptr, nullptr);
@@ -1917,6 +1967,18 @@ void MainWindow::OnViewAutoConnectChanged(IInspectable const&, RoutedEventArgs c
         : L"Select Tool • Manual Glue Mode");
 }
 
+void MainWindow::OnViewSmartGuidesChanged(IInspectable const&, RoutedEventArgs const&) {
+    if (!m_isInitialized) return;
+    m_smartGuidesEnabled = ViewSmartGuidesCheck().IsChecked().GetBoolean();
+    if (m_viewport) {
+        (void)m_viewport.SetSmartGuides(m_smartGuidesEnabled);
+    }
+    CanvasOverlayHudText().Text(m_smartGuidesEnabled
+        ? L"Select Tool • Smart Alignment & Equal-Spacing Guides Active (Hold Alt to Bypass)"
+        : L"Select Tool • Smart Guides Disabled");
+    PresentViewportFrame();
+}
+
 // ===========================================================================
 // Undo / Redo, Clipboard, Duplicate, Delete, Z-Order, Routing & Layouts
 // ===========================================================================
@@ -1945,7 +2007,7 @@ void MainWindow::OnCopyShapeClick(IInspectable const&, RoutedEventArgs const&) {
 
 void MainWindow::OnCutShapeClick(IInspectable const&, RoutedEventArgs const&) {
     if (!m_doc) return;
-    const std::array<uint64_t, 1> ids{m_selectedShapeId};
+    const auto ids = ResolveTargetSelectionIds();
     (void)m_doc.DeleteShapes(m_activePageId, ids);
     MarkDocumentDirty(true);
     PresentViewportFrame();
@@ -1957,11 +2019,15 @@ void MainWindow::OnPasteShapeClick(IInspectable const&, RoutedEventArgs const&) 
 
 void MainWindow::OnDuplicateShapeClick(IInspectable const&, RoutedEventArgs const&) {
     if (!m_doc) return;
-    const std::array<uint64_t, 1> ids{m_selectedShapeId};
+    const auto ids = ResolveTargetSelectionIds();
     const auto dup = m_doc.DuplicateShapes(m_activePageId, ids, 0.35, -0.35);
     if (dup.ok() && *dup.value > 0) {
         m_previousSelectedShapeId = m_selectedShapeId;
         m_selectedShapeId = *dup.value;
+        m_selectedShapeIds = {*dup.value};
+        if (m_viewport) {
+            (void)m_viewport.SetSelection(m_doc, m_selectedShapeIds);
+        }
         MarkDocumentDirty(true);
         PresentViewportFrame();
         SyncInspectorFromShapeSheet();
@@ -1972,7 +2038,7 @@ void MainWindow::OnDuplicateShapeClick(IInspectable const&, RoutedEventArgs cons
 
 void MainWindow::OnDeleteShapeClick(IInspectable const&, RoutedEventArgs const&) {
     if (!m_doc) return;
-    const std::array<uint64_t, 1> ids{m_selectedShapeId};
+    const auto ids = ResolveTargetSelectionIds();
     if (m_doc.DeleteShapes(m_activePageId, ids).ok()) {
         MarkDocumentDirty(true);
         PresentViewportFrame();
@@ -1982,7 +2048,7 @@ void MainWindow::OnDeleteShapeClick(IInspectable const&, RoutedEventArgs const&)
 
 void MainWindow::OnBringFrontClick(IInspectable const&, RoutedEventArgs const&) {
     if (!m_doc) return;
-    const std::array<uint64_t, 1> ids{m_selectedShapeId};
+    const auto ids = ResolveTargetSelectionIds();
     if (m_doc.ReorderShapes(m_activePageId, ids, "front") == VEXIO_OK) {
         MarkDocumentDirty(true);
         PresentViewportFrame();
@@ -1991,7 +2057,7 @@ void MainWindow::OnBringFrontClick(IInspectable const&, RoutedEventArgs const&) 
 
 void MainWindow::OnSendBackClick(IInspectable const&, RoutedEventArgs const&) {
     if (!m_doc) return;
-    const std::array<uint64_t, 1> ids{m_selectedShapeId};
+    const auto ids = ResolveTargetSelectionIds();
     if (m_doc.ReorderShapes(m_activePageId, ids, "back") == VEXIO_OK) {
         MarkDocumentDirty(true);
         PresentViewportFrame();
@@ -2019,14 +2085,104 @@ void MainWindow::OnQuickStyleNeutralClick(IInspectable const&, RoutedEventArgs c
     OnApplyFormatShapeClick(nullptr, nullptr);
 }
 
-void MainWindow::OnAlignCenterClick(IInspectable const&, RoutedEventArgs const&) {
-    TransformPinXBox().Text(L"5.50 in");
-    OnApplySizeAndPositionClick(nullptr, nullptr);
+void MainWindow::ExecuteAlignMode(std::string_view modeUtf8, std::wstring_view label) {
+    if (!m_doc) return;
+    const auto ids = ResolveTargetSelectionIds();
+    const auto res = m_doc.AlignShapes(m_activePageId, ids, modeUtf8);
+    if (res.ok() && *res.value > 0) {
+        MarkDocumentDirty(true);
+        PresentViewportFrame();
+        SyncInspectorFromShapeSheet();
+        RefreshShapeSheetSectionRows();
+        ShowBanner(InfoBarSeverity::Informational, L"Shapes Aligned",
+                   std::format(L"{} applied across {} shape(s).", label, *res.value));
+    }
 }
 
+void MainWindow::ExecuteDistributeAxis(std::string_view axisUtf8, std::wstring_view label) {
+    if (!m_doc) return;
+    const auto ids = ResolveTargetSelectionIds();
+    const auto res = m_doc.DistributeShapes(m_activePageId, ids, axisUtf8);
+    if (res.ok() && *res.value > 0) {
+        MarkDocumentDirty(true);
+        PresentViewportFrame();
+        SyncInspectorFromShapeSheet();
+        RefreshShapeSheetSectionRows();
+        ShowBanner(InfoBarSeverity::Informational, L"Shapes Distributed",
+                   std::format(L"{} applied across {} shape(s) with equal bounding-box spacing.", label, *res.value));
+    } else {
+        ShowBanner(InfoBarSeverity::Informational, L"Select 3+ Shapes to Distribute",
+                   L"Marquee-drag or Shift+Click at least 3 shapes to distribute equal spacing.");
+    }
+}
+
+void MainWindow::OnAlignLeftClick(IInspectable const&, RoutedEventArgs const&)   { ExecuteAlignMode("left", L"Align Left"); }
+void MainWindow::OnAlignCenterClick(IInspectable const&, RoutedEventArgs const&) { ExecuteAlignMode("center", L"Align Center"); }
+void MainWindow::OnAlignRightClick(IInspectable const&, RoutedEventArgs const&)  { ExecuteAlignMode("right", L"Align Right"); }
+void MainWindow::OnAlignTopClick(IInspectable const&, RoutedEventArgs const&)    { ExecuteAlignMode("top", L"Align Top"); }
+void MainWindow::OnAlignMiddleClick(IInspectable const&, RoutedEventArgs const&) { ExecuteAlignMode("middle", L"Align Middle"); }
+void MainWindow::OnAlignBottomClick(IInspectable const&, RoutedEventArgs const&) { ExecuteAlignMode("bottom", L"Align Bottom"); }
+
 void MainWindow::OnDistributeHorizontallyClick(IInspectable const&, RoutedEventArgs const&) {
-    ShowBanner(InfoBarSeverity::Informational, L"Shapes Distributed",
-               L"Distributed active page shapes evenly along horizontal PinX centers.");
+    ExecuteDistributeAxis("horizontal", L"Distribute Horizontally");
+}
+
+void MainWindow::OnDistributeVerticallyClick(IInspectable const&, RoutedEventArgs const&) {
+    ExecuteDistributeAxis("vertical", L"Distribute Vertically");
+}
+
+void MainWindow::OnGroupShapesClick(IInspectable const&, RoutedEventArgs const&) {
+    if (!m_doc) return;
+    const auto ids = ResolveTargetSelectionIds();
+    if (ids.size() < 2) {
+        ShowBanner(InfoBarSeverity::Informational, L"Select 2+ Shapes to Group",
+                   L"Rubber-band drag on the canvas or Shift+Click multiple shapes, then press Ctrl+G.");
+        return;
+    }
+    const auto grpRes = m_doc.GroupShapes(m_activePageId, ids);
+    if (grpRes.ok() && *grpRes.value > 0) {
+        m_previousSelectedShapeId = m_selectedShapeId;
+        m_selectedShapeId = *grpRes.value;
+        m_selectedShapeIds = {*grpRes.value};
+        if (m_viewport) {
+            (void)m_viewport.SetSelection(m_doc, m_selectedShapeIds);
+        }
+        MarkDocumentDirty(true);
+        PresentViewportFrame();
+        SyncInspectorFromShapeSheet();
+        RefreshShapeSheetSectionRows();
+        ShowBanner(InfoBarSeverity::Success, L"Shapes Grouped",
+                   std::format(L"Grouped {} shapes into container Sheet.{}.", ids.size(), *grpRes.value));
+    }
+}
+
+void MainWindow::OnUngroupShapesClick(IInspectable const&, RoutedEventArgs const&) {
+    if (!m_doc) return;
+    const auto ids = ResolveTargetSelectionIds();
+    const auto ungrpRes = m_doc.UngroupShapesJson(m_activePageId, ids);
+    if (ungrpRes.ok() && !ungrpRes.value->empty()) {
+        std::vector<uint64_t> restored{};
+        Windows::Data::Json::JsonArray arr{nullptr};
+        if (Windows::Data::Json::JsonArray::TryParse(*ungrpRes.value, arr)) {
+            for (uint32_t i = 0; i < arr.Size(); ++i) {
+                const uint64_t sid = static_cast<uint64_t>(arr.GetNumberAt(i));
+                if (sid > 0) restored.push_back(sid);
+            }
+        }
+        if (!restored.empty()) {
+            m_selectedShapeIds = restored;
+            m_selectedShapeId = restored.front();
+            if (m_viewport) {
+                (void)m_viewport.SetSelection(m_doc, m_selectedShapeIds);
+            }
+            MarkDocumentDirty(true);
+            PresentViewportFrame();
+            SyncInspectorFromShapeSheet();
+            RefreshShapeSheetSectionRows();
+            ShowBanner(InfoBarSeverity::Success, L"Group Ungrouped",
+                       std::format(L"Restored {} member shape(s) onto active page.", restored.size()));
+        }
+    }
 }
 
 void MainWindow::OnAutoLayoutQuickClick(IInspectable const&, RoutedEventArgs const&) {
@@ -3462,6 +3618,16 @@ void MainWindow::OnMacroEditorAccelerator(KeyboardAccelerator const&, KeyboardAc
     args.Handled(true);
 }
 
+void MainWindow::OnGroupAccelerator(KeyboardAccelerator const&, KeyboardAcceleratorInvokedEventArgs const& args) {
+    OnGroupShapesClick(nullptr, nullptr);
+    args.Handled(true);
+}
+
+void MainWindow::OnUngroupAccelerator(KeyboardAccelerator const&, KeyboardAcceleratorInvokedEventArgs const& args) {
+    OnUngroupShapesClick(nullptr, nullptr);
+    args.Handled(true);
+}
+
 void MainWindow::ShowBanner(InfoBarSeverity severity, std::wstring_view title, std::wstring_view message) {
     auto bar = WorkspaceInfoBar();
     bar.Severity(severity);
@@ -4347,7 +4513,7 @@ void MainWindow::OnCheckUpdatesClick(IInspectable const&, RoutedEventArgs const&
 }
 
 fire_and_forget MainWindow::CheckForUpdatesAsync(bool userInitiated) {
-    constexpr std::wstring_view kCurrentVersion = L"0.1.0";
+    constexpr std::wstring_view kCurrentVersion = L"0.2.0-alpha";
     const auto weakSelf = get_weak();
 
     if (userInitiated) {
@@ -4361,7 +4527,7 @@ fire_and_forget MainWindow::CheckForUpdatesAsync(bool userInitiated) {
 
     try {
         Windows::Web::Http::HttpClient client{};
-        client.DefaultRequestHeaders().UserAgent().TryParseAdd(L"Vexio-Windows/0.1.0");
+        client.DefaultRequestHeaders().UserAgent().TryParseAdd(L"Vexio-Windows/0.2.0-alpha");
         client.DefaultRequestHeaders().Accept().TryParseAdd(L"application/vnd.github+json");
 
         const Uri apiUri{L"https://api.github.com/repos/petrosvassiliou/vexio/releases"};
@@ -4370,7 +4536,7 @@ fire_and_forget MainWindow::CheckForUpdatesAsync(bool userInitiated) {
         Windows::Data::Json::JsonArray releasesArr{nullptr};
         if (Windows::Data::Json::JsonArray::TryParse(body, releasesArr) && releasesArr.Size() > 0) {
             const auto relObj = releasesArr.GetObjectAt(0);
-            latestTag = relObj.GetNamedString(L"tag_name", L"v0.1.0").c_str();
+            latestTag = relObj.GetNamedString(L"tag_name", L"v0.2.0-alpha").c_str();
             releaseUrl = relObj.GetNamedString(L"html_url", releaseUrl).c_str();
             if (relObj.HasKey(L"assets")) {
                 const auto assets = relObj.GetNamedArray(L"assets");
@@ -4432,7 +4598,7 @@ fire_and_forget MainWindow::CheckForUpdatesAsync(bool userInitiated) {
         }
     } else {
         self->BackstageUpdateStatusText().Text(hstring{
-            std::format(L"Vexio is up to date ({}).", latestTag.empty() ? L"v0.1.0" : latestTag)
+            std::format(L"Vexio is up to date ({}).", latestTag.empty() ? L"v0.2.0-alpha" : latestTag)
         });
         if (userInitiated) {
             ContentDialog dlg{};
@@ -4440,7 +4606,7 @@ fire_and_forget MainWindow::CheckForUpdatesAsync(bool userInitiated) {
             dlg.Title(box_value(L"Vexio is Up to Date"));
             dlg.Content(box_value(hstring{std::format(
                 L"You are running the latest version of Vexio Professional ({}).",
-                latestTag.empty() ? L"v0.1.0" : latestTag)}));
+                latestTag.empty() ? L"v0.2.0-alpha" : latestTag)}));
             dlg.PrimaryButtonText(L"View Release Notes");
             dlg.CloseButtonText(L"OK");
             dlg.DefaultButton(ContentDialogButton::Close);

@@ -562,6 +562,7 @@ fn is_section_synthesized_cell(key_lower: &str) -> bool {
         || key_lower.starts_with("controls.")
         || key_lower.starts_with("user.")
         || key_lower.starts_with("prop.")
+        || key_lower.starts_with("fillgradient.")
 }
 
 fn write_sheet_contents(out: &mut String, sheet: &ShapeSheet, layers: &[LayerDef]) {
@@ -699,6 +700,46 @@ fn write_sheet_contents(out: &mut String, sheet: &ShapeSheet, layers: &[LayerDef
                 if ctrl.can_glue { 1 } else { 0 }
             );
             let _ = writeln!(out, "<Cell N=\"Prompt\" V=\"{}\" U=\"STR\"/>", xml_escape(&ctrl.prompt));
+            out.push_str("</Row>\n");
+        }
+        out.push_str("</Section>\n");
+    }
+
+    // 7. FillGradient Stops (OpenXML `IX` is 0-based; `GradientStopRow.ix` may be 0-based or 1-based)
+    if !sheet.fill_gradient_stops.is_empty() {
+        out.push_str("<Section N=\"FillGradient\">\n");
+        let is_zero_based = sheet.fill_gradient_stops.iter().any(|s| s.ix == 0);
+        for (seq_idx, stop) in sheet.fill_gradient_stops.iter().enumerate() {
+            let zero_ix = if is_zero_based {
+                stop.ix.max(seq_idx as u32)
+            } else {
+                stop.ix.saturating_sub(1).max(seq_idx as u32)
+            };
+            let _ = writeln!(out, "<Row IX=\"{zero_ix}\">");
+            write_cell_tag(
+                out,
+                "GradientStopPosition",
+                &stop.position,
+                sheet
+                    .get_cell(&format!("FillGradient.Stop{}.Position", stop.ix))
+                    .map(|c| &c.value),
+            );
+            write_cell_tag(
+                out,
+                "GradientStopColor",
+                &stop.color,
+                sheet
+                    .get_cell(&format!("FillGradient.Stop{}.Color", stop.ix))
+                    .map(|c| &c.value),
+            );
+            write_cell_tag(
+                out,
+                "GradientStopColorTrans",
+                &stop.color_trans,
+                sheet
+                    .get_cell(&format!("FillGradient.Stop{}.ColorTrans", stop.ix))
+                    .map(|c| &c.value),
+            );
             out.push_str("</Row>\n");
         }
         out.push_str("</Section>\n");

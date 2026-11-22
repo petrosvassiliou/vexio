@@ -6,26 +6,34 @@ pub mod foreign_media;
 pub mod pipeline;
 pub mod spatial;
 pub mod tessellate;
+pub mod ttf_shaper;
 pub mod typography;
 
 pub use pipeline::{
-    build_page_scene_mesh, prepare_visible_shape_batch, render_page_rgba_auto,
-    render_page_software_rgba, render_page_software_rgba_with_camera,
-    render_page_software_rgba_with_selection, CameraUniform, FrameStats, RenderError,
-    ViewportCamera, WgpuCanvasRenderer, CANVAS_WGSL_SOURCE,
+    build_page_scene_mesh, build_page_scene_mesh_with_overlay, prepare_visible_shape_batch,
+    render_page_rgba_auto, render_page_software_rgba, render_page_software_rgba_with_camera,
+    render_page_software_rgba_with_overlay, render_page_software_rgba_with_selection,
+    CameraUniform, FrameStats, RenderError, ViewportCamera, WgpuCanvasRenderer,
+    CANVAS_WGSL_SOURCE,
 };
 pub use spatial::{SpatialEntry, SpatialIndex};
 pub use tessellate::{
-    compute_visual_content_hash, emit_lod_bounding_quad, tessellate_ink_stroke,
-    tessellate_ruler_and_grid_ticks, tessellate_selection_handles, tessellate_shape,
-    tessellate_shape_full, GpuVertex, MeshCache, TessellatedMesh, PRIM_FLAG_MARKUP_INK,
-    PRIM_FLAG_OVERLAY_UI, PRIM_FLAG_PAGE_GRID, PRIM_FLAG_SHAPE, PRIM_FLAG_TEXT_GLYPH,
+    compute_visual_content_hash, emit_lod_bounding_quad, extract_connector_polyline_in,
+    tessellate_connector_1d_handles, tessellate_ink_stroke, tessellate_interactive_overlay,
+    tessellate_multi_selection_frame, tessellate_ruler_and_grid_ticks,
+    tessellate_selection_handles, tessellate_shape, tessellate_shape_full,
+    visio_arrow_size_scale, GpuVertex, InteractiveCanvasOverlay, MeshCache, SmartGuideLine,
+    TessellatedMesh, PRIM_FLAG_MARKUP_INK, PRIM_FLAG_OVERLAY_UI, PRIM_FLAG_PAGE_GRID,
+    PRIM_FLAG_SHAPE, PRIM_FLAG_TEXT_GLYPH,
+};
+pub use ttf_shaper::{
+    measure_text_width_in, register_font_bytes, shape_line_to_pdf_contours, PdfContourOp,
 };
 pub use typography::{
-    BulletStyle, FontFamilyClass, RichTextBlock, RichTextRun, TextDirection,
-    parse_inline_rich_text, parse_inline_rich_text_styled,
+    measure_rich_text_bounds_in, parse_inline_rich_text, parse_inline_rich_text_styled,
     parse_inline_rich_text_styled_with_font, reorder_bidi_visual_line,
-    tessellate_rich_text_in_box,
+    tessellate_rich_text_in_box, BulletStyle, FontFamilyClass, RichTextBlock, RichTextRun,
+    TextDirection,
 };
 pub use vexio_shapesheet::VisioDocument;
 
@@ -78,12 +86,19 @@ mod tests {
                 b: 235,
                 a: 255,
             }),
+            fill_bkgnd: None,
+            fill_pattern: 1,
+            fill_gradient_angle_rad: 0.0,
+            fill_gradient_radial: false,
+            gradient_stops: Vec::new(),
             stroke_color: Some(RgbaColor::BLACK),
             stroke_weight_in: 1.0 / 72.0,
             line_pattern: 1,
             rounding_in: 0.0,
             end_arrow: 0,
             begin_arrow: 0,
+            end_arrow_size: 2,
+            begin_arrow_size: 2,
             text: String::new(),
             txt_pos: [x_in + w_in * 0.5, y_in + h_in * 0.5],
             txt_width: None,
@@ -97,6 +112,7 @@ mod tests {
             bullet_style: 0,
             text_bg_color: None,
             foreign_media: None,
+            connection_points: Vec::new(),
         }
     }
 
@@ -263,6 +279,11 @@ mod tests {
                 b: 129,
                 a: 255,
             }),
+            fill_bkgnd: None,
+            fill_pattern: 1,
+            fill_gradient_angle_rad: 0.0,
+            fill_gradient_radial: false,
+            gradient_stops: Vec::new(),
             stroke_color: Some(RgbaColor {
                 r: 15,
                 g: 23,
@@ -274,6 +295,8 @@ mod tests {
             rounding_in: 0.08,
             end_arrow: 4,
             begin_arrow: 1,
+            end_arrow_size: 2,
+            begin_arrow_size: 2,
             text: "NODE-42".into(),
             txt_pos: [4.0, 4.0],
             txt_width: None,
@@ -287,6 +310,7 @@ mod tests {
             bullet_style: 0,
             text_bg_color: None,
             foreign_media: None,
+            connection_points: Vec::new(),
         };
 
         let mesh = tessellate_shape(&complex_visual, 96.0);

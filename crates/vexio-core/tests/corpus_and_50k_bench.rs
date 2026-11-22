@@ -65,12 +65,19 @@ fn make_bench_visual(id: u64, x_in: f64, y_in: f64) -> EvaluatedShapeVisual {
             b: 235,
             a: 255,
         }),
+        fill_bkgnd: None,
+        fill_pattern: 1,
+        fill_gradient_angle_rad: 0.0,
+        fill_gradient_radial: false,
+        gradient_stops: Vec::new(),
         stroke_color: Some(RgbaColor::BLACK),
         stroke_weight_in: 1.0 / 72.0,
         line_pattern: 1,
         rounding_in: 0.04,
         end_arrow: 0,
         begin_arrow: 0,
+        end_arrow_size: 2,
+        begin_arrow_size: 2,
         text: String::new(),
         txt_pos: [x_in + w_in * 0.5, y_in + h_in * 0.5],
         txt_width: None,
@@ -84,6 +91,7 @@ fn make_bench_visual(id: u64, x_in: f64, y_in: f64) -> EvaluatedShapeVisual {
         bullet_style: 0,
         text_bg_color: None,
         foreign_media: None,
+        connection_points: Vec::new(),
     }
 }
 

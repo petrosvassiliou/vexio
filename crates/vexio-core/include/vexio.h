@@ -124,7 +124,18 @@ VexioStatus vexio_doc_set_page_preset(VexioDoc* doc, uint32_t page_id, const cha
 VexioStatus vexio_doc_set_title(VexioDoc* doc, const char* title_utf8);
 VexioStatus vexio_doc_rename_page(VexioDoc* doc, uint32_t page_id, const char* new_name_utf8);
 
+/* v0.2.0-alpha: Custom TrueType/OpenType Fonts, Align/Distribute, Group/Ungroup, Smart Guides & 1D Segment Drag */
+VexioStatus vexio_register_font_bytes(VexioByteSlice font_bytes, const char* family_override_utf8);
+VexioStatus vexio_doc_align_shapes(VexioDoc* doc, uint32_t page_id, const uint64_t* shape_ids_ptr, size_t shape_ids_len, const char* mode_utf8, uint32_t* out_count);
+VexioStatus vexio_doc_distribute_shapes(VexioDoc* doc, uint32_t page_id, const uint64_t* shape_ids_ptr, size_t shape_ids_len, const char* axis_utf8, uint32_t* out_count);
+VexioStatus vexio_doc_group_shapes(VexioDoc* doc, uint32_t page_id, const uint64_t* shape_ids_ptr, size_t shape_ids_len, uint64_t* out_group_id);
+VexioStatus vexio_doc_ungroup_shapes(VexioDoc* doc, uint32_t page_id, const uint64_t* group_ids_ptr, size_t group_ids_len, VexioOwnedBuffer* out_ids_json);
+VexioStatus vexio_doc_drag_connector_segment(VexioDoc* doc, uint32_t page_id, uint64_t shape_id, uint32_t seg_index, double coord_in);
+VexioStatus vexio_viewport_set_smart_guides(VexioViewport* vp, bool enabled);
+bool        vexio_viewport_get_smart_guides(const VexioViewport* vp);
+VexioStatus vexio_viewport_get_selection_json(const VexioViewport* vp, VexioOwnedBuffer* out_json);
+VexioStatus vexio_viewport_set_selection(VexioViewport* vp, const VexioDoc* doc, const uint64_t* shape_ids_ptr, size_t shape_ids_len);
+
 #ifdef __cplusplus
 }
 #endif
-

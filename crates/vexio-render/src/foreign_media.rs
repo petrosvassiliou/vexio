@@ -64,6 +64,17 @@ pub fn tessellate_foreign_media(
         }
     }
 
+    let is_placeable_wmf = media.data.len() >= 22 && media.data[0..4] == [0xD7, 0xCD, 0xC6, 0x9A];
+    let is_std_wmf = media.data.len() >= 18
+        && matches!(u16::from_le_bytes([media.data[0], media.data[1]]), 1 | 2)
+        && u16::from_le_bytes([media.data[2], media.data[3]]) == 9;
+    if mt.contains("WMF") || is_placeable_wmf || is_std_wmf {
+        let mesh = tessellate_wmf_foreign(&media.data, world_tf, tol_in);
+        if !mesh.is_empty() {
+            return mesh;
+        }
+    }
+
     TessellatedMesh::new()
 }
 
@@ -1081,112 +1092,400 @@ fn emit_rgba_grid_in_transform(
 }
 
 // ============================================================================
-// 3. Enhanced Metafile (EMF) Vector Stencil Record Tessellator
+// 3. Enhanced Metafile (EMF), EMF+ & Windows Metafile (WMF) Vector Playback
 // ============================================================================
+
+#[derive(Clone, Copy, Debug)]
+struct Affine2D {
+    m11: f64,
+    m12: f64,
+    m21: f64,
+    m22: f64,
+    dx: f64,
+    dy: f64,
+}
+
+impl Default for Affine2D {
+    fn default() -> Self {
+        Self {
+            m11: 1.0,
+            m12: 0.0,
+            m21: 0.0,
+            m22: 1.0,
+            dx: 0.0,
+            dy: 0.0,
+        }
+    }
+}
+
+impl Affine2D {
+    #[inline]
+    fn apply(self, x: f64, y: f64) -> (f64, f64) {
+        (
+            x * self.m11 + y * self.m21 + self.dx,
+            x * self.m12 + y * self.m22 + self.dy,
+        )
+    }
+
+    #[inline]
+    fn multiply(self, rhs: Self) -> Self {
+        Self {
+            m11: self.m11 * rhs.m11 + self.m12 * rhs.m21,
+            m12: self.m11 * rhs.m12 + self.m12 * rhs.m22,
+            m21: self.m21 * rhs.m11 + self.m22 * rhs.m21,
+            m22: self.m21 * rhs.m12 + self.m22 * rhs.m22,
+            dx: self.dx * rhs.m11 + self.dy * rhs.m21 + rhs.dx,
+            dy: self.dx * rhs.m12 + self.dy * rhs.m22 + rhs.dy,
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+struct EmfDcState {
+    stroke: Option<(RgbaColor, f32)>,
+    fill: Option<RgbaColor>,
+    fill_rule: FillRule,
+    cur_pt: [f64; 2],
+    win_org: [f64; 2],
+    win_ext: [f64; 2],
+    vp_org: [f64; 2],
+    vp_ext: [f64; 2],
+    has_win_vp: bool,
+    xform: Affine2D,
+}
+
+#[derive(Clone, Debug)]
+enum EmfGdiObject {
+    Pen(Option<(RgbaColor, f32)>),
+    Brush(Option<RgbaColor>),
+}
+
+#[derive(Clone, Debug)]
+enum EmfPlusObj {
+    Brush(RgbaColor),
+    Pen(RgbaColor, f32),
+    Path(Vec<(u8, [f64; 2])>),
+}
+
+fn parse_argb_u32(argb: u32) -> RgbaColor {
+    RgbaColor {
+        a: ((argb >> 24) & 0xFF) as u8,
+        r: ((argb >> 16) & 0xFF) as u8,
+        g: ((argb >> 8) & 0xFF) as u8,
+        b: (argb & 0xFF) as u8,
+    }
+}
 
 fn tessellate_emf_foreign(bytes: &[u8], world_tf: &ShapeTransform2D, tol_in: f32) -> TessellatedMesh {
     if bytes.len() < 88 {
         return TessellatedMesh::new();
     }
-    let rd_i32 = |off: usize| -> i32 {
-        i32::from_le_bytes([bytes[off], bytes[off + 1], bytes[off + 2], bytes[off + 3]])
+    let rd_i32_at = |b: &[u8], off: usize| -> i32 {
+        i32::from_le_bytes([b[off], b[off + 1], b[off + 2], b[off + 3]])
     };
-    let rd_u32 = |off: usize| -> u32 {
-        u32::from_le_bytes([bytes[off], bytes[off + 1], bytes[off + 2], bytes[off + 3]])
+    let rd_u32_at = |b: &[u8], off: usize| -> u32 {
+        u32::from_le_bytes([b[off], b[off + 1], b[off + 2], b[off + 3]])
     };
-    let rd_i16 = |off: usize| -> i16 { i16::from_le_bytes([bytes[off], bytes[off + 1]]) };
+    let rd_i16_at = |b: &[u8], off: usize| -> i16 { i16::from_le_bytes([b[off], b[off + 1]]) };
+    let rd_f32_at = |b: &[u8], off: usize| -> f32 {
+        f32::from_le_bytes([b[off], b[off + 1], b[off + 2], b[off + 3]])
+    };
 
-    let mut min_x = rd_i32(8) as f64;
-    let mut min_y = rd_i32(12) as f64;
-    let mut max_x = rd_i32(16) as f64;
-    let mut max_y = rd_i32(20) as f64;
+    // Header `rclBounds` (device units `[8..24]`) and `rclFrame` (0.01mm `[24..40]`).
+    let mut min_x = rd_i32_at(bytes, 8) as f64;
+    let mut min_y = rd_i32_at(bytes, 12) as f64;
+    let mut max_x = rd_i32_at(bytes, 16) as f64;
+    let mut max_y = rd_i32_at(bytes, 20) as f64;
     if (max_x - min_x).abs() < 1.0 || (max_y - min_y).abs() < 1.0 {
-        min_x = 0.0;
-        min_y = 0.0;
-        max_x = 1000.0;
-        max_y = 1000.0;
+        let fx0 = rd_i32_at(bytes, 24) as f64;
+        let fy0 = rd_i32_at(bytes, 28) as f64;
+        let fx1 = rd_i32_at(bytes, 32) as f64;
+        let fy1 = rd_i32_at(bytes, 36) as f64;
+        if (fx1 - fx0).abs() >= 1.0 && (fy1 - fy0).abs() >= 1.0 {
+            min_x = fx0;
+            min_y = fy0;
+            max_x = fx1;
+            max_y = fy1;
+        } else {
+            min_x = 0.0;
+            min_y = 0.0;
+            max_x = 1000.0;
+            max_y = 1000.0;
+        }
     }
-    let span_x = (max_x - min_x).max(1.0);
-    let span_y = (max_y - min_y).max(1.0);
+    let span_x = (max_x - min_x).abs().max(1.0);
+    let span_y = (max_y - min_y).abs().max(1.0);
+    let base_sw = (world_tf.width.min(world_tf.height) * 0.020).clamp(0.006, 0.055) as f32;
 
-    let map_emf = |ex: f64, ey: f64| -> lyon_path::math::Point {
-        let nx = (ex - min_x) / span_x;
-        let ny = 1.0 - (ey - min_y) / span_y;
+    let map_dev_to_page = |dx: f64, dy: f64, dc: &EmfDcState| -> lyon_path::math::Point {
+        let (wx0, wy0) = dc.xform.apply(dx, dy);
+        let (dev_x, dev_y) = if dc.has_win_vp
+            && dc.win_ext[0].abs() > 1e-6
+            && dc.win_ext[1].abs() > 1e-6
+        {
+            (
+                (wx0 - dc.win_org[0]) * (dc.vp_ext[0] / dc.win_ext[0]) + dc.vp_org[0],
+                (wy0 - dc.win_org[1]) * (dc.vp_ext[1] / dc.win_ext[1]) + dc.vp_org[1],
+            )
+        } else {
+            (wx0, wy0)
+        };
+        let nx = (dev_x - min_x) / span_x;
+        let ny = 1.0 - (dev_y - min_y) / span_y;
+        let (px, py) = world_tf.local_to_parent(nx * world_tf.width, ny * world_tf.height);
+        point(px as f32, py as f32)
+    };
+
+    let map_plus_to_page = |px_in: f64, py_in: f64, xform: &Affine2D| -> lyon_path::math::Point {
+        let (tx, ty) = xform.apply(px_in, py_in);
+        let nx = (tx - min_x) / span_x;
+        let ny = 1.0 - (ty - min_y) / span_y;
         let (wx, wy) = world_tf.local_to_parent(nx * world_tf.width, ny * world_tf.height);
         point(wx as f32, wy as f32)
     };
 
-    let mut pens: std::collections::BTreeMap<u32, Option<RgbaColor>> = std::collections::BTreeMap::new();
-    let mut brushes: std::collections::BTreeMap<u32, Option<RgbaColor>> = std::collections::BTreeMap::new();
-    let mut cur_stroke: Option<RgbaColor> = Some(RgbaColor::BLACK);
-    let mut cur_fill: Option<RgbaColor> = Some(RgbaColor {
-        r: 0,
-        g: 120,
-        b: 212,
-        a: 255,
-    });
-    let mut cur_pt = [min_x, min_y];
+    let mut objects: std::collections::BTreeMap<u32, EmfGdiObject> = std::collections::BTreeMap::new();
+    let mut plus_objects: std::collections::BTreeMap<u8, EmfPlusObj> = std::collections::BTreeMap::new();
+    let mut plus_xform = Affine2D::default();
+
+    let mut dc = EmfDcState {
+        stroke: Some((RgbaColor::BLACK, base_sw)),
+        fill: Some(RgbaColor {
+            r: 0,
+            g: 120,
+            b: 212,
+            a: 255,
+        }),
+        fill_rule: FillRule::EvenOdd,
+        cur_pt: [min_x, min_y],
+        win_org: [min_x, min_y],
+        win_ext: [span_x, span_y],
+        vp_org: [min_x, min_y],
+        vp_ext: [span_x, span_y],
+        has_win_vp: false,
+        xform: Affine2D::default(),
+    };
+    let mut dc_stack: Vec<EmfDcState> = Vec::new();
+
+    // Active GDI path bracket (`EMR_BEGINPATH .. EMR_ENDPATH`)
+    let mut in_path = false;
+    let mut active_path_builder: Option<lyon_path::path::Builder> = None;
+    let mut path_sub_open = false;
+    let mut built_gdi_path: Option<Path> = None;
 
     let mut lyon_buf: VertexBuffers<GpuVertex, u32> = VertexBuffers::new();
     let mut fill_tess = FillTessellator::new();
     let mut stroke_tess = StrokeTessellator::new();
-    let sw = (world_tf.width.min(world_tf.height) * 0.025).clamp(0.008, 0.06) as f32;
+    let mut extra_meshes: Vec<TessellatedMesh> = Vec::new();
+
+    let emit_path_paint = |p: &Path,
+                           do_fill: bool,
+                           do_stroke: bool,
+                           dc_st: &EmfDcState,
+                           ft: &mut FillTessellator,
+                           st: &mut StrokeTessellator,
+                           buf: &mut VertexBuffers<GpuVertex, u32>| {
+        if do_fill {
+            if let Some(fc) = dc_st.fill {
+                let rgba = fc.to_linear_f32();
+                let _ = ft.tessellate_path(
+                    p,
+                    &FillOptions::tolerance(tol_in).with_fill_rule(dc_st.fill_rule),
+                    &mut BuffersBuilder::new(buf, |v: FillVertex| {
+                        let pt = v.position();
+                        GpuVertex::new([pt.x, pt.y], rgba, [PRIM_FLAG_SHAPE, 0.0])
+                    }),
+                );
+            }
+        }
+        if do_stroke {
+            if let Some((sc, pw)) = dc_st.stroke {
+                let rgba = sc.to_linear_f32();
+                let _ = st.tessellate_path(
+                    p,
+                    &StrokeOptions::tolerance(tol_in)
+                        .with_line_width(pw)
+                        .with_line_cap(LineCap::Round)
+                        .with_line_join(LineJoin::Round),
+                    &mut BuffersBuilder::new(buf, |v: StrokeVertex| {
+                        let pt = v.position();
+                        GpuVertex::new([pt.x, pt.y], rgba, [PRIM_FLAG_SHAPE, 0.0])
+                    }),
+                );
+            }
+        }
+    };
 
     let mut pos = 0usize;
     while pos + 8 <= bytes.len() {
-        let rec_type = rd_u32(pos);
-        let rec_size = rd_u32(pos + 4) as usize;
+        let rec_type = rd_u32_at(bytes, pos);
+        let rec_size = rd_u32_at(bytes, pos + 4) as usize;
         if rec_size < 8 || pos + rec_size > bytes.len() {
             break;
         }
         let rec = &bytes[pos..pos + rec_size];
         match rec_type {
             14 => break, // EMR_EOF
-            27 if rec.len() >= 16 => {
-                cur_pt = [
-                    i32::from_le_bytes([rec[8], rec[9], rec[10], rec[11]]) as f64,
-                    i32::from_le_bytes([rec[12], rec[13], rec[14], rec[15]]) as f64,
-                ];
+            9 if rec.len() >= 16 => {
+                // EMR_SETWINDOWEXTEX
+                dc.win_ext = [rd_i32_at(rec, 8) as f64, rd_i32_at(rec, 12) as f64];
+                dc.has_win_vp = true;
             }
-            37 if rec.len() >= 12 => {
-                let ih = u32::from_le_bytes([rec[8], rec[9], rec[10], rec[11]]);
-                if (ih & 0x8000_0000) != 0 {
-                    match ih & 0x7FFF_FFFF {
-                        0 => cur_fill = Some(RgbaColor::WHITE),
-                        4 => cur_fill = Some(RgbaColor::BLACK),
-                        5 => cur_fill = None, // NULL_BRUSH
-                        6 => cur_stroke = Some(RgbaColor::WHITE),
-                        7 => cur_stroke = Some(RgbaColor::BLACK),
-                        8 => cur_stroke = None, // NULL_PEN
+            10 if rec.len() >= 16 => {
+                // EMR_SETWINDOWORGEX
+                dc.win_org = [rd_i32_at(rec, 8) as f64, rd_i32_at(rec, 12) as f64];
+                dc.has_win_vp = true;
+            }
+            11 if rec.len() >= 16 => {
+                // EMR_SETVIEWPORTEXTEX
+                dc.vp_ext = [rd_i32_at(rec, 8) as f64, rd_i32_at(rec, 12) as f64];
+                dc.has_win_vp = true;
+            }
+            12 if rec.len() >= 16 => {
+                // EMR_SETVIEWPORTORGEX
+                dc.vp_org = [rd_i32_at(rec, 8) as f64, rd_i32_at(rec, 12) as f64];
+                dc.has_win_vp = true;
+            }
+            19 if rec.len() >= 12 => {
+                // EMR_SETPOLYFILLMODE (1 = ALTERNATE/EvenOdd, 2 = WINDING/NonZero)
+                dc.fill_rule = if rd_u32_at(rec, 8) == 2 {
+                    FillRule::NonZero
+                } else {
+                    FillRule::EvenOdd
+                };
+            }
+            33 => {
+                // EMR_SAVEDC
+                if dc_stack.len() < 64 {
+                    dc_stack.push(dc.clone());
+                }
+            }
+            34 if rec.len() >= 12 => {
+                // EMR_RESTOREDC
+                let rel = rd_i32_at(rec, 8);
+                let pops = if rel < 0 { (-rel) as usize } else { 1 };
+                for _ in 0..pops {
+                    if let Some(saved) = dc_stack.pop() {
+                        dc = saved;
+                    }
+                }
+            }
+            35 | 36 if rec.len() >= 32 => {
+                // EMR_SETWORLDTRANSFORM (35) / EMR_MODIFYWORLDTRANSFORM (36)
+                let xf = Affine2D {
+                    m11: rd_f32_at(rec, 8) as f64,
+                    m12: rd_f32_at(rec, 12) as f64,
+                    m21: rd_f32_at(rec, 16) as f64,
+                    m22: rd_f32_at(rec, 20) as f64,
+                    dx: rd_f32_at(rec, 24) as f64,
+                    dy: rd_f32_at(rec, 28) as f64,
+                };
+                if rec_type == 35 {
+                    if xf.m11.is_finite() && xf.m22.is_finite() {
+                        dc.xform = xf;
+                    }
+                } else if rec.len() >= 36 {
+                    let mode = rd_u32_at(rec, 32);
+                    match mode {
+                        1 => dc.xform = Affine2D::default(), // MWT_IDENTITY
+                        2 => dc.xform = xf.multiply(dc.xform), // MWT_LEFTMULTIPLY
+                        3 => dc.xform = dc.xform.multiply(xf), // MWT_RIGHTMULTIPLY
+                        4 => dc.xform = xf,
                         _ => {}
                     }
-                } else if let Some(p) = pens.get(&ih) {
-                    cur_stroke = *p;
-                } else if let Some(br) = brushes.get(&ih) {
-                    cur_fill = *br;
+                }
+            }
+            27 if rec.len() >= 16 => {
+                // EMR_MOVETOEX
+                dc.cur_pt = [rd_i32_at(rec, 8) as f64, rd_i32_at(rec, 12) as f64];
+                if in_path {
+                    if let Some(pb) = &mut active_path_builder {
+                        if path_sub_open {
+                            pb.end(false);
+                        }
+                        pb.begin(map_dev_to_page(dc.cur_pt[0], dc.cur_pt[1], &dc));
+                        path_sub_open = true;
+                    }
+                }
+            }
+            37 if rec.len() >= 12 => {
+                // EMR_SELECTOBJECT
+                let ih = rd_u32_at(rec, 8);
+                if (ih & 0x8000_0000) != 0 {
+                    match ih & 0x7FFF_FFFF {
+                        0 => dc.fill = Some(RgbaColor::WHITE),
+                        1 => dc.fill = Some(RgbaColor { r: 192, g: 192, b: 192, a: 255 }),
+                        2 | 3 => dc.fill = Some(RgbaColor { r: 128, g: 128, b: 128, a: 255 }),
+                        4 => dc.fill = Some(RgbaColor::BLACK),
+                        5 => dc.fill = None, // NULL_BRUSH
+                        6 => dc.stroke = Some((RgbaColor::WHITE, base_sw)),
+                        7 => dc.stroke = Some((RgbaColor::BLACK, base_sw)),
+                        8 => dc.stroke = None, // NULL_PEN
+                        _ => {}
+                    }
+                } else if let Some(obj) = objects.get(&ih) {
+                    match obj {
+                        EmfGdiObject::Pen(p) => dc.stroke = *p,
+                        EmfGdiObject::Brush(b) => dc.fill = *b,
+                    }
                 }
             }
             38 if rec.len() >= 28 => {
                 // EMR_CREATEPEN
-                let ih = u32::from_le_bytes([rec[8], rec[9], rec[10], rec[11]]);
-                let style = u32::from_le_bytes([rec[12], rec[13], rec[14], rec[15]]);
-                let col = if (style & 0xFF) == 5 {
+                let ih = rd_u32_at(rec, 8);
+                let style = rd_u32_at(rec, 12);
+                let raw_w = rd_i32_at(rec, 16).unsigned_abs() as f64;
+                let pw = if raw_w > 0.0 {
+                    ((raw_w / span_x) * world_tf.width).clamp(0.005, 0.12) as f32
+                } else {
+                    base_sw
+                };
+                let pen = if (style & 0xFF) == 5 {
                     None
                 } else {
-                    Some(RgbaColor {
-                        r: rec[24],
-                        g: rec[25],
-                        b: rec[26],
-                        a: 255,
-                    })
+                    Some((
+                        RgbaColor {
+                            r: rec[24],
+                            g: rec[25],
+                            b: rec[26],
+                            a: 255,
+                        },
+                        pw,
+                    ))
                 };
-                pens.insert(ih, col);
+                objects.insert(ih, EmfGdiObject::Pen(pen));
+            }
+            95 if rec.len() >= 52 => {
+                // EMR_EXTCREATEPEN (used by Illustrator, Visio, Cisco/HPE vendor stencils!)
+                let ih = rd_u32_at(rec, 8);
+                let pen_style = rd_u32_at(rec, 28);
+                let raw_w = rd_u32_at(rec, 32) as f64;
+                let brush_style = rd_u32_at(rec, 36);
+                let pw = if raw_w > 0.0 {
+                    ((raw_w / span_x) * world_tf.width).clamp(0.005, 0.12) as f32
+                } else {
+                    base_sw
+                };
+                let pen = if (pen_style & 0x0F) == 5 || brush_style == 1 {
+                    None
+                } else {
+                    Some((
+                        RgbaColor {
+                            r: rec[40],
+                            g: rec[41],
+                            b: rec[42],
+                            a: 255,
+                        },
+                        pw,
+                    ))
+                };
+                objects.insert(ih, EmfGdiObject::Pen(pen));
             }
             39 if rec.len() >= 24 => {
                 // EMR_CREATEBRUSHINDIRECT
-                let ih = u32::from_le_bytes([rec[8], rec[9], rec[10], rec[11]]);
-                let style = u32::from_le_bytes([rec[12], rec[13], rec[14], rec[15]]);
-                let col = if style == 1 {
+                let ih = rd_u32_at(rec, 8);
+                let style = rd_u32_at(rec, 12);
+                let br = if style == 1 {
                     None
                 } else {
                     Some(RgbaColor {
@@ -1196,22 +1495,880 @@ fn tessellate_emf_foreign(bytes: &[u8], world_tf: &ShapeTransform2D, tol_in: f32
                         a: 255,
                     })
                 };
-                brushes.insert(ih, col);
+                objects.insert(ih, EmfGdiObject::Brush(br));
+            }
+            40 if rec.len() >= 12 => {
+                // EMR_DELETEOBJECT
+                objects.remove(&rd_u32_at(rec, 8));
+            }
+            59 => {
+                // EMR_BEGINPATH
+                in_path = true;
+                active_path_builder = Some(Path::builder());
+                path_sub_open = false;
+            }
+            60 => {
+                // EMR_ENDPATH
+                in_path = false;
+                if let Some(mut pb) = active_path_builder.take() {
+                    if path_sub_open {
+                        pb.end(false);
+                        path_sub_open = false;
+                    }
+                    built_gdi_path = Some(pb.build());
+                }
+            }
+            61 => {
+                // EMR_CLOSEFIGURE
+                if in_path && path_sub_open {
+                    if let Some(pb) = &mut active_path_builder {
+                        pb.end(true);
+                        path_sub_open = false;
+                    }
+                }
+            }
+            62 | 63 | 64 => {
+                // EMR_FILLPATH (62), EMR_STROKEANDFILLPATH (63), EMR_STROKEPATH (64)
+                if let Some(gp) = built_gdi_path.take() {
+                    emit_path_paint(
+                        &gp,
+                        rec_type == 62 || rec_type == 63,
+                        rec_type == 63 || rec_type == 64,
+                        &dc,
+                        &mut fill_tess,
+                        &mut stroke_tess,
+                        &mut lyon_buf,
+                    );
+                }
             }
             54 if rec.len() >= 16 => {
                 // EMR_LINETO
-                let nx = i32::from_le_bytes([rec[8], rec[9], rec[10], rec[11]]) as f64;
-                let ny = i32::from_le_bytes([rec[12], rec[13], rec[14], rec[15]]) as f64;
-                if let Some(sc) = cur_stroke {
+                let nx = rd_i32_at(rec, 8) as f64;
+                let ny = rd_i32_at(rec, 12) as f64;
+                if in_path {
+                    if let Some(pb) = &mut active_path_builder {
+                        if !path_sub_open {
+                            pb.begin(map_dev_to_page(dc.cur_pt[0], dc.cur_pt[1], &dc));
+                            path_sub_open = true;
+                        }
+                        pb.line_to(map_dev_to_page(nx, ny, &dc));
+                    }
+                } else {
                     let mut b = Path::builder();
-                    b.begin(map_emf(cur_pt[0], cur_pt[1]));
-                    b.line_to(map_emf(nx, ny));
+                    b.begin(map_dev_to_page(dc.cur_pt[0], dc.cur_pt[1], &dc));
+                    b.line_to(map_dev_to_page(nx, ny, &dc));
                     b.end(false);
-                    let path = b.build();
+                    emit_path_paint(
+                        &b.build(),
+                        false,
+                        true,
+                        &dc,
+                        &mut fill_tess,
+                        &mut stroke_tess,
+                        &mut lyon_buf,
+                    );
+                }
+                dc.cur_pt = [nx, ny];
+            }
+            42 | 43 | 44 if rec.len() >= 24 => {
+                // EMR_ELLIPSE (42), EMR_RECTANGLE (43), EMR_ROUNDRECT (44)
+                let l = rd_i32_at(rec, 8) as f64;
+                let t = rd_i32_at(rec, 12) as f64;
+                let r = rd_i32_at(rec, 16) as f64;
+                let bt = rd_i32_at(rec, 20) as f64;
+                let append_fig = |pb: &mut lyon_path::path::Builder| {
+                    if rec_type == 43 || rec_type == 44 {
+                        pb.begin(map_dev_to_page(l, t, &dc));
+                        pb.line_to(map_dev_to_page(r, t, &dc));
+                        pb.line_to(map_dev_to_page(r, bt, &dc));
+                        pb.line_to(map_dev_to_page(l, bt, &dc));
+                        pb.end(true);
+                    } else {
+                        let cx = (l + r) * 0.5;
+                        let cy = (t + bt) * 0.5;
+                        let rx = (r - l).abs() * 0.5;
+                        let ry = (bt - t).abs() * 0.5;
+                        pb.begin(map_dev_to_page(cx + rx, cy, &dc));
+                        for s in 1..24 {
+                            let a = std::f64::consts::TAU * (s as f64 / 24.0);
+                            pb.line_to(map_dev_to_page(cx + rx * a.cos(), cy + ry * a.sin(), &dc));
+                        }
+                        pb.end(true);
+                    }
+                };
+                if in_path {
+                    if let Some(pb) = &mut active_path_builder {
+                        if path_sub_open {
+                            pb.end(false);
+                            path_sub_open = false;
+                        }
+                        append_fig(pb);
+                    }
+                } else {
+                    let mut b = Path::builder();
+                    append_fig(&mut b);
+                    emit_path_paint(
+                        &b.build(),
+                        true,
+                        true,
+                        &dc,
+                        &mut fill_tess,
+                        &mut stroke_tess,
+                        &mut lyon_buf,
+                    );
+                }
+            }
+            2 | 3 | 4 | 5 | 6 | 85 | 86 | 87 | 88 | 89 if rec.len() >= 28 => {
+                // Polyline / Polygon / PolyBezier / PolyBezierTo / PolylineTo (32-bit & 16-bit)
+                let count = rd_u32_at(rec, 24) as usize;
+                let is_16 = rec_type >= 85;
+                let step = if is_16 { 4 } else { 8 };
+                let is_bezier = matches!(rec_type, 2 | 5 | 85 | 88);
+                let is_to = matches!(rec_type, 5 | 6 | 88 | 89);
+                let is_closed = matches!(rec_type, 3 | 86);
+                let needed = count.checked_mul(step).and_then(|n| n.checked_add(28));
+                if count >= 1 && needed.is_some_and(|end| end <= rec.len()) {
+                    let read_pt = |idx: usize| -> [f64; 2] {
+                        let off = 28 + idx * step;
+                        if is_16 {
+                            [rd_i16_at(rec, off) as f64, rd_i16_at(rec, off + 2) as f64]
+                        } else {
+                            [rd_i32_at(rec, off) as f64, rd_i32_at(rec, off + 4) as f64]
+                        }
+                    };
+                    if in_path {
+                        if let Some(pb) = &mut active_path_builder {
+                            let mut start_idx = 0usize;
+                            if is_to {
+                                if !path_sub_open {
+                                    pb.begin(map_dev_to_page(dc.cur_pt[0], dc.cur_pt[1], &dc));
+                                    path_sub_open = true;
+                                }
+                            } else {
+                                if path_sub_open {
+                                    pb.end(false);
+                                }
+                                let p0 = read_pt(0);
+                                pb.begin(map_dev_to_page(p0[0], p0[1], &dc));
+                                path_sub_open = true;
+                                start_idx = 1;
+                            }
+                            if is_bezier {
+                                let mut i = start_idx;
+                                while i + 2 < count {
+                                    let c1 = read_pt(i);
+                                    let c2 = read_pt(i + 1);
+                                    let p = read_pt(i + 2);
+                                    pb.cubic_bezier_to(
+                                        map_dev_to_page(c1[0], c1[1], &dc),
+                                        map_dev_to_page(c2[0], c2[1], &dc),
+                                        map_dev_to_page(p[0], p[1], &dc),
+                                    );
+                                    dc.cur_pt = p;
+                                    i += 3;
+                                }
+                            } else {
+                                for i in start_idx..count {
+                                    let p = read_pt(i);
+                                    pb.line_to(map_dev_to_page(p[0], p[1], &dc));
+                                    dc.cur_pt = p;
+                                }
+                            }
+                            if is_closed && path_sub_open {
+                                pb.end(true);
+                                path_sub_open = false;
+                            }
+                        }
+                    } else {
+                        let mut b = Path::builder();
+                        let mut start_idx = 0usize;
+                        if is_to {
+                            b.begin(map_dev_to_page(dc.cur_pt[0], dc.cur_pt[1], &dc));
+                        } else {
+                            let p0 = read_pt(0);
+                            b.begin(map_dev_to_page(p0[0], p0[1], &dc));
+                            start_idx = 1;
+                        }
+                        if is_bezier {
+                            let mut i = start_idx;
+                            while i + 2 < count {
+                                let c1 = read_pt(i);
+                                let c2 = read_pt(i + 1);
+                                let p = read_pt(i + 2);
+                                b.cubic_bezier_to(
+                                    map_dev_to_page(c1[0], c1[1], &dc),
+                                    map_dev_to_page(c2[0], c2[1], &dc),
+                                    map_dev_to_page(p[0], p[1], &dc),
+                                );
+                                dc.cur_pt = p;
+                                i += 3;
+                            }
+                        } else {
+                            for i in start_idx..count {
+                                let p = read_pt(i);
+                                b.line_to(map_dev_to_page(p[0], p[1], &dc));
+                                dc.cur_pt = p;
+                            }
+                        }
+                        b.end(is_closed);
+                        emit_path_paint(
+                            &b.build(),
+                            is_closed,
+                            true,
+                            &dc,
+                            &mut fill_tess,
+                            &mut stroke_tess,
+                            &mut lyon_buf,
+                        );
+                    }
+                }
+            }
+            7 | 8 | 90 | 91 if rec.len() >= 32 => {
+                // EMR_POLYPOLYLINE (7), EMR_POLYPOLYGON (8), EMR_POLYPOLYLINE16 (90), EMR_POLYPOLYGON16 (91)
+                let n_polys = rd_u32_at(rec, 24) as usize;
+                let total_pts = rd_u32_at(rec, 28) as usize;
+                let is_16 = rec_type >= 90;
+                let is_closed = rec_type == 8 || rec_type == 91;
+                let counts_end = 32usize.saturating_add(n_polys.saturating_mul(4));
+                let step = if is_16 { 4 } else { 8 };
+                let pts_end = counts_end.saturating_add(total_pts.saturating_mul(step));
+                if n_polys > 0 && n_polys <= 4096 && pts_end <= rec.len() {
+                    let mut b = Path::builder();
+                    let mut pt_cursor = 0usize;
+                    for p_idx in 0..n_polys {
+                        let cnt = rd_u32_at(rec, 32 + p_idx * 4) as usize;
+                        if cnt >= 2 && pt_cursor + cnt <= total_pts {
+                            for j in 0..cnt {
+                                let off = counts_end + (pt_cursor + j) * step;
+                                let (px, py) = if is_16 {
+                                    (rd_i16_at(rec, off) as f64, rd_i16_at(rec, off + 2) as f64)
+                                } else {
+                                    (rd_i32_at(rec, off) as f64, rd_i32_at(rec, off + 4) as f64)
+                                };
+                                if j == 0 {
+                                    b.begin(map_dev_to_page(px, py, &dc));
+                                } else {
+                                    b.line_to(map_dev_to_page(px, py, &dc));
+                                }
+                            }
+                            b.end(is_closed);
+                        }
+                        pt_cursor += cnt;
+                    }
+                    emit_path_paint(
+                        &b.build(),
+                        is_closed,
+                        true,
+                        &dc,
+                        &mut fill_tess,
+                        &mut stroke_tess,
+                        &mut lyon_buf,
+                    );
+                }
+            }
+            81 if rec.len() >= 80 => {
+                // EMR_STRETCHDIBITS (embedded DIB raster inside EMF stencil)
+                let off_bmi = rd_u32_at(rec, 48) as usize;
+                let cb_bmi = rd_u32_at(rec, 52) as usize;
+                let off_bits = rd_u32_at(rec, 56) as usize;
+                let cb_bits = rd_u32_at(rec, 60) as usize;
+                if off_bmi >= 80
+                    && cb_bmi >= 40
+                    && off_bmi.saturating_add(cb_bmi) <= rec.len()
+                    && off_bits.saturating_add(cb_bits) <= rec.len()
+                    && cb_bits > 0
+                {
+                    // Reconstruct a minimal 14-byte BMP file header + BITMAPINFO + bits for `decode_bmp_rgba8`.
+                    let total_bmp = 14usize + cb_bmi + cb_bits;
+                    let mut bmp = Vec::with_capacity(total_bmp);
+                    bmp.extend_from_slice(b"BM");
+                    bmp.extend_from_slice(&(total_bmp as u32).to_le_bytes());
+                    bmp.extend_from_slice(&0u32.to_le_bytes());
+                    bmp.extend_from_slice(&((14 + cb_bmi) as u32).to_le_bytes());
+                    bmp.extend_from_slice(&rec[off_bmi..off_bmi + cb_bmi]);
+                    bmp.extend_from_slice(&rec[off_bits..off_bits + cb_bits]);
+                    if let Some((bw, bh, rgba)) = decode_bmp_rgba8(&bmp) {
+                        extra_meshes.push(emit_rgba_grid_in_transform(bw, bh, &rgba, world_tf));
+                    }
+                }
+            }
+            70 if rec.len() >= 20 => {
+                // EMR_COMMENT: inspect for `EMF+` dual/pure vector records (`0x2B464D45` = `b"EMF+"`).
+                let cb_data = rd_u32_at(rec, 8) as usize;
+                if 12 + cb_data <= rec.len() && cb_data >= 8 && &rec[12..16] == b"EMF+" {
+                    let plus_buf = &rec[16..12 + cb_data];
+                    playback_emf_plus_stream(
+                        plus_buf,
+                        base_sw,
+                        tol_in,
+                        &mut plus_objects,
+                        &mut plus_xform,
+                        &map_plus_to_page,
+                        &mut fill_tess,
+                        &mut stroke_tess,
+                        &mut lyon_buf,
+                    );
+                }
+            }
+            _ => {}
+        }
+        pos += rec_size;
+    }
+
+    let mut out = TessellatedMesh {
+        vertices: lyon_buf.vertices,
+        indices: lyon_buf.indices,
+    };
+    for em in extra_meshes {
+        out.append(&em);
+    }
+    out
+}
+
+#[allow(clippy::too_many_arguments)]
+fn playback_emf_plus_stream<F>(
+    stream: &[u8],
+    base_sw: f32,
+    tol_in: f32,
+    objs: &mut std::collections::BTreeMap<u8, EmfPlusObj>,
+    xform: &mut Affine2D,
+    map_pt: &F,
+    fill_tess: &mut FillTessellator,
+    stroke_tess: &mut StrokeTessellator,
+    lyon_buf: &mut VertexBuffers<GpuVertex, u32>,
+) where
+    F: Fn(f64, f64, &Affine2D) -> lyon_path::math::Point,
+{
+    let rd_u16 = |b: &[u8], o: usize| u16::from_le_bytes([b[o], b[o + 1]]);
+    let rd_i16 = |b: &[u8], o: usize| i16::from_le_bytes([b[o], b[o + 1]]);
+    let rd_u32 = |b: &[u8], o: usize| u32::from_le_bytes([b[o], b[o + 1], b[o + 2], b[o + 3]]);
+    let rd_f32 = |b: &[u8], o: usize| f32::from_le_bytes([b[o], b[o + 1], b[o + 2], b[o + 3]]);
+
+    let mut off = 0usize;
+    while off + 12 <= stream.len() {
+        let rtype = rd_u16(stream, off);
+        let flags = rd_u16(stream, off + 2);
+        let rsize = rd_u32(stream, off + 4) as usize;
+        let dsize = rd_u32(stream, off + 8) as usize;
+        if rsize < 12 || off + rsize > stream.len() {
+            break;
+        }
+        let data = &stream[off + 12..(off + 12 + dsize.min(rsize - 12))];
+        match rtype {
+            0x4008 => {
+                // EmfPlusObject
+                let obj_id = (flags & 0xFF) as u8;
+                let obj_type = (flags >> 8) & 0x3F;
+                match obj_type {
+                    1 if data.len() >= 12 => {
+                        // Brush: `[version:4][type:4]` (`0`=SolidColor `[argb:4]`, `4`=LinearGradient `[flags:4][wrap:4][rect:16][start_argb:4]...`)
+                        let btype = rd_u32(data, 4);
+                        if btype == 0 {
+                            objs.insert(obj_id, EmfPlusObj::Brush(parse_argb_u32(rd_u32(data, 8))));
+                        } else if btype == 4 && data.len() >= 40 {
+                            let c0 = parse_argb_u32(rd_u32(data, 32));
+                            let c1 = parse_argb_u32(rd_u32(data, 36));
+                            objs.insert(
+                                obj_id,
+                                EmfPlusObj::Brush(RgbaColor {
+                                    r: ((c0.r as u16 + c1.r as u16) / 2) as u8,
+                                    g: ((c0.g as u16 + c1.g as u16) / 2) as u8,
+                                    b: ((c0.b as u16 + c1.b as u16) / 2) as u8,
+                                    a: ((c0.a as u16 + c1.a as u16) / 2) as u8,
+                                }),
+                            );
+                        }
+                    }
+                    2 if data.len() >= 28 => {
+                        // Pen: `[ver:4][type:4][penFlags:4][unit:4][width:f32][brushVer:4][brushType:4][argb:4]`
+                        let pen_flags = rd_u32(data, 8);
+                        // Count optional float fields set in `penFlags` before embedded Brush!
+                        let mut opt_off = 20usize;
+                        for &(bit, bytes_len) in &[
+                            (0x0001u32, 24usize), // Transform
+                            (0x0002, 4),          // StartCap
+                            (0x0004, 4),          // EndCap
+                            (0x0008, 4),          // Join
+                            (0x0010, 4),          // MiterLimit
+                            (0x0020, 4),          // LineStyle
+                            (0x0040, 4),          // DashedLineCap
+                            (0x0080, 4),          // DashedLineOffset
+                        ] {
+                            if (pen_flags & bit) != 0 {
+                                opt_off += bytes_len;
+                            }
+                        }
+                        if (pen_flags & 0x0100) != 0 && opt_off + 4 <= data.len() {
+                            let dash_cnt = rd_u32(data, opt_off) as usize;
+                            opt_off += 4 + dash_cnt.saturating_mul(4);
+                        }
+                        let raw_w = rd_f32(data, 16);
+                        let pw = if raw_w.is_finite() && raw_w > 0.0 {
+                            (base_sw * raw_w.clamp(0.5, 4.0)).clamp(0.005, 0.10)
+                        } else {
+                            base_sw
+                        };
+                        let col = if opt_off + 12 <= data.len() {
+                            parse_argb_u32(rd_u32(data, opt_off + 8))
+                        } else {
+                            RgbaColor::BLACK
+                        };
+                        objs.insert(obj_id, EmfPlusObj::Pen(col, pw));
+                    }
+                    3 if data.len() >= 12 => {
+                        // Path: `[ver:4][count:u32][pathFlags:u32][points...][types...]`
+                        let cnt = rd_u32(data, 4) as usize;
+                        let pflags = rd_u32(data, 8);
+                        let compressed = (pflags & 0x4000) != 0;
+                        let pt_stride = if compressed { 4 } else { 8 };
+                        let pts_end = 12usize.saturating_add(cnt.saturating_mul(pt_stride));
+                        if cnt > 0 && cnt <= 65_536 && pts_end + cnt <= data.len() {
+                            let mut path_pts = Vec::with_capacity(cnt);
+                            for i in 0..cnt {
+                                let po = 12 + i * pt_stride;
+                                let (px, py) = if compressed {
+                                    (rd_i16(data, po) as f64, rd_i16(data, po + 2) as f64)
+                                } else {
+                                    (rd_f32(data, po) as f64, rd_f32(data, po + 4) as f64)
+                                };
+                                let ptype = data[pts_end + i];
+                                path_pts.push((ptype, [px, py]));
+                            }
+                            objs.insert(obj_id, EmfPlusObj::Path(path_pts));
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            0x402A if data.len() >= 24 => {
+                // EmfPlusSetWorldTransform
+                *xform = Affine2D {
+                    m11: rd_f32(data, 0) as f64,
+                    m12: rd_f32(data, 4) as f64,
+                    m21: rd_f32(data, 8) as f64,
+                    m22: rd_f32(data, 12) as f64,
+                    dx: rd_f32(data, 16) as f64,
+                    dy: rd_f32(data, 20) as f64,
+                };
+            }
+            0x402B => *xform = Affine2D::default(), // EmfPlusResetWorldTransform
+            0x400A | 0x400B | 0x400E | 0x400F => {
+                // FillRects (0x400A), DrawRects (0x400B), FillEllipse (0x400E), DrawEllipse (0x400F)
+                let is_fill = rtype == 0x400A || rtype == 0x400E;
+                let is_ellipse = rtype == 0x400E || rtype == 0x400F;
+                let compressed = (flags & 0x4000) != 0;
+                let inline_brush = (flags & 0x8000) != 0;
+
+                let (fill_col, stroke_col_w, mut cursor) = if is_fill {
+                    if inline_brush && data.len() >= 4 {
+                        (Some(parse_argb_u32(rd_u32(data, 0))), None, 4usize)
+                    } else if let Some(EmfPlusObj::Brush(c)) = objs.get(&((flags & 0xFF) as u8)) {
+                        (Some(*c), None, 0usize)
+                    } else {
+                        (None, None, 0usize)
+                    }
+                } else if let Some(EmfPlusObj::Pen(c, w)) = objs.get(&((flags & 0xFF) as u8)) {
+                    (None, Some((*c, *w)), 0usize)
+                } else {
+                    (None, None, 0usize)
+                };
+
+                let count = if is_ellipse {
+                    1usize
+                } else if cursor + 4 <= data.len() {
+                    let c = rd_u32(data, cursor) as usize;
+                    cursor += 4;
+                    c
+                } else {
+                    0
+                };
+                let stride = if compressed { 8 } else { 16 };
+                for _ in 0..count.min(4096) {
+                    if cursor + stride > data.len() {
+                        break;
+                    }
+                    let (rx, ry, rw, rh) = if compressed {
+                        (
+                            rd_i16(data, cursor) as f64,
+                            rd_i16(data, cursor + 2) as f64,
+                            rd_i16(data, cursor + 4) as f64,
+                            rd_i16(data, cursor + 6) as f64,
+                        )
+                    } else {
+                        (
+                            rd_f32(data, cursor) as f64,
+                            rd_f32(data, cursor + 4) as f64,
+                            rd_f32(data, cursor + 8) as f64,
+                            rd_f32(data, cursor + 12) as f64,
+                        )
+                    };
+                    cursor += stride;
+                    let mut b = Path::builder();
+                    if is_ellipse {
+                        let cx = rx + rw * 0.5;
+                        let cy = ry + rh * 0.5;
+                        b.begin(map_pt(cx + rw * 0.5, cy, xform));
+                        for s in 1..24 {
+                            let a = std::f64::consts::TAU * (s as f64 / 24.0);
+                            b.line_to(map_pt(cx + rw * 0.5 * a.cos(), cy + rh * 0.5 * a.sin(), xform));
+                        }
+                        b.end(true);
+                    } else {
+                        b.begin(map_pt(rx, ry, xform));
+                        b.line_to(map_pt(rx + rw, ry, xform));
+                        b.line_to(map_pt(rx + rw, ry + rh, xform));
+                        b.line_to(map_pt(rx, ry + rh, xform));
+                        b.end(true);
+                    }
+                    let p = b.build();
+                    if let Some(fc) = fill_col {
+                        let rgba = fc.to_linear_f32();
+                        let _ = fill_tess.tessellate_path(
+                            &p,
+                            &FillOptions::tolerance(tol_in),
+                            &mut BuffersBuilder::new(lyon_buf, |v: FillVertex| {
+                                let pt = v.position();
+                                GpuVertex::new([pt.x, pt.y], rgba, [PRIM_FLAG_SHAPE, 0.0])
+                            }),
+                        );
+                    }
+                    if let Some((sc, pw)) = stroke_col_w {
+                        let rgba = sc.to_linear_f32();
+                        let _ = stroke_tess.tessellate_path(
+                            &p,
+                            &StrokeOptions::tolerance(tol_in).with_line_width(pw),
+                            &mut BuffersBuilder::new(lyon_buf, |v: StrokeVertex| {
+                                let pt = v.position();
+                                GpuVertex::new([pt.x, pt.y], rgba, [PRIM_FLAG_SHAPE, 0.0])
+                            }),
+                        );
+                    }
+                }
+            }
+            0x400C | 0x400D => {
+                // EmfPlusFillPolygon (0x400C) / EmfPlusDrawLines (0x400D)
+                let is_fill = rtype == 0x400C;
+                let compressed = (flags & 0x4000) != 0;
+                let inline_brush = (flags & 0x8000) != 0;
+                let closed = is_fill || (flags & 0x2000) != 0;
+                let mut cursor = 0usize;
+                let fill_col = if is_fill {
+                    if inline_brush && data.len() >= 4 {
+                        cursor = 4;
+                        Some(parse_argb_u32(rd_u32(data, 0)))
+                    } else if let Some(EmfPlusObj::Brush(c)) = objs.get(&((flags & 0xFF) as u8)) {
+                        Some(*c)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+                let stroke_col_w = if !is_fill {
+                    if let Some(EmfPlusObj::Pen(c, w)) = objs.get(&((flags & 0xFF) as u8)) {
+                        Some((*c, *w))
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+                if cursor + 4 <= data.len() {
+                    let cnt = rd_u32(data, cursor) as usize;
+                    cursor += 4;
+                    let stride = if compressed { 4 } else { 8 };
+                    if cnt >= 2 && cursor + cnt.saturating_mul(stride) <= data.len() {
+                        let mut b = Path::builder();
+                        for i in 0..cnt {
+                            let po = cursor + i * stride;
+                            let (px, py) = if compressed {
+                                (rd_i16(data, po) as f64, rd_i16(data, po + 2) as f64)
+                            } else {
+                                (rd_f32(data, po) as f64, rd_f32(data, po + 4) as f64)
+                            };
+                            if i == 0 {
+                                b.begin(map_pt(px, py, xform));
+                            } else {
+                                b.line_to(map_pt(px, py, xform));
+                            }
+                        }
+                        b.end(closed);
+                        let p = b.build();
+                        if let Some(fc) = fill_col {
+                            let rgba = fc.to_linear_f32();
+                            let _ = fill_tess.tessellate_path(
+                                &p,
+                                &FillOptions::tolerance(tol_in),
+                                &mut BuffersBuilder::new(lyon_buf, |v: FillVertex| {
+                                    let pt = v.position();
+                                    GpuVertex::new([pt.x, pt.y], rgba, [PRIM_FLAG_SHAPE, 0.0])
+                                }),
+                            );
+                        }
+                        if let Some((sc, pw)) = stroke_col_w {
+                            let rgba = sc.to_linear_f32();
+                            let _ = stroke_tess.tessellate_path(
+                                &p,
+                                &StrokeOptions::tolerance(tol_in).with_line_width(pw),
+                                &mut BuffersBuilder::new(lyon_buf, |v: StrokeVertex| {
+                                    let pt = v.position();
+                                    GpuVertex::new([pt.x, pt.y], rgba, [PRIM_FLAG_SHAPE, 0.0])
+                                }),
+                            );
+                        }
+                    }
+                }
+            }
+            0x4014 | 0x4015 => {
+                // EmfPlusFillPath (0x4014) / EmfPlusDrawPath (0x4015)
+                let path_id = (flags & 0xFF) as u8;
+                let path_pts_opt = match objs.get(&path_id) {
+                    Some(EmfPlusObj::Path(pts)) => Some(pts.clone()),
+                    _ => None,
+                };
+                if let Some(pts) = path_pts_opt {
+                    let mut b = Path::builder();
+                    let mut sub_open = false;
+                    let mut i = 0usize;
+                    while i < pts.len() {
+                        let (pt_type, p) = pts[i];
+                        let kind = pt_type & 0x07;
+                        let close_after = (pt_type & 0x80) != 0;
+                        match kind {
+                            0 => {
+                                if sub_open {
+                                    b.end(false);
+                                }
+                                b.begin(map_pt(p[0], p[1], xform));
+                                sub_open = true;
+                                i += 1;
+                            }
+                            3 if i + 2 < pts.len() => {
+                                if !sub_open {
+                                    b.begin(map_pt(p[0], p[1], xform));
+                                    sub_open = true;
+                                }
+                                let p2 = pts[i + 1].1;
+                                let (t3, p3) = pts[i + 2];
+                                b.cubic_bezier_to(
+                                    map_pt(p[0], p[1], xform),
+                                    map_pt(p2[0], p2[1], xform),
+                                    map_pt(p3[0], p3[1], xform),
+                                );
+                                if (t3 & 0x80) != 0 && sub_open {
+                                    b.end(true);
+                                    sub_open = false;
+                                }
+                                i += 3;
+                                continue;
+                            }
+                            _ => {
+                                if !sub_open {
+                                    b.begin(map_pt(p[0], p[1], xform));
+                                    sub_open = true;
+                                } else {
+                                    b.line_to(map_pt(p[0], p[1], xform));
+                                }
+                                i += 1;
+                            }
+                        }
+                        if close_after && sub_open {
+                            b.end(true);
+                            sub_open = false;
+                        }
+                    }
+                    if sub_open {
+                        b.end(false);
+                    }
+                    let built = b.build();
+                    if rtype == 0x4014 {
+                        let fill_col = if (flags & 0x8000) != 0 && data.len() >= 4 {
+                            Some(parse_argb_u32(rd_u32(data, 0)))
+                        } else if data.len() >= 4 {
+                            match objs.get(&(rd_u32(data, 0) as u8)) {
+                                Some(EmfPlusObj::Brush(c)) => Some(*c),
+                                _ => None,
+                            }
+                        } else {
+                            None
+                        };
+                        if let Some(fc) = fill_col {
+                            let rgba = fc.to_linear_f32();
+                            let _ = fill_tess.tessellate_path(
+                                &built,
+                                &FillOptions::tolerance(tol_in).with_fill_rule(FillRule::EvenOdd),
+                                &mut BuffersBuilder::new(lyon_buf, |v: FillVertex| {
+                                    let pt = v.position();
+                                    GpuVertex::new([pt.x, pt.y], rgba, [PRIM_FLAG_SHAPE, 0.0])
+                                }),
+                            );
+                        }
+                    } else if data.len() >= 4 {
+                        if let Some(EmfPlusObj::Pen(sc, pw)) = objs.get(&(rd_u32(data, 0) as u8)) {
+                            let rgba = sc.to_linear_f32();
+                            let _ = stroke_tess.tessellate_path(
+                                &built,
+                                &StrokeOptions::tolerance(tol_in)
+                                    .with_line_width(*pw)
+                                    .with_line_cap(LineCap::Round)
+                                    .with_line_join(LineJoin::Round),
+                                &mut BuffersBuilder::new(lyon_buf, |v: StrokeVertex| {
+                                    let pt = v.position();
+                                    GpuVertex::new([pt.x, pt.y], rgba, [PRIM_FLAG_SHAPE, 0.0])
+                                }),
+                            );
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+        off += rsize;
+    }
+}
+
+/// 16-bit Windows Metafile (`WMF`, including 22-byte Aldus Placeable WMF header `0x9AC6CDD7`) vector playback.
+fn tessellate_wmf_foreign(bytes: &[u8], world_tf: &ShapeTransform2D, tol_in: f32) -> TessellatedMesh {
+    let rd_i16 = |b: &[u8], o: usize| i16::from_le_bytes([b[o], b[o + 1]]);
+    let rd_u16 = |b: &[u8], o: usize| u16::from_le_bytes([b[o], b[o + 1]]);
+    let rd_u32 = |b: &[u8], o: usize| u32::from_le_bytes([b[o], b[o + 1], b[o + 2], b[o + 3]]);
+
+    let mut win_org = [0.0f64, 0.0f64];
+    let mut win_ext = [1000.0f64, 1000.0f64];
+    let mut hdr_off = 0usize;
+
+    if bytes.len() >= 40 && bytes[0..4] == [0xD7, 0xCD, 0xC6, 0x9A] {
+        let l = rd_i16(bytes, 6) as f64;
+        let t = rd_i16(bytes, 8) as f64;
+        let r = rd_i16(bytes, 10) as f64;
+        let b = rd_i16(bytes, 12) as f64;
+        if (r - l).abs() > 1.0 && (b - t).abs() > 1.0 {
+            win_org = [l, t];
+            win_ext = [r - l, b - t];
+        }
+        hdr_off = 22;
+    }
+    if hdr_off + 18 > bytes.len() {
+        return TessellatedMesh::new();
+    }
+
+    let base_sw = (world_tf.width.min(world_tf.height) * 0.022).clamp(0.006, 0.055) as f32;
+    let mut cur_stroke: Option<(RgbaColor, f32)> = Some((RgbaColor::BLACK, base_sw));
+    let mut cur_fill: Option<RgbaColor> = Some(RgbaColor {
+        r: 0,
+        g: 120,
+        b: 212,
+        a: 255,
+    });
+    let mut cur_pt = win_org;
+    let mut gdi_table: Vec<Option<EmfGdiObject>> = Vec::new();
+
+    let alloc_slot = |tbl: &mut Vec<Option<EmfGdiObject>>, obj: EmfGdiObject| {
+        if let Some(slot) = tbl.iter_mut().find(|s| s.is_none()) {
+            *slot = Some(obj);
+        } else if tbl.len() < 1024 {
+            tbl.push(Some(obj));
+        }
+    };
+
+    let map_wmf = |wx: f64, wy: f64, org: [f64; 2], ext: [f64; 2]| -> lyon_path::math::Point {
+        let sx = if ext[0].abs() > 1e-6 { ext[0] } else { 1000.0 };
+        let sy = if ext[1].abs() > 1e-6 { ext[1] } else { 1000.0 };
+        let nx = (wx - org[0]) / sx;
+        let ny = 1.0 - (wy - org[1]) / sy;
+        let (px, py) = world_tf.local_to_parent(nx * world_tf.width, ny * world_tf.height);
+        point(px as f32, py as f32)
+    };
+
+    let mut lyon_buf: VertexBuffers<GpuVertex, u32> = VertexBuffers::new();
+    let mut fill_tess = FillTessellator::new();
+    let mut stroke_tess = StrokeTessellator::new();
+
+    let mut pos = hdr_off + 18;
+    while pos + 6 <= bytes.len() {
+        let size_words = rd_u32(bytes, pos) as usize;
+        let func = rd_u16(bytes, pos + 4);
+        let rec_bytes = size_words.saturating_mul(2);
+        if func == 0 || rec_bytes < 6 || pos + rec_bytes > bytes.len() {
+            break;
+        }
+        let rec = &bytes[pos..pos + rec_bytes];
+        match func {
+            0x020B if rec.len() >= 10 => {
+                // META_SETWINDOWORG (`y`, `x`)
+                win_org = [rd_i16(rec, 8) as f64, rd_i16(rec, 6) as f64];
+            }
+            0x020C if rec.len() >= 10 => {
+                // META_SETWINDOWEXT (`y`, `x`)
+                win_ext = [rd_i16(rec, 8) as f64, rd_i16(rec, 6) as f64];
+            }
+            0x02FA if rec.len() >= 16 => {
+                // META_CREATEPENINDIRECT
+                let style = rd_u16(rec, 6);
+                let pen = if (style & 0x0F) == 5 {
+                    None
+                } else {
+                    Some((
+                        RgbaColor {
+                            r: rec[12],
+                            g: rec[13],
+                            b: rec[14],
+                            a: 255,
+                        },
+                        base_sw,
+                    ))
+                };
+                alloc_slot(&mut gdi_table, EmfGdiObject::Pen(pen));
+            }
+            0x02FC if rec.len() >= 14 => {
+                // META_CREATEBRUSHINDIRECT
+                let style = rd_u16(rec, 6);
+                let br = if style == 1 {
+                    None
+                } else {
+                    Some(RgbaColor {
+                        r: rec[8],
+                        g: rec[9],
+                        b: rec[10],
+                        a: 255,
+                    })
+                };
+                alloc_slot(&mut gdi_table, EmfGdiObject::Brush(br));
+            }
+            0x012D if rec.len() >= 8 => {
+                // META_SELECTOBJECT
+                let idx = rd_u16(rec, 6) as usize;
+                if let Some(Some(obj)) = gdi_table.get(idx) {
+                    match obj {
+                        EmfGdiObject::Pen(p) => cur_stroke = *p,
+                        EmfGdiObject::Brush(b) => cur_fill = *b,
+                    }
+                }
+            }
+            0x01F0 if rec.len() >= 8 => {
+                // META_DELETEOBJECT
+                let idx = rd_u16(rec, 6) as usize;
+                if let Some(slot) = gdi_table.get_mut(idx) {
+                    *slot = None;
+                }
+            }
+            0x0214 if rec.len() >= 10 => {
+                // META_MOVETO (`y`, `x`)
+                cur_pt = [rd_i16(rec, 8) as f64, rd_i16(rec, 6) as f64];
+            }
+            0x0213 if rec.len() >= 10 => {
+                // META_LINETO (`y`, `x`)
+                let nx = rd_i16(rec, 8) as f64;
+                let ny = rd_i16(rec, 6) as f64;
+                if let Some((sc, pw)) = cur_stroke {
+                    let mut b = Path::builder();
+                    b.begin(map_wmf(cur_pt[0], cur_pt[1], win_org, win_ext));
+                    b.line_to(map_wmf(nx, ny, win_org, win_ext));
+                    b.end(false);
                     let rgba = sc.to_linear_f32();
                     let _ = stroke_tess.tessellate_path(
-                        &path,
-                        &StrokeOptions::tolerance(tol_in).with_line_width(sw),
+                        &b.build(),
+                        &StrokeOptions::tolerance(tol_in).with_line_width(pw),
                         &mut BuffersBuilder::new(&mut lyon_buf, |v: StrokeVertex| {
                             let p = v.position();
                             GpuVertex::new([p.x, p.y], rgba, [PRIM_FLAG_SHAPE, 0.0])
@@ -1220,100 +2377,93 @@ fn tessellate_emf_foreign(bytes: &[u8], world_tf: &ShapeTransform2D, tol_in: f32
                 }
                 cur_pt = [nx, ny];
             }
-            42 | 43 if rec.len() >= 24 => {
-                // EMR_ELLIPSE (42) / EMR_RECTANGLE (43)
-                let l = i32::from_le_bytes([rec[8], rec[9], rec[10], rec[11]]) as f64;
-                let t = i32::from_le_bytes([rec[12], rec[13], rec[14], rec[15]]) as f64;
-                let r = i32::from_le_bytes([rec[16], rec[17], rec[18], rec[19]]) as f64;
-                let bt = i32::from_le_bytes([rec[20], rec[21], rec[22], rec[23]]) as f64;
+            0x041B | 0x0418 if rec.len() >= 14 => {
+                // META_RECTANGLE (0x041B) / META_ELLIPSE (0x0418) (`bottom`, `right`, `top`, `left`)
+                let bt = rd_i16(rec, 6) as f64;
+                let r = rd_i16(rec, 8) as f64;
+                let t = rd_i16(rec, 10) as f64;
+                let l = rd_i16(rec, 12) as f64;
                 let mut b = Path::builder();
-                if rec_type == 43 {
-                    b.begin(map_emf(l, t));
-                    b.line_to(map_emf(r, t));
-                    b.line_to(map_emf(r, bt));
-                    b.line_to(map_emf(l, bt));
+                if func == 0x041B {
+                    b.begin(map_wmf(l, t, win_org, win_ext));
+                    b.line_to(map_wmf(r, t, win_org, win_ext));
+                    b.line_to(map_wmf(r, bt, win_org, win_ext));
+                    b.line_to(map_wmf(l, bt, win_org, win_ext));
                     b.end(true);
                 } else {
                     let cx = (l + r) * 0.5;
                     let cy = (t + bt) * 0.5;
                     let rx = (r - l).abs() * 0.5;
                     let ry = (bt - t).abs() * 0.5;
-                    b.begin(map_emf(cx + rx, cy));
-                    for s in 1..20 {
-                        let a = std::f64::consts::TAU * (s as f64 / 20.0);
-                        b.line_to(map_emf(cx + rx * a.cos(), cy + ry * a.sin()));
+                    b.begin(map_wmf(cx + rx, cy, win_org, win_ext));
+                    for s in 1..24 {
+                        let a = std::f64::consts::TAU * (s as f64 / 24.0);
+                        b.line_to(map_wmf(cx + rx * a.cos(), cy + ry * a.sin(), win_org, win_ext));
                     }
                     b.end(true);
                 }
-                let path = b.build();
+                let p = b.build();
                 if let Some(fc) = cur_fill {
                     let rgba = fc.to_linear_f32();
                     let _ = fill_tess.tessellate_path(
-                        &path,
+                        &p,
                         &FillOptions::tolerance(tol_in),
                         &mut BuffersBuilder::new(&mut lyon_buf, |v: FillVertex| {
-                            let p = v.position();
-                            GpuVertex::new([p.x, p.y], rgba, [PRIM_FLAG_SHAPE, 0.0])
+                            let pt = v.position();
+                            GpuVertex::new([pt.x, pt.y], rgba, [PRIM_FLAG_SHAPE, 0.0])
                         }),
                     );
                 }
-                if let Some(sc) = cur_stroke {
+                if let Some((sc, pw)) = cur_stroke {
                     let rgba = sc.to_linear_f32();
                     let _ = stroke_tess.tessellate_path(
-                        &path,
-                        &StrokeOptions::tolerance(tol_in).with_line_width(sw),
+                        &p,
+                        &StrokeOptions::tolerance(tol_in).with_line_width(pw),
                         &mut BuffersBuilder::new(&mut lyon_buf, |v: StrokeVertex| {
-                            let p = v.position();
-                            GpuVertex::new([p.x, p.y], rgba, [PRIM_FLAG_SHAPE, 0.0])
+                            let pt = v.position();
+                            GpuVertex::new([pt.x, pt.y], rgba, [PRIM_FLAG_SHAPE, 0.0])
                         }),
                     );
                 }
             }
-            3 | 4 | 86 | 87 if rec.len() >= 28 => {
-                // EMR_POLYGON (3), EMR_POLYLINE (4), EMR_POLYGON16 (86), EMR_POLYLINE16 (87)
-                let count = u32::from_le_bytes([rec[24], rec[25], rec[26], rec[27]]) as usize;
-                let is_closed = rec_type == 3 || rec_type == 86;
-                let is_16 = rec_type >= 85;
-                let step = if is_16 { 4 } else { 8 };
-                let needed = count.checked_mul(step).and_then(|n| n.checked_add(28));
-                if count >= 2 && needed.is_some_and(|end| end <= rec.len()) {
+            0x0324 | 0x0325 if rec.len() >= 12 => {
+                // META_POLYGON (0x0324) / META_POLYLINE (0x0325)
+                let cnt = rd_u16(rec, 6) as usize;
+                let is_closed = func == 0x0324;
+                if cnt >= 2 && 8 + cnt.saturating_mul(4) <= rec.len() {
                     let mut b = Path::builder();
-                    for i in 0..count {
-                        let off = pos + 28 + i * step;
-                        let (px, py) = if is_16 {
-                            (rd_i16(off) as f64, rd_i16(off + 2) as f64)
-                        } else {
-                            (rd_i32(off) as f64, rd_i32(off + 4) as f64)
-                        };
+                    for i in 0..cnt {
+                        let px = rd_i16(rec, 8 + i * 4) as f64;
+                        let py = rd_i16(rec, 10 + i * 4) as f64;
                         if i == 0 {
-                            b.begin(map_emf(px, py));
+                            b.begin(map_wmf(px, py, win_org, win_ext));
                         } else {
-                            b.line_to(map_emf(px, py));
+                            b.line_to(map_wmf(px, py, win_org, win_ext));
                         }
                     }
                     b.end(is_closed);
-                    let path = b.build();
+                    let p = b.build();
                     if is_closed {
                         if let Some(fc) = cur_fill {
                             let rgba = fc.to_linear_f32();
                             let _ = fill_tess.tessellate_path(
-                                &path,
+                                &p,
                                 &FillOptions::tolerance(tol_in).with_fill_rule(FillRule::EvenOdd),
                                 &mut BuffersBuilder::new(&mut lyon_buf, |v: FillVertex| {
-                                    let p = v.position();
-                                    GpuVertex::new([p.x, p.y], rgba, [PRIM_FLAG_SHAPE, 0.0])
+                                    let pt = v.position();
+                                    GpuVertex::new([pt.x, pt.y], rgba, [PRIM_FLAG_SHAPE, 0.0])
                                 }),
                             );
                         }
                     }
-                    if let Some(sc) = cur_stroke {
+                    if let Some((sc, pw)) = cur_stroke {
                         let rgba = sc.to_linear_f32();
                         let _ = stroke_tess.tessellate_path(
-                            &path,
-                            &StrokeOptions::tolerance(tol_in).with_line_width(sw),
+                            &p,
+                            &StrokeOptions::tolerance(tol_in).with_line_width(pw),
                             &mut BuffersBuilder::new(&mut lyon_buf, |v: StrokeVertex| {
-                                let p = v.position();
-                                GpuVertex::new([p.x, p.y], rgba, [PRIM_FLAG_SHAPE, 0.0])
+                                let pt = v.position();
+                                GpuVertex::new([pt.x, pt.y], rgba, [PRIM_FLAG_SHAPE, 0.0])
                             }),
                         );
                     }
@@ -1321,7 +2471,7 @@ fn tessellate_emf_foreign(bytes: &[u8], world_tf: &ShapeTransform2D, tol_in: f32
             }
             _ => {}
         }
-        pos += rec_size;
+        pos += rec_bytes;
     }
 
     TessellatedMesh {

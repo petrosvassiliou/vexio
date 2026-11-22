@@ -413,6 +413,74 @@ object NativeBridge {
         pageId: Int,
         newName: String
     ): Boolean
+
+    @JvmStatic
+    external fun nativeRegisterFontBytes(
+        fontBytes: ByteArray,
+        familyOverride: String?
+    ): Boolean
+
+    @JvmStatic
+    external fun nativeAlignShapes(
+        docPtr: Long,
+        pageId: Int,
+        shapeIds: LongArray,
+        mode: String
+    ): Int
+
+    @JvmStatic
+    external fun nativeDistributeShapes(
+        docPtr: Long,
+        pageId: Int,
+        shapeIds: LongArray,
+        axis: String
+    ): Int
+
+    @JvmStatic
+    external fun nativeGroupShapes(
+        docPtr: Long,
+        pageId: Int,
+        shapeIds: LongArray
+    ): Long
+
+    @JvmStatic
+    external fun nativeUngroupShapes(
+        docPtr: Long,
+        pageId: Int,
+        groupIds: LongArray
+    ): LongArray?
+
+    @JvmStatic
+    external fun nativeDragConnectorSegment(
+        docPtr: Long,
+        pageId: Int,
+        shapeId: Long,
+        segIndex: Int,
+        coordIn: Double
+    ): Boolean
+
+    @JvmStatic
+    external fun nativeSetSmartGuides(
+        viewportPtr: Long,
+        enabled: Boolean
+    ): Boolean
+
+    @JvmStatic
+    external fun nativeGetSmartGuides(
+        viewportPtr: Long
+    ): Boolean
+
+    @JvmStatic
+    external fun nativeGetSelectionIds(
+        viewportPtr: Long
+    ): LongArray?
+
+    @JvmStatic
+    external fun nativeSetSelectionIds(
+        viewportPtr: Long,
+        docPtr: Long,
+        shapeIds: LongArray
+    ): Boolean
 }
 
 /**
@@ -1229,8 +1297,9 @@ data class WorkstationUiState(
     val shapeFillColorHex: String = "#E8F0FE",
     val shapeLineColorHex: String = "#1A73E8",
     val inlineTextEditor: InlineCanvasEditorModel? = null,
+    val smartGuidesEnabled: Boolean = true,
     val autoCheckUpdates: Boolean = true,
-    val updateStatusMessage: String = "Vexio v0.1.0 • Automatic update check enabled",
+    val updateStatusMessage: String = "Vexio v0.2.0-alpha • Automatic update check enabled",
     val availableUpdateTag: String? = null,
     val availableUpdateUrl: String? = null,
     val showUpdateDialog: Boolean = false,
@@ -1673,6 +1742,7 @@ class VexioSessionViewModel(
             if (viewportPtr != 0L) {
                 NativeBridge.nativeSetViewportPage(viewportPtr, docPtr, resolveNativePageId(_uiState.value.activePageId))
                 NativeBridge.nativeSetViewportTool(viewportPtr, _uiState.value.activeTool.nativeCode)
+                NativeBridge.nativeSetSmartGuides(viewportPtr, _uiState.value.smartGuidesEnabled)
                 presentViewportOrFallback()
             }
         }
@@ -1904,13 +1974,22 @@ class VexioSessionViewModel(
                 mappedAction == MotionBatchFormat.ACTION_DOWN ||
                 mappedAction == MotionBatchFormat.ACTION_MOVE
             ) {
+                val multiIds = NativeBridge.nativeGetSelectionIds(viewportPtr)
+                    ?.filter { it > 0L }
+                    .orEmpty()
                 val primarySel = NativeBridge.nativeGetPrimarySelection(viewportPtr)
-                if (primarySel > 0L && primarySel != _uiState.value.selectedShapeId) {
+                if (multiIds.isNotEmpty() || (primarySel > 0L && primarySel != _uiState.value.selectedShapeId)) {
+                    val resolvedPrimary = if (primarySel > 0L) primarySel else multiIds.first()
+                    val resolvedList = if (multiIds.isNotEmpty()) multiIds else listOf(resolvedPrimary)
                     _uiState.update {
                         it.copy(
-                            selectedShapeId = primarySel,
-                            selectedShapeIds = listOf(primarySel),
-                            selectedShapeName = "Sheet.$primarySel"
+                            selectedShapeId = resolvedPrimary,
+                            selectedShapeIds = resolvedList,
+                            selectedShapeName = if (resolvedList.size > 1) {
+                                "${resolvedList.size} Shapes Selected"
+                            } else {
+                                "Sheet.$resolvedPrimary"
+                            }
                         )
                     }
                     if (mappedAction == MotionBatchFormat.ACTION_UP) {
@@ -4021,6 +4100,268 @@ class VexioSessionViewModel(
         }
     }
 
+    private val syntheticGroups = linkedMapOf<Long, List<Long>>()
+
+    @Synchronized
+    fun toggleSmartGuides(explicit: Boolean? = null) {
+        val next = explicit ?: !_uiState.value.smartGuidesEnabled
+        if (NativeBridge.isNativeAvailable && viewportPtr != 0L) {
+            NativeBridge.nativeSetSmartGuides(viewportPtr, next)
+            presentViewportOrFallback()
+        }
+        _uiState.update {
+            it.copy(
+                smartGuidesEnabled = next,
+                statusBanner = if (next) {
+                    "Smart Alignment & Equal-Spacing Guides Enabled (Hold Alt to Bypass)"
+                } else {
+                    "Smart Guides Disabled"
+                }
+            )
+        }
+    }
+
+    @Synchronized
+    fun setSelectionIds(shapeIds: List<Long>) {
+        val cleaned = shapeIds.filter { it > 0L }.distinct()
+        if (NativeBridge.isNativeAvailable && viewportPtr != 0L) {
+            NativeBridge.nativeSetSelectionIds(viewportPtr, docPtr, cleaned.toLongArray())
+            presentViewportOrFallback()
+        }
+        val primary = cleaned.firstOrNull() ?: _uiState.value.selectedShapeId
+        _uiState.update {
+            it.copy(
+                selectedShapeId = primary,
+                selectedShapeIds = cleaned,
+                selectedShapeName = if (cleaned.size > 1) "${cleaned.size} Shapes Selected" else "Sheet.$primary"
+            )
+        }
+    }
+
+    @Synchronized
+    fun registerCustomFontBytes(fontBytes: ByteArray, familyOverride: String? = null): Boolean {
+        if (fontBytes.isEmpty()) return false
+        val ok = if (NativeBridge.isNativeAvailable) {
+            NativeBridge.nativeRegisterFontBytes(fontBytes, familyOverride)
+        } else {
+            fontBytes.size >= 12
+        }
+        if (ok && !familyOverride.isNullOrBlank()) {
+            val fam = familyOverride.trim()
+            _uiState.update { state ->
+                val updated = if (fam in state.availableFontFamilies) {
+                    state.availableFontFamilies
+                } else {
+                    listOf(fam) + state.availableFontFamilies
+                }
+                state.copy(
+                    availableFontFamilies = updated,
+                    statusBanner = "Registered TrueType/OpenType font '$fam'"
+                )
+            }
+            presentViewportOrFallback()
+        }
+        return ok
+    }
+
+    @Synchronized
+    fun alignSelectedShapes(mode: String): Int {
+        val norm = mode.trim().lowercase(Locale.US)
+        if (norm !in setOf("left", "center", "right", "top", "middle", "bottom")) return 0
+        val cur = _uiState.value
+        val targets = cur.selectedShapeIds.ifEmpty { listOf(cur.selectedShapeId) }
+            .filter { it > 0L }
+            .distinct()
+        if (targets.isEmpty()) return 0
+
+        val updatedCount = if (NativeBridge.isNativeAvailable && docPtr != 0L) {
+            val c = NativeBridge.nativeAlignShapes(
+                docPtr = docPtr,
+                pageId = resolveNativePageId(cur.activePageId),
+                shapeIds = targets.toLongArray(),
+                mode = norm
+            )
+            refreshSelectedShapeFormulas()
+            presentViewportOrFallback()
+            c
+        } else {
+            targets.size
+        }
+
+        if (updatedCount > 0) {
+            _uiState.update {
+                it.copy(
+                    isDirty = true,
+                    canUndo = true,
+                    statusBanner = "Aligned $updatedCount shape(s) (${norm.replaceFirstChar { ch -> ch.uppercase() }})"
+                )
+            }
+        }
+        return updatedCount
+    }
+
+    @Synchronized
+    fun distributeSelectedShapes(axis: String): Int {
+        val norm = axis.trim().lowercase(Locale.US)
+        val isHoriz = norm.startsWith("h") || norm == "x"
+        val isVert = norm.startsWith("v") || norm == "y"
+        if (!isHoriz && !isVert) return 0
+        val canonicalAxis = if (isHoriz) "horizontal" else "vertical"
+        val cur = _uiState.value
+        val targets = cur.selectedShapeIds.ifEmpty { listOf(cur.selectedShapeId) }
+            .filter { it > 0L }
+            .distinct()
+        if (targets.size < 3) {
+            _uiState.update {
+                it.copy(statusBanner = "Select 3+ shapes to distribute equal spacing")
+            }
+            return 0
+        }
+
+        val updatedCount = if (NativeBridge.isNativeAvailable && docPtr != 0L) {
+            val c = NativeBridge.nativeDistributeShapes(
+                docPtr = docPtr,
+                pageId = resolveNativePageId(cur.activePageId),
+                shapeIds = targets.toLongArray(),
+                axis = canonicalAxis
+            )
+            refreshSelectedShapeFormulas()
+            presentViewportOrFallback()
+            c
+        } else {
+            targets.size
+        }
+
+        if (updatedCount > 0) {
+            _uiState.update {
+                it.copy(
+                    isDirty = true,
+                    canUndo = true,
+                    statusBanner = "Distributed $updatedCount shapes (${if (isHoriz) "Horizontally" else "Vertically"})"
+                )
+            }
+        }
+        return updatedCount
+    }
+
+    @Synchronized
+    fun groupSelectedShapes(): Long {
+        val cur = _uiState.value
+        val targets = cur.selectedShapeIds.filter { it > 0L }.distinct()
+        if (targets.size < 2) {
+            _uiState.update {
+                it.copy(statusBanner = "Select 2+ shapes (Marquee or Shift+Click) to Group (Ctrl+G)")
+            }
+            return 0L
+        }
+
+        val groupId = if (NativeBridge.isNativeAvailable && docPtr != 0L) {
+            val gid = NativeBridge.nativeGroupShapes(
+                docPtr = docPtr,
+                pageId = resolveNativePageId(cur.activePageId),
+                shapeIds = targets.toLongArray()
+            )
+            if (gid > 0L && viewportPtr != 0L) {
+                NativeBridge.nativeSetSelectionIds(viewportPtr, docPtr, longArrayOf(gid))
+            }
+            refreshSelectedShapeFormulas()
+            presentViewportOrFallback()
+            gid
+        } else {
+            val gid = nextSyntheticShapeId++
+            syntheticGroups[gid] = targets
+            gid
+        }
+
+        if (groupId > 0L) {
+            _uiState.update {
+                it.copy(
+                    selectedShapeId = groupId,
+                    selectedShapeIds = listOf(groupId),
+                    selectedShapeName = "Sheet.$groupId (Group)",
+                    isDirty = true,
+                    canUndo = true,
+                    statusBanner = "Grouped ${targets.size} shapes into Sheet.$groupId"
+                )
+            }
+        }
+        return groupId
+    }
+
+    @Synchronized
+    fun ungroupSelectedShapes(): List<Long> {
+        val cur = _uiState.value
+        val targets = cur.selectedShapeIds.ifEmpty { listOf(cur.selectedShapeId) }
+            .filter { it > 0L }
+            .distinct()
+        if (targets.isEmpty()) return emptyList()
+
+        val restoredIds = if (NativeBridge.isNativeAvailable && docPtr != 0L) {
+            val arr = NativeBridge.nativeUngroupShapes(
+                docPtr = docPtr,
+                pageId = resolveNativePageId(cur.activePageId),
+                groupIds = targets.toLongArray()
+            )
+            val list = arr?.filter { it > 0L }.orEmpty()
+            if (list.isNotEmpty() && viewportPtr != 0L) {
+                NativeBridge.nativeSetSelectionIds(viewportPtr, docPtr, list.toLongArray())
+            }
+            refreshSelectedShapeFormulas()
+            presentViewportOrFallback()
+            list
+        } else {
+            val out = mutableListOf<Long>()
+            for (gid in targets) {
+                val members = syntheticGroups.remove(gid)
+                if (members != null) out.addAll(members)
+            }
+            out
+        }
+
+        if (restoredIds.isNotEmpty()) {
+            val primary = restoredIds.first()
+            _uiState.update {
+                it.copy(
+                    selectedShapeId = primary,
+                    selectedShapeIds = restoredIds,
+                    selectedShapeName = if (restoredIds.size > 1) "${restoredIds.size} Shapes Selected" else "Sheet.$primary",
+                    isDirty = true,
+                    canUndo = true,
+                    statusBanner = "Ungrouped into ${restoredIds.size} member shape(s)"
+                )
+            }
+        }
+        return restoredIds
+    }
+
+    @Synchronized
+    fun dragConnectorSegment(shapeId: Long, segIndex: Int, coordInches: Double): Boolean {
+        if (shapeId <= 0L || segIndex < 0 || !coordInches.isFinite()) return false
+        val ok = if (NativeBridge.isNativeAvailable && docPtr != 0L) {
+            val moved = NativeBridge.nativeDragConnectorSegment(
+                docPtr = docPtr,
+                pageId = resolveNativePageId(_uiState.value.activePageId),
+                shapeId = shapeId,
+                segIndex = segIndex,
+                coordIn = coordInches
+            )
+            if (moved) presentViewportOrFallback()
+            moved
+        } else {
+            true
+        }
+        if (ok) {
+            _uiState.update {
+                it.copy(
+                    isDirty = true,
+                    canUndo = true,
+                    statusBanner = "Adjusted orthogonal connector segment #$segIndex"
+                )
+            }
+        }
+        return ok
+    }
+
     fun setAutoCheckUpdates(enabled: Boolean) {
         _uiState.update { it.copy(autoCheckUpdates = enabled) }
     }
@@ -4037,7 +4378,7 @@ class VexioSessionViewModel(
             }
         }
         viewModelScope.launch(ioDispatcher) {
-            val currentVersion = "0.1.0"
+            val currentVersion = "0.2.0-alpha"
             var latestTag: String? = null
             var downloadUrl = "https://github.com/petrosvassiliou/vexio/releases"
             var ok = false
@@ -4048,7 +4389,7 @@ class VexioSessionViewModel(
                     requestMethod = "GET"
                     connectTimeout = 4500
                     readTimeout = 4500
-                    setRequestProperty("User-Agent", "Vexio-Android-Googlebook/0.1.0")
+                    setRequestProperty("User-Agent", "Vexio-Android-Googlebook/0.2.0-alpha")
                     setRequestProperty("Accept", "application/vnd.github+json")
                 }
                 if (conn.responseCode in 200..299) {
