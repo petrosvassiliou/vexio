@@ -1579,7 +1579,8 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
     ]
 
     nonisolated private let core: NativeDocumentCore
-    @Published public var sourceFormatExtension: String
+    nonisolated private let initialSourceFormatExtension: String
+    @Published public var sourceFormatExtension: String = "vsdx"
     @Published public var currentFileURL: URL? = nil
 
     // Published Workstation UI State
@@ -1755,7 +1756,7 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
         let defaultPreset = (Locale.current.measurementSystem == .us) ? "letter" : "a4"
         try? localCore.setPagePreset(pageId: 1, presetSlug: defaultPreset, landscape: true)
         self.core = localCore
-        self._sourceFormatExtension = Published(initialValue: "vsdx")
+        self.initialSourceFormatExtension = "vsdx"
     }
 
     nonisolated public required init(configuration: ReadConfiguration) throws {
@@ -1770,12 +1771,15 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
             ext = configuration.contentType.vexioCanonicalExtension
         }
         self.core = try NativeDocumentCore(fileData: bytes, formatExtension: ext)
-        self._sourceFormatExtension = Published(initialValue: ext)
+        self.initialSourceFormatExtension = ext
     }
 
     public func ensureStencilsLoadedIfNeeded() {
         guard !hasLoadedDynamicStencils else { return }
         hasLoadedDynamicStencils = true
+        if currentFileURL == nil && sourceFormatExtension == "vsdx" {
+            sourceFormatExtension = initialSourceFormatExtension
+        }
         guard let rawJSON = try? core.listStencilsJSON(),
               let jsonData = rawJSON.data(using: .utf8),
               let grouped = try? JSONDecoder().decode([String: [NativeStencilMasterPayload]].self, from: jsonData),
@@ -2133,7 +2137,7 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
         undoManager.setActionName(actionName)
         undoManager.registerUndo(withTarget: self) { target in
             MainActor.assumeIsolated {
-                target.performUndo(undoManager: undoManager)
+                target.performUndo(undoManager: NSApp.keyWindow?.undoManager)
             }
         }
     }
@@ -2145,7 +2149,7 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
             statusMessage = "Undo applied"
             undoManager?.registerUndo(withTarget: self) { target in
                 MainActor.assumeIsolated {
-                    target.performRedo(undoManager: undoManager)
+                    target.performRedo(undoManager: NSApp.keyWindow?.undoManager)
                 }
             }
             reloadSelectedShapeSheetCells()
@@ -2165,7 +2169,7 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
             statusMessage = "Redo applied"
             undoManager?.registerUndo(withTarget: self) { target in
                 MainActor.assumeIsolated {
-                    target.performUndo(undoManager: undoManager)
+                    target.performUndo(undoManager: NSApp.keyWindow?.undoManager)
                 }
             }
             reloadSelectedShapeSheetCells()
