@@ -395,6 +395,13 @@ object NativeBridge {
         docPtr: Long,
         title: String
     ): Boolean
+
+    @JvmStatic
+    external fun nativeRenamePage(
+        docPtr: Long,
+        pageId: Int,
+        newName: String
+    ): Boolean
 }
 
 /**
@@ -851,7 +858,8 @@ data class ShapeSheetCellEntry(
 data class DiagramPageTab(
     val pageId: Int,
     val name: String,
-    val scaleLabel: String
+    val scaleLabel: String,
+    val isBackground: Boolean = false
 )
 
 data class ValidationBadgeSummary(
@@ -905,6 +913,99 @@ enum class VexioAppLanguage(val code: String, val badge: String, val nativeName:
         get() = when (this) {
             EN -> "Developer"; DE -> "Entwickler"; IT -> "Sviluppo"; FR -> "Développeur"; ES -> "Programador"; GR -> "Προγραμματιστής"
         }
+    val openFileLabel: String
+        get() = when (this) {
+            EN -> "Open File (.vsdx / .vsd / .dwg)…"
+            DE -> "Datei öffnen (.vsdx / .vsd / .dwg)…"
+            IT -> "Apri file (.vsdx / .vsd / .dwg)…"
+            FR -> "Ouvrir un fichier (.vsdx / .vsd / .dwg)…"
+            ES -> "Abrir archivo (.vsdx / .vsd / .dwg)…"
+            GR -> "Άνοιγμα αρχείου (.vsdx / .vsd / .dwg)…"
+        }
+    val saveLabel: String
+        get() = when (this) {
+            EN -> "Save (Ctrl+S)"
+            DE -> "Speichern (Ctrl+S)"
+            IT -> "Salva (Ctrl+S)"
+            FR -> "Enregistrer (Ctrl+S)"
+            ES -> "Guardar (Ctrl+S)"
+            GR -> "Αποθήκευση (Ctrl+S)"
+        }
+    val saveAsLabel: String
+        get() = when (this) {
+            EN -> "Save As… (Ctrl+Shift+S)"
+            DE -> "Speichern unter… (Ctrl+Shift+S)"
+            IT -> "Salva con nome… (Ctrl+Shift+S)"
+            FR -> "Enregistrer sous… (Ctrl+Shift+S)"
+            ES -> "Guardar como… (Ctrl+Shift+S)"
+            GR -> "Αποθήκευση ως… (Ctrl+Shift+S)"
+        }
+    val renamePageLabel: String
+        get() = when (this) {
+            EN -> "Rename Page…"
+            DE -> "Zeichenblatt umbenennen…"
+            IT -> "Rinomina pagina…"
+            FR -> "Renommer la page…"
+            ES -> "Cambiar nombre de página…"
+            GR -> "Μετονομασία σελίδας…"
+        }
+    val textColorLabel: String
+        get() = when (this) {
+            EN -> "Text Color"
+            DE -> "Textfarbe"
+            IT -> "Colore testo"
+            FR -> "Couleur du texte"
+            ES -> "Color de texto"
+            GR -> "Χρώμα κειμένου"
+        }
+    val highlightColorLabel: String
+        get() = when (this) {
+            EN -> "Highlight"
+            DE -> "Hervorhebung"
+            IT -> "Evidenziazione"
+            FR -> "Surlignage"
+            ES -> "Resaltado"
+            GR -> "Επισήμανση"
+        }
+    val clearHighlightLabel: String
+        get() = when (this) {
+            EN -> "No Highlight"
+            DE -> "Keine Hervorhebung"
+            IT -> "Nessuna evidenziazione"
+            FR -> "Aucun surlignage"
+            ES -> "Sin resaltado"
+            GR -> "Χωρίς επισήμανση"
+        }
+    val fillColorLabel: String
+        get() = when (this) {
+            EN -> "Fill Color"
+            DE -> "Füllfarbe"
+            IT -> "Riempimento"
+            FR -> "Remplissage"
+            ES -> "Color de relleno"
+            GR -> "Χρώμα γεμίσματος"
+        }
+    val lineColorLabel: String
+        get() = when (this) {
+            EN -> "Line Color"
+            DE -> "Linienfarbe"
+            IT -> "Colore linea"
+            FR -> "Couleur de trait"
+            ES -> "Color de línea"
+            GR -> "Χρώμα γραμμής"
+        }
+    val inspectorFormatTab: String
+        get() = when (this) {
+            EN -> "Format"; DE -> "Format"; IT -> "Formato"; FR -> "Format"; ES -> "Formato"; GR -> "Μορφή"
+        }
+    val inspectorGeometryTab: String
+        get() = when (this) {
+            EN -> "Geometry"; DE -> "Geometrie"; IT -> "Geometria"; FR -> "Géométrie"; ES -> "Geometría"; GR -> "Γεωμετρία"
+        }
+    val inspectorValidateTab: String
+        get() = when (this) {
+            EN -> "Validate"; DE -> "Prüfen"; IT -> "Convalida"; FR -> "Valider"; ES -> "Validar"; GR -> "Έλεγχος"
+        }
     val importStencilLabel: String
         get() = when (this) {
             EN -> "+ Import Visio Stencil (.vssx / .vss)"
@@ -955,6 +1056,79 @@ enum class VexioAppLanguage(val code: String, val badge: String, val nativeName:
             }
         }
     }
+}
+
+/**
+ * Discovers 100% offline installed Android & Googlebook OS system font families by scanning
+ * `/system/etc/fonts.xml` and `/product/etc/fonts_customization.xml` (plus standard system/Visio
+ * metrics-compatible families) without any network calls.
+ */
+object SystemFontCatalog {
+    private val curatedBaseline = listOf(
+        "Inter",
+        "Roboto",
+        "Roboto Condensed",
+        "Roboto Slab",
+        "Roboto Mono",
+        "Noto Sans",
+        "Noto Serif",
+        "Google Sans",
+        "Droid Sans",
+        "Droid Serif",
+        "Droid Sans Mono",
+        "Cutive Mono",
+        "Sans-Serif",
+        "Serif",
+        "Monospace",
+        "Calibri",
+        "Segoe UI",
+        "Arial",
+        "Helvetica Neue",
+        "Times New Roman",
+        "Georgia",
+        "Verdana",
+        "Tahoma",
+        "Trebuchet MS",
+        "Consolas",
+        "Courier New"
+    )
+
+    private val cachedFamilies: List<String> by lazy {
+        val discovered = linkedSetOf<String>()
+        val xmlPaths = listOf(
+            "/product/etc/fonts_customization.xml",
+            "/system/etc/fonts.xml",
+            "/system/etc/system_fonts.xml"
+        )
+        val nameAttrRegex = Regex("""<(?:family|alias)\b[^>]*\bname="([^"]+)"""")
+        for (path in xmlPaths) {
+            runCatching {
+                val f = java.io.File(path)
+                if (f.isFile && f.canRead()) {
+                    val xml = f.readText(Charsets.UTF_8)
+                    for (m in nameAttrRegex.findAll(xml)) {
+                        val raw = m.groupValues[1].trim()
+                        if (raw.isNotEmpty() && !raw.startsWith("und-")) {
+                            val pretty = raw.split('-', '_')
+                                .filter { it.isNotEmpty() }
+                                .joinToString(" ") { token ->
+                                    token.replaceFirstChar { ch -> ch.titlecase(Locale.US) }
+                                }
+                            if (pretty.isNotEmpty()) {
+                                discovered.add(pretty)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        val merged = linkedSetOf<String>()
+        merged.addAll(curatedBaseline)
+        merged.addAll(discovered.sorted())
+        merged.toList()
+    }
+
+    fun discoverInstalledFontFamilies(): List<String> = cachedFamilies
 }
 
 fun detectDefaultMetricUnits(): Boolean {
@@ -1029,6 +1203,7 @@ data class WorkstationUiState(
     } else {
         VexioPagePresetSpec.LETTER_LANDSCAPE
     },
+    val availableFontFamilies: List<String> = SystemFontCatalog.discoverInstalledFontFamilies(),
     val textFontFamily: String = "Inter",
     val textFontSizePt: Int = 11,
     val textBold: Boolean = false,
@@ -1040,6 +1215,8 @@ data class WorkstationUiState(
     val textBullets: Boolean = false,
     val textColorHex: String = "#0F172A",
     val textBgColorHex: String = "none",
+    val shapeFillColorHex: String = "#E8F0FE",
+    val shapeLineColorHex: String = "#1A73E8",
     val inlineTextEditor: InlineCanvasEditorModel? = null,
     val autoCheckUpdates: Boolean = true,
     val updateStatusMessage: String = "Vexio v0.1.0 • Automatic update check enabled",
@@ -1235,7 +1412,94 @@ class VexioSessionViewModel(
         initializeEngineAndBlankDocument("Architecture_Blueprint.vsdx")
     }
 
-    private fun resolveNativePageId(pageId: Int): Int = pageId.coerceAtLeast(1)
+    private fun resolveNativePageId(pageId: Int): Int = pageId.coerceAtLeast(0)
+
+    @Synchronized
+    private fun syncPagesAndActivePageFromNative(preferFirstForeground: Boolean = false) {
+        if (!NativeBridge.isNativeAvailable || docPtr == 0L) return
+        val requestedPage = if (preferFirstForeground) -1 else resolveNativePageId(_uiState.value.activePageId)
+        val rawJson = runCatching {
+            NativeBridge.nativeGetStateJson(docPtr, requestedPage)
+        }.getOrDefault("{}")
+        val root = runCatching { Json.parseToJsonElement(rawJson).jsonObject }.getOrNull() ?: return
+
+        val parsedAllPages = mutableListOf<DiagramPageTab>()
+        val pagesArr = root["pages"] as? JsonArray
+        val useMetric = _uiState.value.metricUnits
+        if (pagesArr != null) {
+            for (elem in pagesArr) {
+                val pObj = elem as? JsonObject ?: continue
+                val id = pObj["id"]?.jsonPrimitive?.intOrNull ?: continue
+                val name = pObj["name"]?.jsonPrimitive?.contentOrNull?.ifBlank { "Page-$id" } ?: "Page-$id"
+                val wIn = pObj["widthIn"]?.jsonPrimitive?.doubleOrNull ?: 11.0
+                val hIn = pObj["heightIn"]?.jsonPrimitive?.doubleOrNull ?: 8.5
+                val isBg = pObj["isBackground"]?.jsonPrimitive?.booleanOrNull ?: false
+                val scaleLabel = if (useMetric) {
+                    "${(wIn * 25.4).toInt()}×${(hIn * 25.4).toInt()} mm"
+                } else {
+                    "${"%.1f".format(Locale.US, wIn)}×${"%.1f".format(Locale.US, hIn)} in"
+                }
+                parsedAllPages.add(
+                    DiagramPageTab(
+                        pageId = id,
+                        name = name,
+                        scaleLabel = scaleLabel,
+                        isBackground = isBg
+                    )
+                )
+            }
+        }
+        val foregroundPages = parsedAllPages.filter { !it.isBackground }.ifEmpty { parsedAllPages }
+        if (foregroundPages.isEmpty()) return
+
+        val nativeActiveId = root["activePageId"]?.jsonPrimitive?.intOrNull
+        val resolvedActiveId = when {
+            nativeActiveId != null && foregroundPages.any { it.pageId == nativeActiveId } -> nativeActiveId
+            else -> foregroundPages.first().pageId
+        }
+
+        val shapesArr = root["shapes"] as? JsonArray
+        var primaryShapeId = _uiState.value.selectedShapeId
+        var primaryShapeName = _uiState.value.selectedShapeName
+        val docFonts = linkedSetOf<String>()
+        if (shapesArr != null && shapesArr.isNotEmpty()) {
+            val firstShape = shapesArr.first() as? JsonObject
+            if (firstShape != null && preferFirstForeground) {
+                primaryShapeId = firstShape["id"]?.jsonPrimitive?.longOrNull ?: primaryShapeId
+                val sName = firstShape["name"]?.jsonPrimitive?.contentOrNull ?: "Sheet.$primaryShapeId"
+                primaryShapeName = sName
+            }
+            for (sElem in shapesArr) {
+                val sObj = sElem as? JsonObject ?: continue
+                val ff = sObj["fontFamily"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+                if (ff.isNotEmpty()) docFonts.add(ff)
+            }
+        }
+
+        if (viewportPtr != 0L) {
+            NativeBridge.nativeSetViewportPage(viewportPtr, docPtr, resolvedActiveId)
+            if (preferFirstForeground) {
+                NativeBridge.nativeSetViewportZoom(viewportPtr, docPtr, 0.0, 0.0, 0.0)
+            }
+        }
+
+        _uiState.update { state ->
+            val mergedFonts = if (docFonts.isEmpty()) {
+                state.availableFontFamilies
+            } else {
+                (state.availableFontFamilies + docFonts).distinct()
+            }
+            state.copy(
+                pages = foregroundPages,
+                activePageId = resolvedActiveId,
+                selectedShapeId = primaryShapeId,
+                selectedShapeIds = listOf(primaryShapeId),
+                selectedShapeName = primaryShapeName,
+                availableFontFamilies = mergedFonts,
+                zoomPercent = if (preferFirstForeground) 100 else state.zoomPercent
+            )
+        }
+    }
 
     private fun captureBaselineSnapshot() {
         val state = _uiState.value
@@ -1358,6 +1622,7 @@ class VexioSessionViewModel(
                 NativeBridge.nativeLoadStarterTemplate(docPtr, "flowchart")
                 NativeBridge.nativeSetPagePreset(docPtr, 1, defaultPreset.slug, defaultPreset.landscape)
                 loadDynamicStencilsFromNative()
+                syncPagesAndActivePageFromNative(preferFirstForeground = true)
             }
         }
         _uiState.update { state ->
@@ -1395,7 +1660,7 @@ class VexioSessionViewModel(
                 density = density
             )
             if (viewportPtr != 0L) {
-                NativeBridge.nativeSetViewportPage(viewportPtr, docPtr, _uiState.value.activePageId)
+                NativeBridge.nativeSetViewportPage(viewportPtr, docPtr, resolveNativePageId(_uiState.value.activePageId))
                 NativeBridge.nativeSetViewportTool(viewportPtr, _uiState.value.activeTool.nativeCode)
                 presentViewportOrFallback()
             }
@@ -1442,13 +1707,13 @@ class VexioSessionViewModel(
         if (NativeBridge.isNativeAvailable && docPtr != 0L) {
             NativeBridge.nativeLoadStarterTemplate(docPtr, templateId)
             NativeBridge.nativeSetPagePreset(docPtr, 1, preset.slug, preset.landscape)
+            syncPagesAndActivePageFromNative(preferFirstForeground = true)
             refreshSelectedShapeFormulas()
             presentViewportOrFallback()
         }
         _uiState.update {
             it.copy(
                 showStartBackstage = false,
-                activePageId = 1,
                 selectedShapeId = 1L,
                 activeTool = VexioTool.POINTER,
                 activeCursor = VexioCursorKind.ARROW,
@@ -1772,15 +2037,45 @@ class VexioSessionViewModel(
 
     @Synchronized
     fun selectPage(pageId: Int) {
+        val targetId = pageId.coerceAtLeast(0)
         _uiState.update { state ->
-            if (state.pages.none { it.pageId == pageId }) state
-            else state.copy(activePageId = pageId)
+            if (state.pages.none { it.pageId == targetId }) state
+            else state.copy(activePageId = targetId)
         }
         if (NativeBridge.isNativeAvailable && viewportPtr != 0L && docPtr != 0L) {
-            NativeBridge.nativeSetViewportPage(viewportPtr, docPtr, pageId)
+            NativeBridge.nativeSetViewportPage(viewportPtr, docPtr, targetId)
             presentViewportOrFallback()
         }
         refreshSelectedShapeFormulas()
+    }
+
+    @Synchronized
+    fun renamePage(pageId: Int, rawName: String): Boolean {
+        val cleaned = rawName.trim()
+        if (cleaned.isEmpty()) return false
+        val targetId = pageId.coerceAtLeast(0)
+        if (NativeBridge.isNativeAvailable && docPtr != 0L) {
+            NativeBridge.nativeRenamePage(docPtr, targetId, cleaned)
+        }
+        var found = false
+        _uiState.update { state ->
+            val updated = state.pages.map { tab ->
+                if (tab.pageId == targetId) {
+                    found = true
+                    tab.copy(name = cleaned)
+                } else {
+                    tab
+                }
+            }
+            if (!found) state
+            else state.copy(
+                pages = updated,
+                isDirty = true,
+                canUndo = true,
+                statusBanner = "Renamed page to '$cleaned'"
+            )
+        }
+        return found
     }
 
     @Synchronized
@@ -1789,7 +2084,7 @@ class VexioSessionViewModel(
         val proposedName = "Page-$nextNum"
         val createdId = if (NativeBridge.isNativeAvailable && docPtr != 0L) {
             val id = NativeBridge.nativeAddPage(docPtr, proposedName)
-            if (id > 0) id else nextNum
+            if (id >= 0) id else nextNum
         } else {
             nextNum
         }
@@ -1797,7 +2092,7 @@ class VexioSessionViewModel(
             val newTab = DiagramPageTab(
                 pageId = createdId,
                 name = proposedName,
-                scaleLabel = "1 in = 1 in"
+                scaleLabel = if (state.metricUnits) "ISO A4 • mm" else "1 in = 1 in"
             )
             state.copy(
                 pages = state.pages + newTab,
@@ -3167,13 +3462,20 @@ class VexioSessionViewModel(
                     }
                     openedPtr = NativeBridge.nativeOpenDocument(enginePtr, directBuffer, ext)
                     if (openedPtr != 0L) {
+                        val oldDocPtr = docPtr
                         docPtr = openedPtr
+                        if (oldDocPtr != 0L && oldDocPtr != openedPtr) {
+                            NativeBridge.nativeDestroyDocument(oldDocPtr)
+                        }
                         loadDynamicStencilsFromNative()
                     }
                 }
             }
 
             withContext(Dispatchers.Main) {
+                if (openedPtr != 0L) {
+                    syncPagesAndActivePageFromNative(preferFirstForeground = true)
+                }
                 _uiState.update { state ->
                     state.copy(
                         showStartBackstage = false,
@@ -3182,7 +3484,7 @@ class VexioSessionViewModel(
                         documentExtension = ext,
                         isDirty = false,
                         statusBanner = if (openedPtr != 0L) {
-                            "Opened $displayName (${rawBytes.size} bytes, .$ext) losslessly"
+                            "Opened $displayName (${state.pages.size} page(s), .$ext) losslessly"
                         } else {
                             "Loaded $displayName (${rawBytes.size} bytes, .$ext)"
                         }
@@ -3193,6 +3495,77 @@ class VexioSessionViewModel(
                 presentViewportOrFallback()
             }
         }
+    }
+
+    private fun hexToRgbFormula(hexColor: String): Pair<String, String>? {
+        val clean = hexColor.trim().removePrefix("#")
+        if (clean.length != 6) return null
+        val rgb = clean.toIntOrNull(16) ?: return null
+        val r = (rgb shr 16) and 0xFF
+        val g = (rgb shr 8) and 0xFF
+        val b = rgb and 0xFF
+        val normalizedHex = "#%02X%02X%02X".format(Locale.US, r, g, b)
+        return normalizedHex to "RGB($r,$g,$b)"
+    }
+
+    @Synchronized
+    fun applyShapeFillColor(hexColor: String) {
+        val (normHex, rgbFormula) = hexToRgbFormula(hexColor) ?: return
+        val cur = _uiState.value
+        val targets = cur.selectedShapeIds.ifEmpty { listOf(cur.selectedShapeId) }.filter { it > 0L }.distinct()
+        val nativePageId = resolveNativePageId(cur.activePageId)
+        if (NativeBridge.isNativeAvailable && docPtr != 0L) {
+            for (sid in targets) {
+                NativeBridge.nativeSetCellFormula(docPtr, nativePageId, sid, "FillForegnd", rgbFormula, true)
+                NativeBridge.nativeSetCellFormula(docPtr, nativePageId, sid, "FillPattern", "1", true)
+            }
+        }
+        _uiState.update { state ->
+            val updatedCells = upsertShapeSheetCells(
+                state.shapeSheetCells,
+                listOf(
+                    ShapeSheetCellEntry("Fill Format", "FillForegnd", rgbFormula, isGuarded = false),
+                    ShapeSheetCellEntry("Fill Format", "FillPattern", "1", isGuarded = false)
+                )
+            )
+            state.copy(
+                shapeFillColorHex = normHex,
+                shapeSheetCells = updatedCells,
+                isDirty = true,
+                canUndo = true,
+                statusBanner = "Updated Fill Color to $normHex ($rgbFormula)"
+            )
+        }
+        refreshSelectedShapeFormulas()
+        presentViewportOrFallback()
+    }
+
+    @Synchronized
+    fun applyShapeLineColor(hexColor: String) {
+        val (normHex, rgbFormula) = hexToRgbFormula(hexColor) ?: return
+        val cur = _uiState.value
+        val targets = cur.selectedShapeIds.ifEmpty { listOf(cur.selectedShapeId) }.filter { it > 0L }.distinct()
+        val nativePageId = resolveNativePageId(cur.activePageId)
+        if (NativeBridge.isNativeAvailable && docPtr != 0L) {
+            for (sid in targets) {
+                NativeBridge.nativeSetCellFormula(docPtr, nativePageId, sid, "LineColor", rgbFormula, true)
+            }
+        }
+        _uiState.update { state ->
+            val updatedCells = upsertShapeSheetCells(
+                state.shapeSheetCells,
+                listOf(ShapeSheetCellEntry("Line Format", "LineColor", rgbFormula, isGuarded = false))
+            )
+            state.copy(
+                shapeLineColorHex = normHex,
+                shapeSheetCells = updatedCells,
+                isDirty = true,
+                canUndo = true,
+                statusBanner = "Updated Line Color to $normHex ($rgbFormula)"
+            )
+        }
+        refreshSelectedShapeFormulas()
+        presentViewportOrFallback()
     }
 
     // -----------------------------------------------------------------------

@@ -1523,6 +1523,17 @@ private final class NativeDocumentCore: @unchecked Sendable {
         }
     }
 
+    func renamePage(pageId: UInt32, newName: String) throws {
+        lock.lock()
+        defer { lock.unlock() }
+        let status = newName.withCString { nameCStr in
+            vexio_doc_rename_page(doc, pageId, nameCStr)
+        }
+        if let err = VexioBridgeError.from(status: status, context: "rename_page(\(pageId))") {
+            throw err
+        }
+    }
+
     func importStencilBytes(fileName: String, bytes: Data) throws -> String {
         guard !bytes.isEmpty else {
             throw VexioBridgeError.emptyDocumentPayload
@@ -1545,11 +1556,52 @@ private final class NativeDocumentCore: @unchecked Sendable {
     }
 }
 
+// MARK: - SwiftUI Color <-> Hex RGB Helpers for Native OS ColorPicker
+
+public extension Color {
+    init(vexioHex hex: String) {
+        let cleaned = hex.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: "#", with: "")
+        guard cleaned.count == 6, let val = UInt32(cleaned, radix: 16) else {
+            self = Color(red: 0.06, green: 0.09, blue: 0.16)
+            return
+        }
+        let r = Double((val >> 16) & 0xFF) / 255.0
+        let g = Double((val >> 8) & 0xFF) / 255.0
+        let b = Double(val & 0xFF) / 255.0
+        self = Color(.sRGB, red: r, green: g, blue: b, opacity: 1.0)
+    }
+
+    var vexioHexRGBString: String {
+        let ns = NSColor(self).usingColorSpace(.sRGB) ?? NSColor.black
+        let r = Int(round(min(max(ns.redComponent, 0), 1) * 255.0))
+        let g = Int(round(min(max(ns.greenComponent, 0), 1) * 255.0))
+        let b = Int(round(min(max(ns.blueComponent, 0), 1) * 255.0))
+        return String(format: "#%02X%02X%02X", r, g, b)
+    }
+
+    var vexioRGBFormulaString: String {
+        let ns = NSColor(self).usingColorSpace(.sRGB) ?? NSColor.black
+        let r = Int(round(min(max(ns.redComponent, 0), 1) * 255.0))
+        let g = Int(round(min(max(ns.greenComponent, 0), 1) * 255.0))
+        let b = Int(round(min(max(ns.blueComponent, 0), 1) * 255.0))
+        return "RGB(\(r),\(g),\(b))"
+    }
+}
+
 // MARK: - @MainActor Swift 6 Document Session (ReferenceFileDocument)
 
 @MainActor
 public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject {
     public typealias Snapshot = VexioDocumentSnapshot
+
+    /// Cached sorted list of all native macOS installed font families (`NSFontManager.shared.availableFontFamilies`).
+    public static let installedSystemFontFamilies: [String] = {
+        var set = Set(NSFontManager.shared.availableFontFamilies.filter { !$0.hasPrefix(".") && !$0.isEmpty })
+        for preferred in ["SF Pro", "Helvetica Neue", "Inter", "Segoe UI", "Arial", "Georgia", "Times New Roman", "Menlo"] {
+            set.insert(preferred)
+        }
+        return set.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }()
 
     nonisolated public static let readableContentTypes: [UTType] = [
         .visioDrawing,
@@ -1601,11 +1653,15 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
     @Published public var selectedShapeIds: [UInt64] = []
     @Published public var nextAllocatedShapeId: UInt64 = 10
 
-    // Inline Canvas Label Editor & Rich Text Ribbon State
+    // Inline Canvas Label Editor & Rich Text / Color Picker State
     @Published public var activeInlineTextEdit: InlineShapeTextEditContext? = nil
-    @Published public var selectedFontFamily: String = "Inter"
+    @Published public var selectedFontFamily: String = "Helvetica Neue"
     @Published public var selectedFontSizePt: Double = 10.0
     @Published public var selectedCharStyle: UInt8 = 0
+    @Published public var selectedTextColorHex: String = "#0F172A"
+    @Published public var selectedTextBgColorHex: String = "none"
+    @Published public var selectedFillColorHex: String = "#EBF4FF"
+    @Published public var selectedLineColorHex: String = "#1C64F2"
     @Published public var selectedHorizAlign: UInt8 = 1
     @Published public var selectedVertAlign: UInt8 = 1
     @Published public var selectedBulletStyle: UInt8 = 0
@@ -2995,10 +3051,17 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
         }
         if let rawPages = root["pages"] as? [[String: Any]], !rawPages.isEmpty {
             pages = rawPages.compactMap { p in
-                guard let pid = p["id"] as? Int else { return nil }
+                guard let pid = p["id"] as? Int, pid >= 0 else { return nil }
                 let name = (p["name"] as? String) ?? "Page-\(pid)"
                 let bg = (p["isBackground"] as? Bool) ?? false
                 return VexioPageSummary(id: UInt32(pid), title: name, isBackgroundPage: bg)
+            }
+            if !pages.contains(where: { $0.id == activePageId }) {
+                if let resolved = root["activePageId"] as? Int, resolved >= 0 {
+                    activePageId = UInt32(resolved)
+                } else if let fg = pages.first(where: { !$0.isBackgroundPage }) ?? pages.first {
+                    activePageId = fg.id
+                }
             }
         }
         guard let shapes = root["shapes"] as? [[String: Any]],
@@ -3014,6 +3077,14 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
         if let cs = matched["charStyle"] as? Int {
             selectedCharStyle = UInt8(clamping: cs)
         }
+        if let tc = matched["textColor"] as? String, !tc.isEmpty {
+            selectedTextColorHex = tc
+        }
+        if let tbg = matched["textBgColor"] as? String, !tbg.isEmpty {
+            selectedTextBgColorHex = tbg
+        } else {
+            selectedTextBgColorHex = "none"
+        }
         if let ha = matched["horizAlign"] as? Int {
             selectedHorizAlign = UInt8(clamping: ha)
         }
@@ -3023,6 +3094,62 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
         if let bul = matched["bulletStyle"] as? Int {
             selectedBulletStyle = UInt8(clamping: bul)
         }
+    }
+
+    public func fitViewportToActivePage() {
+        panOffset = .zero
+        core.setViewportZoom(zoomScale: 0.0, panXIn: 0.0, panYIn: 0.0)
+        core.renderViewportFrame()
+    }
+
+    public func selectPage(_ pageId: UInt32) {
+        activeInlineTextEdit = nil
+        selectedShapeIds = []
+        activePageId = pageId
+        core.setViewportPage(pageId: pageId)
+        reloadSelectedShapeSheetCells()
+        syncSelectedShapeMetadataFromCore()
+        core.renderViewportFrame()
+        let title = pages.first(where: { $0.id == pageId })?.title ?? "Page-\(pageId)"
+        statusMessage = "Active page: \(title)"
+    }
+
+    public func renamePage(pageId: UInt32, to rawNewName: String, undoManager: UndoManager?) {
+        let trimmed = rawNewName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        do {
+            try core.renamePage(pageId: pageId, newName: trimmed)
+            registerJournalUndoStep(actionName: "Rename Page", undoManager: undoManager)
+            syncSelectedShapeMetadataFromCore()
+            core.renderViewportFrame()
+            statusMessage = "Renamed page to '\(trimmed)'"
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    public func applyFillColor(_ color: Color, undoManager: UndoManager?) {
+        selectedFillColorHex = color.vexioHexRGBString
+        let formula = color.vexioRGBFormulaString
+        let targets = selectedShapeIds.isEmpty ? (selectedShapeId != 0 ? [selectedShapeId] : []) : selectedShapeIds
+        for sid in targets {
+            try? core.setCellFormula(pageId: activePageId, shapeId: sid, cellName: "FillForegnd", formula: formula, forceSetF: false)
+        }
+        registerJournalUndoStep(actionName: "Set Fill Color", undoManager: undoManager)
+        reloadSelectedShapeSheetCells()
+        core.renderViewportFrame()
+    }
+
+    public func applyLineColor(_ color: Color, undoManager: UndoManager?) {
+        selectedLineColorHex = color.vexioHexRGBString
+        let formula = color.vexioRGBFormulaString
+        let targets = selectedShapeIds.isEmpty ? (selectedShapeId != 0 ? [selectedShapeId] : []) : selectedShapeIds
+        for sid in targets {
+            try? core.setCellFormula(pageId: activePageId, shapeId: sid, cellName: "LineColor", formula: formula, forceSetF: false)
+        }
+        registerJournalUndoStep(actionName: "Set Line Color", undoManager: undoManager)
+        reloadSelectedShapeSheetCells()
+        core.renderViewportFrame()
     }
 
     public func currentShapeLabelText(shapeId: UInt64) -> String {
@@ -3277,14 +3404,44 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
             documentTitle = url.deletingPathExtension().lastPathComponent
             core.setDocumentTitle(documentTitle)
             NSDocumentController.shared.noteNewRecentDocumentURL(url)
-            activePageId = 1
             activeInlineTextEdit = nil
+            selectedShapeIds = []
             activeTool = .pointer
+            // Query pages with sentinel UInt32.max so engine resolves the first non-background page
+            // even when Microsoft Visio numbers pages starting at ID=0 or ID=4!
+            let probeJSON = core.getStateJSON(activePageId: UInt32.max)
+            var initialFgPageId: UInt32 = 0
+            if let pData = probeJSON.data(using: .utf8),
+               let pRoot = try? JSONSerialization.jsonObject(with: pData) as? [String: Any] {
+                if let rawPages = pRoot["pages"] as? [[String: Any]], !rawPages.isEmpty {
+                    let parsedPages: [VexioPageSummary] = rawPages.compactMap { p in
+                        guard let pid = p["id"] as? Int, pid >= 0 else { return nil }
+                        let name = (p["name"] as? String) ?? "Page-\(pid)"
+                        let bg = (p["isBackground"] as? Bool) ?? false
+                        return VexioPageSummary(id: UInt32(pid), title: name, isBackgroundPage: bg)
+                    }
+                    if !parsedPages.isEmpty {
+                        pages = parsedPages
+                    }
+                    initialFgPageId = parsedPages.first(where: { !$0.isBackgroundPage })?.id
+                        ?? parsedPages.first?.id
+                        ?? 0
+                } else if let resolvedPid = pRoot["activePageId"] as? Int, resolvedPid >= 0 {
+                    initialFgPageId = UInt32(resolvedPid)
+                }
+                if let shapes = pRoot["shapes"] as? [[String: Any]],
+                   let firstShapeId = (shapes.first?["id"] as? UInt64) ?? (shapes.first?["id"] as? Int).map({ UInt64(max(0, $0)) }),
+                   firstShapeId > 0 {
+                    selectedShapeId = firstShapeId
+                }
+            }
+            activePageId = initialFgPageId
+            core.setViewportPage(pageId: initialFgPageId)
+            fitViewportToActivePage()
             reloadSelectedShapeSheetCells()
             syncSelectedShapeMetadataFromCore()
-            core.setViewportPage(pageId: 1)
             core.renderViewportFrame()
-            statusMessage = "Opened \(url.lastPathComponent)"
+            statusMessage = "Opened \(url.lastPathComponent) (\(pages.filter { !$0.isBackgroundPage }.count) page(s))"
         } catch let bridgeErr as VexioBridgeError {
             lastBannerError = bridgeErr
             statusMessage = bridgeErr.localizedDescription

@@ -38,9 +38,11 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -107,6 +109,8 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -435,12 +439,21 @@ fun GooglebookWorkstationScreen(
             else -> AdaptiveWorkstationPosture.COMPACT_CONVERTIBLE
         }
 
-        Column(modifier = Modifier.fillMaxSize()) {
-            // 1. Clean Top Workstation Header Bar (Double-Click Title Rename, Sibling Hover Menus, Language & Updates)
+        var activeColorPickerTarget by remember { mutableStateOf<VexioColorPickerTarget?>(null) }
+
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+        ) {
+            // 1. Clean Top Workstation Header Bar (Double-Click Title Rename, Sibling Hover Menus, Save & Save As, Language & Updates)
             WorkstationHeaderBar(
                 uiState = uiState,
                 posture = posture,
                 onToggleBackstage = { viewModel.setStartBackstageVisible(!uiState.showStartBackstage) },
+                onCreateBlankA4 = {
+                    viewModel.createBlankWithPagePreset("Drawing_A4.vsdx", VexioPagePresetSpec.A4_LANDSCAPE)
+                },
                 onRenameDocument = viewModel::renameDocument,
                 onSelectLanguage = viewModel::setLanguage,
                 onCheckUpdates = { viewModel.checkForUpdatesAsync(userInitiated = true) },
@@ -448,6 +461,7 @@ fun GooglebookWorkstationScreen(
                 onNewWindowClick = { launchNewDocumentWindow(context, template = "blank") },
                 onOpenClick = onOpenDocumentRequested,
                 onSaveClick = onSaveDocumentRequested,
+                onSaveAsClick = onSaveAsDocumentRequested,
                 onExportJpgClick = onExportJpgRequested,
                 onExportFormat = { fmt -> viewModel.exportPlan2Artifact(fmt) },
                 onPrintClick = onPrintRequested,
@@ -459,12 +473,13 @@ fun GooglebookWorkstationScreen(
                 onToggleInspector = viewModel::toggleInspectorPane
             )
 
-            // 1b. Classic Collapsible Multi-Tab Visio Ribbon (Home Rich Text + Rotate/Flip, Insert, Design ISO A4/A3, Data, Process, Review, View, Developer)
+            // 1b. Classic Collapsible Multi-Tab Visio Ribbon (Home OS Fonts + Full Color Picker + Rotate/Flip, Insert, Design ISO A4/A3, Data, Process, Review, View, Developer)
             ClassicVisioM3Ribbon(
                 uiState = uiState,
                 viewModel = viewModel,
                 onOpenBackstage = { viewModel.setStartBackstageVisible(true) },
                 onImportStencilClick = onImportStencilRequested,
+                onOpenColorPicker = { target -> activeColorPickerTarget = target },
                 onTogglePlan2Strip = {
                     viewModel.togglePlan2Ribbon()
                     if (navBackStack.lastOrNull() != WorkstationNavKey.Plan2Operations) {
@@ -692,6 +707,8 @@ fun GooglebookWorkstationScreen(
                     VerticalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                     ShapeInspectorPane(
                         uiState = uiState,
+                        viewModel = viewModel,
+                        onOpenColorPicker = { target -> activeColorPickerTarget = target },
                         onSelectCell = { cellName ->
                             viewModel.selectShapeSheetCell(cellName)
                             formulaFocusRequester.requestFocus()
@@ -712,15 +729,54 @@ fun GooglebookWorkstationScreen(
                 }
             }
 
-            // 4. Bottom Page Switcher & Workstation Diagnostics Bar
+            // 4. Bottom Page Switcher & Workstation Diagnostics Bar (Single-line non-wrapping + Page Rename)
             WorkstationBottomStatusBar(
                 uiState = uiState,
                 posture = posture,
                 onSelectPage = viewModel::selectPage,
+                onRenamePage = viewModel::renamePage,
                 onAddPage = viewModel::addNewPage,
                 onCreateSubprocess = { viewModel.createOrLinkSubprocess() },
                 onAutoLayoutPage = { viewModel.autoLayoutActivePage() },
                 onZoomReset = { viewModel.setZoomPercent(100) }
+            )
+        }
+
+        // Full-Spectrum Material 3 Color Picker Dialog (Text Color, Highlight, Shape Fill, Line Color)
+        val pickerTarget = activeColorPickerTarget
+        if (pickerTarget != null) {
+            val lang = uiState.language
+            val (dialogTitle, initialHex, allowClear) = when (pickerTarget) {
+                VexioColorPickerTarget.TEXT_FG -> Triple(lang.textColorLabel, uiState.textColorHex, false)
+                VexioColorPickerTarget.TEXT_BG -> Triple(
+                    lang.highlightColorLabel,
+                    if (uiState.textBgColorHex == "none") "#FEF08A" else uiState.textBgColorHex,
+                    true
+                )
+                VexioColorPickerTarget.SHAPE_FILL -> Triple(lang.fillColorLabel, uiState.shapeFillColorHex, false)
+                VexioColorPickerTarget.SHAPE_LINE -> Triple(lang.lineColorLabel, uiState.shapeLineColorHex, false)
+            }
+            FullSpectrumColorPickerDialog(
+                title = dialogTitle,
+                initialHex = initialHex,
+                allowClearNone = allowClear,
+                clearLabel = lang.clearHighlightLabel,
+                onDismiss = { activeColorPickerTarget = null },
+                onClearNone = {
+                    activeColorPickerTarget = null
+                    if (pickerTarget == VexioColorPickerTarget.TEXT_BG) {
+                        viewModel.applyRichTextStyle(bgColorHex = "none")
+                    }
+                },
+                onColorSelected = { selectedHex ->
+                    activeColorPickerTarget = null
+                    when (pickerTarget) {
+                        VexioColorPickerTarget.TEXT_FG -> viewModel.applyRichTextStyle(colorHex = selectedHex)
+                        VexioColorPickerTarget.TEXT_BG -> viewModel.applyRichTextStyle(bgColorHex = selectedHex)
+                        VexioColorPickerTarget.SHAPE_FILL -> viewModel.applyShapeFillColor(selectedHex)
+                        VexioColorPickerTarget.SHAPE_LINE -> viewModel.applyShapeLineColor(selectedHex)
+                    }
+                }
             )
         }
 
@@ -800,11 +856,38 @@ fun GooglebookWorkstationScreen(
     }
 }
 
+enum class VexioColorPickerTarget {
+    TEXT_FG,
+    TEXT_BG,
+    SHAPE_FILL,
+    SHAPE_LINE
+}
+
+private fun resolveComposeFontFamily(familyName: String): FontFamily {
+    val norm = familyName.trim().lowercase(java.util.Locale.US)
+    return when {
+        "mono" in norm || "consolas" in norm || "courier" in norm || "code" in norm -> FontFamily.Monospace
+        "serif" in norm && "sans" !in norm || "georgia" in norm || "times" in norm || "cambria" in norm -> FontFamily.Serif
+        "cursive" in norm || "script" in norm -> FontFamily.Cursive
+        else -> FontFamily.SansSerif
+    }
+}
+
+private fun parseColorHexOrFallback(hex: String?, fallback: Color): Color {
+    val clean = hex?.trim().orEmpty().removePrefix("#")
+    if (clean.length == 6) {
+        val rgb = clean.toLongOrNull(16)
+        if (rgb != null) return Color(0xFF000000L or rgb)
+    }
+    return fallback
+}
+
 @Composable
 private fun WorkstationHeaderBar(
     uiState: WorkstationUiState,
     posture: AdaptiveWorkstationPosture,
     onToggleBackstage: () -> Unit,
+    onCreateBlankA4: () -> Unit,
     onRenameDocument: (String) -> Unit,
     onSelectLanguage: (VexioAppLanguage) -> Unit,
     onCheckUpdates: () -> Unit,
@@ -812,6 +895,7 @@ private fun WorkstationHeaderBar(
     onNewWindowClick: () -> Unit,
     onOpenClick: () -> Unit,
     onSaveClick: () -> Unit,
+    onSaveAsClick: () -> Unit,
     onExportJpgClick: () -> Unit = {},
     onExportFormat: (String) -> Unit = {},
     onPrintClick: () -> Unit,
@@ -822,7 +906,8 @@ private fun WorkstationHeaderBar(
     onToggleShapeSheet: () -> Unit,
     onToggleInspector: () -> Unit
 ) {
-    // Shared Chrome-style hover-switching state across sibling top menus ("export", "lang", "help")
+    val lang = uiState.language
+    // Shared Chrome-style hover-switching state across sibling top menus ("file", "export", "lang", "help")
     var openSiblingMenuId by remember { mutableStateOf<String?>(null) }
     var isEditingTitle by remember { mutableStateOf(false) }
     var titleFieldValue by remember(uiState.documentTitle) {
@@ -869,9 +954,9 @@ private fun WorkstationHeaderBar(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 6.dp)
+                .padding(horizontal = 10.dp, vertical = 4.dp)
         ) {
-            // App Badge (toggles In-App Start/File Backstage) + Double-Click Editable Document Title
+            // App Badge (toggles In-App Start/File Backstage)
             Surface(
                 shape = RoundedCornerShape(10.dp),
                 color = MaterialTheme.colorScheme.primaryContainer,
@@ -883,9 +968,70 @@ private fun WorkstationHeaderBar(
                     text = "VEXIO",
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.onPrimaryContainer,
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                    maxLines = 1,
+                    softWrap = false,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
                 )
             }
+            Spacer(Modifier.width(6.dp))
+
+            // File Hover-Switch Menu (Save & Save As… distinct!)
+            Box(modifier = Modifier.hoverSwitchSiblingMenu("file")) {
+                FilledTonalButton(
+                    onClick = {
+                        openSiblingMenuId = if (openSiblingMenuId == "file") null else "file"
+                    },
+                    contentPadding = PaddingValues(horizontal = 9.dp, vertical = 4.dp),
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Text(
+                        text = "${lang.fileLabel} ▾",
+                        style = MaterialTheme.typography.labelMedium,
+                        maxLines = 1,
+                        softWrap = false
+                    )
+                }
+                DropdownMenu(
+                    expanded = openSiblingMenuId == "file",
+                    onDismissRequest = { if (openSiblingMenuId == "file") openSiblingMenuId = null }
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("+ Blank ISO A4 (mm)") },
+                        onClick = { openSiblingMenuId = null; onCreateBlankA4() }
+                    )
+                    DropdownMenuItem(
+                        text = { Text(lang.openFileLabel) },
+                        leadingIcon = { Icon(Icons.Default.FolderOpen, contentDescription = null) },
+                        onClick = { openSiblingMenuId = null; onOpenClick() }
+                    )
+                    HorizontalDivider()
+                    DropdownMenuItem(
+                        text = { Text(lang.saveLabel) },
+                        leadingIcon = { Icon(Icons.Default.Save, contentDescription = null) },
+                        onClick = { openSiblingMenuId = null; onSaveClick() }
+                    )
+                    DropdownMenuItem(
+                        text = { Text(lang.saveAsLabel) },
+                        leadingIcon = { Icon(Icons.Default.Save, contentDescription = null) },
+                        onClick = { openSiblingMenuId = null; onSaveAsClick() }
+                    )
+                    HorizontalDivider()
+                    DropdownMenuItem(
+                        text = { Text(lang.importStencilLabel) },
+                        onClick = { openSiblingMenuId = null; onImportStencilClick() }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Print / PDF (Ctrl+P)") },
+                        leadingIcon = { Icon(Icons.Default.Print, contentDescription = null) },
+                        onClick = { openSiblingMenuId = null; onPrintClick() }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Start / Templates Hub…") },
+                        onClick = { openSiblingMenuId = null; onToggleBackstage() }
+                    )
+                }
+            }
+
             Spacer(Modifier.width(10.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -895,13 +1041,13 @@ private fun WorkstationHeaderBar(
                                 .clip(RoundedCornerShape(6.dp))
                                 .background(MaterialTheme.colorScheme.surfaceContainerLowest)
                                 .border(1.5.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(6.dp))
-                                .padding(horizontal = 8.dp, vertical = 3.dp)
+                                .padding(horizontal = 8.dp, vertical = 2.dp)
                         ) {
                             BasicTextField(
                                 value = titleFieldValue,
                                 onValueChange = { titleFieldValue = it },
                                 singleLine = true,
-                                textStyle = MaterialTheme.typography.titleMedium.copy(
+                                textStyle = MaterialTheme.typography.titleSmall.copy(
                                     color = MaterialTheme.colorScheme.onSurface
                                 ),
                                 cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
@@ -927,9 +1073,9 @@ private fun WorkstationHeaderBar(
                                 onRenameDocument(titleFieldValue.text)
                                 isEditingTitle = false
                             },
-                            modifier = Modifier.size(26.dp)
+                            modifier = Modifier.size(24.dp)
                         ) {
-                            Icon(Icons.Default.Check, contentDescription = "Apply Filename", modifier = Modifier.size(16.dp))
+                            Icon(Icons.Default.Check, contentDescription = "Apply Filename", modifier = Modifier.size(15.dp))
                         }
                     } else {
                         Text(
@@ -937,8 +1083,9 @@ private fun WorkstationHeaderBar(
                                 append(uiState.documentTitle)
                                 if (uiState.isDirty) append(" • Edited")
                             },
-                            style = MaterialTheme.typography.titleMedium,
+                            style = MaterialTheme.typography.titleSmall,
                             maxLines = 1,
+                            softWrap = false,
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier
                                 .clip(RoundedCornerShape(6.dp))
@@ -947,46 +1094,61 @@ private fun WorkstationHeaderBar(
                                     onDoubleClick = { isEditingTitle = true },
                                     onLongClick = { isEditingTitle = true }
                                 )
-                                .padding(horizontal = 4.dp, vertical = 2.dp)
+                                .padding(horizontal = 4.dp, vertical = 1.dp)
                         )
                     }
-                    Spacer(Modifier.width(8.dp))
+                    Spacer(Modifier.width(6.dp))
                     Badge(
                         containerColor = MaterialTheme.colorScheme.secondaryContainer,
                         contentColor = MaterialTheme.colorScheme.onSecondaryContainer
                     ) {
                         Text(
                             text = "${uiState.documentExtension.uppercase()} • ${if (uiState.metricUnits) "MM" else "IN"}",
+                            maxLines = 1,
+                            softWrap = false,
                             modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
                         )
                     }
                 }
-                if (posture != AdaptiveWorkstationPosture.COMPACT_CONVERTIBLE) {
+                if (posture == AdaptiveWorkstationPosture.ULTRAWIDE_DESKTOP) {
                     Text(
                         text = uiState.statusBanner,
-                        style = MaterialTheme.typography.labelMedium,
+                        style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
+                        softWrap = false,
                         overflow = TextOverflow.Ellipsis
                     )
                 }
             }
 
-            // Undo / Redo / Open / Save / Print Quick Access
-            IconButton(onClick = onUndoClick, enabled = uiState.canUndo) {
-                Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = "Undo (Ctrl+Z)")
+            // Undo / Redo / Open / Save / Save As / Print Quick Access
+            IconButton(onClick = onUndoClick, enabled = uiState.canUndo, modifier = Modifier.size(34.dp)) {
+                Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = "Undo (Ctrl+Z)", modifier = Modifier.size(18.dp))
             }
-            IconButton(onClick = onRedoClick, enabled = uiState.canRedo) {
-                Icon(Icons.AutoMirrored.Filled.Redo, contentDescription = "Redo (Ctrl+Y)")
+            IconButton(onClick = onRedoClick, enabled = uiState.canRedo, modifier = Modifier.size(34.dp)) {
+                Icon(Icons.AutoMirrored.Filled.Redo, contentDescription = "Redo (Ctrl+Y)", modifier = Modifier.size(18.dp))
             }
-            IconButton(onClick = onOpenClick) {
-                Icon(Icons.Default.FolderOpen, contentDescription = "Open Diagram (Ctrl+O)")
+            IconButton(onClick = onOpenClick, modifier = Modifier.size(34.dp)) {
+                Icon(Icons.Default.FolderOpen, contentDescription = "Open Diagram (Ctrl+O)", modifier = Modifier.size(18.dp))
             }
-            IconButton(onClick = onSaveClick) {
-                Icon(Icons.Default.Save, contentDescription = "Save Diagram (Ctrl+S)")
+            IconButton(onClick = onSaveClick, modifier = Modifier.size(34.dp)) {
+                Icon(Icons.Default.Save, contentDescription = lang.saveLabel, modifier = Modifier.size(18.dp))
             }
-            IconButton(onClick = onPrintClick) {
-                Icon(Icons.Default.Print, contentDescription = "Print Vector PDF (Ctrl+P)")
+            FilledTonalButton(
+                onClick = onSaveAsClick,
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                shape = RoundedCornerShape(10.dp)
+            ) {
+                Text(
+                    text = lang.saveAsLabel.substringBefore(" ("),
+                    style = MaterialTheme.typography.labelSmall,
+                    maxLines = 1,
+                    softWrap = false
+                )
+            }
+            IconButton(onClick = onPrintClick, modifier = Modifier.size(34.dp)) {
+                Icon(Icons.Default.Print, contentDescription = "Print Vector PDF (Ctrl+P)", modifier = Modifier.size(18.dp))
             }
 
             // Sibling Hover-to-Switch Menus (Chrome-style: hovering switches open menu seamlessly)
@@ -995,10 +1157,10 @@ private fun WorkstationHeaderBar(
                     onClick = {
                         openSiblingMenuId = if (openSiblingMenuId == "export") null else "export"
                     },
-                    contentPadding = PaddingValues(horizontal = 9.dp, vertical = 5.dp),
+                    contentPadding = PaddingValues(horizontal = 9.dp, vertical = 4.dp),
                     shape = RoundedCornerShape(10.dp)
                 ) {
-                    Text("Export ▾", style = MaterialTheme.typography.labelMedium)
+                    Text("Export ▾", style = MaterialTheme.typography.labelMedium, maxLines = 1, softWrap = false)
                 }
                 DropdownMenu(
                     expanded = openSiblingMenuId == "export",
@@ -1030,26 +1192,26 @@ private fun WorkstationHeaderBar(
                     onClick = {
                         openSiblingMenuId = if (openSiblingMenuId == "lang") null else "lang"
                     },
-                    contentPadding = PaddingValues(horizontal = 9.dp, vertical = 5.dp),
+                    contentPadding = PaddingValues(horizontal = 9.dp, vertical = 4.dp),
                     shape = RoundedCornerShape(10.dp)
                 ) {
-                    Text("${uiState.language.badge} ▾", style = MaterialTheme.typography.labelMedium)
+                    Text("${uiState.language.badge} ▾", style = MaterialTheme.typography.labelMedium, maxLines = 1, softWrap = false)
                 }
                 DropdownMenu(
                     expanded = openSiblingMenuId == "lang",
                     onDismissRequest = { if (openSiblingMenuId == "lang") openSiblingMenuId = null }
                 ) {
-                    VexioAppLanguage.entries.forEach { lang ->
+                    VexioAppLanguage.entries.forEach { l ->
                         DropdownMenuItem(
-                            text = { Text("${lang.badge} — ${lang.nativeName}") },
+                            text = { Text("${l.badge} — ${l.nativeName}") },
                             leadingIcon = {
-                                if (uiState.language == lang) {
+                                if (uiState.language == l) {
                                     Icon(Icons.Default.Check, contentDescription = null)
                                 }
                             },
                             onClick = {
                                 openSiblingMenuId = null
-                                onSelectLanguage(lang)
+                                onSelectLanguage(l)
                             }
                         )
                     }
@@ -1063,10 +1225,10 @@ private fun WorkstationHeaderBar(
                     onClick = {
                         openSiblingMenuId = if (openSiblingMenuId == "help") null else "help"
                     },
-                    contentPadding = PaddingValues(horizontal = 9.dp, vertical = 5.dp),
+                    contentPadding = PaddingValues(horizontal = 9.dp, vertical = 4.dp),
                     shape = RoundedCornerShape(10.dp)
                 ) {
-                    Text("Updates ▾", style = MaterialTheme.typography.labelMedium)
+                    Text("Updates ▾", style = MaterialTheme.typography.labelMedium, maxLines = 1, softWrap = false)
                 }
                 DropdownMenu(
                     expanded = openSiblingMenuId == "help",
@@ -1087,36 +1249,37 @@ private fun WorkstationHeaderBar(
                 }
             }
 
-            IconButton(onClick = onToggleTheme) {
+            IconButton(onClick = onToggleTheme, modifier = Modifier.size(34.dp)) {
                 Icon(
                     imageVector = if (uiState.isDarkTheme) Icons.Default.LightMode else Icons.Default.DarkMode,
-                    contentDescription = if (uiState.isDarkTheme) "Switch to Light Mode" else "Switch to Dark Mode"
+                    contentDescription = if (uiState.isDarkTheme) "Switch to Light Mode" else "Switch to Dark Mode",
+                    modifier = Modifier.size(18.dp)
                 )
             }
 
             if (posture != AdaptiveWorkstationPosture.COMPACT_CONVERTIBLE) {
                 FilledTonalButton(
                     onClick = onNewWindowClick,
-                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 5.dp),
                     shape = RoundedCornerShape(14.dp)
                 ) {
-                    Icon(Icons.Default.OpenInNew, contentDescription = null, modifier = Modifier.size(15.dp))
-                    Spacer(Modifier.width(5.dp))
-                    Text("New Window", style = MaterialTheme.typography.labelLarge)
+                    Icon(Icons.Default.OpenInNew, contentDescription = null, modifier = Modifier.size(14.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("New Window", style = MaterialTheme.typography.labelMedium, maxLines = 1, softWrap = false)
                 }
             }
 
             Spacer(Modifier.width(4.dp))
 
-            FilledTonalIconButton(onClick = onToggleStencilDrawer) {
-                Icon(Icons.Default.Schema, contentDescription = "Toggle Stencil Navigator")
+            FilledTonalIconButton(onClick = onToggleStencilDrawer, modifier = Modifier.size(34.dp)) {
+                Icon(Icons.Default.Schema, contentDescription = "Toggle Stencil Navigator", modifier = Modifier.size(18.dp))
             }
-            FilledTonalIconButton(onClick = onToggleShapeSheet) {
-                Icon(Icons.Default.TableChart, contentDescription = "Toggle ShapeSheet Studio (Shift+F5)")
+            FilledTonalIconButton(onClick = onToggleShapeSheet, modifier = Modifier.size(34.dp)) {
+                Icon(Icons.Default.TableChart, contentDescription = "Toggle ShapeSheet Studio (Shift+F5)", modifier = Modifier.size(18.dp))
             }
             if (posture != AdaptiveWorkstationPosture.COMPACT_CONVERTIBLE) {
-                FilledTonalIconButton(onClick = onToggleInspector) {
-                    Icon(Icons.Default.ViewSidebar, contentDescription = "Toggle Inspector Pane")
+                FilledTonalIconButton(onClick = onToggleInspector, modifier = Modifier.size(34.dp)) {
+                    Icon(Icons.Default.ViewSidebar, contentDescription = "Toggle Inspector Pane", modifier = Modifier.size(18.dp))
                 }
             }
         }
@@ -1133,11 +1296,12 @@ private fun ClassicVisioM3Ribbon(
     viewModel: VexioSessionViewModel,
     onOpenBackstage: () -> Unit,
     onImportStencilClick: () -> Unit,
+    onOpenColorPicker: (VexioColorPickerTarget) -> Unit,
     onTogglePlan2Strip: () -> Unit
 ) {
     val lang = uiState.language
     var fontMenuOpen by remember { mutableStateOf(false) }
-    var colorMenuOpen by remember { mutableStateOf(false) }
+    var fontSearchQuery by remember { mutableStateOf("") }
     var pageSizeMenuOpen by remember { mutableStateOf(false) }
 
     val tabs = listOf(
@@ -1156,14 +1320,14 @@ private fun ClassicVisioM3Ribbon(
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
-            // Ribbon Tab Header Row
+            // Ribbon Tab Header Row (Zero Truncation across all 6 languages)
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
                 modifier = Modifier
                     .fillMaxWidth()
                     .horizontalScroll(rememberScrollState())
-                    .padding(horizontal = 10.dp, vertical = 4.dp)
+                    .padding(horizontal = 10.dp, vertical = 3.dp)
             ) {
                 Surface(
                     shape = RoundedCornerShape(8.dp),
@@ -1176,7 +1340,9 @@ private fun ClassicVisioM3Ribbon(
                         text = lang.fileLabel,
                         style = MaterialTheme.typography.labelLarge,
                         color = MaterialTheme.colorScheme.onPrimary,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp)
+                        maxLines = 1,
+                        softWrap = false,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
                     )
                 }
 
@@ -1192,12 +1358,14 @@ private fun ClassicVisioM3Ribbon(
                         Text(
                             text = label,
                             style = MaterialTheme.typography.labelLarge,
+                            maxLines = 1,
+                            softWrap = false,
                             color = if (selected) {
                                 MaterialTheme.colorScheme.onSecondaryContainer
                             } else {
                                 MaterialTheme.colorScheme.onSurfaceVariant
                             },
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
                         )
                     }
                 }
@@ -1205,7 +1373,7 @@ private fun ClassicVisioM3Ribbon(
                 Spacer(Modifier.width(8.dp))
                 IconButton(
                     onClick = viewModel::toggleRibbonCollapsed,
-                    modifier = Modifier.size(28.dp)
+                    modifier = Modifier.size(26.dp)
                 ) {
                     Icon(
                         imageVector = if (uiState.isRibbonCollapsed) Icons.Default.ExpandMore else Icons.Default.ExpandLess,
@@ -1226,22 +1394,64 @@ private fun ClassicVisioM3Ribbon(
                     modifier = Modifier
                         .fillMaxWidth()
                         .horizontalScroll(rememberScrollState())
-                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                        .padding(horizontal = 12.dp, vertical = 5.dp)
                 ) {
                     when (uiState.activeRibbonTab) {
                         "Home" -> {
-                            // Font Family + Size
+                            // Installed OS Fonts Selector (Searchable + Rendered in Native FontFamily)
                             Box {
                                 ExpressivePlan2ActionPill(
                                     label = "${uiState.textFontFamily} ▾",
                                     selected = false,
-                                    onClick = { fontMenuOpen = true }
+                                    onClick = {
+                                        fontSearchQuery = ""
+                                        fontMenuOpen = true
+                                    }
                                 )
-                                DropdownMenu(expanded = fontMenuOpen, onDismissRequest = { fontMenuOpen = false }) {
-                                    listOf("Inter", "Roboto", "Arial", "Calibri", "Georgia", "Monospace").forEach { f ->
+                                DropdownMenu(
+                                    expanded = fontMenuOpen,
+                                    onDismissRequest = { fontMenuOpen = false },
+                                    modifier = Modifier
+                                        .width(248.dp)
+                                        .heightIn(max = 360.dp)
+                                ) {
+                                    Box(modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)) {
+                                        OutlinedTextField(
+                                            value = fontSearchQuery,
+                                            onValueChange = { fontSearchQuery = it },
+                                            singleLine = true,
+                                            placeholder = {
+                                                Text(
+                                                    "Filter ${uiState.availableFontFamilies.size} OS fonts…",
+                                                    style = MaterialTheme.typography.labelSmall
+                                                )
+                                            },
+                                            textStyle = MaterialTheme.typography.bodySmall,
+                                            modifier = Modifier.fillMaxWidth()
+                                        )
+                                    }
+                                    val filteredFonts = uiState.availableFontFamilies.filter {
+                                        fontSearchQuery.isBlank() || it.contains(fontSearchQuery.trim(), ignoreCase = true)
+                                    }
+                                    filteredFonts.forEach { f ->
                                         DropdownMenuItem(
-                                            text = { Text(f) },
-                                            onClick = { fontMenuOpen = false; viewModel.applyRichTextStyle(fontFamily = f) }
+                                            text = {
+                                                Text(
+                                                    text = f,
+                                                    fontFamily = resolveComposeFontFamily(f),
+                                                    maxLines = 1,
+                                                    softWrap = false
+                                                )
+                                            },
+                                            leadingIcon = {
+                                                if (f.equals(uiState.textFontFamily, ignoreCase = true)) {
+                                                    Icon(Icons.Default.Check, contentDescription = null)
+                                                }
+                                            },
+                                            onClick = {
+                                                fontMenuOpen = false
+                                                viewModel.applyRichTextStyle(fontFamily = f)
+                                            }
                                         )
                                     }
                                 }
@@ -1281,37 +1491,40 @@ private fun ClassicVisioM3Ribbon(
                                 selected = uiState.textStrikethrough,
                                 onClick = { viewModel.applyRichTextStyle(strikethrough = !uiState.textStrikethrough) }
                             )
-                            Box {
+
+                            // Full Color Picker Chips (Text Color, Highlight + Clear, Fill Color, Line Color)
+                            ColorSwatchActionPill(
+                                label = lang.textColorLabel,
+                                swatchColor = parseColorHexOrFallback(uiState.textColorHex, Color(0xFF0F172A)),
+                                isTransparent = false,
+                                onClick = { onOpenColorPicker(VexioColorPickerTarget.TEXT_FG) }
+                            )
+                            ColorSwatchActionPill(
+                                label = lang.highlightColorLabel,
+                                swatchColor = parseColorHexOrFallback(uiState.textBgColorHex, Color(0xFFFEF08A)),
+                                isTransparent = uiState.textBgColorHex == "none",
+                                onClick = { onOpenColorPicker(VexioColorPickerTarget.TEXT_BG) }
+                            )
+                            if (uiState.textBgColorHex != "none") {
                                 ExpressivePlan2ActionPill(
-                                    label = "Text Color ▾",
+                                    label = "✕",
                                     selected = false,
-                                    onClick = { colorMenuOpen = true }
+                                    onClick = { viewModel.applyRichTextStyle(bgColorHex = "none") }
                                 )
-                                DropdownMenu(expanded = colorMenuOpen, onDismissRequest = { colorMenuOpen = false }) {
-                                    listOf(
-                                        "Slate (#0F172A)" to "#0F172A",
-                                        "Blue (#1D4ED8)" to "#1D4ED8",
-                                        "Red (#DC2626)" to "#DC2626",
-                                        "Green (#15803D)" to "#15803D",
-                                        "Amber (#B45309)" to "#B45309",
-                                        "Purple (#7C3AED)" to "#7C3AED"
-                                    ).forEach { (lbl, hex) ->
-                                        DropdownMenuItem(
-                                            text = { Text(lbl) },
-                                            onClick = { colorMenuOpen = false; viewModel.applyRichTextStyle(colorHex = hex) }
-                                        )
-                                    }
-                                    HorizontalDivider()
-                                    DropdownMenuItem(
-                                        text = { Text("Highlight: Yellow") },
-                                        onClick = { colorMenuOpen = false; viewModel.applyRichTextStyle(bgColorHex = "#FEF08A") }
-                                    )
-                                    DropdownMenuItem(
-                                        text = { Text("Highlight: Clear") },
-                                        onClick = { colorMenuOpen = false; viewModel.applyRichTextStyle(bgColorHex = "none") }
-                                    )
-                                }
                             }
+                            ColorSwatchActionPill(
+                                label = lang.fillColorLabel,
+                                swatchColor = parseColorHexOrFallback(uiState.shapeFillColorHex, Color(0xFFE8F0FE)),
+                                isTransparent = false,
+                                onClick = { onOpenColorPicker(VexioColorPickerTarget.SHAPE_FILL) }
+                            )
+                            ColorSwatchActionPill(
+                                label = lang.lineColorLabel,
+                                swatchColor = parseColorHexOrFallback(uiState.shapeLineColorHex, Color(0xFF1A73E8)),
+                                isTransparent = false,
+                                onClick = { onOpenColorPicker(VexioColorPickerTarget.SHAPE_LINE) }
+                            )
+
                             ExpressivePlan2ActionPill(
                                 label = "⇤ L",
                                 selected = uiState.textHorizAlign == 0,
@@ -1522,6 +1735,44 @@ private fun ClassicVisioM3Ribbon(
 }
 
 @Composable
+private fun ColorSwatchActionPill(
+    label: String,
+    swatchColor: Color,
+    isTransparent: Boolean,
+    onClick: () -> Unit
+) {
+    Surface(
+        shape = RoundedCornerShape(10.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLowest,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        modifier = Modifier
+            .clip(RoundedCornerShape(10.dp))
+            .clickable(onClick = onClick)
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(5.dp),
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(14.dp)
+                    .clip(CircleShape)
+                    .background(if (isTransparent) Color.Transparent else swatchColor)
+                    .border(1.dp, MaterialTheme.colorScheme.outline, CircleShape)
+            )
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                softWrap = false
+            )
+        }
+    }
+}
+
+@Composable
 private fun InAppStartBackstageOverlay(
     uiState: WorkstationUiState,
     onClose: () -> Unit,
@@ -1543,11 +1794,11 @@ private fun InAppStartBackstageOverlay(
         modifier = Modifier.fillMaxSize()
     ) {
         Row(modifier = Modifier.fillMaxSize()) {
-            // Left Backstage Rail
+            // Widened Left Backstage Rail (316.dp — zero truncation across EN, DE, IT, FR, ES, GR)
             Surface(
                 color = MaterialTheme.colorScheme.surfaceContainerHigh,
                 modifier = Modifier
-                    .width(248.dp)
+                    .width(316.dp)
                     .fillMaxHeight()
             ) {
                 Column(
@@ -1561,7 +1812,7 @@ private fun InAppStartBackstageOverlay(
                         onClick = onClose,
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text("← ${lang.continueCanvasLabel}")
+                        Text("← ${lang.continueCanvasLabel}", maxLines = 1, softWrap = false)
                     }
                     Spacer(Modifier.height(6.dp))
                     Text("VEXIO PROFESSIONAL", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
@@ -1571,21 +1822,27 @@ private fun InAppStartBackstageOverlay(
                         onClick = { onCreateBlankPreset("Drawing_A4.vsdx", VexioPagePresetSpec.A4_LANDSCAPE) },
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text("+ Blank ISO A4 (mm)")
+                        Text("+ Blank ISO A4 (mm)", maxLines = 1, softWrap = false)
                     }
                     FilledTonalButton(onClick = onOpenFile, modifier = Modifier.fillMaxWidth()) {
-                        Text("Open File (.vsdx/.vsd/.dwg)…")
+                        Text(lang.openFileLabel, maxLines = 1, softWrap = false)
                     }
                     FilledTonalButton(onClick = onImportStencil, modifier = Modifier.fillMaxWidth()) {
-                        Text(lang.importStencilLabel)
+                        Text(lang.importStencilLabel, maxLines = 1, softWrap = false)
                     }
                     HorizontalDivider()
-                    TextButton(onClick = onSaveFile, modifier = Modifier.fillMaxWidth()) { Text("Save (Ctrl+S)") }
-                    TextButton(onClick = onSaveAsFile, modifier = Modifier.fillMaxWidth()) { Text("Save As…") }
-                    TextButton(onClick = onPrint, modifier = Modifier.fillMaxWidth()) { Text("Print / PDF (Ctrl+P)") }
+                    FilledTonalButton(onClick = onSaveFile, modifier = Modifier.fillMaxWidth()) {
+                        Text(lang.saveLabel, maxLines = 1, softWrap = false)
+                    }
+                    FilledTonalButton(onClick = onSaveAsFile, modifier = Modifier.fillMaxWidth()) {
+                        Text(lang.saveAsLabel, maxLines = 1, softWrap = false)
+                    }
+                    TextButton(onClick = onPrint, modifier = Modifier.fillMaxWidth()) {
+                        Text("Print / PDF (Ctrl+P)", maxLines = 1, softWrap = false)
+                    }
                     HorizontalDivider()
                     FilledTonalButton(onClick = onCheckUpdates, modifier = Modifier.fillMaxWidth()) {
-                        Text(lang.checkUpdatesLabel)
+                        Text(lang.checkUpdatesLabel, maxLines = 1, softWrap = false)
                     }
                 }
             }
@@ -3215,7 +3472,14 @@ private fun VulkanCanvasDropZone(
                     .offset(x = offsetXDp, y = offsetYDp)
                     .width(boxWidthDp)
                     .height(boxHeightDp)
-                    .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(2.dp))
+                    .background(
+                        if (uiState.textBgColorHex != "none") {
+                            parseColorHexOrFallback(uiState.textBgColorHex, MaterialTheme.colorScheme.surface)
+                        } else {
+                            MaterialTheme.colorScheme.surface
+                        },
+                        RoundedCornerShape(2.dp)
+                    )
                     .border(1.5.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(2.dp))
                     .padding(horizontal = 4.dp, vertical = 2.dp)
             ) {
@@ -3226,7 +3490,8 @@ private fun VulkanCanvasDropZone(
                         viewModel.updateInlineTextDraft(next.text)
                     },
                     textStyle = MaterialTheme.typography.bodyMedium.copy(
-                        color = MaterialTheme.colorScheme.onSurface,
+                        color = parseColorHexOrFallback(uiState.textColorHex, MaterialTheme.colorScheme.onSurface),
+                        fontFamily = resolveComposeFontFamily(uiState.textFontFamily),
                         fontWeight = if (uiState.textBold) FontWeight.Bold else FontWeight.Normal,
                         fontStyle = if (uiState.textItalic) FontStyle.Italic else FontStyle.Normal,
                         textAlign = when (uiState.textHorizAlign) {
@@ -3555,15 +3820,20 @@ private fun ShapeSheetSectionTablePane(
 @Composable
 private fun ShapeInspectorPane(
     uiState: WorkstationUiState,
+    viewModel: VexioSessionViewModel,
+    onOpenColorPicker: (VexioColorPickerTarget) -> Unit,
     onSelectCell: (String) -> Unit,
     onQuickGuardToggle: (ShapeSheetCellEntry) -> Unit
 ) {
     val semanticColors = LocalVexioSemanticColors.current
+    val lang = uiState.language
+    var selectedTab by remember { mutableStateOf(0) }
+    var inspectorFontMenuOpen by remember { mutableStateOf(false) }
 
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainerLow,
         modifier = Modifier
-            .width(276.dp)
+            .width(296.dp)
             .fillMaxHeight()
     ) {
         Column(
@@ -3575,151 +3845,319 @@ private fun ShapeInspectorPane(
         ) {
             Text(
                 text = "Shape & Layer Inspector",
-                style = MaterialTheme.typography.titleSmall
+                style = MaterialTheme.typography.titleSmall,
+                maxLines = 1,
+                softWrap = false
             )
-            Surface(
-                shape = RoundedCornerShape(14.dp),
-                color = MaterialTheme.colorScheme.surfaceContainerLowest,
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                modifier = Modifier.fillMaxWidth()
+
+            // Single-line non-wrapping Inspector Segmented Tabs ("Format" | "Geometry" | "Validate" — NEVER wraps!)
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(MaterialTheme.colorScheme.surfaceContainer)
+                    .padding(3.dp)
             ) {
-                Column(modifier = Modifier.padding(12.dp)) {
-                    Text(
-                        text = uiState.selectedShapeName,
-                        style = MaterialTheme.typography.labelLarge
-                    )
-                    Spacer(Modifier.height(6.dp))
-                    uiState.shapeSheetCells.take(6).forEach { cell ->
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(6.dp))
-                                .clickable { onSelectCell(cell.cellName) }
-                                .padding(vertical = 4.dp)
-                        ) {
+                listOf(
+                    0 to lang.inspectorFormatTab,
+                    1 to lang.inspectorGeometryTab,
+                    2 to lang.inspectorValidateTab
+                ).forEach { (idx, label) ->
+                    val active = selectedTab == idx
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = if (active) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable { selectedTab = idx }
+                    ) {
+                        Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(vertical = 5.dp, horizontal = 4.dp)) {
                             Text(
-                                text = cell.cellName,
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.width(68.dp)
-                            )
-                            Text(
-                                text = cell.formula,
-                                style = MaterialTheme.typography.bodySmall,
+                                text = label,
+                                style = MaterialTheme.typography.labelSmall,
                                 maxLines = 1,
+                                softWrap = false,
                                 overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f)
+                                color = if (active) {
+                                    MaterialTheme.colorScheme.onPrimaryContainer
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                }
                             )
-                            IconButton(
-                                onClick = { onQuickGuardToggle(cell) },
-                                modifier = Modifier.size(24.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Lock,
-                                    contentDescription = "Toggle GUARD()",
-                                    tint = if (cell.isGuarded) {
-                                        semanticColors.guardBadgeForeground
-                                    } else {
-                                        MaterialTheme.colorScheme.outlineVariant
-                                    },
-                                    modifier = Modifier.size(14.dp)
-                                )
-                            }
                         }
                     }
                 }
             }
 
-            // Plan 2 Enterprise Telemetry Card (6×4 Theme, Visual Presets, Subprocesses, Compare & CRDT)
-            Surface(
-                shape = RoundedCornerShape(14.dp),
-                color = MaterialTheme.colorScheme.surfaceContainer,
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                    modifier = Modifier.padding(12.dp)
-                ) {
-                    Text(
-                        text = "Visio Plan 2 Telemetry",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    Text(
-                        text = "Theme: ${uiState.activeThemeSlug} (Variant ${uiState.activeThemeVariant + 1}/4)",
-                        style = MaterialTheme.typography.labelSmall
-                    )
-                    Text(
-                        text = "Effects: ${uiState.activeVisualPresets.joinToString(", ").ifEmpty { "Standard" }}",
-                        style = MaterialTheme.typography.labelSmall
-                    )
-                    Text(
-                        text = "Subprocess Links: ${uiState.subprocessLinks.size} • CRDT Ops: ${uiState.crdtAppliedOpsCount} (L${uiState.crdtLogicalClock})",
-                        style = MaterialTheme.typography.labelSmall
-                    )
-                    val compare = uiState.lastCompareSummary
-                    if (compare != null) {
-                        Text(
-                            text = "Diff: +${compare.addedCount} added / ~${compare.modifiedCount} mod / -${compare.removedCount} del",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.secondary
-                        )
+            when (selectedTab) {
+                0 -> {
+                    // Format Tab: OS Font Family + Full Spectrum Color Pickers (Text, Highlight, Fill, Line)
+                    Surface(
+                        shape = RoundedCornerShape(14.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainerLowest,
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.padding(12.dp)
+                        ) {
+                            Text(
+                                text = uiState.selectedShapeName,
+                                style = MaterialTheme.typography.labelLarge,
+                                maxLines = 1,
+                                softWrap = false,
+                                overflow = TextOverflow.Ellipsis
+                            )
+
+                            // Installed OS Font Picker
+                            Box(modifier = Modifier.fillMaxWidth()) {
+                                FilledTonalButton(
+                                    onClick = { inspectorFontMenuOpen = true },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(10.dp),
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
+                                ) {
+                                    Text(
+                                        text = "Font: ${uiState.textFontFamily} (${uiState.textFontSizePt} pt) ▾",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontFamily = resolveComposeFontFamily(uiState.textFontFamily),
+                                        maxLines = 1,
+                                        softWrap = false,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                                DropdownMenu(
+                                    expanded = inspectorFontMenuOpen,
+                                    onDismissRequest = { inspectorFontMenuOpen = false },
+                                    modifier = Modifier
+                                        .width(248.dp)
+                                        .heightIn(max = 320.dp)
+                                ) {
+                                    uiState.availableFontFamilies.forEach { f ->
+                                        DropdownMenuItem(
+                                            text = {
+                                                Text(
+                                                    text = f,
+                                                    fontFamily = resolveComposeFontFamily(f),
+                                                    maxLines = 1,
+                                                    softWrap = false
+                                                )
+                                            },
+                                            leadingIcon = {
+                                                if (f.equals(uiState.textFontFamily, ignoreCase = true)) {
+                                                    Icon(Icons.Default.Check, contentDescription = null)
+                                                }
+                                            },
+                                            onClick = {
+                                                inspectorFontMenuOpen = false
+                                                viewModel.applyRichTextStyle(fontFamily = f)
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+
+                            // 2x2 Grid of Full Color Picker Triggers
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Box(modifier = Modifier.weight(1f)) {
+                                    ColorSwatchActionPill(
+                                        label = lang.fillColorLabel,
+                                        swatchColor = parseColorHexOrFallback(uiState.shapeFillColorHex, Color(0xFFE8F0FE)),
+                                        isTransparent = false,
+                                        onClick = { onOpenColorPicker(VexioColorPickerTarget.SHAPE_FILL) }
+                                    )
+                                }
+                                Box(modifier = Modifier.weight(1f)) {
+                                    ColorSwatchActionPill(
+                                        label = lang.lineColorLabel,
+                                        swatchColor = parseColorHexOrFallback(uiState.shapeLineColorHex, Color(0xFF1A73E8)),
+                                        isTransparent = false,
+                                        onClick = { onOpenColorPicker(VexioColorPickerTarget.SHAPE_LINE) }
+                                    )
+                                }
+                            }
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Box(modifier = Modifier.weight(1f)) {
+                                    ColorSwatchActionPill(
+                                        label = lang.textColorLabel,
+                                        swatchColor = parseColorHexOrFallback(uiState.textColorHex, Color(0xFF0F172A)),
+                                        isTransparent = false,
+                                        onClick = { onOpenColorPicker(VexioColorPickerTarget.TEXT_FG) }
+                                    )
+                                }
+                                Box(modifier = Modifier.weight(1f)) {
+                                    ColorSwatchActionPill(
+                                        label = lang.highlightColorLabel,
+                                        swatchColor = parseColorHexOrFallback(uiState.textBgColorHex, Color(0xFFFEF08A)),
+                                        isTransparent = uiState.textBgColorHex == "none",
+                                        onClick = { onOpenColorPicker(VexioColorPickerTarget.TEXT_BG) }
+                                    )
+                                }
+                            }
+                            if (uiState.textBgColorHex != "none") {
+                                TextButton(
+                                    onClick = { viewModel.applyRichTextStyle(bgColorHex = "none") },
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                                ) {
+                                    Text(lang.clearHighlightLabel, style = MaterialTheme.typography.labelSmall)
+                                }
+                            }
+                        }
+                    }
+
+                    // Plan 2 Enterprise Telemetry Card
+                    Surface(
+                        shape = RoundedCornerShape(14.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainer,
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                            modifier = Modifier.padding(12.dp)
+                        ) {
+                            Text(
+                                text = "Visio Plan 2 Telemetry",
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Text(
+                                text = "Theme: ${uiState.activeThemeSlug} (Variant ${uiState.activeThemeVariant + 1}/4)",
+                                style = MaterialTheme.typography.labelSmall
+                            )
+                            Text(
+                                text = "Effects: ${uiState.activeVisualPresets.joinToString(", ").ifEmpty { "Standard" }}",
+                                style = MaterialTheme.typography.labelSmall
+                            )
+                        }
                     }
                 }
-            }
 
-            // BPMN 2.0 / UML 2.5 Structural Validation Diagnostic Card
-            Surface(
-                shape = RoundedCornerShape(14.dp),
-                color = semanticColors.validationPassContainer,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.padding(12.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Verified,
-                        contentDescription = null,
-                        tint = semanticColors.validationPassForeground,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Column {
-                        Text(
-                            text = "${uiState.validationSummary.standard} Validator",
-                            style = MaterialTheme.typography.labelLarge,
-                            color = semanticColors.validationPassForeground
-                        )
-                        Text(
-                            text = uiState.validationSummary.statusMessage,
-                            style = MaterialTheme.typography.labelMedium,
-                            color = semanticColors.validationPassForeground
-                        )
+                1 -> {
+                    // Geometry Tab: ShapeSheet Cells + GUARD() Toggle
+                    Surface(
+                        shape = RoundedCornerShape(14.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainerLowest,
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Text(
+                                text = uiState.selectedShapeName,
+                                style = MaterialTheme.typography.labelLarge,
+                                maxLines = 1,
+                                softWrap = false,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Spacer(Modifier.height(6.dp))
+                            uiState.shapeSheetCells.take(10).forEach { cell ->
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .clickable { onSelectCell(cell.cellName) }
+                                        .padding(vertical = 4.dp)
+                                ) {
+                                    Text(
+                                        text = cell.cellName,
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                        softWrap = false,
+                                        modifier = Modifier.width(76.dp)
+                                    )
+                                    Text(
+                                        text = cell.formula,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        maxLines = 1,
+                                        softWrap = false,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    IconButton(
+                                        onClick = { onQuickGuardToggle(cell) },
+                                        modifier = Modifier.size(24.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Lock,
+                                            contentDescription = "Toggle GUARD()",
+                                            tint = if (cell.isGuarded) {
+                                                semanticColors.guardBadgeForeground
+                                            } else {
+                                                MaterialTheme.colorScheme.outlineVariant
+                                            },
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
-            }
 
-            // Keyboard Shortcut Reference Footer
-            Surface(
-                shape = RoundedCornerShape(14.dp),
-                color = MaterialTheme.colorScheme.surfaceContainer,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(
-                    verticalArrangement = Arrangement.spacedBy(3.dp),
-                    modifier = Modifier.padding(12.dp)
-                ) {
-                    Text(
-                        text = "Googlebook Hardware Shortcuts",
-                        style = MaterialTheme.typography.labelLarge
-                    )
-                    Text("Ctrl+N  New Side-by-Side Window", style = MaterialTheme.typography.labelSmall)
-                    Text("Ctrl+1..5  Pointer / Text / Conn / Ink / Freeform", style = MaterialTheme.typography.labelSmall)
-                    Text("Shift+F5  ShapeSheet Formula Grid", style = MaterialTheme.typography.labelSmall)
-                    Text("Ctrl+P  Vector PDF OS Print", style = MaterialTheme.typography.labelSmall)
+                else -> {
+                    // Validate Tab: BPMN 2.0 / UML 2.5 Validator + Subprocess/CRDT/Shortcuts
+                    Surface(
+                        shape = RoundedCornerShape(14.dp),
+                        color = semanticColors.validationPassContainer,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(12.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Verified,
+                                contentDescription = null,
+                                tint = semanticColors.validationPassForeground,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Column {
+                                Text(
+                                    text = "${uiState.validationSummary.standard} Validator",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = semanticColors.validationPassForeground
+                                )
+                                Text(
+                                    text = uiState.validationSummary.statusMessage,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = semanticColors.validationPassForeground
+                                )
+                            }
+                        }
+                    }
+
+                    Surface(
+                        shape = RoundedCornerShape(14.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainer,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            verticalArrangement = Arrangement.spacedBy(3.dp),
+                            modifier = Modifier.padding(12.dp)
+                        ) {
+                            Text(
+                                text = "Googlebook Hardware Shortcuts",
+                                style = MaterialTheme.typography.labelLarge
+                            )
+                            Text("Ctrl+S / Ctrl+Shift+S  Save / Save As", style = MaterialTheme.typography.labelSmall)
+                            Text("Ctrl+N  New Side-by-Side Window", style = MaterialTheme.typography.labelSmall)
+                            Text("Ctrl+1..5  Pointer / Text / Conn / Ink / Freeform", style = MaterialTheme.typography.labelSmall)
+                            Text("Shift+F5  ShapeSheet Formula Grid", style = MaterialTheme.typography.labelSmall)
+                            Text("Ctrl+P  Vector PDF OS Print", style = MaterialTheme.typography.labelSmall)
+                        }
+                    }
                 }
             }
         }
@@ -3731,23 +4169,37 @@ private fun WorkstationBottomStatusBar(
     uiState: WorkstationUiState,
     posture: AdaptiveWorkstationPosture,
     onSelectPage: (Int) -> Unit,
+    onRenamePage: (Int, String) -> Boolean,
     onAddPage: () -> Unit,
     onCreateSubprocess: () -> Unit,
     onAutoLayoutPage: () -> Unit,
     onZoomReset: () -> Unit
 ) {
+    var editingPageId by remember { mutableStateOf<Int?>(null) }
+    var editingPageDraft by remember { mutableStateOf(TextFieldValue("")) }
+    val pageRenameFocusRequester = remember { FocusRequester() }
+
+    LaunchedEffect(editingPageId) {
+        if (editingPageId != null) {
+            runCatching { pageRenameFocusRequester.requestFocus() }
+        }
+    }
+
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
-        modifier = Modifier.fillMaxWidth()
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(36.dp)
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 10.dp, vertical = 4.dp)
+                .fillMaxSize()
+                .padding(horizontal = 10.dp)
         ) {
-            // Page Tabs with Context Menus
+            // Single-line Horizontally Scrollable Page Tabs (Zero Vertical Wrapping on 7–15+ Pages!)
             Row(
+                verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 modifier = Modifier
                     .weight(1f)
@@ -3758,30 +4210,86 @@ private fun WorkstationBottomStatusBar(
                     var pageMenuExpanded by remember(tab.pageId) { mutableStateOf(false) }
 
                     Box {
-                        Surface(
-                            shape = RoundedCornerShape(10.dp),
-                            color = if (active) {
-                                MaterialTheme.colorScheme.primaryContainer
-                            } else {
-                                MaterialTheme.colorScheme.surfaceContainerLow
-                            },
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(10.dp))
-                                .combinedClickable(
-                                    onClick = { onSelectPage(tab.pageId) },
-                                    onLongClick = { pageMenuExpanded = true }
+                        if (editingPageId == tab.pageId) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(MaterialTheme.colorScheme.surfaceContainerLowest)
+                                    .border(1.5.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(8.dp))
+                                    .padding(horizontal = 8.dp, vertical = 3.dp)
+                            ) {
+                                BasicTextField(
+                                    value = editingPageDraft,
+                                    onValueChange = { editingPageDraft = it },
+                                    singleLine = true,
+                                    textStyle = MaterialTheme.typography.labelMedium.copy(
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    ),
+                                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                                    modifier = Modifier
+                                        .width(148.dp)
+                                        .focusRequester(pageRenameFocusRequester)
+                                        .onPreviewKeyEvent { ev ->
+                                            if (ev.type == KeyEventType.KeyDown && ev.key == Key.Enter) {
+                                                onRenamePage(tab.pageId, editingPageDraft.text)
+                                                editingPageId = null
+                                                true
+                                            } else if (ev.type == KeyEventType.KeyDown && ev.key == Key.Escape) {
+                                                editingPageId = null
+                                                true
+                                            } else {
+                                                false
+                                            }
+                                        }
                                 )
-                        ) {
-                            Text(
-                                text = "${tab.name} (${tab.scaleLabel})",
-                                style = MaterialTheme.typography.labelMedium,
+                                Icon(
+                                    imageVector = Icons.Default.Check,
+                                    contentDescription = "Commit Page Name",
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier
+                                        .size(16.dp)
+                                        .clickable {
+                                            onRenamePage(tab.pageId, editingPageDraft.text)
+                                            editingPageId = null
+                                        }
+                                )
+                            }
+                        } else {
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
                                 color = if (active) {
-                                    MaterialTheme.colorScheme.onPrimaryContainer
+                                    MaterialTheme.colorScheme.primaryContainer
                                 } else {
-                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                    MaterialTheme.colorScheme.surfaceContainerLow
                                 },
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
-                            )
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .combinedClickable(
+                                        onClick = { onSelectPage(tab.pageId) },
+                                        onDoubleClick = {
+                                            editingPageDraft = TextFieldValue(
+                                                text = tab.name,
+                                                selection = TextRange(0, tab.name.length)
+                                            )
+                                            editingPageId = tab.pageId
+                                        },
+                                        onLongClick = { pageMenuExpanded = true }
+                                    )
+                            ) {
+                                Text(
+                                    text = tab.name,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    color = if (active) {
+                                        MaterialTheme.colorScheme.onPrimaryContainer
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurfaceVariant
+                                    },
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                                )
+                            }
                         }
 
                         DropdownMenu(
@@ -3789,7 +4297,19 @@ private fun WorkstationBottomStatusBar(
                             onDismissRequest = { pageMenuExpanded = false }
                         ) {
                             DropdownMenuItem(
-                                text = { Text("Switch to ${tab.name}") },
+                                text = { Text(uiState.language.renamePageLabel) },
+                                leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) },
+                                onClick = {
+                                    pageMenuExpanded = false
+                                    editingPageDraft = TextFieldValue(
+                                        text = tab.name,
+                                        selection = TextRange(0, tab.name.length)
+                                    )
+                                    editingPageId = tab.pageId
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Switch to ${tab.name} (${tab.scaleLabel})") },
                                 onClick = {
                                     pageMenuExpanded = false
                                     onSelectPage(tab.pageId)
@@ -3833,7 +4353,7 @@ private fun WorkstationBottomStatusBar(
                         imageVector = Icons.Default.Add,
                         contentDescription = "Add Page",
                         modifier = Modifier
-                            .padding(5.dp)
+                            .padding(4.dp)
                             .size(16.dp)
                     )
                 }
@@ -3844,6 +4364,8 @@ private fun WorkstationBottomStatusBar(
                     text = "Cursor: ${uiState.activeCursor.name} • Tool: ${uiState.activeTool.displayName}",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    softWrap = false,
                     modifier = Modifier.padding(horizontal = 10.dp)
                 )
             }
@@ -3852,6 +4374,8 @@ private fun WorkstationBottomStatusBar(
                 text = "Zoom ${uiState.zoomPercent}%",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.primary,
+                maxLines = 1,
+                softWrap = false,
                 modifier = Modifier
                     .clip(RoundedCornerShape(6.dp))
                     .clickable { onZoomReset() }
@@ -3860,3 +4384,203 @@ private fun WorkstationBottomStatusBar(
         }
     }
 }
+
+@Composable
+private fun FullSpectrumColorPickerDialog(
+    title: String,
+    initialHex: String,
+    allowClearNone: Boolean,
+    clearLabel: String,
+    onDismiss: () -> Unit,
+    onClearNone: () -> Unit,
+    onColorSelected: (String) -> Unit
+) {
+    val startColor = remember(initialHex) {
+        parseColorHexOrFallback(initialHex, Color(0xFF1D4ED8))
+    }
+    var red by remember(initialHex) { mutableStateOf((startColor.red * 255f).toInt().coerceIn(0, 255)) }
+    var green by remember(initialHex) { mutableStateOf((startColor.green * 255f).toInt().coerceIn(0, 255)) }
+    var blue by remember(initialHex) { mutableStateOf((startColor.blue * 255f).toInt().coerceIn(0, 255)) }
+    var hexInput by remember(initialHex) {
+        mutableStateOf("#%02X%02X%02X".format(java.util.Locale.US, red, green, blue))
+    }
+
+    fun syncHexFromRgb(r: Int, g: Int, b: Int) {
+        red = r.coerceIn(0, 255)
+        green = g.coerceIn(0, 255)
+        blue = b.coerceIn(0, 255)
+        hexInput = "#%02X%02X%02X".format(java.util.Locale.US, red, green, blue)
+    }
+
+    val liveColor = Color(red / 255f, green / 255f, blue / 255f, 1f)
+    val standardSwatches = listOf(
+        "#0F172A", "#334155", "#64748B", "#FFFFFF",
+        "#DBEAFE", "#3B82F6", "#1D4ED8", "#1E3A8A",
+        "#DCFCE7", "#22C55E", "#15803D", "#065F46",
+        "#FEF9C3", "#FACC15", "#D97706", "#B45309",
+        "#FEE2E2", "#EF4444", "#DC2626", "#991B1B",
+        "#F3E8FF", "#A855F7", "#7C3AED", "#5B21B6"
+    )
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title, maxLines = 1, softWrap = false) },
+        text = {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.verticalScroll(rememberScrollState())
+            ) {
+                // Live Color Preview + Hex Input
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(44.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(liveColor)
+                            .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(10.dp))
+                    )
+                    OutlinedTextField(
+                        value = hexInput,
+                        onValueChange = { raw ->
+                            hexInput = raw
+                            val clean = raw.trim().removePrefix("#")
+                            if (clean.length == 6) {
+                                val parsed = clean.toIntOrNull(16)
+                                if (parsed != null) {
+                                    red = (parsed shr 16) and 0xFF
+                                    green = (parsed shr 8) and 0xFF
+                                    blue = parsed and 0xFF
+                                }
+                            }
+                        },
+                        singleLine = true,
+                        label = { Text("HEX (#RRGGBB)") },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+
+                // Interactive Hue Spectrum Strip (Tap anywhere along 360° HSV spectrum)
+                androidx.compose.foundation.Canvas(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(26.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(8.dp))
+                        .pointerInput(Unit) {
+                            awaitPointerEventScope {
+                                while (true) {
+                                    val ev = awaitPointerEvent()
+                                    val change = ev.changes.firstOrNull()
+                                    if (change != null && change.pressed && size.width > 0) {
+                                        val hue = ((change.position.x / size.width.toFloat()).coerceIn(0f, 1f)) * 360f
+                                        val c = Color.hsv(hue, 0.85f, 0.92f)
+                                        syncHexFromRgb(
+                                            (c.red * 255f).toInt(),
+                                            (c.green * 255f).toInt(),
+                                            (c.blue * 255f).toInt()
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                ) {
+                    val steps = 36
+                    val segW = size.width / steps
+                    for (i in 0 until steps) {
+                        val hue = i * (360f / steps)
+                        drawRect(
+                            color = Color.hsv(hue, 0.85f, 0.92f),
+                            topLeft = Offset(i * segW, 0f),
+                            size = androidx.compose.ui.geometry.Size(segW + 1f, size.height)
+                        )
+                    }
+                }
+
+                // Fine RGB Channel Sliders (0..255)
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text("Red: $red", style = MaterialTheme.typography.labelSmall)
+                    Slider(
+                        value = red.toFloat(),
+                        onValueChange = { syncHexFromRgb(it.toInt(), green, blue) },
+                        valueRange = 0f..255f
+                    )
+                    Text("Green: $green", style = MaterialTheme.typography.labelSmall)
+                    Slider(
+                        value = green.toFloat(),
+                        onValueChange = { syncHexFromRgb(red, it.toInt(), blue) },
+                        valueRange = 0f..255f
+                    )
+                    Text("Blue: $blue", style = MaterialTheme.typography.labelSmall)
+                    Slider(
+                        value = blue.toFloat(),
+                        onValueChange = { syncHexFromRgb(red, green, it.toInt()) },
+                        valueRange = 0f..255f
+                    )
+                }
+
+                // 24 Visio Theme & Standard Swatches
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    standardSwatches.chunked(8).forEach { rowHexes ->
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            rowHexes.forEach { swHex ->
+                                val swColor = parseColorHexOrFallback(swHex, Color.Black)
+                                Box(
+                                    modifier = Modifier
+                                        .size(26.dp)
+                                        .clip(CircleShape)
+                                        .background(swColor)
+                                        .border(
+                                            width = if (swHex.equals(hexInput, ignoreCase = true)) 2.dp else 1.dp,
+                                            color = if (swHex.equals(hexInput, ignoreCase = true)) {
+                                                MaterialTheme.colorScheme.primary
+                                            } else {
+                                                MaterialTheme.colorScheme.outlineVariant
+                                            },
+                                            shape = CircleShape
+                                        )
+                                        .clickable {
+                                            syncHexFromRgb(
+                                                (swColor.red * 255f).toInt(),
+                                                (swColor.green * 255f).toInt(),
+                                                (swColor.blue * 255f).toInt()
+                                            )
+                                        }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            FilledTonalButton(
+                onClick = {
+                    val normalized = "#%02X%02X%02X".format(java.util.Locale.US, red, green, blue)
+                    onColorSelected(normalized)
+                }
+            ) {
+                Text("Apply Color")
+            }
+        },
+        dismissButton = {
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                if (allowClearNone) {
+                    TextButton(onClick = onClearNone) {
+                        Text(clearLabel)
+                    }
+                }
+                TextButton(onClick = onDismiss) {
+                    Text("Cancel")
+                }
+            }
+        }
+    )
+}
+

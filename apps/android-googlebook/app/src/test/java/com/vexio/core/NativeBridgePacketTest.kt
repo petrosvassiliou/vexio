@@ -246,6 +246,7 @@ class NativeBridgePacketTest {
         verifyNative("nativeSetPageSetup", boolT, longT, intT, doubleT, doubleT, String::class.java)
         verifyNative("nativeSetPagePreset", boolT, longT, intT, String::class.java, boolT)
         verifyNative("nativeSetDocumentTitle", boolT, longT, String::class.java)
+        verifyNative("nativeRenamePage", boolT, longT, intT, String::class.java)
     }
 
     @Test
@@ -575,6 +576,49 @@ class NativeBridgePacketTest {
         vm.updateInlineTextDraft("Core Switch Rack A1")
         vm.commitInlineTextEdit("Core Switch Rack A1")
         assertEquals(null, vm.uiState.value.inlineTextEditor)
+    }
+
+    @Test
+    fun pageRenameOsFontsSaveAsLocalizationAndShapeColorPickersWorkDeterministically() {
+        val vm = VexioSessionViewModel()
+
+        // 1. OS Font Catalog discovers system & metrics-compatible font families offline
+        val fonts = vm.uiState.value.availableFontFamilies
+        assertTrue("Expected >= 20 OS font families, got ${fonts.size}", fonts.size >= 20)
+        assertTrue(fonts.contains("Roboto"))
+        assertTrue(fonts.contains("Calibri"))
+
+        // 2. Rename Page updates page tab label and marks document dirty
+        val renamed = vm.renamePage(1, "MSSC Gesamtarchitektur")
+        assertTrue(renamed)
+        assertEquals("MSSC Gesamtarchitektur", vm.uiState.value.pages.first { it.pageId == 1 }.name)
+        assertTrue(vm.uiState.value.isDirty)
+
+        // 3. Full Color Picker applies FillForegnd & LineColor RGB() formulas
+        vm.applyShapeFillColor("#DBEAFE")
+        assertEquals("#DBEAFE", vm.uiState.value.shapeFillColorHex)
+        assertEquals(
+            "RGB(219,234,254)",
+            vm.uiState.value.shapeSheetCells.first { it.cellName == "FillForegnd" }.formula
+        )
+
+        vm.applyShapeLineColor("#1E40AF")
+        assertEquals("#1E40AF", vm.uiState.value.shapeLineColorHex)
+        assertEquals(
+            "RGB(30,64,175)",
+            vm.uiState.value.shapeSheetCells.first { it.cellName == "LineColor" }.formula
+        )
+
+        // 4. All 6 languages expose distinct non-empty Save, Save As, Rename Page, and Inspector tab labels
+        for (lang in VexioAppLanguage.entries) {
+            assertTrue(lang.saveLabel.isNotBlank())
+            assertTrue(lang.saveAsLabel.isNotBlank())
+            assertFalse(lang.saveLabel == lang.saveAsLabel)
+            assertTrue(lang.renamePageLabel.isNotBlank())
+            assertTrue(lang.inspectorFormatTab.isNotBlank())
+            assertTrue(lang.inspectorGeometryTab.isNotBlank())
+            assertTrue(lang.inspectorValidateTab.isNotBlank())
+        }
     }
 }
 

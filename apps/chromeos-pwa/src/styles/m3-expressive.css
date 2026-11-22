@@ -1425,23 +1425,32 @@ body,
    Structured Right Inspector Cards
    ========================================================================== */
 .insp-segmented {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
   gap: 3px;
   padding: 3px;
   border-radius: 8px;
   background: var(--m3-surface-2);
   border: 1px solid var(--m3-outline);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.insp-segmented::-webkit-scrollbar {
+  display: none;
 }
 
 .insp-seg-btn {
+  flex: 1 0 auto;
+  white-space: nowrap;
   border: none;
   background: transparent;
   color: var(--m3-text-muted);
   font-family: inherit;
   font-size: 11px;
   font-weight: 600;
-  padding: 5px 4px;
+  padding: 5px 6px;
   border-radius: 6px;
   cursor: pointer;
   transition: all 120ms ease;
@@ -1579,6 +1588,11 @@ body,
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 10px;
+  height: 30px;
+  min-height: 30px;
+  max-height: 30px;
+  overflow: hidden;
   padding: 0 10px;
   background: var(--m3-surface-1);
   border-top: 1px solid var(--m3-outline);
@@ -1588,9 +1602,20 @@ body,
 
 .page-tabs {
   display: flex;
+  flex-wrap: nowrap;
   align-items: center;
   gap: 4px;
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 58vw;
   overflow-x: auto;
+  overflow-y: hidden;
+  white-space: nowrap;
+  scrollbar-width: none;
+}
+
+.page-tabs::-webkit-scrollbar {
+  display: none;
 }
 
 .page-tab-btn {
@@ -1598,6 +1623,66 @@ body,
   padding: 0 10px;
   border-radius: 5px;
   font-size: 11.5px;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.page-rename-inline-input {
+  height: 22px;
+  width: 124px;
+  padding: 0 7px;
+  border-radius: 5px;
+  border: 1.5px solid var(--m3-primary);
+  background: var(--m3-surface-1);
+  color: var(--m3-text);
+  font-family: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+  flex-shrink: 0;
+  user-select: text;
+  outline: none;
+}
+
+.native-color-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 26px;
+  padding: 0 6px;
+  border-radius: 5px;
+  border: 1px solid var(--m3-outline);
+  background: var(--m3-surface-1);
+  color: var(--m3-text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.native-color-chip:hover {
+  background: var(--m3-surface-2);
+  color: var(--m3-text);
+}
+
+.native-color-input {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.native-color-input::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+.native-color-input::-webkit-color-swatch {
+  border: 1px solid rgba(15, 23, 42, 0.22);
+  border-radius: 4px;
 }
 
 /* ==========================================================================

@@ -6,9 +6,9 @@
 //! - Math, trig, logical, string, color (`RGB`, `HSL`, `LUM`, `HUE`, `SAT`), lookup (`LOOKUP`, `INDEX`), and date/time functions
 //! - Cycle-safe topological recalculation across Document, Pages, Masters, Styles, and Shapes with 3-tier inheritance.
 
-use crate::model::{ShapeKind, VisioDocument, VisioPage, VisioShape};
+use crate::model::{ForeignMediaData, ShapeKind, VisioDocument, VisioPage, VisioShape};
 use crate::parser::{BinaryOp, CellRefPath, Expr, SheetTarget, UnaryOp, canonical_cell_name};
-use crate::sections::{GeometryRowKind, default_unit_for_cell};
+use crate::sections::{GeometryRowKind, default_unit_for_cell, visio_standard_palette_color};
 use crate::units::{CellError, CellValue, RgbaColor, Unit, normalize_f64};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashSet};
@@ -144,11 +144,17 @@ pub struct EvaluatedShapeVisual {
     pub fill_color: Option<RgbaColor>,
     pub stroke_color: Option<RgbaColor>,
     pub stroke_weight_in: f64,
+    #[serde(default)]
+    pub line_pattern: u8,
     pub rounding_in: f64,
     pub end_arrow: u8,
     pub begin_arrow: u8,
     pub text: String,
     pub txt_pos: [f64; 2],
+    #[serde(default)]
+    pub txt_width: Option<f64>,
+    #[serde(default)]
+    pub txt_height: Option<f64>,
     pub font_size_pt: f64,
     pub text_color: RgbaColor,
     pub font_family: String,
@@ -161,6 +167,8 @@ pub struct EvaluatedShapeVisual {
     /// `0 = None`, `1 = Disc`, `2 = Numbered`.
     pub bullet_style: u8,
     pub text_bg_color: Option<RgbaColor>,
+    #[serde(default)]
+    pub foreign_media: Option<ForeignMediaData>,
 }
 
 pub struct ReactiveEngine;
@@ -227,7 +235,7 @@ impl ReactiveEngine {
         };
         let mut out = Vec::new();
         for shape in &page.shapes {
-            collect_shape_visuals(page, shape, None, &mut out);
+            collect_shape_visuals(doc, page, shape, None, &mut out);
         }
         out
     }
@@ -294,7 +302,32 @@ impl<'a> EvalSession<'a> {
 
         let val = match self.lookup_cell_with_inheritance(id) {
             Some((owner_sheet, cell)) => {
-                if let Some(ast) = &cell.ast {
+                if let Some(cached) = &cell.vsdx_cached_value {
+                    let f_up = cell.formula.to_ascii_uppercase();
+                    if f_up.contains("THEME")
+                        || f_up.contains("TINT(")
+                        || f_up.contains("SHADE(")
+                        || f_up.contains("TONE(")
+                        || f_up.contains("LUMMOD(")
+                        || f_up.contains("LUMOFF(")
+                        || f_up.contains("SATMOD(")
+                        || f_up.contains("BLEND(")
+                    {
+                        cached.clone()
+                    } else if let Some(ast) = &cell.ast {
+                        let raw = self.eval_expr(&owner_sheet, &id.cell, ast);
+                        if matches!(raw, CellValue::Err(_)) {
+                            cached.clone()
+                        } else {
+                            coerce_to_unit_hint(
+                                raw,
+                                cell.unit_hint.or_else(|| default_unit_for_cell(&id.cell)),
+                            )
+                        }
+                    } else {
+                        cached.clone()
+                    }
+                } else if let Some(ast) = &cell.ast {
                     let raw = self.eval_expr(&owner_sheet, &id.cell, ast);
                     coerce_to_unit_hint(raw, cell.unit_hint.or_else(|| default_unit_for_cell(&id.cell)))
                 } else {
@@ -336,7 +369,13 @@ impl<'a> EvalSession<'a> {
                 if let Some(c) = st.sheet.cells.get(&id.cell) {
                     return Some((SheetKey::Style(*sid), c.clone()));
                 }
-                if let Some(parent_id) = st.fill_parent.or(st.line_parent).or(st.text_parent) {
+                let parent_opt = select_style_parent_for_cell(
+                    &id.cell,
+                    st.fill_parent,
+                    st.line_parent,
+                    st.text_parent,
+                );
+                if let Some(parent_id) = parent_opt {
                     if parent_id != *sid {
                         return self.lookup_cell_with_inheritance(&GlobalCellId {
                             sheet: SheetKey::Style(parent_id),
@@ -351,16 +390,42 @@ impl<'a> EvalSession<'a> {
                 shape_id,
             } => {
                 let m = self.doc.master(*master_id)?;
-                let s = m.shapes.iter().find_map(|sh| sh.find_shape(*shape_id))?;
-                s.sheet.cells.get(&id.cell).cloned().map(|c| {
-                    (
-                        SheetKey::Master {
-                            master_id: *master_id,
-                            shape_id: *shape_id,
-                        },
-                        c,
-                    )
-                })
+                let s = m
+                    .shapes
+                    .iter()
+                    .find_map(|sh| sh.find_shape(*shape_id))
+                    .or_else(|| m.shapes.first())?;
+                if let Some(c) = s.sheet.cells.get(&id.cell) {
+                    if !c.deleted {
+                        return Some((
+                            SheetKey::Master {
+                                master_id: *master_id,
+                                shape_id: s.id,
+                            },
+                            c.clone(),
+                        ));
+                    }
+                }
+                if let Some(style_id) = select_style_parent_for_cell(
+                    &id.cell,
+                    s.fill_style_id,
+                    s.line_style_id,
+                    s.text_style_id,
+                ) {
+                    if let Some((_, styled)) = self.lookup_cell_with_inheritance(&GlobalCellId {
+                        sheet: SheetKey::Style(style_id),
+                        cell: id.cell.clone(),
+                    }) {
+                        return Some((
+                            SheetKey::Master {
+                                master_id: *master_id,
+                                shape_id: s.id,
+                            },
+                            styled,
+                        ));
+                    }
+                }
+                None
             }
             SheetKey::Shape { page_id, shape_id } => {
                 let page = self.doc.page(*page_id)?;
@@ -371,25 +436,36 @@ impl<'a> EvalSession<'a> {
                         return Some((id.sheet.clone(), local.clone()));
                     }
                 }
-                // Inherit from Master shape if instantiated from a Master
-                if let (Some(mid), Some(msid)) = (shape.master_id, shape.master_shape_id) {
-                    if let Some((_, inherited)) = self.lookup_cell_with_inheritance(&GlobalCellId {
-                        sheet: SheetKey::Master {
-                            master_id: mid,
-                            shape_id: msid,
-                        },
-                        cell: id.cell.clone(),
-                    }) {
-                        // Crucial Visio rule: inherited formulas evaluate against the INSTANCE shape (`Width*0.5` uses instance `Width`!).
-                        return Some((id.sheet.clone(), inherited));
+                // Inherit from Master shape if instantiated from a Master (defaulting `master_shape_id` to root Master shape)
+                if let Some(mid) = shape.master_id {
+                    let resolved_msid = shape.master_shape_id.or_else(|| {
+                        self.doc
+                            .master(mid)
+                            .and_then(|m| m.shapes.first().map(|s| s.id))
+                    });
+                    if let Some(msid) = resolved_msid {
+                        if let Some((_, inherited)) =
+                            self.lookup_cell_with_inheritance(&GlobalCellId {
+                                sheet: SheetKey::Master {
+                                    master_id: mid,
+                                    shape_id: msid,
+                                },
+                                cell: id.cell.clone(),
+                            })
+                        {
+                            // Crucial Visio rule: inherited formulas evaluate against the INSTANCE shape (`Width*0.5` uses instance `Width`!).
+                            return Some((id.sheet.clone(), inherited));
+                        }
                     }
                 }
                 // Inherit from StyleSheet
-                let style_id = shape
-                    .fill_style_id
-                    .or(shape.line_style_id)
-                    .or(shape.text_style_id)
-                    .unwrap_or(0);
+                let style_id = select_style_parent_for_cell(
+                    &id.cell,
+                    shape.fill_style_id,
+                    shape.line_style_id,
+                    shape.text_style_id,
+                )
+                .unwrap_or(0);
                 if let Some((_, styled)) = self.lookup_cell_with_inheritance(&GlobalCellId {
                     sheet: SheetKey::Style(style_id),
                     cell: id.cell.clone(),
@@ -420,17 +496,47 @@ impl<'a> EvalSession<'a> {
                 }
                 _ => self.doc.pages.first().map(|p| SheetKey::Page(p.id)),
             },
-            SheetTarget::ShapeId(sid) => {
-                let pid = match ctx_sheet {
-                    SheetKey::Page(pid) | SheetKey::Shape { page_id: pid, .. } => *pid,
-                    _ => self.doc.pages.first()?.id,
-                };
-                Some(SheetKey::Shape {
-                    page_id: pid,
+            SheetTarget::ShapeId(sid) => match ctx_sheet {
+                SheetKey::Master { master_id, .. } => Some(SheetKey::Master {
+                    master_id: *master_id,
                     shape_id: *sid,
-                })
-            }
+                }),
+                SheetKey::Shape { page_id, shape_id } => {
+                    if let Some(page) = self.doc.page(*page_id) {
+                        if let Some(mapped_id) =
+                            resolve_master_instance_sibling_id(self.doc, page, *shape_id, *sid)
+                        {
+                            return Some(SheetKey::Shape {
+                                page_id: *page_id,
+                                shape_id: mapped_id,
+                            });
+                        }
+                    }
+                    Some(SheetKey::Shape {
+                        page_id: *page_id,
+                        shape_id: *sid,
+                    })
+                }
+                SheetKey::Page(pid) => Some(SheetKey::Shape {
+                    page_id: *pid,
+                    shape_id: *sid,
+                }),
+                _ => Some(SheetKey::Shape {
+                    page_id: self.doc.pages.first()?.id,
+                    shape_id: *sid,
+                }),
+            },
             SheetTarget::NamedShape(name) => {
+                if let SheetKey::Master { master_id, .. } = ctx_sheet {
+                    let m = self.doc.master(*master_id)?;
+                    let sh = m.shapes.iter().find(|s| {
+                        s.name.eq_ignore_ascii_case(name) || s.name_u.eq_ignore_ascii_case(name)
+                    })?;
+                    return Some(SheetKey::Master {
+                        master_id: *master_id,
+                        shape_id: sh.id,
+                    });
+                }
                 let pid = match ctx_sheet {
                     SheetKey::Page(pid) | SheetKey::Shape { page_id: pid, .. } => *pid,
                     _ => self.doc.pages.first()?.id,
@@ -1207,17 +1313,133 @@ impl<'a> EvalSession<'a> {
                 };
                 CellValue::number(v)
             }
-            "THEMEVAL" => {
+            "THEMEGUARD" | "THEMECBV" => args
+                .first()
+                .map(|a| self.eval_expr(ctx_sheet, ctx_cell, a))
+                .unwrap_or(CellValue::Err(CellError::Value)),
+            "COLOR" => {
+                let idx = args
+                    .first()
+                    .and_then(|a| self.eval_expr(ctx_sheet, ctx_cell, a).as_internal_f64().ok())
+                    .unwrap_or(0.0)
+                    .max(0.0)
+                    .round() as u32;
+                CellValue::Color(visio_standard_palette_color(idx).unwrap_or(RgbaColor::BLACK))
+            }
+            "TINT" | "TONE" => {
+                if args.len() < 2 {
+                    return CellValue::Err(CellError::Value);
+                }
+                let base = match self.eval_expr(ctx_sheet, ctx_cell, &args[0]) {
+                    CellValue::Color(c) => c,
+                    CellValue::Num { internal, .. } if internal >= 0.0 => {
+                        visio_standard_palette_color(internal.round() as u32).unwrap_or(RgbaColor::WHITE)
+                    }
+                    _ => return CellValue::Err(CellError::Value),
+                };
+                let raw_amt = self
+                    .eval_expr(ctx_sheet, ctx_cell, &args[1])
+                    .as_internal_f64()
+                    .unwrap_or(0.0);
+                let t = if raw_amt > 1.0 && raw_amt <= 100.0 {
+                    (raw_amt / 100.0).clamp(0.0, 1.0)
+                } else if raw_amt > 100.0 {
+                    (raw_amt / 240.0).clamp(0.0, 1.0)
+                } else {
+                    raw_amt.clamp(0.0, 1.0)
+                };
+                let mix = |ch: u8| -> u8 {
+                    ((ch as f64) + (255.0 - ch as f64) * t).round().clamp(0.0, 255.0) as u8
+                };
+                CellValue::Color(RgbaColor {
+                    r: mix(base.r),
+                    g: mix(base.g),
+                    b: mix(base.b),
+                    a: base.a,
+                })
+            }
+            "SHADE" => {
+                if args.len() < 2 {
+                    return CellValue::Err(CellError::Value);
+                }
+                let base = match self.eval_expr(ctx_sheet, ctx_cell, &args[0]) {
+                    CellValue::Color(c) => c,
+                    CellValue::Num { internal, .. } if internal >= 0.0 => {
+                        visio_standard_palette_color(internal.round() as u32).unwrap_or(RgbaColor::BLACK)
+                    }
+                    _ => return CellValue::Err(CellError::Value),
+                };
+                let raw_amt = self
+                    .eval_expr(ctx_sheet, ctx_cell, &args[1])
+                    .as_internal_f64()
+                    .unwrap_or(0.0);
+                let s = if raw_amt > 1.0 && raw_amt <= 100.0 {
+                    (raw_amt / 100.0).clamp(0.0, 1.0)
+                } else if raw_amt > 100.0 {
+                    (raw_amt / 240.0).clamp(0.0, 1.0)
+                } else {
+                    raw_amt.clamp(0.0, 1.0)
+                };
+                let factor = 1.0 - s * 0.65;
+                let mix = |ch: u8| -> u8 { ((ch as f64) * factor).round().clamp(0.0, 255.0) as u8 };
+                CellValue::Color(RgbaColor {
+                    r: mix(base.r),
+                    g: mix(base.g),
+                    b: mix(base.b),
+                    a: base.a,
+                })
+            }
+            "BLEND" => {
+                if args.len() < 3 {
+                    return CellValue::Err(CellError::Value);
+                }
+                let CellValue::Color(c1) = self.eval_expr(ctx_sheet, ctx_cell, &args[0]) else {
+                    return CellValue::Err(CellError::Value);
+                };
+                let CellValue::Color(c2) = self.eval_expr(ctx_sheet, ctx_cell, &args[1]) else {
+                    return CellValue::Err(CellError::Value);
+                };
+                let w = self
+                    .eval_expr(ctx_sheet, ctx_cell, &args[2])
+                    .as_internal_f64()
+                    .unwrap_or(0.5)
+                    .clamp(0.0, 1.0);
+                let lerp = |a: u8, b: u8| -> u8 {
+                    ((a as f64) * (1.0 - w) + (b as f64) * w).round().clamp(0.0, 255.0) as u8
+                };
+                CellValue::Color(RgbaColor {
+                    r: lerp(c1.r, c2.r),
+                    g: lerp(c1.g, c2.g),
+                    b: lerp(c1.b, c2.b),
+                    a: 255,
+                })
+            }
+            "THEMEVAL" | "THEME" => {
                 let theme = self.doc.themes.first().cloned().unwrap_or_default();
                 let key = args
                     .first()
                     .and_then(|a| self.eval_expr(ctx_sheet, ctx_cell, a).as_str_coerced().ok())
-                    .unwrap_or_default()
+                    .unwrap_or_else(|| ctx_cell.to_string())
                     .to_ascii_lowercase();
-                if key.contains("fill") {
-                    CellValue::Color(theme.accent_colors[0])
-                } else if key.contains("line") {
-                    CellValue::Color(theme.dark_color)
+                if let Some(rest) = key.strip_prefix("accentcolor") {
+                    let idx = rest
+                        .trim()
+                        .parse::<usize>()
+                        .ok()
+                        .and_then(|n| n.checked_sub(1))
+                        .unwrap_or(0)
+                        .min(5);
+                    CellValue::Color(theme.accent_colors[idx])
+                } else if key.contains("background") || key == "lightcolor" {
+                    CellValue::Color(theme.background_color)
+                } else if key.contains("fillforegndtrans") || key.contains("trans") {
+                    CellValue::number(0.0)
+                } else if key.contains("fillpattern") || key.contains("linepattern") {
+                    CellValue::number(1.0)
+                } else if key.contains("fill") {
+                    CellValue::Color(theme.light_color)
+                } else if key.contains("font") {
+                    CellValue::Str(theme.body_font)
                 } else {
                     CellValue::Color(theme.dark_color)
                 }
@@ -1726,6 +1948,33 @@ fn collect_shape_cell_ids_master(master_id: u32, s: &VisioShape, out: &mut Vec<G
     }
 }
 
+fn select_style_parent_for_cell(
+    canonical_cell: &str,
+    fill_id: Option<u32>,
+    line_id: Option<u32>,
+    text_id: Option<u32>,
+) -> Option<u32> {
+    if canonical_cell.starts_with("fill") || canonical_cell.starts_with("shdw") {
+        fill_id.or(line_id).or(text_id)
+    } else if canonical_cell.starts_with("line")
+        || canonical_cell.starts_with("beginarrow")
+        || canonical_cell.starts_with("endarrow")
+        || canonical_cell == "rounding"
+    {
+        line_id.or(fill_id).or(text_id)
+    } else if canonical_cell.starts_with("char.")
+        || canonical_cell.starts_with("para.")
+        || canonical_cell.starts_with("txt")
+        || canonical_cell.starts_with("text")
+        || canonical_cell == "verticalalign"
+        || canonical_cell.ends_with("margin")
+    {
+        text_id.or(fill_id).or(line_id)
+    } else {
+        fill_id.or(line_id).or(text_id)
+    }
+}
+
 fn collect_shape_cell_ids_page(page_id: u32, s: &VisioShape, out: &mut Vec<GlobalCellId>) {
     for k in s.sheet.cells.keys() {
         out.push(GlobalCellId {
@@ -1736,11 +1985,40 @@ fn collect_shape_cell_ids_page(page_id: u32, s: &VisioShape, out: &mut Vec<Globa
             cell: k.clone(),
         });
     }
-    // Also ensure core inherited cells are evaluated on master instances even if not overridden locally!
-    if s.master_id.is_some() {
+    // Ensure core inherited cells are evaluated on Master or StyleSheet instances even if not overridden locally!
+    if s.master_id.is_some()
+        || s.fill_style_id.is_some()
+        || s.line_style_id.is_some()
+        || s.text_style_id.is_some()
+    {
         for core_key in [
-            "pinx", "piny", "width", "height", "locpinx", "locpiny", "angle", "fillforegnd",
-            "linecolor", "lineweight",
+            "pinx",
+            "piny",
+            "width",
+            "height",
+            "locpinx",
+            "locpiny",
+            "angle",
+            "fillpattern",
+            "fillforegnd",
+            "fillforegndtrans",
+            "fillbkgnd",
+            "linepattern",
+            "linecolor",
+            "linecolortrans",
+            "lineweight",
+            "rounding",
+            "char.size",
+            "char.color",
+            "char.style",
+            "char.strikethru",
+            "char.font",
+            "para.horzalign",
+            "verticalalign",
+            "txtpinx",
+            "txtpiny",
+            "txtwidth",
+            "txtheight",
         ] {
             if !s.sheet.cells.contains_key(core_key) {
                 out.push(GlobalCellId {
@@ -1798,8 +2076,8 @@ fn apply_computed_values(doc: &mut VisioDocument, computed: &BTreeMap<GlobalCell
                     if let Some(s) = p.find_shape_mut(*shape_id) {
                         if let Some(c) = s.sheet.cells.get_mut(&cid.cell) {
                             c.value = val.clone();
-                        } else {
-                            // Cache inherited evaluated value on instance cell entry
+                        } else if !matches!(val, CellValue::Err(_)) {
+                            // Cache valid inherited evaluated value on instance cell entry
                             let mut cell = crate::sections::Cell::from_formula(
                                 cid.cell.clone(),
                                 val.to_vsdx_val_string(),
@@ -1851,6 +2129,7 @@ fn apply_setf_mutation(doc: &mut VisioDocument, se: &PendingSetf) -> bool {
 }
 
 fn collect_shape_visuals(
+    doc: &VisioDocument,
     page: &VisioPage,
     shape: &VisioShape,
     parent_tf: Option<&ShapeTransform2D>,
@@ -1878,13 +2157,28 @@ fn collect_shape_visuals(
         return;
     }
 
-    let ss = &shape.sheet;
-    let w = ss.get_f64("Width").unwrap_or(1.0);
-    let h = ss.get_f64("Height").unwrap_or(if shape.kind == ShapeKind::Connector1D {
-        0.0
-    } else {
-        1.0
+    let master_shape = shape.master_id.and_then(|mid| {
+        let m = doc.master(mid)?;
+        if let Some(msid) = shape.master_shape_id {
+            m.shapes.iter().find_map(|s| s.find_shape(msid))
+        } else {
+            m.shapes.first()
+        }
     });
+
+    let ss = &shape.sheet;
+    let w = ss
+        .get_f64("Width")
+        .or_else(|| master_shape.and_then(|ms| ms.sheet.get_f64("Width")))
+        .unwrap_or(1.0);
+    let h = ss
+        .get_f64("Height")
+        .or_else(|| master_shape.and_then(|ms| ms.sheet.get_f64("Height")))
+        .unwrap_or(if shape.kind == ShapeKind::Connector1D {
+            0.0
+        } else {
+            1.0
+        });
     let local_tf = ShapeTransform2D {
         pin_x: ss.get_f64("PinX").unwrap_or(0.0),
         pin_y: ss.get_f64("PinY").unwrap_or(0.0),
@@ -1902,6 +2196,8 @@ fn collect_shape_visuals(
             pin_x: wx,
             pin_y: wy,
             angle_rad: ptf.angle_rad + local_tf.angle_rad,
+            flip_x: ptf.flip_x ^ local_tf.flip_x,
+            flip_y: ptf.flip_y ^ local_tf.flip_y,
             ..local_tf
         }
     } else {
@@ -1919,79 +2215,103 @@ fn collect_shape_visuals(
         aabb_max[1] = aabb_max[1].max(pt[1]);
     };
 
-    for geom in &ss.geometries {
+    let active_geometries = if !ss.geometries.is_empty() {
+        &ss.geometries
+    } else if let Some(ms) = master_shape {
+        &ms.sheet.geometries
+    } else {
+        &ss.geometries
+    };
+    let geom_cell_sheet = |cell_key: &str| -> Option<f64> {
+        ss.get_f64(cell_key)
+            .or_else(|| master_shape.and_then(|ms| ms.sheet.get_f64(cell_key)))
+    };
+    let geom_bool_sheet = |cell_key: &str| -> Option<bool> {
+        ss.get_bool(cell_key)
+            .or_else(|| master_shape.and_then(|ms| ms.sheet.get_bool(cell_key)))
+    };
+
+    for geom in active_geometries {
         if geom.deleted {
             continue;
         }
         let prefix = format!("Geometry{}", geom.index);
-        let no_fill = ss.get_bool(&format!("{prefix}.NoFill")).unwrap_or(false);
-        let no_line = ss.get_bool(&format!("{prefix}.NoLine")).unwrap_or(false);
-        let no_show = ss.get_bool(&format!("{prefix}.NoShow")).unwrap_or(false);
+        let no_fill = geom_bool_sheet(&format!("{prefix}.NoFill")).unwrap_or(false);
+        let no_line = geom_bool_sheet(&format!("{prefix}.NoLine")).unwrap_or(false);
+        let no_show = geom_bool_sheet(&format!("{prefix}.NoShow")).unwrap_or(false);
         if no_show {
             continue;
         }
         let mut verbs = Vec::new();
+        let mut last_world_pt: Option<[f64; 2]> = None;
         for row in &geom.rows {
             if row.deleted {
                 continue;
             }
             let ix = row.ix;
-            let raw_x = ss.get_f64(&format!("{prefix}.X{ix}")).unwrap_or(0.0);
-            let raw_y = ss.get_f64(&format!("{prefix}.Y{ix}")).unwrap_or(0.0);
+            let raw_x = geom_cell_sheet(&format!("{prefix}.X{ix}")).unwrap_or(0.0);
+            let raw_y = geom_cell_sheet(&format!("{prefix}.Y{ix}")).unwrap_or(0.0);
             match row.kind {
                 GeometryRowKind::MoveTo => {
                     let (px, py) = world_tf.local_to_parent(raw_x, raw_y);
                     expand([px, py]);
+                    last_world_pt = Some([px, py]);
                     verbs.push(EvaluatedPathVerb::MoveTo([px, py]));
                 }
                 GeometryRowKind::RelMoveTo => {
                     let (px, py) = world_tf.local_to_parent(raw_x * w, raw_y * h);
                     expand([px, py]);
+                    last_world_pt = Some([px, py]);
                     verbs.push(EvaluatedPathVerb::MoveTo([px, py]));
                 }
                 GeometryRowKind::LineTo | GeometryRowKind::InfiniteLine | GeometryRowKind::PolylineTo => {
                     let (px, py) = world_tf.local_to_parent(raw_x, raw_y);
                     expand([px, py]);
+                    last_world_pt = Some([px, py]);
                     verbs.push(EvaluatedPathVerb::LineTo([px, py]));
                 }
                 GeometryRowKind::RelLineTo => {
                     let (px, py) = world_tf.local_to_parent(raw_x * w, raw_y * h);
                     expand([px, py]);
+                    last_world_pt = Some([px, py]);
                     verbs.push(EvaluatedPathVerb::LineTo([px, py]));
                 }
                 GeometryRowKind::ArcTo => {
-                    let bow = ss.get_f64(&format!("{prefix}.A{ix}")).unwrap_or(0.0);
+                    let bow = geom_cell_sheet(&format!("{prefix}.A{ix}")).unwrap_or(0.0);
                     let (px, py) = world_tf.local_to_parent(raw_x, raw_y);
                     expand([px - bow.abs(), py - bow.abs()]);
                     expand([px + bow.abs(), py + bow.abs()]);
+                    last_world_pt = Some([px, py]);
                     verbs.push(EvaluatedPathVerb::ArcTo {
                         to: [px, py],
                         bow,
                     });
                 }
                 GeometryRowKind::RelQuadBezTo => {
-                    let ax = ss.get_f64(&format!("{prefix}.A{ix}")).unwrap_or(0.0) * w;
-                    let by = ss.get_f64(&format!("{prefix}.B{ix}")).unwrap_or(0.0) * h;
+                    let ax = geom_cell_sheet(&format!("{prefix}.A{ix}")).unwrap_or(0.0) * w;
+                    let by = geom_cell_sheet(&format!("{prefix}.B{ix}")).unwrap_or(0.0) * h;
                     let (cx, cy) = world_tf.local_to_parent(ax, by);
                     let (px, py) = world_tf.local_to_parent(raw_x * w, raw_y * h);
                     expand([cx, cy]);
                     expand([px, py]);
+                    last_world_pt = Some([px, py]);
                     verbs.push(EvaluatedPathVerb::QuadTo {
                         ctrl: [cx, cy],
                         to: [px, py],
                     });
                 }
                 GeometryRowKind::RelCubBezTo => {
-                    let c1x = ss.get_f64(&format!("{prefix}.A{ix}")).unwrap_or(0.0) * w;
-                    let c1y = ss.get_f64(&format!("{prefix}.B{ix}")).unwrap_or(0.0) * h;
-                    let c2x = ss.get_f64(&format!("{prefix}.C{ix}")).unwrap_or(0.0) * w;
-                    let c2y = ss.get_f64(&format!("{prefix}.D{ix}")).unwrap_or(0.0) * h;
+                    let c1x = geom_cell_sheet(&format!("{prefix}.A{ix}")).unwrap_or(0.0) * w;
+                    let c1y = geom_cell_sheet(&format!("{prefix}.B{ix}")).unwrap_or(0.0) * h;
+                    let c2x = geom_cell_sheet(&format!("{prefix}.C{ix}")).unwrap_or(0.0) * w;
+                    let c2y = geom_cell_sheet(&format!("{prefix}.D{ix}")).unwrap_or(0.0) * h;
                     let (p1x, p1y) = world_tf.local_to_parent(c1x, c1y);
                     let (p2x, p2y) = world_tf.local_to_parent(c2x, c2y);
                     let (px, py) = world_tf.local_to_parent(raw_x * w, raw_y * h);
                     expand([p1x, p1y]);
                     expand([p2x, p2y]);
                     expand([px, py]);
+                    last_world_pt = Some([px, py]);
                     verbs.push(EvaluatedPathVerb::CubicTo {
                         ctrl1: [p1x, p1y],
                         ctrl2: [p2x, p2y],
@@ -1999,16 +2319,17 @@ fn collect_shape_visuals(
                     });
                 }
                 GeometryRowKind::Ellipse => {
-                    let ax = ss.get_f64(&format!("{prefix}.A{ix}")).unwrap_or(raw_x + w * 0.5);
-                    let ay = ss.get_f64(&format!("{prefix}.B{ix}")).unwrap_or(raw_y);
-                    let cx_pt = ss.get_f64(&format!("{prefix}.C{ix}")).unwrap_or(raw_x);
-                    let dy_pt = ss.get_f64(&format!("{prefix}.D{ix}")).unwrap_or(raw_y + h * 0.5);
+                    let ax = geom_cell_sheet(&format!("{prefix}.A{ix}")).unwrap_or(raw_x + w * 0.5);
+                    let ay = geom_cell_sheet(&format!("{prefix}.B{ix}")).unwrap_or(raw_y);
+                    let cx_pt = geom_cell_sheet(&format!("{prefix}.C{ix}")).unwrap_or(raw_x);
+                    let dy_pt = geom_cell_sheet(&format!("{prefix}.D{ix}")).unwrap_or(raw_y + h * 0.5);
                     let rx = ((ax - raw_x).powi(2) + (ay - raw_y).powi(2)).sqrt();
                     let ry = ((cx_pt - raw_x).powi(2) + (dy_pt - raw_y).powi(2)).sqrt();
                     let (wx, wy) = world_tf.local_to_parent(raw_x, raw_y);
                     let r_max = rx.max(ry);
                     expand([wx - r_max, wy - r_max]);
                     expand([wx + r_max, wy + r_max]);
+                    last_world_pt = None;
                     verbs.push(EvaluatedPathVerb::Ellipse {
                         center: [wx, wy],
                         rx,
@@ -2016,11 +2337,7 @@ fn collect_shape_visuals(
                         angle_rad: world_tf.angle_rad,
                     });
                 }
-                GeometryRowKind::EllipticalArcTo
-                | GeometryRowKind::RelEllipticalArcTo
-                | GeometryRowKind::SplineStart
-                | GeometryRowKind::SplineKnot
-                | GeometryRowKind::NURBSTo => {
+                GeometryRowKind::EllipticalArcTo | GeometryRowKind::RelEllipticalArcTo => {
                     let scale = if row.kind == GeometryRowKind::RelEllipticalArcTo {
                         (w, h)
                     } else {
@@ -2028,21 +2345,35 @@ fn collect_shape_visuals(
                     };
                     let (px, py) = world_tf.local_to_parent(raw_x * scale.0, raw_y * scale.1);
                     expand([px, py]);
-                    let bow = ss.get_f64(&format!("{prefix}.D{ix}")).unwrap_or(0.0);
-                    if bow.abs() > 1e-6 && row.kind != GeometryRowKind::NURBSTo {
-                        verbs.push(EvaluatedPathVerb::ArcTo {
-                            to: [px, py],
-                            bow: bow * 0.1,
-                        });
+                    let a_opt = geom_cell_sheet(&format!("{prefix}.A{ix}"));
+                    let b_opt = geom_cell_sheet(&format!("{prefix}.B{ix}"));
+                    if let (Some(p0), Some(ax), Some(by)) = (last_world_pt, a_opt, b_opt) {
+                        let (mx, my) = world_tf.local_to_parent(ax * scale.0, by * scale.1);
+                        expand([mx, my]);
+                        let bow = elliptical_arc_sagitta_from_three_points(p0, [mx, my], [px, py]);
+                        if bow.abs() > 1e-6 {
+                            verbs.push(EvaluatedPathVerb::ArcTo { to: [px, py], bow });
+                        } else {
+                            verbs.push(EvaluatedPathVerb::LineTo([px, py]));
+                        }
                     } else {
                         verbs.push(EvaluatedPathVerb::LineTo([px, py]));
                     }
+                    last_world_pt = Some([px, py]);
+                }
+                GeometryRowKind::SplineStart
+                | GeometryRowKind::SplineKnot
+                | GeometryRowKind::NURBSTo => {
+                    let (px, py) = world_tf.local_to_parent(raw_x, raw_y);
+                    expand([px, py]);
+                    last_world_pt = Some([px, py]);
+                    verbs.push(EvaluatedPathVerb::LineTo([px, py]));
                 }
             }
         }
         let path_fill = layer_color_override.or_else(|| ss.get_color(&format!("{prefix}.FillForegnd")));
         let path_stroke = layer_color_override.or_else(|| ss.get_color(&format!("{prefix}.LineColor")));
-        let path_weight = ss.get_f64(&format!("{prefix}.LineWeight"));
+        let path_weight = geom_cell_sheet(&format!("{prefix}.LineWeight"));
         paths.push(EvaluatedGeometryPath {
             no_fill,
             no_line,
@@ -2060,30 +2391,91 @@ fn collect_shape_visuals(
         aabb_max = mx;
     }
 
-    let fill_pat = ss.get_f64("FillPattern").unwrap_or(1.0) as i32;
-    let line_pat = ss.get_f64("LinePattern").unwrap_or(1.0) as i32;
-    let fill_color = if fill_pat == 0 || shape.kind == ShapeKind::Connector1D {
+    let fill_pat = ss.get_f64("FillPattern").unwrap_or(1.0).round() as i32;
+    let line_pat = ss.get_f64("LinePattern").unwrap_or(1.0).round() as i32;
+    let fill_trans = ss.get_f64("FillForegndTrans").unwrap_or(0.0).clamp(0.0, 1.0);
+    let line_trans = ss.get_f64("LineColorTrans").unwrap_or(0.0).clamp(0.0, 1.0);
+
+    let has_drawable_paths = !paths.is_empty();
+    let fill_color = if fill_pat == 0
+        || fill_trans >= 0.995
+        || !has_drawable_paths
+        || matches!(
+            shape.kind,
+            ShapeKind::Connector1D | ShapeKind::Group | ShapeKind::Guide | ShapeKind::ForeignObject
+        )
+    {
         None
     } else {
-        layer_color_override.or_else(|| ss.get_color("FillForegnd")).or(Some(RgbaColor::WHITE))
+        layer_color_override
+            .or_else(|| ss.get_color("FillForegnd"))
+            .or(Some(RgbaColor::WHITE))
+            .map(|mut c| {
+                if fill_trans > 0.001 {
+                    c.a = (((1.0 - fill_trans) * (c.a as f64)).round() as u8).max(1);
+                }
+                c
+            })
     };
-    let stroke_color = if line_pat == 0 {
+    let stroke_color = if line_pat == 0
+        || line_trans >= 0.995
+        || (!has_drawable_paths
+            && matches!(
+                shape.kind,
+                ShapeKind::Group | ShapeKind::Guide | ShapeKind::ForeignObject
+            ))
+        || !has_drawable_paths
+    {
         None
     } else {
         layer_color_override
             .or_else(|| ss.get_color("LineColor"))
             .or(Some(RgbaColor::BLACK))
+            .map(|mut c| {
+                if line_trans > 0.001 {
+                    c.a = (((1.0 - line_trans) * (c.a as f64)).round() as u8).max(1);
+                }
+                c
+            })
     };
 
     let txt_lx = ss.get_f64("TxtPinX").unwrap_or(w * 0.5);
     let txt_ly = ss.get_f64("TxtPinY").unwrap_or(h * 0.5);
     let (txt_px, txt_py) = world_tf.local_to_parent(txt_lx, txt_ly);
+    let txt_width = ss.get_f64("TxtWidth").filter(|v| v.is_finite() && *v > 0.05);
+    let txt_height = ss.get_f64("TxtHeight").filter(|v| v.is_finite() && *v > 0.05);
 
     let txt_bg_trans = ss.get_f64("TextBkgndTrans").unwrap_or(1.0);
     let text_bg_color = if txt_bg_trans < 0.99 {
         ss.get_color("TextBkgnd")
     } else {
         None
+    };
+
+    let mut char_style = ss.get_f64("Char.Style").unwrap_or(0.0).round().clamp(0.0, 15.0) as u8;
+    if ss.get_bool("Char.SmallCaps").unwrap_or(false) {
+        char_style &= !8;
+    }
+    if ss.get_bool("Char.Strikethru").unwrap_or(false) {
+        char_style |= 8;
+    }
+
+    let foreign_media = shape
+        .foreign_data
+        .clone()
+        .or_else(|| master_shape.and_then(|ms| ms.foreign_data.clone()))
+        .filter(|fm| !fm.data.is_empty());
+
+    let effective_text = if !shape.text.is_empty() {
+        shape.text.clone()
+    } else if let Some(ms) = master_shape {
+        if shape.children.is_empty() {
+            ms.text.clone()
+        } else {
+            String::new()
+        }
+    } else {
+        String::new()
     };
 
     out.push(EvaluatedShapeVisual {
@@ -2096,11 +2488,14 @@ fn collect_shape_visuals(
         fill_color,
         stroke_color,
         stroke_weight_in: ss.get_f64("LineWeight").unwrap_or(1.0 / 72.0),
+        line_pattern: line_pat.clamp(0, 255) as u8,
         rounding_in: ss.get_f64("Rounding").unwrap_or(0.0),
         end_arrow: ss.get_f64("EndArrow").unwrap_or(0.0) as u8,
         begin_arrow: ss.get_f64("BeginArrow").unwrap_or(0.0) as u8,
-        text: shape.text.clone(),
+        text: effective_text,
         txt_pos: [txt_px, txt_py],
+        txt_width,
+        txt_height,
         font_size_pt: ss
             .get_f64("Char.Size")
             .map(|inches| inches * 72.0)
@@ -2110,7 +2505,7 @@ fn collect_shape_visuals(
             .get_str("Char.Font")
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| "Inter".to_string()),
-        char_style: ss.get_f64("Char.Style").unwrap_or(0.0).round().clamp(0.0, 15.0) as u8,
+        char_style,
         horiz_align: ss
             .get_f64("Para.HorzAlign")
             .unwrap_or(1.0)
@@ -2127,9 +2522,102 @@ fn collect_shape_visuals(
             .round()
             .clamp(0.0, 4.0) as u8,
         text_bg_color,
+        foreign_media,
     });
 
-    for child in &shape.children {
-        collect_shape_visuals(page, child, Some(&world_tf), out);
+    if !shape.children.is_empty() {
+        for child in &shape.children {
+            collect_shape_visuals(doc, page, child, Some(&world_tf), out);
+        }
+    } else if let Some(ms) = master_shape {
+        for child in &ms.children {
+            collect_shape_visuals(doc, page, child, Some(&world_tf), out);
+        }
     }
 }
+
+/// Resolve a `Sheet.<target_sid>!` reference inside an instantiated Master group subtree
+/// when `<target_sid>` refers to a Master shape ID (`master_shape_id`) within the same group instance.
+fn resolve_master_instance_sibling_id(
+    doc: &VisioDocument,
+    page: &VisioPage,
+    ctx_shape_id: u64,
+    target_sid: u64,
+) -> Option<u64> {
+    let top_root = page.shapes.iter().find(|s| s.find_shape(ctx_shape_id).is_some())?;
+    // If `target_sid` already exists directly inside `top_root`, keep it!
+    if top_root.find_shape(target_sid).is_some() {
+        return Some(target_sid);
+    }
+    let ctx_shape = top_root.find_shape(ctx_shape_id)?;
+    let mid = ctx_shape.master_id.or(top_root.master_id)?;
+    let master_root_id = doc.master(mid).and_then(|m| m.shapes.first().map(|s| s.id));
+    fn find_by_msid(node: &VisioShape, target_msid: u64, root_msid: Option<u64>, is_root: bool) -> Option<u64> {
+        if node.master_shape_id == Some(target_msid)
+            || (is_root && node.master_shape_id.is_none() && root_msid == Some(target_msid))
+        {
+            return Some(node.id);
+        }
+        for c in &node.children {
+            if let Some(found) = find_by_msid(c, target_msid, root_msid, false) {
+                return Some(found);
+            }
+        }
+        None
+    }
+    find_by_msid(top_root, target_sid, master_root_id, true)
+}
+
+/// Compute signed circular-arc sagitta `bow` passing through `(p0, p_ctrl, p1)` for Visio `EllipticalArcTo`.
+fn elliptical_arc_sagitta_from_three_points(p0: [f64; 2], pm: [f64; 2], p1: [f64; 2]) -> f64 {
+    let dx = p1[0] - p0[0];
+    let dy = p1[1] - p0[1];
+    let chord = dx.hypot(dy);
+    if chord < 1e-7 {
+        return 0.0;
+    }
+    let ux = dx / chord;
+    let uy = dy / chord;
+    let nx = -uy;
+    let ny = ux;
+
+    // Circumcenter of triangle `(p0, pm, p1)`.
+    let ax = p0[0];
+    let ay = p0[1];
+    let bx = pm[0];
+    let by = pm[1];
+    let cx = p1[0];
+    let cy = p1[1];
+    let d = 2.0 * (ax * (by - cy) + bx * (cy - ay) + cx * (ay - by));
+    if d.abs() < 1e-9 {
+        return 0.0;
+    }
+    let a2 = ax * ax + ay * ay;
+    let b2 = bx * bx + by * by;
+    let c2 = cx * cx + cy * cy;
+    let ocx = (a2 * (by - cy) + b2 * (cy - ay) + c2 * (ay - by)) / d;
+    let ocy = (a2 * (cx - bx) + b2 * (ax - cx) + c2 * (bx - ax)) / d;
+    let r = (ax - ocx).hypot(ay - ocy);
+    if !r.is_finite() || r < 1e-7 || r > chord * 1e4 {
+        return 0.0;
+    }
+
+    let a0 = (p0[1] - ocy).atan2(p0[0] - ocx);
+    let amid = (pm[1] - ocy).atan2(pm[0] - ocx);
+    let a1 = (p1[1] - ocy).atan2(p1[0] - ocx);
+    let ccw_end = (a1 - a0).rem_euclid(std::f64::consts::TAU);
+    let ccw_mid = (amid - a0).rem_euclid(std::f64::consts::TAU);
+    let sweep = if ccw_mid <= ccw_end + 1e-9 {
+        ccw_end
+    } else {
+        ccw_end - std::f64::consts::TAU
+    };
+    let a_half = a0 + sweep * 0.5;
+    let arc_mid_x = ocx + r * a_half.cos();
+    let arc_mid_y = ocy + r * a_half.sin();
+    let chord_mid_x = (p0[0] + p1[0]) * 0.5;
+    let chord_mid_y = (p0[1] + p1[1]) * 0.5;
+    (arc_mid_x - chord_mid_x) * nx + (arc_mid_y - chord_mid_y) * ny
+}
+
+

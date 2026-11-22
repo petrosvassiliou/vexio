@@ -106,6 +106,7 @@ MainWindow::MainWindow()
     InitializeComponent();
     ConfigureCustomTitleBar();
     DetectOsLocaleAndUnits();
+    PopulateInstalledSystemFonts();
 
     (void)m_doc.LoadStarterTemplate("bpmn_fulfillment");
     if (m_metricUnits) {
@@ -1560,6 +1561,7 @@ void MainWindow::RebuildPageTabsStrip() {
         tabBtn.IsChecked(isActive);
         tabBtn.Padding(Thickness{10, 2, 10, 2});
         tabBtn.FontSize(11.5);
+        tabBtn.IsDoubleTapEnabled(true);
         const std::wstring label = p.isBackground ? (p.name + L" [BG]") : p.name;
         tabBtn.Content(box_value(hstring{label}));
 
@@ -1568,11 +1570,17 @@ void MainWindow::RebuildPageTabsStrip() {
             m_activePageId = targetId;
             if (m_viewport && m_doc) {
                 (void)m_viewport.SetPage(m_doc, m_activePageId);
+                (void)m_viewport.SetZoom(m_doc, 0.0);
             }
             RebuildPageTabsStrip();
             PresentViewportFrame();
             SyncInspectorFromShapeSheet();
             RefreshShapeSheetSectionRows();
+        });
+        tabBtn.DoubleTapped([this, targetId](IInspectable const&, DoubleTappedRoutedEventArgs const& e) {
+            m_activePageId = targetId;
+            ShowRenamePageDialogAsync();
+            e.Handled(true);
         });
 
         MenuFlyout pageMenu{};
@@ -2520,13 +2528,17 @@ void MainWindow::OnNewBpmnTemplateClick(IInspectable const&, RoutedEventArgs con
     if (m_metricUnits) {
         (void)m_doc.SetPagePreset(1u, "a4", true);
     }
+    m_currentStorageFile = nullptr;
     m_documentDisplayName = L"Order_Fulfillment_BPMN2.vsdx";
     ValidationRuleSetCombo().SelectedIndex(0);
     InitializeStencilCatalog();
     RefreshStencilList();
     RefreshBaselineSnapshot();
+    SyncPagesFromCoreState(true);
     MarkDocumentDirty(false);
     AttachOrResizeDx12SwapChain();
+    if (m_viewport && m_doc) (void)m_viewport.SetZoom(m_doc, 0.0);
+    PresentViewportFrame();
     SyncInspectorFromShapeSheet();
 }
 
@@ -2537,13 +2549,17 @@ void MainWindow::OnNewUmlTemplateClick(IInspectable const&, RoutedEventArgs cons
     if (m_metricUnits) {
         (void)m_doc.SetPagePreset(1u, "a4", true);
     }
+    m_currentStorageFile = nullptr;
     m_documentDisplayName = L"Service_Domain_UML25.vsdx";
     ValidationRuleSetCombo().SelectedIndex(1);
     InitializeStencilCatalog();
     RefreshStencilList();
     RefreshBaselineSnapshot();
+    SyncPagesFromCoreState(true);
     MarkDocumentDirty(false);
     AttachOrResizeDx12SwapChain();
+    if (m_viewport && m_doc) (void)m_viewport.SetZoom(m_doc, 0.0);
+    PresentViewportFrame();
     SyncInspectorFromShapeSheet();
 }
 
@@ -2554,13 +2570,17 @@ void MainWindow::OnNewCadFloorPlanClick(IInspectable const&, RoutedEventArgs con
     if (m_metricUnits) {
         (void)m_doc.SetPagePreset(1u, "a3", true);
     }
+    m_currentStorageFile = nullptr;
     m_documentDisplayName = L"FloorPlan_Level1.vsdx";
     DrawingScaleCombo().SelectedIndex(1);
     InitializeStencilCatalog();
     RefreshStencilList();
     RefreshBaselineSnapshot();
+    SyncPagesFromCoreState(true);
     MarkDocumentDirty(false);
     AttachOrResizeDx12SwapChain();
+    if (m_viewport && m_doc) (void)m_viewport.SetZoom(m_doc, 0.0);
+    PresentViewportFrame();
     SyncInspectorFromShapeSheet();
 }
 
@@ -2655,15 +2675,18 @@ fire_and_forget MainWindow::OpenStorageFileAsync(StorageFile file) {
         self->m_currentStorageFile = file;
         self->m_documentDisplayName = file.Name().c_str();
         self->m_activeFormatExt = ext;
-        self->m_activePageId = 1;
-        self->m_selectedShapeId = 1;
-        self->m_previousSelectedShapeId = 1;
+        self->SyncPagesFromCoreState(true);
 
         self->DocumentFormatBadgeText().Text(hstring{FormatBadgeForExtension(ext)});
         self->MarkDocumentDirty(false);
+        self->AttachOrResizeDx12SwapChain();
+        if (self->m_viewport && self->m_doc) {
+            (void)self->m_viewport.SetPage(self->m_doc, self->m_activePageId);
+            (void)self->m_viewport.SetZoom(self->m_doc, 0.0);
+            self->PresentViewportFrame();
+        }
         self->SyncInspectorFromShapeSheet();
         self->RefreshShapeSheetSectionRows();
-        self->AttachOrResizeDx12SwapChain();
         self->OnRefreshPanZoomPreviewClick(nullptr, nullptr);
     } catch (...) {
         if (auto self = weakSelf.get()) {
@@ -2750,9 +2773,12 @@ fire_and_forget MainWindow::SaveDocumentAsync(bool forceSaveAs, std::string forc
             picker.FileTypeChoices().Insert(L"Visio Template (.vstx)", single_threaded_vector<hstring>({L".vstx"}));
             picker.FileTypeChoices().Insert(L"Legacy Visio 2003-2010 (.vsd)", single_threaded_vector<hstring>({L".vsd"}));
             picker.FileTypeChoices().Insert(L"DatadiagramML XML (.vdx)", single_threaded_vector<hstring>({L".vdx"}));
+            picker.FileTypeChoices().Insert(L"Archival Vector PDF/A (.pdf)", single_threaded_vector<hstring>({L".pdf"}));
+            picker.FileTypeChoices().Insert(L"Scalable Vector Graphics (.svg)", single_threaded_vector<hstring>({L".svg"}));
+            picker.FileTypeChoices().Insert(L"AutoCAD DXF (.dxf)", single_threaded_vector<hstring>({L".dxf"}));
             picker.FileTypeChoices().Insert(L"JPEG Image (.jpg)", single_threaded_vector<hstring>({L".jpg"}));
             picker.FileTypeChoices().Insert(L"PNG Image (.png)", single_threaded_vector<hstring>({L".png"}));
-            picker.SuggestedFileName(hstring{stemName});
+            picker.SuggestedFileName(hstring{forceSaveAs && m_currentStorageFile ? (stemName + L"_Copy") : stemName});
         }
 
         targetFile = co_await picker.PickSaveFileAsync();
@@ -3197,10 +3223,11 @@ fire_and_forget MainWindow::ShowRenamePageDialogAsync() {
 
     TextBox input{};
     input.Text(hstring{currentName});
+    input.SelectAll();
 
     ContentDialog dlg{};
     dlg.XamlRoot(RootWorkstationGrid().XamlRoot());
-    dlg.Title(box_value(L"Rename Active Page"));
+    dlg.Title(box_value(L"Rename Page"));
     dlg.Content(input);
     dlg.PrimaryButtonText(L"Rename");
     dlg.CloseButtonText(L"Cancel");
@@ -3209,8 +3236,13 @@ fire_and_forget MainWindow::ShowRenamePageDialogAsync() {
     const auto weakSelf = get_weak();
     if (co_await dlg.ShowAsync() == ContentDialogResult::Primary) {
         if (auto self = weakSelf.get()) {
-            const std::wstring updated{input.Text().c_str()};
+            std::wstring updated{input.Text().c_str()};
+            while (!updated.empty() && (updated.front() == L' ' || updated.front() == L'\t')) updated.erase(updated.begin());
+            while (!updated.empty() && (updated.back() == L' ' || updated.back() == L'\t')) updated.pop_back();
             if (!updated.empty()) {
+                if (self->m_doc) {
+                    (void)self->m_doc.RenamePage(self->m_activePageId, vexio::win::ToUtf8(updated));
+                }
                 for (auto& p : self->m_pages) {
                     if (p.pageId == self->m_activePageId) {
                         p.name = updated;
@@ -3219,6 +3251,7 @@ fire_and_forget MainWindow::ShowRenamePageDialogAsync() {
                 }
                 self->MarkDocumentDirty(true);
                 self->RebuildPageTabsStrip();
+                self->PresentViewportFrame();
             }
         }
     }
@@ -3347,6 +3380,11 @@ void MainWindow::OnSaveAccelerator(KeyboardAccelerator const&, KeyboardAccelerat
     args.Handled(true);
 }
 
+void MainWindow::OnSaveAsAccelerator(KeyboardAccelerator const&, KeyboardAcceleratorInvokedEventArgs const& args) {
+    OnSaveAsClick(nullptr, nullptr);
+    args.Handled(true);
+}
+
 void MainWindow::OnOpenAccelerator(KeyboardAccelerator const&, KeyboardAcceleratorInvokedEventArgs const& args) {
     OnOpenClick(nullptr, nullptr);
     args.Handled(true);
@@ -3385,6 +3423,141 @@ void MainWindow::MarkDocumentDirty(bool dirty) {
     const std::wstring suffix = dirty ? L" *" : L"";
     DocumentTitleText().Text(hstring{m_documentDisplayName + suffix});
     Title(hstring{L"Vexio Professional — " + m_documentDisplayName + suffix});
+}
+
+// ===========================================================================
+// Native Windows DirectWrite Font Enumeration & Multi-Page Foreground Sync
+// ===========================================================================
+void MainWindow::PopulateInstalledSystemFonts() {
+    std::vector<std::wstring> families{
+        L"Segoe UI", L"Calibri", L"Arial", L"Inter", L"Consolas", L"Georgia", L"Times New Roman"
+    };
+
+    com_ptr<IDWriteFactory> dwriteFactory;
+    if (SUCCEEDED(::DWriteCreateFactory(
+            DWRITE_FACTORY_TYPE_SHARED,
+            __uuidof(IDWriteFactory),
+            reinterpret_cast<IUnknown**>(dwriteFactory.put()))))
+    {
+        com_ptr<IDWriteFontCollection> collection;
+        if (SUCCEEDED(dwriteFactory->GetSystemFontCollection(collection.put(), FALSE)) && collection) {
+            wchar_t localeName[LOCALE_NAME_MAX_LENGTH] = {};
+            const int hasLocale = ::GetUserDefaultLocaleName(localeName, LOCALE_NAME_MAX_LENGTH);
+            const UINT32 count = collection->GetFontFamilyCount();
+            for (UINT32 i = 0; i < count; ++i) {
+                com_ptr<IDWriteFontFamily> family;
+                if (FAILED(collection->GetFontFamily(i, family.put())) || !family) continue;
+                com_ptr<IDWriteLocalizedStrings> names;
+                if (FAILED(family->GetFamilyNames(names.put())) || !names || names->GetCount() == 0) continue;
+
+                UINT32 nameIdx = 0;
+                BOOL exists = FALSE;
+                if (hasLocale > 0) {
+                    (void)names->FindLocaleName(localeName, &nameIdx, &exists);
+                }
+                if (!exists) {
+                    (void)names->FindLocaleName(L"en-us", &nameIdx, &exists);
+                }
+                if (!exists) {
+                    nameIdx = 0;
+                }
+
+                UINT32 len = 0;
+                if (SUCCEEDED(names->GetStringLength(nameIdx, &len)) && len > 0) {
+                    std::wstring buf(len + 1, L'\0');
+                    if (SUCCEEDED(names->GetString(nameIdx, buf.data(), len + 1))) {
+                        buf.resize(len);
+                        if (!buf.empty() && buf.front() != L'@') {
+                            families.push_back(std::move(buf));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    std::sort(families.begin(), families.end());
+    families.erase(std::unique(families.begin(), families.end()), families.end());
+
+    const bool prevSync = m_syncingTextControls;
+    m_syncingTextControls = true;
+    auto items = FontFamilyCombo().Items();
+    items.Clear();
+    int32_t segoeIndex = 0;
+    for (size_t i = 0; i < families.size(); ++i) {
+        if (families[i] == L"Segoe UI") {
+            segoeIndex = static_cast<int32_t>(i);
+        }
+        items.Append(box_value(hstring{families[i]}));
+    }
+    if (items.Size() > 0) {
+        FontFamilyCombo().SelectedIndex(segoeIndex);
+    }
+    m_syncingTextControls = prevSync;
+}
+
+void MainWindow::SyncPagesFromCoreState(bool selectFirstForeground) {
+    if (!m_doc) return;
+
+    const uint32_t queryPid = selectFirstForeground ? UINT32_MAX : m_activePageId;
+    const auto stateRes = m_doc.GetStateJson(queryPid);
+    if (!stateRes.ok() || stateRes.value->empty()) {
+        return;
+    }
+
+    Windows::Data::Json::JsonObject stateObj{nullptr};
+    if (!Windows::Data::Json::JsonObject::TryParse(*stateRes.value, stateObj)) {
+        return;
+    }
+
+    std::vector<PageTabModel> parsedPages{};
+    if (stateObj.HasKey(L"pages")) {
+        const auto pagesArr = stateObj.GetNamedArray(L"pages");
+        for (uint32_t i = 0; i < pagesArr.Size(); ++i) {
+            const auto pObj = pagesArr.GetObjectAt(i);
+            const uint32_t pid = static_cast<uint32_t>(pObj.GetNamedNumber(L"id", 0.0));
+            const std::wstring pname{pObj.GetNamedString(L"name", L"Page").c_str()};
+            const bool isBg = pObj.GetNamedBoolean(L"isBackground", false);
+            const uint32_t sc = static_cast<uint32_t>(pObj.GetNamedNumber(L"shapeCount", 0.0));
+            parsedPages.push_back(PageTabModel{pid, pname, isBg, sc});
+        }
+    }
+
+    if (!parsedPages.empty()) {
+        m_pages = std::move(parsedPages);
+        if (selectFirstForeground) {
+            uint32_t chosenPid = m_pages.front().pageId;
+            for (auto const& pg : m_pages) {
+                if (!pg.isBackground) {
+                    chosenPid = pg.pageId;
+                    break;
+                }
+            }
+            m_activePageId = chosenPid;
+        } else if (stateObj.HasKey(L"activePageId")) {
+            m_activePageId = static_cast<uint32_t>(stateObj.GetNamedNumber(L"activePageId", static_cast<double>(m_activePageId)));
+        }
+    }
+
+    uint64_t firstShapeId = 1u;
+    uint32_t activeShapeCount = 0u;
+    const auto pageStateRes = (queryPid == m_activePageId) ? stateRes : m_doc.GetStateJson(m_activePageId);
+    if (pageStateRes.ok() && !pageStateRes.value->empty()) {
+        Windows::Data::Json::JsonObject pageObj{nullptr};
+        if (Windows::Data::Json::JsonObject::TryParse(*pageStateRes.value, pageObj) && pageObj.HasKey(L"shapes")) {
+            const auto shapesArr = pageObj.GetNamedArray(L"shapes");
+            activeShapeCount = shapesArr.Size();
+            if (activeShapeCount > 0) {
+                firstShapeId = static_cast<uint64_t>(shapesArr.GetObjectAt(0).GetNamedNumber(L"id", 1.0));
+            }
+        }
+    }
+    m_selectedShapeId = firstShapeId;
+    m_previousSelectedShapeId = firstShapeId;
+    StatusShapeCountText().Text(hstring{
+        std::format(L"Shapes: {} • Selected: Sheet.{}", activeShapeCount, m_selectedShapeId)
+    });
+    RebuildPageTabsStrip();
 }
 
 // ===========================================================================
@@ -3435,37 +3608,47 @@ void MainWindow::ApplyLanguageStrings() {
         const wchar_t* continueCanvas;
         const wchar_t* startHero;
         const wchar_t* searchHint;
+        const wchar_t* saveDoc;
+        const wchar_t* saveAs;
+        const wchar_t* saveAsShort;
+        const wchar_t* renameShort;
     };
 
     static constexpr UiLangPack kEn{
         L"File", L"Home", L"Insert", L"Design", L"Data", L"Process", L"Review", L"View", L"Developer",
         L"Export ▾", L"Help & Updates ▾", L"Updates", L"+ Import Visio Stencil (.vssx / .vss)",
-        L"← Continue to Canvas", L"Start or Open a Diagram Inside Vexio", L"Search 520+ shapes in 22 packs..."
+        L"← Continue to Canvas", L"Start or Open a Diagram Inside Vexio", L"Search 520+ shapes in 22 packs...",
+        L"Save (Ctrl+S)", L"Save As… (Ctrl+Shift+S)", L"Save As…", L"Rename"
     };
     static constexpr UiLangPack kDe{
         L"Datei", L"Start", L"Einfügen", L"Entwurf", L"Daten", L"Prozess", L"Überprüfen", L"Ansicht", L"Entwickler",
         L"Exportieren ▾", L"Hilfe & Updates ▾", L"Updates", L"+ Visio-Schablone importieren (.vssx)",
-        L"← Weiter zur Zeichenfläche", L"Diagramm in Vexio erstellen oder öffnen", L"520+ Formen durchsuchen..."
+        L"← Weiter zur Zeichenfläche", L"Diagramm in Vexio erstellen oder öffnen", L"520+ Formen durchsuchen...",
+        L"Speichern (Ctrl+S)", L"Speichern unter… (Ctrl+Shift+S)", L"Speichern unter…", L"Umbenennen"
     };
     static constexpr UiLangPack kIt{
         L"File", L"Home", L"Inserisci", L"Progettazione", L"Dati", L"Processo", L"Revisione", L"Visualizza", L"Sviluppo",
         L"Esporta ▾", L"Aiuto e Aggiornamenti ▾", L"Aggiorna", L"+ Importa Stencil Visio (.vssx)",
-        L"← Vai al foglio di disegno", L"Crea o apri un diagramma in Vexio", L"Cerca oltre 520 forme..."
+        L"← Vai al foglio di disegno", L"Crea o apri un diagramma in Vexio", L"Cerca oltre 520 forme...",
+        L"Salva (Ctrl+S)", L"Salva con nome… (Ctrl+Shift+S)", L"Salva con nome…", L"Rinomina"
     };
     static constexpr UiLangPack kFr{
         L"Fichier", L"Accueil", L"Insertion", L"Création", L"Données", L"Processus", L"Révision", L"Affichage", L"Développeur",
         L"Exporter ▾", L"Aide & Mises à jour ▾", L"Mises à jour", L"+ Importer gabarit Visio (.vssx)",
-        L"← Continuer vers le dessin", L"Créer ou ouvrir un diagramme dans Vexio", L"Rechercher 520+ formes..."
+        L"← Continuer vers le dessin", L"Créer ou ouvrir un diagramme dans Vexio", L"Rechercher 520+ formes...",
+        L"Enregistrer (Ctrl+S)", L"Enregistrer sous… (Ctrl+Shift+S)", L"Enregistrer sous…", L"Renommer"
     };
     static constexpr UiLangPack kEs{
         L"Archivo", L"Inicio", L"Insertar", L"Diseño", L"Datos", L"Proceso", L"Revisar", L"Vista", L"Programador",
         L"Exportar ▾", L"Ayuda y Actualizaciones ▾", L"Actualizar", L"+ Importar galería Visio (.vssx)",
-        L"← Continuar al lienzo", L"Crear o abrir un diagrama en Vexio", L"Buscar más de 520 formas..."
+        L"← Continuar al lienzo", L"Crear o abrir un diagrama en Vexio", L"Buscar más de 520 formas...",
+        L"Guardar (Ctrl+S)", L"Guardar como… (Ctrl+Shift+S)", L"Guardar como…", L"Renombrar"
     };
     static constexpr UiLangPack kEl{
         L"Αρχείο", L"Κεντρική", L"Εισαγωγή", L"Σχεδίαση", L"Δεδομένα", L"Διαδικασία", L"Αναθεώρηση", L"Προβολή", L"Προγραμματιστής",
         L"Εξαγωγή ▾", L"Βοήθεια & Ενημερώσεις ▾", L"Ενημερώσεις", L"+ Εισαγωγή Stencil Visio (.vssx)",
-        L"← Συνέχεια στον καμβά", L"Δημιουργία ή άνοιγμα διαγράμματος στο Vexio", L"Αναζήτηση 520+ σχημάτων..."
+        L"← Συνέχεια στον καμβά", L"Δημιουργία ή άνοιγμα διαγράμματος στο Vexio", L"Αναζήτηση 520+ σχημάτων...",
+        L"Αποθήκευση (Ctrl+S)", L"Αποθήκευση ως… (Ctrl+Shift+S)", L"Αποθήκευση ως…", L"Μετονομασία"
     };
 
     const UiLangPack* pack = &kEn;
@@ -3491,6 +3674,10 @@ void MainWindow::ApplyLanguageStrings() {
     BackstageReturnLabel().Text(pack->continueCanvas);
     BackstageHeroHeading().Text(pack->startHero);
     StencilSearchBox().PlaceholderText(pack->searchHint);
+    QatSaveAsLabel().Text(pack->saveAsShort);
+    BackstageSaveButton().Content(box_value(pack->saveDoc));
+    BackstageSaveAsButton().Content(box_value(pack->saveAs));
+    BottomRenamePageLabel().Text(pack->renameShort);
 }
 
 void MainWindow::OnAppLanguageChanged(IInspectable const&, SelectionChangedEventArgs const&) {
@@ -3786,6 +3973,45 @@ void MainWindow::OnTextVAlignBottomClick(IInspectable const&, RoutedEventArgs co
 void MainWindow::OnBulletListToggleClick(IInspectable const&, RoutedEventArgs const&) {
     const bool bulleted = BulletListToggle().IsChecked().GetBoolean();
     ApplyRichTextPatchJson(bulleted ? "{\"bullet\":1}" : "{\"bullet\":0}");
+}
+
+void MainWindow::OnTextColorPickerChanged(ColorPicker const&, ColorChangedEventArgs const& args) {
+    if (!m_isInitialized || m_syncingTextControls) return;
+    const auto c = args.NewColor();
+    ApplyRichTextPatchJson(std::format("{{\"colorHex\":\"#{:02X}{:02X}{:02X}\"}}", c.R, c.G, c.B));
+}
+
+void MainWindow::OnTextHighlightPickerChanged(ColorPicker const&, ColorChangedEventArgs const& args) {
+    if (!m_isInitialized || m_syncingTextControls) return;
+    const auto c = args.NewColor();
+    ApplyRichTextPatchJson(std::format("{{\"bgColorHex\":\"#{:02X}{:02X}{:02X}\"}}", c.R, c.G, c.B));
+}
+
+void MainWindow::OnClearTextHighlightClick(IInspectable const&, RoutedEventArgs const&) {
+    if (!m_isInitialized) return;
+    ApplyRichTextPatchJson("{\"bgColorHex\":\"none\"}");
+}
+
+void MainWindow::OnShapeFillColorPickerChanged(ColorPicker const&, ColorChangedEventArgs const& args) {
+    if (!m_isInitialized || m_syncingTextControls || !m_doc || m_selectedShapeId == 0) return;
+    const auto c = args.NewColor();
+    const std::string formula = std::format("RGB({},{},{})", c.R, c.G, c.B);
+    FormatFillForegndBox().Text(vexio::win::ToHString(formula));
+    (void)m_doc.SetCellFormula(m_activePageId, m_selectedShapeId, "FillForegnd", formula, m_forceSetf);
+    MarkDocumentDirty(true);
+    PresentViewportFrame();
+    RefreshShapeSheetSectionRows();
+}
+
+void MainWindow::OnShapeLineColorPickerChanged(ColorPicker const&, ColorChangedEventArgs const& args) {
+    if (!m_isInitialized || m_syncingTextControls || !m_doc || m_selectedShapeId == 0) return;
+    const auto c = args.NewColor();
+    const std::string formula = std::format("RGB({},{},{})", c.R, c.G, c.B);
+    FormatLineColorBox().Text(vexio::win::ToHString(formula));
+    (void)m_doc.SetCellFormula(m_activePageId, m_selectedShapeId, "LineColor", formula, m_forceSetf);
+    MarkDocumentDirty(true);
+    PresentViewportFrame();
+    RefreshShapeSheetSectionRows();
 }
 
 // ===========================================================================

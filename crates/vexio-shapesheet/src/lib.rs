@@ -22,6 +22,7 @@ pub use parser::{
 pub use sections::{
     ActionRow, Cell, ConnectionPointRow, ControlRow, GeometryRow, GeometryRowKind, GeometrySection,
     HyperlinkRow, ShapeDataRow, ShapeDataType, ShapeSheet, TextFieldRow, UserCellRow,
+    visio_standard_palette_color,
 };
 pub use units::{CellError, CellValue, RgbaColor, Unit, format_clean_f64, parse_scalar_with_unit};
 

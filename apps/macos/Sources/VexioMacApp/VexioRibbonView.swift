@@ -49,6 +49,8 @@ public struct HoverSwitchMenuButton<MenuContent: View>: View {
                 }
                 Text(title)
                     .font(.system(size: 11.5, weight: .medium))
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
                 Image(systemName: "chevron.down")
                     .font(.system(size: 8.5, weight: .bold))
                     .foregroundStyle(.secondary)
@@ -84,16 +86,17 @@ public struct HoverSwitchMenuButton<MenuContent: View>: View {
                 content()
             }
             .padding(8)
-            .frame(minWidth: 195)
+            .frame(minWidth: 205)
         }
     }
 }
 
-// MARK: - AppKit Auto-Select-All TextField for Double-Click Filename & Inline Label Editing
+// MARK: - AppKit Auto-Select-All TextField for Double-Click Filename, Page & Inline Label Editing
 
 public struct SelectAllInlineTextField: NSViewRepresentable {
     @Binding public var text: String
     public var placeholder: String
+    public var fontFamily: String
     public var fontSize: CGFloat
     public var fontWeight: NSFont.Weight
     public var alignment: NSTextAlignment
@@ -104,6 +107,7 @@ public struct SelectAllInlineTextField: NSViewRepresentable {
     public init(
         text: Binding<String>,
         placeholder: String = "",
+        fontFamily: String = "",
         fontSize: CGFloat = 12.5,
         fontWeight: NSFont.Weight = .semibold,
         alignment: NSTextAlignment = .left,
@@ -113,12 +117,20 @@ public struct SelectAllInlineTextField: NSViewRepresentable {
     ) {
         self._text = text
         self.placeholder = placeholder
+        self.fontFamily = fontFamily
         self.fontSize = fontSize
         self.fontWeight = fontWeight
         self.alignment = alignment
         self.isCanvasInPlace = isCanvasInPlace
         self.onCommit = onCommit
         self.onCancel = onCancel
+    }
+
+    private func resolvedNSFont() -> NSFont {
+        if !fontFamily.isEmpty, let custom = NSFont(name: fontFamily, size: fontSize) {
+            return custom
+        }
+        return NSFont.systemFont(ofSize: fontSize, weight: fontWeight)
     }
 
     public func makeCoordinator() -> Coordinator {
@@ -128,7 +140,7 @@ public struct SelectAllInlineTextField: NSViewRepresentable {
     public func makeNSView(context: Context) -> NSTextField {
         let tf = NSTextField(string: text)
         tf.placeholderString = placeholder
-        tf.font = NSFont.systemFont(ofSize: fontSize, weight: fontWeight)
+        tf.font = resolvedNSFont()
         tf.alignment = alignment
         if isCanvasInPlace {
             tf.isBordered = false
@@ -150,7 +162,7 @@ public struct SelectAllInlineTextField: NSViewRepresentable {
 
     public func updateNSView(_ nsView: NSTextField, context: Context) {
         nsView.alignment = alignment
-        nsView.font = NSFont.systemFont(ofSize: fontSize, weight: fontWeight)
+        nsView.font = resolvedNSFont()
         if nsView.stringValue != text {
             nsView.stringValue = text
         }
@@ -225,29 +237,28 @@ public struct VexioHeaderAndRibbonBar: View {
 
     public let onRequestOpenFile: () -> Void
     public let onRequestSaveFile: () -> Void
+    public let onRequestSaveAsFile: () -> Void
     public let onRequestImportStencil: () -> Void
     public let onRequestExport: (VexioExportFormat) -> Void
     public let onRequestDataVisualizerExport: () -> Void
     public let onRequestOffscreenPreview: () -> Void
 
-    private let fontFamilies = ["Inter", "SF Pro", "Helvetica Neue", "Arial", "Georgia", "Times New Roman", "Menlo"]
-    private let fontSizes: [Double] = [8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 36, 48]
-    private let textColors: [(String, Color, String)] = [
-        ("Slate", Color(red: 0.06, green: 0.09, blue: 0.16), "#0F172A"),
-        ("Blue", Color(red: 0.11, green: 0.31, blue: 0.85), "#1D4ED8"),
-        ("Red", Color(red: 0.86, green: 0.15, blue: 0.15), "#DC2626"),
-        ("Green", Color(red: 0.08, green: 0.50, blue: 0.24), "#15803D"),
-        ("Amber", Color(red: 0.71, green: 0.33, blue: 0.04), "#B45309"),
-        ("Purple", Color(red: 0.49, green: 0.23, blue: 0.93), "#7C3AED"),
-        ("White", .white, "#FFFFFF"),
-    ]
-    private let highlightColors: [(String, Color, String)] = [
-        ("None", .clear, "none"),
-        ("Yellow", Color(red: 0.996, green: 0.941, blue: 0.541), "#FEF08A"),
-        ("Cyan", Color(red: 0.647, green: 0.953, blue: 0.988), "#A5F3FC"),
-        ("Green", Color(red: 0.733, green: 0.969, blue: 0.816), "#BBF7D0"),
-        ("Rose", Color(red: 0.996, green: 0.796, blue: 0.827), "#FECDD3"),
-    ]
+    private let fontSizes: [Double] = [8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 36, 48, 72]
+
+    private var availableFontFamilies: [String] {
+        var list = VexioDocumentSession.installedSystemFontFamilies
+        if !session.selectedFontFamily.isEmpty && !list.contains(session.selectedFontFamily) {
+            list.insert(session.selectedFontFamily, at: 0)
+        }
+        return list
+    }
+
+    private var resolvedFontSizes: [Double] {
+        if fontSizes.contains(session.selectedFontSizePt) {
+            return fontSizes
+        }
+        return (fontSizes + [session.selectedFontSizePt]).sorted()
+    }
 
     private var isDarkMode: Bool {
         appearanceMode == "dark"
@@ -261,15 +272,18 @@ public struct VexioHeaderAndRibbonBar: View {
             }
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 6)
-        .liquidGlassSurface(cornerRadius: 16, elevation: .toolbarBar)
+        .padding(.vertical, 5)
+        .liquidGlassSurface(cornerRadius: 14, elevation: .toolbarBar)
     }
 
-    // MARK: - Row 1: Clean Window Header + Double-Click Editable Title + Center Ribbon Tab Strip
+    // MARK: - Row 1: Unified Window Header (Inline Traffic Lights) + Save / Save As + Editable Title + Ribbon Tabs
 
     private var topTitleAndTabStrip: some View {
         HStack(spacing: 8) {
-            // Left: Stencil toggle + Visio "File" Backstage button + Save/Undo/Redo + Editable Document Name
+            // Reserve 68pt inline for native macOS window traffic lights so zero blank titlebar strip is wasted above Row 1!
+            Spacer().frame(width: 68)
+
+            // Left: Stencil toggle + Visio "File" Backstage button + Save / Save As / Undo / Redo + Editable Document Name
             HStack(spacing: 5) {
                 LiquidGlassIconButton(
                     systemImage: "sidebar.left",
@@ -288,6 +302,8 @@ public struct VexioHeaderAndRibbonBar: View {
                 } label: {
                     Text(i18n.t("file"))
                         .font(.system(size: 12, weight: .bold))
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
                         .foregroundStyle(.white)
                         .padding(.horizontal, 11)
                         .padding(.vertical, 4.5)
@@ -295,8 +311,11 @@ public struct VexioHeaderAndRibbonBar: View {
                 }
                 .buttonStyle(.plain)
 
-                LiquidGlassIconButton(systemImage: "square.and.arrow.down", title: "Save (⌘S)") {
+                LiquidGlassIconButton(systemImage: "square.and.arrow.down", title: "\(i18n.t("saveFile")) (⌘S)") {
                     onRequestSaveFile()
+                }
+                LiquidGlassIconButton(systemImage: "square.and.arrow.down.on.square", title: "\(i18n.t("saveAs")) (⇧⌘S)") {
+                    onRequestSaveAsFile()
                 }
                 LiquidGlassIconButton(systemImage: "arrow.uturn.backward", title: "Undo (⌘Z)") {
                     session.performUndo(undoManager: undoManager)
@@ -307,7 +326,7 @@ public struct VexioHeaderAndRibbonBar: View {
 
                 Divider().frame(height: 16)
 
-                // Double-click filename inline rename (Fixes Remark #11 / Screenshot 2)
+                // Double-click filename inline rename
                 if isEditingTitle {
                     SelectAllInlineTextField(
                         text: $titleDraft,
@@ -334,13 +353,14 @@ public struct VexioHeaderAndRibbonBar: View {
                                 .padding(.horizontal, 4.5)
                                 .padding(.vertical, 1)
                                 .background(Capsule().fill(Color.accentColor.opacity(0.16)))
+                                .fixedSize()
                         }
                         Text(session.statusMessage)
                             .font(.system(size: 9.5))
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                     }
-                    .frame(maxWidth: 205, alignment: .leading)
+                    .frame(maxWidth: 190, alignment: .leading)
                     .contentShape(Rectangle())
                     .help(i18n.t("doubleClickRenameHint"))
                     .onTapGesture(count: 2) {
@@ -350,50 +370,54 @@ public struct VexioHeaderAndRibbonBar: View {
                 }
             }
 
-            Spacer(minLength: 6)
+            Spacer(minLength: 4)
 
-            // Center: Clean Visio Ribbon Tab Strip (hover-switches tabs smoothly when dragging/exploring)
-            HStack(spacing: 3) {
-                ForEach(VexioRibbonTab.allCases) { tab in
-                    let isSelected = (activeRibbonTab == tab && !isRibbonCollapsed)
+            // Center: Non-Truncating Visio Ribbon Tab Strip
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 3) {
+                    ForEach(VexioRibbonTab.allCases) { tab in
+                        let isSelected = (activeRibbonTab == tab && !isRibbonCollapsed)
+                        Button {
+                            withAnimation(LiquidGlassPhysics.standardSpring) {
+                                if activeRibbonTab == tab {
+                                    isRibbonCollapsed.toggle()
+                                } else {
+                                    activeRibbonTab = tab
+                                    isRibbonCollapsed = false
+                                }
+                            }
+                        } label: {
+                            Text(i18n.t(tab.rawValue))
+                                .font(.system(size: 11.5, weight: isSelected ? .bold : .medium))
+                                .lineLimit(1)
+                                .fixedSize(horizontal: true, vertical: false)
+                                .foregroundStyle(isSelected ? Color.accentColor : Color.primary)
+                                .padding(.horizontal, 8.5)
+                                .padding(.vertical, 4.5)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                        .fill(isSelected ? Color.accentColor.opacity(0.16) : Color.clear)
+                                )
+                        }
+                        .buttonStyle(.plain)
+                    }
+
                     Button {
                         withAnimation(LiquidGlassPhysics.standardSpring) {
-                            if activeRibbonTab == tab {
-                                isRibbonCollapsed.toggle()
-                            } else {
-                                activeRibbonTab = tab
-                                isRibbonCollapsed = false
-                            }
+                            isRibbonCollapsed.toggle()
                         }
                     } label: {
-                        Text(i18n.t(tab.rawValue))
-                            .font(.system(size: 11.5, weight: isSelected ? .bold : .medium))
-                            .foregroundStyle(isSelected ? Color.accentColor : Color.primary)
-                            .padding(.horizontal, 9)
-                            .padding(.vertical, 4.5)
-                            .background(
-                                RoundedRectangle(cornerRadius: 7, style: .continuous)
-                                    .fill(isSelected ? Color.accentColor.opacity(0.16) : Color.clear)
-                            )
+                        Image(systemName: isRibbonCollapsed ? "chevron.down" : "chevron.up")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundStyle(.secondary)
+                            .padding(5)
                     }
                     .buttonStyle(.plain)
+                    .help(isRibbonCollapsed ? "Expand Visio Ribbon" : "Collapse Visio Ribbon")
                 }
-
-                Button {
-                    withAnimation(LiquidGlassPhysics.standardSpring) {
-                        isRibbonCollapsed.toggle()
-                    }
-                } label: {
-                    Image(systemName: isRibbonCollapsed ? "chevron.down" : "chevron.up")
-                        .font(.system(size: 10, weight: .bold))
-                        .foregroundStyle(.secondary)
-                        .padding(5)
-                }
-                .buttonStyle(.plain)
-                .help(isRibbonCollapsed ? "Expand Visio Ribbon" : "Collapse Visio Ribbon")
             }
 
-            Spacer(minLength: 6)
+            Spacer(minLength: 4)
 
             // Right: Hover-Switch Menus (Language, Units, Export) + Update + Theme + Panel Toggles
             HStack(spacing: 5) {
@@ -497,6 +521,7 @@ public struct VexioHeaderAndRibbonBar: View {
                     }
                 }
             }
+            .fixedSize(horizontal: true, vertical: false)
         }
     }
 
@@ -533,7 +558,7 @@ public struct VexioHeaderAndRibbonBar: View {
         }
     }
 
-    // 1. HOME RIBBON: Clipboard | Font | Paragraph | Tools | Arrange (Rotate 90° & Flip)
+    // 1. HOME RIBBON: Clipboard | Native OS Font & Native OS ColorPickers | Paragraph | Shape Styles | Tools | Arrange
     private var homeRibbonGroups: some View {
         HStack(spacing: 10) {
             ribbonGroup(title: i18n.t("clipboard")) {
@@ -555,31 +580,36 @@ public struct VexioHeaderAndRibbonBar: View {
 
             Divider().frame(height: 44)
 
-            // Rich Text Formatting Group (Fixes Remark #3 & #14)
+            // Native OS Installed Fonts + Native macOS ColorPicker (NSColorPanel)
             ribbonGroup(title: i18n.t("font")) {
                 HStack(spacing: 5) {
                     Picker("", selection: Binding(
                         get: { session.selectedFontFamily },
                         set: { session.applyTextStyle(fontFamily: $0, undoManager: undoManager) }
                     )) {
-                        ForEach(fontFamilies, id: \.self) { f in
+                        ForEach(availableFontFamilies, id: \.self) { f in
                             Text(f).tag(f)
                         }
                     }
                     .labelsHidden()
-                    .frame(width: 118)
+                    .frame(width: 148)
                     .controlSize(.small)
+                    .help("Installed macOS System Fonts")
+
+                    LiquidGlassIconButton(systemImage: "textformat", title: "\(i18n.t("fontPanel")) (⌘T)") {
+                        NSFontManager.shared.orderFrontFontPanel(nil)
+                    }
 
                     Picker("", selection: Binding(
                         get: { session.selectedFontSizePt },
                         set: { session.applyTextStyle(fontSizePt: $0, undoManager: undoManager) }
                     )) {
-                        ForEach(fontSizes, id: \.self) { sz in
-                            Text("\(Int(sz)) pt").tag(sz)
+                        ForEach(resolvedFontSizes, id: \.self) { sz in
+                            Text("\(Int(sz.rounded())) pt").tag(sz)
                         }
                     }
                     .labelsHidden()
-                    .frame(width: 68)
+                    .frame(width: 70)
                     .controlSize(.small)
 
                     LiquidGlassIconButton(systemImage: "textformat.size.larger", title: "Grow Font (+2 pt)") {
@@ -604,52 +634,100 @@ public struct VexioHeaderAndRibbonBar: View {
                         session.applyTextStyle(toggleStyleMask: 8, undoManager: undoManager)
                     }
 
-                    HoverSwitchMenuButton(
-                        id: "home.textcolor",
-                        title: "A",
-                        systemImage: "paintbrush",
-                        coordinator: menuCoordinator
-                    ) {
-                        Text("Text Color").font(.system(size: 11, weight: .bold)).padding(.bottom, 2)
-                        ForEach(textColors, id: \.2) { item in
-                            Button {
-                                session.applyTextStyle(textColorHex: item.2, undoManager: undoManager)
-                                menuCoordinator.activeMenuID = nil
-                            } label: {
-                                HStack(spacing: 8) {
-                                    Circle().fill(item.1).frame(width: 12, height: 12)
-                                        .overlay(Circle().stroke(Color.primary.opacity(0.25), lineWidth: 0.7))
-                                    Text(item.0)
-                                    Spacer()
+                    Divider().frame(height: 20)
+
+                    // Native macOS NSColorPanel Picker for Text Color
+                    HStack(spacing: 3) {
+                        Image(systemName: "textformat.abc")
+                            .font(.system(size: 10.5, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                        ColorPicker(
+                            "",
+                            selection: Binding(
+                                get: { Color(vexioHex: session.selectedTextColorHex) },
+                                set: { c in
+                                    let hex = c.vexioHexRGBString
+                                    session.selectedTextColorHex = hex
+                                    session.applyTextStyle(textColorHex: hex, undoManager: undoManager)
                                 }
-                            }
-                            .buttonStyle(.plain)
-                            .padding(.vertical, 2)
-                        }
+                            ),
+                            supportsOpacity: false
+                        )
+                        .labelsHidden()
+                        .help("Text Color (Native macOS Color Picker)")
                     }
 
-                    HoverSwitchMenuButton(
-                        id: "home.texthighlight",
-                        title: "Bg",
-                        systemImage: "highlighter",
-                        coordinator: menuCoordinator
-                    ) {
-                        Text("Text Highlight").font(.system(size: 11, weight: .bold)).padding(.bottom, 2)
-                        ForEach(highlightColors, id: \.2) { item in
-                            Button {
-                                session.applyTextStyle(textBgColorHex: item.2, undoManager: undoManager)
-                                menuCoordinator.activeMenuID = nil
-                            } label: {
-                                HStack(spacing: 8) {
-                                    RoundedRectangle(cornerRadius: 3).fill(item.1).frame(width: 14, height: 12)
-                                        .overlay(RoundedRectangle(cornerRadius: 3).stroke(Color.primary.opacity(0.25), lineWidth: 0.7))
-                                    Text(item.0)
-                                    Spacer()
+                    // Native macOS NSColorPanel Picker for Highlight + Clear Button
+                    HStack(spacing: 3) {
+                        Image(systemName: "highlighter")
+                            .font(.system(size: 10.5, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                        ColorPicker(
+                            "",
+                            selection: Binding(
+                                get: {
+                                    session.selectedTextBgColorHex == "none"
+                                        ? Color(vexioHex: "#FEF08A")
+                                        : Color(vexioHex: session.selectedTextBgColorHex)
+                                },
+                                set: { c in
+                                    let hex = c.vexioHexRGBString
+                                    session.selectedTextBgColorHex = hex
+                                    session.applyTextStyle(textBgColorHex: hex, undoManager: undoManager)
                                 }
+                            ),
+                            supportsOpacity: false
+                        )
+                        .labelsHidden()
+                        .help("Text Highlight Color (Native macOS Color Picker)")
+
+                        if session.selectedTextBgColorHex != "none" {
+                            LiquidGlassIconButton(systemImage: "xmark.circle", title: i18n.t("clearHighlight")) {
+                                session.selectedTextBgColorHex = "none"
+                                session.applyTextStyle(textBgColorHex: "none", undoManager: undoManager)
                             }
-                            .buttonStyle(.plain)
-                            .padding(.vertical, 2)
                         }
+                    }
+                }
+            }
+
+            Divider().frame(height: 44)
+
+            // Shape Fill & Line Native macOS ColorPickers
+            ribbonGroup(title: i18n.t("shapeStyles")) {
+                HStack(spacing: 6) {
+                    HStack(spacing: 3) {
+                        Text(i18n.t("fillColor"))
+                            .font(.system(size: 10.5, weight: .medium))
+                            .lineLimit(1)
+                            .fixedSize()
+                        ColorPicker(
+                            "",
+                            selection: Binding(
+                                get: { Color(vexioHex: session.selectedFillColorHex) },
+                                set: { session.applyFillColor($0, undoManager: undoManager) }
+                            ),
+                            supportsOpacity: false
+                        )
+                        .labelsHidden()
+                        .help("Shape Fill Color (Native macOS Color Picker)")
+                    }
+
+                    HStack(spacing: 3) {
+                        Text(i18n.t("lineColor"))
+                            .font(.system(size: 10.5, weight: .medium))
+                            .lineLimit(1)
+                            .fixedSize()
+                        ColorPicker(
+                            "",
+                            selection: Binding(
+                                get: { Color(vexioHex: session.selectedLineColorHex) },
+                                set: { session.applyLineColor($0, undoManager: undoManager) }
+                            ),
+                            supportsOpacity: false
+                        )
+                        .labelsHidden()
+                        .help("Line / Border Color (Native macOS Color Picker)")
                     }
                 }
             }
@@ -1019,8 +1097,11 @@ public struct VexioHeaderAndRibbonBar: View {
                 .frame(height: 30)
             Text(title.uppercased())
                 .font(.system(size: 8.5, weight: .bold))
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
                 .foregroundStyle(.secondary)
         }
+        .fixedSize(horizontal: true, vertical: false)
     }
 
     @ViewBuilder
@@ -1031,6 +1112,8 @@ public struct VexioHeaderAndRibbonBar: View {
                     .font(.system(size: 11.5, weight: .medium))
                 Text(label)
                     .font(.system(size: 11, weight: .medium))
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
             }
             .padding(.horizontal, 7)
             .padding(.vertical, 4)

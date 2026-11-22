@@ -148,7 +148,7 @@ pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeAttachVulka
         let h = height.max(1) as u32;
         let dpi = density.max(0.5);
         #[allow(unused_mut)]
-        let mut vp = VexioViewport::new_base(&doc.session.doc, 1, w, h, dpi);
+        let mut vp = VexioViewport::new_base(&doc.session.doc, u32::MAX, w, h, dpi);
 
         #[cfg(target_os = "android")]
         {
@@ -264,9 +264,17 @@ pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeSetViewport
             // SAFETY: Valid `VexioViewport` and `VexioDoc` pointers.
             let vp = unsafe { &mut *(viewport_ptr as *mut VexioViewport) };
             let doc = unsafe { &*(doc_ptr as *const VexioDoc) };
-            vp.page_id = page_id.max(1) as u32;
+            let requested = if page_id < 0 { u32::MAX } else { page_id as u32 };
+            let target_page = doc
+                .session
+                .doc
+                .page(requested)
+                .or_else(|| doc.session.doc.pages.iter().find(|p| !p.is_background))
+                .or_else(|| doc.session.doc.pages.first());
+            let resolved_id = target_page.map(|p| p.id).unwrap_or(requested);
+            vp.page_id = resolved_id;
             vp.selected_ids.clear();
-            if let Some(p) = doc.session.doc.page(vp.page_id) {
+            if let Some(p) = target_page {
                 vp.camera.fit_to_page(p.width_in(), p.height_in());
             }
             vp.present_if_attached(&doc.session.doc);
@@ -531,7 +539,7 @@ pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeTransformSh
         if doc
             .session
             .transform_shape(
-                page_id.max(1) as u32,
+                page_id.max(0) as u32,
                 shape_id as u64,
                 pin_x_in,
                 pin_y_in,
@@ -668,7 +676,12 @@ pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeGetStateJso
         }
         // SAFETY: Valid `VexioDoc` pointer.
         let doc = unsafe { &*(doc_ptr as *const VexioDoc) };
-        let json = build_native_state_json(&doc.session, active_page_id.max(1) as u32);
+        let requested = if active_page_id < 0 {
+            u32::MAX
+        } else {
+            active_page_id as u32
+        };
+        let json = build_native_state_json(&doc.session, requested);
         env.new_string(json).unwrap().into_raw()
     }))
     .unwrap_or_else(|_| std::ptr::null_mut())
@@ -696,7 +709,7 @@ pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeDropStencil
         // SAFETY: Valid `VexioDoc` pointer.
         let doc = unsafe { &mut *(doc_ptr as *mut VexioDoc) };
         doc.session
-            .drop_builtin_shape(page_id.max(1) as u32, &cat, &master, x_in, y_in)
+            .drop_builtin_shape(page_id.max(0) as u32, &cat, &master, x_in, y_in)
             .unwrap_or(0) as jlong
     }))
     .unwrap_or(0)
@@ -724,7 +737,7 @@ pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeDrawPrimiti
         // SAFETY: Valid `VexioDoc` pointer.
         let doc = unsafe { &mut *(doc_ptr as *mut VexioDoc) };
         doc.session
-            .draw_primitive_2d(page_id.max(1) as u32, &k, x1_in, y1_in, x2_in, y2_in)
+            .draw_primitive_2d(page_id.max(0) as u32, &k, x1_in, y1_in, x2_in, y2_in)
             .unwrap_or(0) as jlong
     }))
     .unwrap_or(0)
@@ -746,7 +759,7 @@ pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeConnectShap
         // SAFETY: Valid `VexioDoc` pointer.
         let doc = unsafe { &mut *(doc_ptr as *mut VexioDoc) };
         doc.session
-            .connect_shapes(page_id.max(1) as u32, from_shape_id as u64, to_shape_id as u64)
+            .connect_shapes(page_id.max(0) as u32, from_shape_id as u64, to_shape_id as u64)
             .unwrap_or(0) as jlong
     }))
     .unwrap_or(0)
@@ -775,7 +788,7 @@ pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeDeleteShape
         // SAFETY: Valid `VexioDoc` pointer.
         let doc = unsafe { &mut *(doc_ptr as *mut VexioDoc) };
         doc.session
-            .delete_shapes(page_id.max(1) as u32, &ids)
+            .delete_shapes(page_id.max(0) as u32, &ids)
             .unwrap_or(0) as jint
     }))
     .unwrap_or(0)
@@ -806,7 +819,7 @@ pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeDuplicateSh
         // SAFETY: Valid `VexioDoc` pointer.
         let doc = unsafe { &mut *(doc_ptr as *mut VexioDoc) };
         doc.session
-            .duplicate_shapes(page_id.max(1) as u32, &ids, dx_in, dy_in)
+            .duplicate_shapes(page_id.max(0) as u32, &ids, dx_in, dy_in)
             .ok()
             .and_then(|v| v.first().copied())
             .unwrap_or(0) as jlong
@@ -839,7 +852,7 @@ pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeReorderShap
         // SAFETY: Valid `VexioDoc` pointer.
         let doc = unsafe { &mut *(doc_ptr as *mut VexioDoc) };
         doc.session
-            .reorder_shapes(page_id.max(1) as u32, &ids, &mode_str)
+            .reorder_shapes(page_id.max(0) as u32, &ids, &mode_str)
             .unwrap_or(0) as jint
     }))
     .unwrap_or(0)
@@ -865,7 +878,7 @@ pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeSetShapeTex
         let doc = unsafe { &mut *(doc_ptr as *mut VexioDoc) };
         if doc
             .session
-            .set_shape_text(page_id.max(1) as u32, shape_id as u64, &txt)
+            .set_shape_text(page_id.max(0) as u32, shape_id as u64, &txt)
             .is_ok()
         {
             JNI_TRUE
@@ -912,7 +925,7 @@ pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeAutoLayout<
         let alg: String = env.get_string(&algo).map(Into::into).unwrap_or_else(|_| "tb".into());
         // SAFETY: Valid `VexioDoc` pointer.
         let doc = unsafe { &mut *(doc_ptr as *mut VexioDoc) };
-        doc.session.layout(page_id.max(1) as u32, &alg);
+        doc.session.layout(page_id.max(0) as u32, &alg);
     }));
 }
 
@@ -1492,7 +1505,7 @@ pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeSetShapeTex
         // SAFETY: `doc_ptr` verified non-zero handle.
         let doc = unsafe { &mut *(doc_ptr as *mut VexioDoc) };
         doc.session
-            .apply_text_style_patch(page_id.max(1) as u32, &ids, &patch)
+            .apply_text_style_patch(page_id.max(0) as u32, &ids, &patch)
             .unwrap_or(0) as jint
     }))
     .unwrap_or(0)
@@ -1525,7 +1538,7 @@ pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeRotateFlipS
         let doc = unsafe { &mut *(doc_ptr as *mut VexioDoc) };
         doc.session
             .rotate_or_flip_shapes(
-                page_id.max(1) as u32,
+                page_id.max(0) as u32,
                 &ids,
                 delta_angle_deg,
                 toggle_flip_x == JNI_TRUE,
@@ -1558,7 +1571,7 @@ pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeSetPageSetu
         let doc = unsafe { &mut *(doc_ptr as *mut VexioDoc) };
         if doc
             .session
-            .set_page_setup(page_id.max(1) as u32, width_in, height_in, &unit_s)
+            .set_page_setup(page_id.max(0) as u32, width_in, height_in, &unit_s)
             .is_ok()
         {
             JNI_TRUE
@@ -1594,7 +1607,7 @@ pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeSetPagePres
         let doc = unsafe { &mut *(doc_ptr as *mut VexioDoc) };
         if doc
             .session
-            .set_page_setup(page_id.max(1) as u32, w_in, h_in, unit)
+            .set_page_setup(page_id.max(0) as u32, w_in, h_in, unit)
             .is_ok()
         {
             JNI_TRUE
@@ -1623,6 +1636,32 @@ pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeSetDocument
         let doc = unsafe { &mut *(doc_ptr as *mut VexioDoc) };
         doc.session.set_document_title(&t);
         JNI_TRUE
+    }))
+    .unwrap_or(JNI_FALSE)
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeRenamePage<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    doc_ptr: jlong,
+    page_id: jint,
+    new_name: JString<'local>,
+) -> jboolean {
+    catch_unwind(AssertUnwindSafe(|| {
+        if doc_ptr == 0 {
+            return JNI_FALSE;
+        }
+        let Ok(name_s) = env.get_string(&new_name).map(String::from) else {
+            return JNI_FALSE;
+        };
+        // SAFETY: `doc_ptr` verified non-zero handle.
+        let doc = unsafe { &mut *(doc_ptr as *mut VexioDoc) };
+        if doc.session.rename_page(page_id.max(0) as u32, &name_s) {
+            JNI_TRUE
+        } else {
+            JNI_FALSE
+        }
     }))
     .unwrap_or(JNI_FALSE)
 }

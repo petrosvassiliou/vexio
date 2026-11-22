@@ -125,7 +125,7 @@ public struct VexioGlobalMenuCommands: Commands {
             }
         }
 
-        // File Menu: In-App New / Open / Import Stencil / Save (Fixes Remarks #1 & #10)
+        // File Menu: In-App New / Open / Import Stencil / Save / Save As
         CommandGroup(replacing: .newItem) {
             Button("New / Templates Hub…") {
                 NotificationCenter.default.post(name: .vexioShowFileBackstage, object: nil)
@@ -144,14 +144,31 @@ public struct VexioGlobalMenuCommands: Commands {
 
             Divider()
 
-            Button("Save…") {
+            Button("Save") {
                 NotificationCenter.default.post(name: .vexioSaveFileSheet, object: nil)
             }
             .keyboardShortcut("s", modifiers: [.command])
+
+            Button("Save As…") {
+                NotificationCenter.default.post(name: .vexioSaveAsFileSheet, object: nil)
+            }
+            .keyboardShortcut("s", modifiers: [.command, .shift])
         }
 
-        // Format Menu: Rich Text Formatting Shortcuts (Fixes Remark #3)
+        // Format Menu: Native OS Font & Color Panels + Rich Text Formatting Shortcuts
         CommandMenu("Format") {
+            Button("Show OS Fonts…") {
+                NSFontManager.shared.orderFrontFontPanel(nil)
+            }
+            .keyboardShortcut("t", modifiers: [.command])
+
+            Button("Show OS Colors…") {
+                NSColorPanel.shared.orderFront(nil)
+            }
+            .keyboardShortcut("c", modifiers: [.command, .shift])
+
+            Divider()
+
             Button("Bold") {
                 session?.applyTextStyle(toggleStyleMask: 1, undoManager: NSApp.keyWindow?.undoManager)
             }
@@ -247,9 +264,8 @@ public struct VexioGlobalMenuCommands: Commands {
             .keyboardShortcut("-", modifiers: [.command])
             .disabled(session == nil)
 
-            Button("Actual Size (100%)") {
-                session?.zoomScale = 1.0
-                session?.panOffset = .zero
+            Button("Fit Page to Window") {
+                session?.fitViewportToActivePage()
             }
             .keyboardShortcut("0", modifiers: [.command])
             .disabled(session == nil)

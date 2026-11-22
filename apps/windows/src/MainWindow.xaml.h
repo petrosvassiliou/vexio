@@ -91,6 +91,8 @@ struct MainWindow : MainWindowT<MainWindow> {
                            winrt::Microsoft::UI::Xaml::Input::KeyboardAcceleratorInvokedEventArgs const& args);
     void OnSaveAccelerator(winrt::Microsoft::UI::Xaml::Input::KeyboardAccelerator const& sender,
                            winrt::Microsoft::UI::Xaml::Input::KeyboardAcceleratorInvokedEventArgs const& args);
+    void OnSaveAsAccelerator(winrt::Microsoft::UI::Xaml::Input::KeyboardAccelerator const& sender,
+                             winrt::Microsoft::UI::Xaml::Input::KeyboardAcceleratorInvokedEventArgs const& args);
     void OnOpenAccelerator(winrt::Microsoft::UI::Xaml::Input::KeyboardAccelerator const& sender,
                            winrt::Microsoft::UI::Xaml::Input::KeyboardAcceleratorInvokedEventArgs const& args);
     void OnTiledPrintAccelerator(winrt::Microsoft::UI::Xaml::Input::KeyboardAccelerator const& sender,
@@ -300,6 +302,11 @@ struct MainWindow : MainWindowT<MainWindow> {
     void OnTextVAlignMiddleClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
     void OnTextVAlignBottomClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
     void OnBulletListToggleClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
+    void OnTextColorPickerChanged(winrt::Microsoft::UI::Xaml::Controls::ColorPicker const& sender, winrt::Microsoft::UI::Xaml::Controls::ColorChangedEventArgs const& args);
+    void OnTextHighlightPickerChanged(winrt::Microsoft::UI::Xaml::Controls::ColorPicker const& sender, winrt::Microsoft::UI::Xaml::Controls::ColorChangedEventArgs const& args);
+    void OnClearTextHighlightClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
+    void OnShapeFillColorPickerChanged(winrt::Microsoft::UI::Xaml::Controls::ColorPicker const& sender, winrt::Microsoft::UI::Xaml::Controls::ColorChangedEventArgs const& args);
+    void OnShapeLineColorPickerChanged(winrt::Microsoft::UI::Xaml::Controls::ColorPicker const& sender, winrt::Microsoft::UI::Xaml::Controls::ColorChangedEventArgs const& args);
 
     void OnRotateLeft90Click(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
     void OnRotateRight90Click(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
@@ -319,6 +326,8 @@ private:
     [[nodiscard]] HWND GetNativeWindowHandle() const noexcept;
     void ConfigureCustomTitleBar();
     void DetectOsLocaleAndUnits();
+    void PopulateInstalledSystemFonts();
+    void SyncPagesFromCoreState(bool selectFirstForeground);
     void ApplyLanguageStrings();
     void CloseBackstageOverlay();
     void CommitDocumentTitleEdit(bool apply);

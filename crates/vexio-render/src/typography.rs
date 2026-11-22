@@ -41,6 +41,50 @@ pub struct RichTextRun {
     pub color: RgbaColor,
 }
 
+/// Visual font family classification used to adapt vector glyph serifs and pitch to OS fonts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum FontFamilyClass {
+    SansSerif,
+    Serif,
+    Monospace,
+}
+
+impl FontFamilyClass {
+    pub fn from_family_name(name: &str) -> Self {
+        let lower = name.to_ascii_lowercase();
+        if lower.contains("mono")
+            || lower.contains("menlo")
+            || lower.contains("monaco")
+            || lower.contains("consolas")
+            || lower.contains("courier")
+            || lower.contains("fira code")
+            || lower.contains("cascadia")
+            || lower.contains("jetbrains")
+            || lower.contains("inconsolata")
+            || lower.contains("source code")
+        {
+            Self::Monospace
+        } else if (lower.contains("serif") && !lower.contains("sans"))
+            || lower.contains("georgia")
+            || lower.contains("times")
+            || lower.contains("garamond")
+            || lower.contains("palatino")
+            || lower.contains("baskerville")
+            || lower.contains("cambria")
+            || lower.contains("constantia")
+            || lower.contains("charter")
+            || lower.contains("didot")
+            || lower.contains("bodoni")
+            || lower.contains("book antiqua")
+            || lower.contains("minion")
+        {
+            Self::Serif
+        } else {
+            Self::SansSerif
+        }
+    }
+}
+
 /// Multi-run rich text block with paragraph alignment, bullets, line spacing, and script direction.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RichTextBlock {
@@ -49,9 +93,11 @@ pub struct RichTextBlock {
     pub bullet: BulletStyle,
     /// `0` = Left, `1` = Center, `2` = Right, `3` = Justify.
     pub horiz_align: u8,
-    /// `0` = Top, `1` = Middle, `2` = Bottom.
+    /// `0` = Top, `1 = Middle`, `2` = Bottom.
     pub vert_align: u8,
     pub line_spacing: f64,
+    #[serde(default)]
+    pub font_family: String,
 }
 
 /// Individual styled character cell produced during line layout and Bidi visual reordering.
@@ -64,6 +110,7 @@ pub struct StyledCharCell {
     pub strikethrough: bool,
     pub font_size_pt: f64,
     pub color: RgbaColor,
+    pub family_class: FontFamilyClass,
 }
 
 /// Parse lightweight inline markdown / Visio rich-text markup (`**bold**`, `*italic*`,
@@ -124,6 +171,7 @@ pub fn parse_inline_rich_text(
         horiz_align,
         vert_align: 1,
         line_spacing: 1.35,
+        font_family: String::new(),
     }
 }
 
@@ -138,7 +186,32 @@ pub fn parse_inline_rich_text_styled(
     vert_align: u8,
     bullet_style: u8,
 ) -> RichTextBlock {
+    parse_inline_rich_text_styled_with_font(
+        raw,
+        default_size_pt,
+        default_color,
+        char_style,
+        horiz_align,
+        vert_align,
+        bullet_style,
+        "",
+    )
+}
+
+/// Parse inline rich text with explicit OS `font_family` (`SansSerif` / `Serif` / `Monospace`).
+#[allow(clippy::too_many_arguments)]
+pub fn parse_inline_rich_text_styled_with_font(
+    raw: &str,
+    default_size_pt: f64,
+    default_color: RgbaColor,
+    char_style: u8,
+    horiz_align: u8,
+    vert_align: u8,
+    bullet_style: u8,
+    font_family: &str,
+) -> RichTextBlock {
     let mut block = parse_inline_rich_text(raw, default_size_pt, default_color);
+    block.font_family = font_family.to_string();
     let base_bold = (char_style & 1) != 0;
     let base_italic = (char_style & 2) != 0;
     let base_underline = (char_style & 4) != 0;
@@ -514,7 +587,8 @@ pub fn tessellate_rich_text_in_box(
         return TessellatedMesh::new();
     }
 
-    let paragraphs = expand_runs_into_paragraphs(&block.runs);
+    let fam_class = FontFamilyClass::from_family_name(&block.font_family);
+    let paragraphs = expand_runs_into_paragraphs_with_class(&block.runs, fam_class);
     if paragraphs.iter().all(Vec::is_empty) {
         return TessellatedMesh::new();
     }
@@ -617,7 +691,15 @@ struct WrappedLine {
     para_color: RgbaColor,
 }
 
+#[cfg(test)]
 fn expand_runs_into_paragraphs(runs: &[RichTextRun]) -> Vec<Vec<StyledCharCell>> {
+    expand_runs_into_paragraphs_with_class(runs, FontFamilyClass::SansSerif)
+}
+
+fn expand_runs_into_paragraphs_with_class(
+    runs: &[RichTextRun],
+    family_class: FontFamilyClass,
+) -> Vec<Vec<StyledCharCell>> {
     let mut paragraphs: Vec<Vec<StyledCharCell>> = vec![Vec::new()];
     for run in runs {
         let size_pt = run.font_size_pt.clamp(4.0, 288.0);
@@ -636,6 +718,7 @@ fn expand_runs_into_paragraphs(runs: &[RichTextRun]) -> Vec<Vec<StyledCharCell>>
                     strikethrough: run.strikethrough,
                     font_size_pt: size_pt,
                     color: run.color,
+                    family_class,
                 });
             }
         }
@@ -647,9 +730,28 @@ fn expand_runs_into_paragraphs(runs: &[RichTextRun]) -> Vec<Vec<StyledCharCell>>
 fn metrics_for_cell(cell: &StyledCharCell) -> (f64, f64, f64, f32) {
     let cap_h = (cell.font_size_pt / 72.0) * 0.72;
     let is_wide = is_cjk_codepoint(cell.ch);
-    let glyph_w = if is_wide { cap_h * 0.86 } else { cap_h * 0.58 };
-    let advance = glyph_w * if cell.bold { 1.32 } else { 1.26 };
-    let base_sw = (cap_h * 0.115).clamp(0.0035, 0.09) as f32;
+    let glyph_w = match cell.family_class {
+        FontFamilyClass::Monospace => cap_h * 0.62,
+        FontFamilyClass::Serif => {
+            if is_wide {
+                cap_h * 0.86
+            } else {
+                cap_h * 0.60
+            }
+        }
+        FontFamilyClass::SansSerif => {
+            if is_wide {
+                cap_h * 0.86
+            } else {
+                cap_h * 0.56
+            }
+        }
+    };
+    let advance = match cell.family_class {
+        FontFamilyClass::Monospace => cap_h * 0.84,
+        _ => glyph_w * if cell.bold { 1.30 } else { 1.24 },
+    };
+    let base_sw = (cap_h * 0.112).clamp(0.0035, 0.09) as f32;
     let stroke_w = if cell.bold { base_sw * 1.55 } else { base_sw };
     (cap_h, glyph_w, advance, stroke_w)
 }
@@ -778,7 +880,7 @@ fn layout_horizontal_lines(
             let (cap_h, glyph_w, advance, stroke_w) = metrics_for_cell(cell);
             let shear = if cell.italic { 0.22 } else { 0.0 };
 
-            for stroke in glyph_strokes(cell.ch) {
+            for stroke in glyph_strokes_styled(cell.ch, cell.family_class) {
                 let mapped: Vec<[f64; 2]> = stroke
                     .into_iter()
                     .map(|pt| {
@@ -1844,9 +1946,222 @@ pub fn glyph_strokes(ch: char) -> Vec<Vec<[f32; 2]>> {
             vec![[0.47, 0.04], [0.53, 0.04]],
             vec![[0.8, 0.04], [0.86, 0.04]],
         ],
+        'ß' | 'ẞ' => vec![vec![
+            [0.14, -0.06],
+            [0.14, 0.82],
+            [0.32, 1.0],
+            [0.68, 1.0],
+            [0.84, 0.84],
+            [0.84, 0.66],
+            [0.54, 0.52],
+            [0.88, 0.34],
+            [0.88, 0.14],
+            [0.68, 0.0],
+            [0.36, 0.0],
+        ]],
+        '€' => vec![
+            vec![
+                [0.9, 0.84],
+                [0.68, 1.0],
+                [0.32, 1.0],
+                [0.14, 0.74],
+                [0.14, 0.26],
+                [0.32, 0.0],
+                [0.68, 0.0],
+                [0.9, 0.16],
+            ],
+            vec![[0.02, 0.58], [0.68, 0.58]],
+            vec![[0.02, 0.38], [0.64, 0.38]],
+        ],
+        '§' => vec![
+            vec![[0.78, 0.92], [0.46, 1.0], [0.22, 0.84], [0.76, 0.52], [0.24, 0.2], [0.54, 0.0], [0.82, 0.12]],
+            vec![[0.26, 0.68], [0.78, 0.36]],
+        ],
+        '“' | '”' | '„' => vec![
+            vec![[0.32, 0.96], [0.26, 0.72]],
+            vec![[0.68, 0.96], [0.62, 0.72]],
+        ],
+        '’' | '‘' => vec![vec![[0.52, 0.96], [0.44, 0.72]]],
+        '«' => vec![
+            vec![[0.52, 0.72], [0.16, 0.44], [0.52, 0.16]],
+            vec![[0.86, 0.72], [0.5, 0.44], [0.86, 0.16]],
+        ],
+        '»' => vec![
+            vec![[0.14, 0.72], [0.5, 0.44], [0.14, 0.16]],
+            vec![[0.48, 0.72], [0.84, 0.44], [0.48, 0.16]],
+        ],
+
+        // --- Greek Alphabet (EN, DE, IT, FR, ES, GR Localization Parity) ---
+        'Α' | 'Ά' => glyph_strokes('A'),
+        'Β' => glyph_strokes('B'),
+        'Γ' => vec![vec![[0.12, 0.0], [0.12, 1.0], [0.9, 1.0]]],
+        'Δ' => vec![vec![[0.06, 0.0], [0.5, 1.0], [0.94, 0.0], [0.06, 0.0]]],
+        'Ε' | 'Έ' => glyph_strokes('E'),
+        'Ζ' => glyph_strokes('Z'),
+        'Η' | 'Ή' => glyph_strokes('H'),
+        'Θ' => vec![
+            oval_ring(0.5, 0.5, 0.44, 0.5),
+            vec![[0.24, 0.5], [0.76, 0.5]],
+        ],
+        'Ι' | 'Ί' | 'Ϊ' => glyph_strokes('I'),
+        'Κ' => glyph_strokes('K'),
+        'Λ' => vec![vec![[0.06, 0.0], [0.5, 1.0], [0.94, 0.0]]],
+        'Μ' => glyph_strokes('M'),
+        'Ν' => glyph_strokes('N'),
+        'Ξ' => vec![
+            vec![[0.08, 1.0], [0.92, 1.0]],
+            vec![[0.22, 0.5], [0.78, 0.5]],
+            vec![[0.08, 0.0], [0.92, 0.0]],
+        ],
+        'Ο' | 'Ό' => glyph_strokes('O'),
+        'Π' => vec![vec![[0.1, 0.0], [0.1, 1.0], [0.9, 1.0], [0.9, 0.0]]],
+        'Ρ' => glyph_strokes('P'),
+        'Σ' => vec![vec![[0.88, 1.0], [0.12, 1.0], [0.56, 0.5], [0.12, 0.0], [0.88, 0.0]]],
+        'Τ' => glyph_strokes('T'),
+        'Υ' | 'Ύ' | 'Ϋ' => glyph_strokes('Y'),
+        'Φ' => vec![
+            oval_ring(0.5, 0.52, 0.42, 0.28),
+            vec![[0.5, 1.0], [0.5, 0.0]],
+        ],
+        'Χ' => glyph_strokes('X'),
+        'Ψ' => vec![
+            vec![[0.1, 0.92], [0.18, 0.48], [0.5, 0.36], [0.82, 0.48], [0.9, 0.92]],
+            vec![[0.5, 1.0], [0.5, 0.0]],
+        ],
+        'Ω' | 'Ώ' => vec![vec![
+            [0.08, 0.0],
+            [0.34, 0.0],
+            [0.16, 0.36],
+            [0.16, 0.76],
+            [0.36, 1.0],
+            [0.64, 1.0],
+            [0.84, 0.76],
+            [0.84, 0.36],
+            [0.66, 0.0],
+            [0.92, 0.0],
+        ]],
+        'α' | 'ά' => vec![
+            oval_ring(0.42, 0.34, 0.32, 0.34),
+            vec![[0.88, 0.68], [0.68, 0.14], [0.9, 0.0]],
+        ],
+        'β' => vec![vec![
+            [0.16, -0.22],
+            [0.16, 0.84],
+            [0.38, 1.0],
+            [0.72, 1.0],
+            [0.84, 0.78],
+            [0.52, 0.54],
+            [0.88, 0.34],
+            [0.88, 0.12],
+            [0.64, 0.0],
+            [0.16, 0.06],
+        ]],
+        'γ' => vec![
+            vec![[0.1, 0.68], [0.5, 0.04], [0.5, -0.22]],
+            vec![[0.9, 0.68], [0.5, 0.04]],
+        ],
+        'δ' => vec![
+            oval_ring(0.5, 0.3, 0.36, 0.3),
+            vec![[0.5, 0.6], [0.24, 0.84], [0.54, 1.0], [0.82, 0.92]],
+        ],
+        'ε' | 'έ' => vec![vec![
+            [0.82, 0.62],
+            [0.44, 0.68],
+            [0.18, 0.52],
+            [0.48, 0.36],
+            [0.72, 0.36],
+            [0.48, 0.36],
+            [0.16, 0.18],
+            [0.44, 0.0],
+            [0.84, 0.08],
+        ]],
+        'ζ' => vec![vec![[0.2, 0.96], [0.82, 0.96], [0.18, 0.24], [0.66, 0.0], [0.54, -0.22]]],
+        'η' | 'ή' => vec![
+            vec![[0.14, 0.68], [0.14, 0.0]],
+            vec![[0.14, 0.5], [0.42, 0.68], [0.76, 0.68], [0.86, 0.48], [0.86, -0.22]],
+        ],
+        'θ' => vec![
+            oval_ring(0.5, 0.48, 0.38, 0.48),
+            vec![[0.18, 0.48], [0.82, 0.48]],
+        ],
+        'ι' | 'ί' | 'ϊ' | 'ΐ' => vec![vec![[0.46, 0.68], [0.46, 0.12], [0.68, 0.0]]],
+        'κ' => glyph_strokes('k'),
+        'λ' => vec![
+            vec![[0.18, 1.0], [0.88, 0.0]],
+            vec![[0.52, 0.52], [0.12, 0.0]],
+        ],
+        'μ' => vec![
+            vec![[0.14, 0.68], [0.14, -0.22]],
+            vec![[0.14, 0.16], [0.42, 0.0], [0.78, 0.16], [0.78, 0.68]],
+            vec![[0.78, 0.16], [0.88, 0.0]],
+        ],
+        'ν' => glyph_strokes('v'),
+        'ξ' => vec![vec![[0.24, 1.0], [0.78, 0.94], [0.24, 0.64], [0.76, 0.54], [0.18, 0.18], [0.68, 0.0], [0.54, -0.22]]],
+        'ο' | 'ό' => glyph_strokes('o'),
+        'π' => vec![
+            vec![[0.08, 0.68], [0.92, 0.68]],
+            vec![[0.3, 0.68], [0.26, 0.0]],
+            vec![[0.7, 0.68], [0.74, 0.0]],
+        ],
+        'ρ' => glyph_strokes('p'),
+        'σ' | 'ς' => vec![
+            oval_ring(0.46, 0.34, 0.34, 0.34),
+            vec![[0.46, 0.68], [0.92, 0.68]],
+        ],
+        'τ' => vec![
+            vec![[0.12, 0.68], [0.88, 0.68]],
+            vec![[0.5, 0.68], [0.5, 0.08], [0.68, 0.0]],
+        ],
+        'υ' | 'ύ' | 'ϋ' | 'ΰ' => glyph_strokes('u'),
+        'φ' => vec![
+            oval_ring(0.5, 0.36, 0.38, 0.28),
+            vec![[0.5, 0.84], [0.5, -0.22]],
+        ],
+        'χ' => vec![
+            vec![[0.12, 0.68], [0.88, -0.18]],
+            vec![[0.88, 0.68], [0.12, -0.18]],
+        ],
+        'ψ' => vec![
+            vec![[0.12, 0.68], [0.2, 0.26], [0.5, 0.14], [0.8, 0.26], [0.88, 0.68]],
+            vec![[0.5, 0.78], [0.5, -0.22]],
+        ],
+        'ω' | 'ώ' => glyph_strokes('w'),
 
         other => extended_unicode_glyph_strokes(other),
     }
+}
+
+/// Apply OS font-family serif / monospace visual terminal accents on top of base `glyph_strokes`.
+fn glyph_strokes_styled(ch: char, family: FontFamilyClass) -> Vec<Vec<[f32; 2]>> {
+    let mut strokes = glyph_strokes(ch);
+    if family == FontFamilyClass::SansSerif || strokes.is_empty() {
+        return strokes;
+    }
+    let foot = if family == FontFamilyClass::Serif { 0.11 } else { 0.09 };
+    match ch {
+        'H' | 'K' | 'M' | 'N' | 'A' | 'R' => {
+            strokes.push(vec![[0.0, 0.0], [0.06 + foot, 0.0]]);
+            strokes.push(vec![[0.94 - foot, 0.0], [1.0, 0.0]]);
+        }
+        'B' | 'D' | 'E' | 'F' | 'L' | 'P' => {
+            strokes.push(vec![[0.0, 1.0], [0.06 + foot, 1.0]]);
+            strokes.push(vec![[0.0, 0.0], [0.06 + foot, 0.0]]);
+        }
+        'T' => {
+            strokes.push(vec![[0.5 - foot, 0.0], [0.5 + foot, 0.0]]);
+            strokes.push(vec![[0.04, 1.0], [0.04, 0.86]]);
+            strokes.push(vec![[0.96, 1.0], [0.96, 0.86]]);
+        }
+        'i' | 'l' | 'r' => {
+            strokes.push(vec![[0.34, 0.0], [0.64, 0.0]]);
+        }
+        'h' | 'k' | 'm' | 'n' => {
+            strokes.push(vec![[0.02, 0.0], [0.22, 0.0]]);
+            strokes.push(vec![[0.78, 0.0], [0.98, 0.0]]);
+        }
+        _ => {}
+    }
+    strokes
 }
 
 fn oval_ring(cx: f32, cy: f32, rx: f32, ry: f32) -> Vec<[f32; 2]> {

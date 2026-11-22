@@ -418,7 +418,18 @@ async function main() {
   const mergedStencils = JSON.parse(peerA.list_builtin_stencils_json());
   assert(Array.isArray(mergedStencils[importedRes.packTitle]), 'Imported stencil pack must appear in stencil catalog');
 
-  console.log('  ✓ Phase 7 + Workstation UX Overhaul (ISO A4 Metric, Rich Text, Rotate/Flip, Rename, Stencil Import & CRDT) verified.');
+  assert.equal(peerA.rename_page(1, 'MSSC Gesamtarchitektur'), true, 'rename_page(1, ...) must succeed in WASM');
+  const renamedPageState = JSON.parse(peerA.get_state_json(1));
+  assert.equal(
+    renamedPageState.pages.find((p) => p.id === 1)?.name,
+    'MSSC Gesamtarchitektur',
+    'WASM get_state_json must reflect renamed page tab'
+  );
+  const autoFgState = JSON.parse(p7.get_state_json(0xffffffff));
+  const autoFgPage = autoFgState.pages.find((p) => p.id === autoFgState.activePageId);
+  assert(autoFgPage && !autoFgPage.isBackground, 'get_state_json(0xffffffff) must auto-select first foreground (!isBackground) page');
+
+  console.log('  ✓ Phase 7 + Workstation UX Overhaul (ISO A4 Metric, Rich Text, Rotate/Flip, Page Rename, Foreground Page 0/Sentinel, Stencil Import & CRDT) verified.');
 
 
   console.log('=== [6/6] Verifying Firebase Auth, Version History & Collab CRDT Security Rules ===');

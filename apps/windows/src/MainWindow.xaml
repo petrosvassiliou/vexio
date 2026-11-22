@@ -16,6 +16,7 @@
             <KeyboardAccelerator Key="Z" Modifiers="Control" Invoked="OnUndoAccelerator" />
             <KeyboardAccelerator Key="Y" Modifiers="Control" Invoked="OnRedoAccelerator" />
             <KeyboardAccelerator Key="S" Modifiers="Control" Invoked="OnSaveAccelerator" />
+            <KeyboardAccelerator Key="S" Modifiers="Control,Shift" Invoked="OnSaveAsAccelerator" />
             <KeyboardAccelerator Key="O" Modifiers="Control" Invoked="OnOpenAccelerator" />
             <KeyboardAccelerator Key="P" Modifiers="Control" Invoked="OnTiledPrintAccelerator" />
             <KeyboardAccelerator Key="F4" Modifiers="Shift" Invoked="OnPageSetupAccelerator" />
@@ -25,7 +26,7 @@
 
         <Grid.RowDefinitions>
             <!-- Row 0: Quick Access Toolbar & Custom App Title Bar -->
-            <RowDefinition Height="38" />
+            <RowDefinition Height="36" />
             <!-- Row 1: Multi-Tabbed Enterprise Ribbon -->
             <RowDefinition Height="Auto" />
             <!-- Row 2: Diagnostic / Guard / Validation InfoBar -->
@@ -63,6 +64,11 @@
                 <Button x:Name="QatSaveButton" Style="{StaticResource VexioQatButtonStyle}" Click="OnSaveClick"
                         ToolTipService.ToolTip="Save (Ctrl+S)" AutomationProperties.Name="Save Document">
                     <PathIcon Width="14" Height="14" Data="M 2,1 L 11,1 L 14,4 L 14,14 L 2,14 Z M 4,2 L 4,6 L 10,6 L 10,2 Z M 4,9 L 4,13 L 12,13 L 12,9 Z" />
+                </Button>
+
+                <Button x:Name="QatSaveAsButton" Style="{StaticResource VexioQatButtonStyle}" Click="OnSaveAsClick"
+                        Padding="6,2" ToolTipService.ToolTip="Save As... (Ctrl+Shift+S)" AutomationProperties.Name="Save As">
+                    <TextBlock x:Name="QatSaveAsLabel" Text="Save As…" FontSize="11" Foreground="White" VerticalAlignment="Center" />
                 </Button>
 
                 <Button x:Name="QatOpenButton" Style="{StaticResource VexioQatButtonStyle}" Click="OnOpenClick"
@@ -146,31 +152,33 @@
                 </Grid.RowDefinitions>
 
                 <!-- Ribbon Tab Header Strip (File In-App Hub + 8 Core Visio Tabs + Sibling Hover Menus + Collapse Toggle) -->
-                <Grid Grid.Row="0" Padding="8,2,8,0">
+                <Grid Grid.Row="0" Padding="8,0,8,0">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
 
-                    <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="2">
-                        <!-- FILE IN-APP BACKSTAGE BUTTON -->
-                        <Button x:Name="FileBackstageButton" Background="{StaticResource VexioBrandPrimaryBrush}" Foreground="White"
-                                FontWeight="SemiBold" Padding="14,4" CornerRadius="4" VerticalAlignment="Center"
-                                Click="OnFileBackstageToggleClick" PointerEntered="OnTopMenuPointerEntered" Tag="FileMenu"
-                                AutomationProperties.Name="File Backstage Menu">
-                            <TextBlock x:Name="FileTabLabelText" Text="File" FontSize="12.5" />
-                        </Button>
+                    <ScrollViewer Grid.Column="0" HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Disabled">
+                        <StackPanel Orientation="Horizontal" Spacing="2">
+                            <!-- FILE IN-APP BACKSTAGE BUTTON -->
+                            <Button x:Name="FileBackstageButton" Background="{StaticResource VexioBrandPrimaryBrush}" Foreground="White"
+                                    FontWeight="SemiBold" Padding="14,4" CornerRadius="4" VerticalAlignment="Center"
+                                    Click="OnFileBackstageToggleClick" PointerEntered="OnTopMenuPointerEntered" Tag="FileMenu"
+                                    AutomationProperties.Name="File Backstage Menu">
+                                <TextBlock x:Name="FileTabLabelText" Text="File" FontSize="12.5" />
+                            </Button>
 
-                        <!-- Classic 8 Visio Ribbon Tabs -->
-                        <RadioButton x:Name="RibbonTabHome" Content="Home" GroupName="RibbonTabs" IsChecked="True" Checked="OnRibbonTabChanged" Tag="Home" MinWidth="62" Padding="8,4" />
-                        <RadioButton x:Name="RibbonTabInsert" Content="Insert" GroupName="RibbonTabs" Checked="OnRibbonTabChanged" Tag="Insert" MinWidth="62" Padding="8,4" />
-                        <RadioButton x:Name="RibbonTabDesign" Content="Design" GroupName="RibbonTabs" Checked="OnRibbonTabChanged" Tag="Design" MinWidth="64" Padding="8,4" />
-                        <RadioButton x:Name="RibbonTabData" Content="Data" GroupName="RibbonTabs" Checked="OnRibbonTabChanged" Tag="Data" MinWidth="58" Padding="8,4" />
-                        <RadioButton x:Name="RibbonTabProcess" Content="Process" GroupName="RibbonTabs" Checked="OnRibbonTabChanged" Tag="Process" MinWidth="70" Padding="8,4" />
-                        <RadioButton x:Name="RibbonTabReview" Content="Review" GroupName="RibbonTabs" Checked="OnRibbonTabChanged" Tag="Review" MinWidth="66" Padding="8,4" />
-                        <RadioButton x:Name="RibbonTabView" Content="View" GroupName="RibbonTabs" Checked="OnRibbonTabChanged" Tag="View" MinWidth="58" Padding="8,4" />
-                        <RadioButton x:Name="RibbonTabDeveloper" Content="Developer" GroupName="RibbonTabs" Checked="OnRibbonTabChanged" Tag="Developer" MinWidth="84" Padding="8,4" />
-                    </StackPanel>
+                            <!-- Classic 8 Visio Ribbon Tabs (Auto-sized so DE/IT/FR/ES/GR never truncate) -->
+                            <RadioButton x:Name="RibbonTabHome" Content="Home" GroupName="RibbonTabs" IsChecked="True" Checked="OnRibbonTabChanged" Tag="Home" Padding="10,4" />
+                            <RadioButton x:Name="RibbonTabInsert" Content="Insert" GroupName="RibbonTabs" Checked="OnRibbonTabChanged" Tag="Insert" Padding="10,4" />
+                            <RadioButton x:Name="RibbonTabDesign" Content="Design" GroupName="RibbonTabs" Checked="OnRibbonTabChanged" Tag="Design" Padding="10,4" />
+                            <RadioButton x:Name="RibbonTabData" Content="Data" GroupName="RibbonTabs" Checked="OnRibbonTabChanged" Tag="Data" Padding="10,4" />
+                            <RadioButton x:Name="RibbonTabProcess" Content="Process" GroupName="RibbonTabs" Checked="OnRibbonTabChanged" Tag="Process" Padding="10,4" />
+                            <RadioButton x:Name="RibbonTabReview" Content="Review" GroupName="RibbonTabs" Checked="OnRibbonTabChanged" Tag="Review" Padding="10,4" />
+                            <RadioButton x:Name="RibbonTabView" Content="View" GroupName="RibbonTabs" Checked="OnRibbonTabChanged" Tag="View" Padding="10,4" />
+                            <RadioButton x:Name="RibbonTabDeveloper" Content="Developer" GroupName="RibbonTabs" Checked="OnRibbonTabChanged" Tag="Developer" Padding="10,4" />
+                        </StackPanel>
+                    </ScrollViewer>
 
                     <!-- Hover-Switch Quick Menus & Collapse Ribbon Button -->
                     <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
@@ -179,6 +187,8 @@
                             <TextBlock x:Name="TopExportMenuLabel" Text="Export ▾" FontSize="11.5" />
                             <Button.Flyout>
                                 <MenuFlyout x:Name="TopExportMenuFlyout" Opened="OnTopFlyoutOpened" Closed="OnTopFlyoutClosed">
+                                    <MenuFlyoutItem Text="Save As... (Ctrl+Shift+S)" Click="OnSaveAsClick" />
+                                    <MenuFlyoutSeparator />
                                     <MenuFlyoutItem Text="Export Archival PDF/A (.pdf)" Click="OnExportPdfClick" />
                                     <MenuFlyoutItem Text="Export Vector SVG (.svg)" Click="OnExportSvgClick" />
                                     <MenuFlyoutItem Text="Export High-DPI PNG (.png)" Click="OnExportPngClick" />
@@ -238,12 +248,12 @@
                             </StackPanel>
                             <AppBarSeparator />
 
-                            <!-- Font & Paragraph Rich Text Group (1:1 Classic Visio Home Ribbon) -->
+                            <!-- Font & Paragraph Rich Text Group (Native DirectWrite Fonts + Full Native WinUI 3 ColorPicker) -->
                             <StackPanel>
                                 <StackPanel Spacing="3" Height="56" VerticalAlignment="Center">
                                     <StackPanel Orientation="Horizontal" Spacing="4">
-                                        <ComboBox x:Name="FontFamilyCombo" Width="126" SelectedIndex="0" FontSize="11.5" Padding="6,2"
-                                                  SelectionChanged="OnFontFormattingComboChanged" ToolTipService.ToolTip="Font Family">
+                                        <ComboBox x:Name="FontFamilyCombo" Width="154" SelectedIndex="0" FontSize="11.5" Padding="6,2"
+                                                  SelectionChanged="OnFontFormattingComboChanged" ToolTipService.ToolTip="Installed Windows OS Fonts (DirectWrite)">
                                             <x:String>Segoe UI</x:String>
                                             <x:String>Inter</x:String>
                                             <x:String>Calibri</x:String>
@@ -268,23 +278,42 @@
                                         </ComboBox>
                                         <Button Padding="5,2" Click="OnGrowFontSizeClick" Content="A▲" FontSize="10.5" ToolTipService.ToolTip="Increase Font Size" />
                                         <Button Padding="5,2" Click="OnShrinkFontSizeClick" Content="A▼" FontSize="10.5" ToolTipService.ToolTip="Decrease Font Size" />
-                                        <ComboBox x:Name="FontColorCombo" Width="92" SelectedIndex="0" FontSize="11" Padding="6,2"
-                                                  SelectionChanged="OnFontFormattingComboChanged" ToolTipService.ToolTip="Text Color">
+                                        <Button Padding="7,2" Content="A Color ▾" FontSize="11" ToolTipService.ToolTip="Text Color (Native OS Color Picker)">
+                                            <Button.Flyout>
+                                                <Flyout>
+                                                    <ColorPicker x:Name="TextColorPickerControl"
+                                                                 ColorSpectrumShape="Box"
+                                                                 IsMoreButtonVisible="True"
+                                                                 IsColorSliderVisible="True"
+                                                                 IsColorChannelTextInputVisible="True"
+                                                                 IsHexInputVisible="True"
+                                                                 IsAlphaEnabled="False"
+                                                                 ColorChanged="OnTextColorPickerChanged" />
+                                                </Flyout>
+                                            </Button.Flyout>
+                                        </Button>
+                                        <Button Padding="7,2" Content="ab Highlight ▾" FontSize="11" ToolTipService.ToolTip="Text Highlight (Native OS Color Picker)">
+                                            <Button.Flyout>
+                                                <Flyout>
+                                                    <StackPanel Spacing="8">
+                                                        <Button HorizontalAlignment="Stretch" Content="No Highlight (Clear)" Click="OnClearTextHighlightClick" />
+                                                        <ColorPicker x:Name="TextHighlightPickerControl"
+                                                                     ColorSpectrumShape="Box"
+                                                                     IsMoreButtonVisible="True"
+                                                                     IsColorSliderVisible="True"
+                                                                     IsColorChannelTextInputVisible="True"
+                                                                     IsHexInputVisible="True"
+                                                                     IsAlphaEnabled="False"
+                                                                     ColorChanged="OnTextHighlightPickerChanged" />
+                                                    </StackPanel>
+                                                </Flyout>
+                                            </Button.Flyout>
+                                        </Button>
+                                        <ComboBox x:Name="FontColorCombo" Visibility="Collapsed" SelectedIndex="0" SelectionChanged="OnFontFormattingComboChanged">
                                             <x:String>Slate</x:String>
-                                            <x:String>Blue</x:String>
-                                            <x:String>Red</x:String>
-                                            <x:String>Green</x:String>
-                                            <x:String>Amber</x:String>
-                                            <x:String>Purple</x:String>
-                                            <x:String>White</x:String>
                                         </ComboBox>
-                                        <ComboBox x:Name="TextHighlightCombo" Width="92" SelectedIndex="0" FontSize="11" Padding="6,2"
-                                                  SelectionChanged="OnFontFormattingComboChanged" ToolTipService.ToolTip="Text Highlight Background">
+                                        <ComboBox x:Name="TextHighlightCombo" Visibility="Collapsed" SelectedIndex="0" SelectionChanged="OnFontFormattingComboChanged">
                                             <x:String>No Highlight</x:String>
-                                            <x:String>Yellow</x:String>
-                                            <x:String>Cyan</x:String>
-                                            <x:String>Mint</x:String>
-                                            <x:String>Rose</x:String>
                                         </ComboBox>
                                     </StackPanel>
 
@@ -330,6 +359,7 @@
                                                   Click="OnConnectorToolClick" ToolTipService.ToolTip="Dynamic Obstacle-Avoiding Connector (Ctrl+3)">
                                         <StackPanel Spacing="3">
                                             <PathIcon Width="16" Height="16" Data="M 2,3 L 6,3 L 6,7 L 2,7 Z M 6,5 L 10,5 L 10,11 L 12,11 M 10,11 L 14,11 L 14,15 L 10,15 Z" />
+                                            <PathIcon Width="0" Height="0" Data="M 0,0" />
                                             <TextBlock Text="Connector" FontSize="11" />
                                         </StackPanel>
                                     </ToggleButton>
@@ -345,7 +375,7 @@
                             </StackPanel>
                             <AppBarSeparator />
 
-                            <!-- Shape Styles & Routing Group -->
+                            <!-- Shape Styles & Routing Group (Native WinUI 3 Fill & Line ColorPickers) -->
                             <StackPanel>
                                 <StackPanel Orientation="Horizontal" Spacing="6" Height="56" VerticalAlignment="Center">
                                     <ComboBox x:Name="ConnectorRoutingCombo" Width="136" SelectedIndex="0" VerticalAlignment="Center"
@@ -354,6 +384,34 @@
                                         <x:String>Straight Route</x:String>
                                         <x:String>Curved Spline</x:String>
                                     </ComboBox>
+                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Content="Fill Color ▾" ToolTipService.ToolTip="Shape Fill Color (Native OS Color Picker)">
+                                        <Button.Flyout>
+                                            <Flyout>
+                                                <ColorPicker x:Name="ShapeFillColorPickerControl"
+                                                             ColorSpectrumShape="Box"
+                                                             IsMoreButtonVisible="True"
+                                                             IsColorSliderVisible="True"
+                                                             IsColorChannelTextInputVisible="True"
+                                                             IsHexInputVisible="True"
+                                                             IsAlphaEnabled="False"
+                                                             ColorChanged="OnShapeFillColorPickerChanged" />
+                                            </Flyout>
+                                        </Button.Flyout>
+                                    </Button>
+                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Content="Line Color ▾" ToolTipService.ToolTip="Shape Stroke / Line Color (Native OS Color Picker)">
+                                        <Button.Flyout>
+                                            <Flyout>
+                                                <ColorPicker x:Name="ShapeLineColorPickerControl"
+                                                             ColorSpectrumShape="Box"
+                                                             IsMoreButtonVisible="True"
+                                                             IsColorSliderVisible="True"
+                                                             IsColorChannelTextInputVisible="True"
+                                                             IsHexInputVisible="True"
+                                                             IsAlphaEnabled="False"
+                                                             ColorChanged="OnShapeLineColorPickerChanged" />
+                                            </Flyout>
+                                        </Button.Flyout>
+                                    </Button>
                                     <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnQuickStyleAccentClick" Content="Accent Fill" />
                                     <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnQuickStyleNeutralClick" Content="Clean Outline" />
                                 </StackPanel>
@@ -992,6 +1050,36 @@
                         <ScrollViewer Padding="4,8,8,12">
                             <StackPanel Spacing="10">
                                 <TextBlock Text="Fill &amp; Stroke Cells" FontWeight="SemiBold" FontSize="12" />
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <Button Content="Pick Fill Color ▾">
+                                        <Button.Flyout>
+                                            <Flyout>
+                                                <ColorPicker x:Name="InspFillColorPickerControl"
+                                                             ColorSpectrumShape="Box"
+                                                             IsMoreButtonVisible="True"
+                                                             IsColorSliderVisible="True"
+                                                             IsColorChannelTextInputVisible="True"
+                                                             IsHexInputVisible="True"
+                                                             IsAlphaEnabled="False"
+                                                             ColorChanged="OnShapeFillColorPickerChanged" />
+                                            </Flyout>
+                                        </Button.Flyout>
+                                    </Button>
+                                    <Button Content="Pick Line Color ▾">
+                                        <Button.Flyout>
+                                            <Flyout>
+                                                <ColorPicker x:Name="InspLineColorPickerControl"
+                                                             ColorSpectrumShape="Box"
+                                                             IsMoreButtonVisible="True"
+                                                             IsColorSliderVisible="True"
+                                                             IsColorChannelTextInputVisible="True"
+                                                             IsHexInputVisible="True"
+                                                             IsAlphaEnabled="False"
+                                                             ColorChanged="OnShapeLineColorPickerChanged" />
+                                            </Flyout>
+                                        </Button.Flyout>
+                                    </Button>
+                                </StackPanel>
                                 <TextBox x:Name="FormatFillForegndBox" Header="FillForegnd (RGB Formula)" Text="RGB(59,130,246)" />
                                 <Slider x:Name="FormatFillTransSlider" Header="FillForegndTrans (%)" Minimum="0" Maximum="100" Value="8" />
                                 <TextBox x:Name="FormatLineColorBox" Header="LineColor (RGB Formula)" Text="RGB(30,58,138)" />
@@ -1152,8 +1240,8 @@
             <Grid ColumnSpacing="6">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
 
@@ -1169,8 +1257,11 @@
                     </Button>
                 </StackPanel>
 
-                <!-- Dynamic Page Tabs Strip -->
-                <StackPanel x:Name="PageTabsStripPanel" Grid.Column="1" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center" />
+                <!-- Single-Line Horizontally Scrollable Page Tabs Strip -->
+                <ScrollViewer Grid.Column="1" HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Disabled"
+                              HorizontalScrollMode="Auto" VerticalScrollMode="Disabled" VerticalAlignment="Center">
+                    <StackPanel x:Name="PageTabsStripPanel" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center" />
+                </ScrollViewer>
 
                 <!-- Insert Page & Rename Page Controls -->
                 <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
@@ -1178,7 +1269,7 @@
                         <TextBlock Text="+ Insert Page" FontSize="11.5" />
                     </Button>
                     <Button Padding="8,2" Click="OnRenameActivePageClick" ToolTipService.ToolTip="Rename Active Page">
-                        <TextBlock Text="Rename" FontSize="11.5" />
+                        <TextBlock x:Name="BottomRenamePageLabel" Text="Rename" FontSize="11.5" />
                     </Button>
                 </StackPanel>
 
@@ -1239,7 +1330,7 @@
                 DragOver="OnBackstageDragOver" Drop="OnBackstageDrop">
             <Grid>
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="260" />
+                    <ColumnDefinition Width="324" />
                     <ColumnDefinition Width="*" />
                 </Grid.ColumnDefinitions>
 
@@ -1271,12 +1362,12 @@
 
                         <MenuFlyoutSeparator />
 
-                        <Button HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="10,7"
+                        <Button x:Name="BackstageSaveButton" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="10,7"
                                 Background="Transparent" Foreground="White" BorderBrush="Transparent"
                                 Click="OnSaveClick" Content="Save Document (Ctrl+S)" />
-                        <Button HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="10,7"
+                        <Button x:Name="BackstageSaveAsButton" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="10,7"
                                 Background="Transparent" Foreground="White" BorderBrush="Transparent"
-                                Click="OnSaveAsClick" Content="Save As (.vsdx, .vsd, .vdx)..." />
+                                Click="OnSaveAsClick" Content="Save As... (Ctrl+Shift+S)" />
                         <Button HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="10,7"
                                 Background="Transparent" Foreground="White" BorderBrush="Transparent"
                                 Click="OnExportPdfClick" Content="Export PDF/A (.pdf)" />

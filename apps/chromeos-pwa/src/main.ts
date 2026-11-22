@@ -739,6 +739,8 @@ class VexioChromeOsApp {
   private openHeaderMenu: null | 'file' | 'edit' | 'export' | 'help' = null;
   private isRenamingDocTitle = false;
   private renameDocDraft = '';
+  private renamingPageId: number | null = null;
+  private renamePageDraft = '';
   private launchedWithExternalFile = false;
 
   private textFontFamily = 'Inter';
@@ -752,6 +754,8 @@ class VexioChromeOsApp {
   private textBullets = false;
   private textColorHex = '#0F172A';
   private textBgColorHex = 'none';
+  private shapeFillHex = '#EFF6FF';
+  private shapeLineHex = '#1E3A8A';
 
   private autoCheckUpdates: boolean = (() => {
     try {
@@ -827,6 +831,106 @@ class VexioChromeOsApp {
       return `${(inches * 25.4).toFixed(1)} mm`;
     }
     return `${inches.toFixed(2)}"`;
+  }
+
+  private hexToRgbTriplet(hex: string): string {
+    const clean = hex.trim().replace(/^#/, '');
+    if (clean.length === 6) {
+      const r = parseInt(clean.slice(0, 2), 16);
+      const g = parseInt(clean.slice(2, 4), 16);
+      const b = parseInt(clean.slice(4, 6), 16);
+      if (!Number.isNaN(r) && !Number.isNaN(g) && !Number.isNaN(b)) {
+        return `${r},${g},${b}`;
+      }
+    }
+    return '239,246,255';
+  }
+
+  private parseFormulaOrValueHex(formula?: string, val?: string): string | null {
+    for (const s of [val, formula]) {
+      if (!s) continue;
+      const hexMatch = s.match(/#([0-9a-fA-F]{6})\b/);
+      if (hexMatch) return `#${hexMatch[1].toUpperCase()}`;
+      const rgbMatch = s.match(/RGB\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)/i);
+      if (rgbMatch) {
+        const to2 = (n: string) => Math.max(0, Math.min(255, Number(n))).toString(16).padStart(2, '0');
+        return `#${to2(rgbMatch[1])}${to2(rgbMatch[2])}${to2(rgbMatch[3])}`.toUpperCase();
+      }
+    }
+    return null;
+  }
+
+  private async applyShapeFillHex(hex: string): Promise<void> {
+    this.shapeFillHex = hex.toUpperCase();
+    if (this.selectedShapeIds.length === 0) {
+      this.render();
+      return;
+    }
+    const rgb = this.hexToRgbTriplet(this.shapeFillHex);
+    let lastRes: any = null;
+    let blocked = false;
+    for (const sid of this.selectedShapeIds) {
+      lastRes = await this.callEngine('setCellFormula', {
+        shapeId: sid,
+        cellName: 'FillForegnd',
+        formula: `=RGB(${rgb})`,
+        forceSetf: false,
+      });
+      if (lastRes?.applied === false) blocked = true;
+    }
+    if (blocked) {
+      this.showToast('FillForegnd is protected by GUARD() on one or more selected shapes.', 'warn');
+    }
+    if (lastRes) {
+      this.persistMutationSideEffects(lastRes.wal);
+      this.snapshot = lastRes.snapshot;
+      this.render();
+    }
+  }
+
+  private async applyShapeLineHex(hex: string): Promise<void> {
+    this.shapeLineHex = hex.toUpperCase();
+    if (this.selectedShapeIds.length === 0) {
+      this.render();
+      return;
+    }
+    const rgb = this.hexToRgbTriplet(this.shapeLineHex);
+    const res = await this.callEngine('batchSetCells', {
+      shapeIds: this.selectedShapeIds,
+      entries: [{ cell: 'LineColor', formula: `=RGB(${rgb})` }],
+      forceSetf: false,
+    });
+    this.persistMutationSideEffects(res.wal);
+    this.snapshot = res.snapshot;
+    this.render();
+  }
+
+  private async commitPageRename(pageId: number, rawName: string): Promise<void> {
+    this.renamingPageId = null;
+    const cleaned = rawName.trim();
+    if (!cleaned) {
+      this.render();
+      return;
+    }
+    const res = await this.callEngine('renamePage', { pageId, name: cleaned });
+    if (res.snapshot) this.snapshot = res.snapshot;
+    this.persistMutationSideEffects(res.wal);
+    this.showToast(`Renamed page to "${cleaned}"`, 'info');
+    this.render();
+  }
+
+  private async syncCanvasAfterDocumentOpen(): Promise<void> {
+    this.renamingPageId = null;
+    this.editingShapeId = null;
+    if (this.wgpuAttached && this.snapshot) {
+      const dpi = window.devicePixelRatio || 1;
+      await this.callEngine('resizeOffscreenCanvas', {
+        width: Math.round(this.snapshot.pageWidthIn * 96 * dpi),
+        height: Math.round(this.snapshot.pageHeightIn * 96 * dpi),
+        dpi,
+      });
+    }
+    this.zoomPct = this.computeFitZoomPct();
   }
 
   private async commitDocTitleRename(rawTitle: string): Promise<void> {
@@ -1300,6 +1404,7 @@ class VexioChromeOsApp {
       this.currentFileName = opened.name;
       const res = await this.callEngine('openBytes', { bytes: opened.bytes, ext: opened.ext });
       this.snapshot = res.snapshot;
+      await this.syncCanvasAfterDocumentOpen();
       this.setSingleSelection(this.snapshot?.shapes[0]?.id ?? null);
       this.render();
     });
@@ -1314,6 +1419,7 @@ class VexioChromeOsApp {
       onRemoteDocSync: async (vsdxBytes) => {
         const res = await this.callEngine('openBytes', { bytes: vsdxBytes, ext: 'vsdx' });
         this.snapshot = res.snapshot;
+        await this.syncCanvasAfterDocumentOpen();
         this.render();
       },
       onRemoteCrdtOps: async (crdtOpsJson) => {
@@ -1433,6 +1539,7 @@ class VexioChromeOsApp {
 
     enumerateChromeOsSystemFonts().then((fonts) => {
       this.systemFonts = fonts;
+      this.render();
     });
 
     if (this.autoCheckUpdates) {
@@ -1660,6 +1767,11 @@ class VexioChromeOsApp {
           this.render();
           return;
         }
+        if (this.renamingPageId !== null) {
+          this.renamingPageId = null;
+          this.render();
+          return;
+        }
         if (this.contextMenu !== null) {
           this.contextMenu = null;
           this.render();
@@ -1737,6 +1849,9 @@ class VexioChromeOsApp {
         this.snapshot = res.snapshot;
         this.persistMutationSideEffects(res.wal);
         this.render();
+      } else if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        await this.handleSaveAs('vsdx');
       } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
         e.preventDefault();
         await this.handleSaveInPlace('vsdx');
@@ -1890,6 +2005,7 @@ class VexioChromeOsApp {
     const res = await this.callEngine('openBytes', { bytes: opened.bytes, ext: opened.ext });
     this.snapshot = res.snapshot;
     this.activeModal = null;
+    await this.syncCanvasAfterDocumentOpen();
     this.setSingleSelection(this.snapshot?.shapes[0]?.id ?? null);
     this.persistMutationSideEffects();
     this.showToast(`Opened "${opened.name}"`, 'info');
@@ -1906,12 +2022,34 @@ class VexioChromeOsApp {
     const handle = await saveLocalDiagramInPlace(reusableHandle, targetName, bytes);
     if (ext === 'vsdx' && handle) {
       this.activeFileHandle = handle;
-      this.currentFileName = targetName;
+      this.currentFileName = handle.name || targetName;
+      this.render();
     }
     if (ext === 'vsdx' && this.cloudState.user) {
-      await this.firebaseSync.backupWorkspaceToCloud(this.docId, targetName, 'vsdx', bytes);
+      await this.firebaseSync.backupWorkspaceToCloud(this.docId, this.currentFileName, 'vsdx', bytes);
     }
-    this.showToast(`Saved ${targetName}`, 'info');
+    this.showToast(`Saved ${handle?.name || targetName}`, 'info');
+  }
+
+  private async handleSaveAs(ext = 'vsdx'): Promise<void> {
+    this.openHeaderMenu = null;
+    const { bytes, wal } = await this.callEngine('saveFormat', { ext });
+    this.persistMutationSideEffects(wal);
+    const baseStem = this.currentFileName.replace(/\.[^.]+$/, '') || 'Architecture-Diagram';
+    const suggestedName = `${baseStem}-copy.${ext}`;
+    // Always pass null existingHandle so the OS Save As dialog opens unconditionally
+    const handle = await saveLocalDiagramInPlace(null, suggestedName, bytes);
+    if (ext === 'vsdx' && handle) {
+      this.activeFileHandle = handle;
+      this.currentFileName = handle.name || suggestedName;
+      if (this.cloudState.user) {
+        await this.firebaseSync.backupWorkspaceToCloud(this.docId, this.currentFileName, 'vsdx', bytes);
+      }
+      this.render();
+    }
+    if (handle || !window.showSaveFilePicker) {
+      this.showToast(`Saved As ${handle?.name || suggestedName}`, 'info');
+    }
   }
 
   private clientToPageInches(hostEl: HTMLElement, clientX: number, clientY: number): [number, number] {
@@ -2159,7 +2297,7 @@ class VexioChromeOsApp {
       return `
         <div id="vexio-context-menu" class="vexio-context-menu" style="left:${clampedLeft}px;top:${clampedTop}px">
           <div class="ctx-header">Page: ${p?.name ?? 'Page'}</div>
-          <button class="ctx-item" data-ctx="page-rename"><span>Rename Page...</span></button>
+          <button class="ctx-item" data-ctx="page-rename"><span>${t.renamePage}</span></button>
           <button class="ctx-item" data-ctx="page-duplicate"><span>Duplicate Page</span></button>
           <button class="ctx-item" data-ctx="page-insert"><span>Insert Blank Page</span></button>
           <div class="ctx-sep"></div>
@@ -2203,14 +2341,41 @@ class VexioChromeOsApp {
     `;
   }
 
+  private getAvailableOsFontList(extraFamily?: string): string[] {
+    const baseFonts = [
+      'Inter',
+      'Roboto',
+      'Segoe UI',
+      'Arial',
+      'Calibri',
+      'Liberation Sans',
+      'Noto Sans',
+      'Helvetica Neue',
+      'Georgia',
+      'Times New Roman',
+      'JetBrains Mono',
+      'Courier New',
+    ];
+    return Array.from(
+      new Set([
+        ...(extraFamily ? [extraFamily] : []),
+        this.textFontFamily,
+        ...baseFonts,
+        ...this.systemFonts,
+      ])
+    ).filter((f) => Boolean(f && f.trim()));
+  }
+
   private renderContextualRibbon(snap: EngineSnapshot): string {
     const selDisabled = this.selectedShapeIds.length === 0 ? 'disabled' : '';
     const multiDisabled = this.selectedShapeIds.length < 2 ? 'disabled' : '';
     const distDisabled = this.selectedShapeIds.length < 3 ? 'disabled' : '';
     const hasClip = this.clipboardShapeIds.length > 0 || this.clipboardSpecs.length > 0;
-    const baseFonts = ['Inter', 'Roboto', 'Segoe UI', 'Arial', 'Calibri', 'Georgia', 'JetBrains Mono'];
-    const fontList = Array.from(new Set([...baseFonts, ...this.systemFonts.slice(0, 20)]));
+    const primarySh = this.primarySelectedId ? snap.shapes.find((s) => s.id === this.primarySelectedId) : null;
+    const fontList = this.getAvailableOsFontList(primarySh?.fontFamily);
     const fontSizes = [8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 36, 48];
+    const activeTextColor = /^#[0-9a-fA-F]{6}$/.test(this.textColorHex) ? this.textColorHex : '#0F172A';
+    const activeBgColor = /^#[0-9a-fA-F]{6}$/.test(this.textBgColorHex) ? this.textBgColorHex : '#FEF08A';
 
     switch (this.activeRibbonTab) {
       case 'Home':
@@ -2223,13 +2388,18 @@ class VexioChromeOsApp {
           <div class="ribbon-divider"></div>
 
           <span class="ribbon-group-label">Font &amp; Paragraph</span>
-          <select class="cell-input" id="ribbon-font-family" style="width:112px;height:26px;padding:1px 6px;font-size:11.5px" title="Font Family">
+          <select class="cell-input" id="ribbon-font-family" style="width:136px;height:26px;padding:1px 6px;font-size:11.5px" title="Installed OS &amp; Document Font Families (${fontList.length})">
             ${fontList
               .map(
                 (f) => `<option value="${f.replace(/"/g, '&quot;')}" ${this.textFontFamily === f ? 'selected' : ''}>${f}</option>`
               )
               .join('')}
           </select>
+          ${
+            typeof window !== 'undefined' && 'queryLocalFonts' in window
+              ? `<button class="fmt-btn" id="btn-load-os-fonts" title="${this.i18n.loadOsFonts} — Load all installed OS fonts">${this.i18n.loadOsFonts}</button>`
+              : ''
+          }
           <select class="cell-input" id="ribbon-font-size" style="width:58px;height:26px;padding:1px 4px;font-size:11.5px" title="Font Size (pt)">
             ${fontSizes
               .map((sz) => `<option value="${sz}" ${this.textFontSizePt === sz ? 'selected' : ''}>${sz}pt</option>`)
@@ -2241,19 +2411,19 @@ class VexioChromeOsApp {
           <button class="fmt-btn ${this.textItalic ? 'active' : ''}" id="btn-fmt-italic" title="Italic (Ctrl+I)"><em>I</em></button>
           <button class="fmt-btn ${this.textUnderline ? 'active' : ''}" id="btn-fmt-underline" title="Underline (Ctrl+U)"><u>U</u></button>
           <button class="fmt-btn ${this.textStrikethrough ? 'active' : ''}" id="btn-fmt-strike" title="Strikethrough"><s>S</s></button>
-          <select class="cell-input" id="ribbon-text-color" style="width:74px;height:26px;padding:1px 4px;font-size:11px" title="Text Color">
-            <option value="#0F172A" ${this.textColorHex === '#0F172A' ? 'selected' : ''}>A Slate</option>
-            <option value="#1D4ED8" ${this.textColorHex === '#1D4ED8' ? 'selected' : ''}>A Blue</option>
-            <option value="#DC2626" ${this.textColorHex === '#DC2626' ? 'selected' : ''}>A Red</option>
-            <option value="#047857" ${this.textColorHex === '#047857' ? 'selected' : ''}>A Green</option>
-            <option value="#FFFFFF" ${this.textColorHex === '#FFFFFF' ? 'selected' : ''}>A White</option>
-          </select>
-          <select class="cell-input" id="ribbon-text-bg" style="width:76px;height:26px;padding:1px 4px;font-size:11px" title="Text Highlight / Background">
-            <option value="none" ${this.textBgColorHex === 'none' ? 'selected' : ''}>ab None</option>
-            <option value="#FEF08A" ${this.textBgColorHex === '#FEF08A' ? 'selected' : ''}>ab Yellow</option>
-            <option value="#BBF7D0" ${this.textBgColorHex === '#BBF7D0' ? 'selected' : ''}>ab Mint</option>
-            <option value="#BFDBFE" ${this.textBgColorHex === '#BFDBFE' ? 'selected' : ''}>ab Sky</option>
-          </select>
+          <label class="native-color-chip" title="Text Color (Native OS Color Picker)">
+            <span>A</span>
+            <input type="color" id="ribbon-text-color-picker" class="native-color-input" value="${activeTextColor}" />
+          </label>
+          <label class="native-color-chip" title="Text Highlight (Native OS Color Picker)">
+            <span>ab</span>
+            <input type="color" id="ribbon-text-bg-picker" class="native-color-input" value="${activeBgColor}" />
+          </label>
+          ${
+            this.textBgColorHex !== 'none'
+              ? `<button class="fmt-btn" id="btn-clear-text-bg" title="${this.i18n.clearHighlight}">ab✕</button>`
+              : ''
+          }
           <button class="fmt-btn ${this.textHorizAlign === 0 ? 'active' : ''}" data-halign="0" title="Align Text Left">≡L</button>
           <button class="fmt-btn ${this.textHorizAlign === 1 ? 'active' : ''}" data-halign="1" title="Center Text">≡C</button>
           <button class="fmt-btn ${this.textHorizAlign === 2 ? 'active' : ''}" data-halign="2" title="Align Text Right">≡R</button>
@@ -2263,7 +2433,15 @@ class VexioChromeOsApp {
           <button class="fmt-btn ${this.textBullets ? 'active' : ''}" id="btn-fmt-bullets" title="Bulleted List">• List</button>
           <div class="ribbon-divider"></div>
 
-          <span class="ribbon-group-label">Fill</span>
+          <span class="ribbon-group-label">Fill &amp; Line</span>
+          <label class="native-color-chip" title="${this.i18n.fillColor} (Native OS Color Picker)">
+            <span>Fill</span>
+            <input type="color" id="ribbon-fill-color-picker" class="native-color-input" value="${this.shapeFillHex}" />
+          </label>
+          <label class="native-color-chip" title="${this.i18n.lineColor} (Native OS Color Picker)">
+            <span>Line</span>
+            <input type="color" id="ribbon-line-color-picker" class="native-color-input" value="${this.shapeLineHex}" />
+          </label>
           <div class="swatch-row">
             ${['255,255,255', '239,246,255', '219,234,254', '220,252,231', '254,243,199', '243,232,255', '254,226,226']
               .map(
@@ -2589,7 +2767,8 @@ class VexioChromeOsApp {
           .replace(/&/g, '&amp;')
           .replace(/</g, '&lt;')
           .replace(/>/g, '&gt;');
-        inlineEditorHtml = `<textarea id="inline-shape-editor" class="inline-shape-editor" style="left:${leftPx.toFixed(1)}px;top:${topPx.toFixed(1)}px;width:${wPx.toFixed(1)}px;height:${hPx.toFixed(1)}px" placeholder="Type shape text...">${escapedDraft}</textarea>`;
+        const inlineFont = (editSh.fontFamily || this.textFontFamily || 'Inter').replace(/"/g, "'");
+        inlineEditorHtml = `<textarea id="inline-shape-editor" class="inline-shape-editor" style="left:${leftPx.toFixed(1)}px;top:${topPx.toFixed(1)}px;width:${wPx.toFixed(1)}px;height:${hPx.toFixed(1)}px;font-family:'${inlineFont}',sans-serif" placeholder="Type shape text...">${escapedDraft}</textarea>`;
       }
     }
 
@@ -2620,6 +2799,22 @@ class VexioChromeOsApp {
       if (matchedCell) {
         this.activeFormulaDraft = matchedCell.formula;
       }
+      if (selectedShape.fontFamily) {
+        this.textFontFamily = selectedShape.fontFamily;
+      }
+      if (selectedShape.textColor && /^#[0-9a-fA-F]{6}$/.test(selectedShape.textColor)) {
+        this.textColorHex = selectedShape.textColor.toUpperCase();
+      }
+      this.textBgColorHex =
+        selectedShape.textBgColor && /^#[0-9a-fA-F]{6}$/.test(selectedShape.textBgColor)
+          ? selectedShape.textBgColor.toUpperCase()
+          : 'none';
+      const fillCell = selectedShape.cells.find((c) => c.name === 'FillForegnd');
+      const parsedFill = this.parseFormulaOrValueHex(fillCell?.formula, fillCell?.value);
+      if (parsedFill) this.shapeFillHex = parsedFill;
+      const lineCell = selectedShape.cells.find((c) => c.name === 'LineColor');
+      const parsedLine = this.parseFormulaOrValueHex(lineCell?.formula, lineCell?.value);
+      if (parsedLine) this.shapeLineHex = parsedLine;
     }
 
     const catalogKeys = Object.keys(this.stencilCatalog);
@@ -2729,7 +2924,8 @@ class VexioChromeOsApp {
                       <button class="ctx-item" data-top-cmd="open-disk"><span>${t.openLocalFile}</span><span class="ctx-kbd">Ctrl+O</span></button>
                       <button class="ctx-item" data-top-cmd="import-stencil"><span>${t.importVisioStencil}</span></button>
                       <div class="ctx-sep"></div>
-                      <button class="ctx-item" data-top-cmd="save-vsdx"><span>Save Visio (.vsdx)</span><span class="ctx-kbd">Ctrl+S</span></button>
+                      <button class="ctx-item" data-top-cmd="save-vsdx"><span>${t.saveFile}</span><span class="ctx-kbd">Ctrl+S</span></button>
+                      <button class="ctx-item" data-top-cmd="save-as-vsdx"><span>${t.saveAs}</span><span class="ctx-kbd">Ctrl+Shift+S</span></button>
                     </div>`
                   : ''
               }
@@ -2789,7 +2985,8 @@ class VexioChromeOsApp {
 
           <div class="qat-group no-drag">
             <button class="m3-btn icon-only" id="btn-open" title="${t.openLocalFile} (Ctrl+O)">${UI_ICONS.open}</button>
-            <button class="m3-btn icon-only" id="btn-save" title="Save .vsdx (Ctrl+S)">${UI_ICONS.save}</button>
+            <button class="m3-btn icon-only" id="btn-save" title="${t.saveFile} (Ctrl+S)">${UI_ICONS.save}</button>
+            <button class="m3-btn" id="btn-save-as" style="height:26px;padding:0 7px;font-size:11px" title="${t.saveAs} (Ctrl+Shift+S)">${t.saveAs}</button>
             <button class="m3-btn icon-only" id="btn-undo" title="Undo (Ctrl+Z)" ${snap.canUndo ? '' : 'disabled'}>${UI_ICONS.undo}</button>
             <button class="m3-btn icon-only" id="btn-redo" title="Redo (Ctrl+Y)" ${snap.canRedo ? '' : 'disabled'}>${UI_ICONS.redo}</button>
           </div>
@@ -3096,19 +3293,18 @@ class VexioChromeOsApp {
         <footer class="status-bar">
           <div class="page-tabs">
             ${snap.pages
-              .map(
-                (p) =>
-                  `<button class="m3-btn page-tab-btn ${p.id === snap.activePageId ? 'active' : ''}" data-page="${p.id}" title="Click to switch • Right-click to rename, duplicate, or delete">
-                    ${p.name}
-                  </button>`
+              .map((p) =>
+                this.renamingPageId === p.id
+                  ? `<input id="page-rename-inline-input" class="page-rename-inline-input" data-rename-page="${p.id}" value="${this.renamePageDraft.replace(/"/g, '&quot;')}" aria-label="${t.renamePage}" />`
+                  : `<button class="m3-btn page-tab-btn ${p.id === snap.activePageId ? 'active' : ''}" data-page="${p.id}" title="Click to switch • Double-click or right-click to rename, duplicate, or delete">${p.name}</button>`
               )
               .join('')}
             <button class="m3-btn page-tab-btn tonal" id="btn-add-page" title="Insert New Page">+ Page</button>
           </div>
-          <div style="display:flex;align-items:center;gap:14px">
-            <span style="color:var(--m3-text-muted);font-size:11px">Tool: <strong style="color:var(--m3-text);text-transform:capitalize">${this.activeTool.replace('_', ' ')}</strong></span>
-            <span id="coord-readout" style="font-variant-numeric:tabular-nums">X: ${this.formatLengthFromIn(this.cursorCoordsIn[0])} &nbsp;Y: ${this.formatLengthFromIn(this.cursorCoordsIn[1])}</span>
-            <span>Selected: <strong>${this.selectedShapeIds.length}</strong></span>
+          <div style="display:flex;align-items:center;gap:14px;flex-shrink:0">
+            <span style="color:var(--m3-text-muted);font-size:11px;white-space:nowrap">Tool: <strong style="color:var(--m3-text);text-transform:capitalize">${this.activeTool.replace('_', ' ')}</strong></span>
+            <span id="coord-readout" style="font-variant-numeric:tabular-nums;white-space:nowrap">X: ${this.formatLengthFromIn(this.cursorCoordsIn[0])} &nbsp;Y: ${this.formatLengthFromIn(this.cursorCoordsIn[1])}</span>
+            <span style="white-space:nowrap">Selected: <strong>${this.selectedShapeIds.length}</strong></span>
             <label style="display:inline-flex;align-items:center;gap:6px">
               <input type="range" id="zoom-slider" min="25" max="400" value="${this.zoomPct}" style="width:88px;accent-color:var(--m3-primary)" />
             </label>
@@ -3150,6 +3346,12 @@ class VexioChromeOsApp {
       if (titleInp) {
         titleInp.focus({ preventScroll: true });
         titleInp.select();
+      }
+    } else if (this.renamingPageId !== null) {
+      const pageInp = document.getElementById('page-rename-inline-input') as HTMLInputElement | null;
+      if (pageInp) {
+        pageInp.focus({ preventScroll: true });
+        pageInp.select();
       }
     } else if (this.editingShapeId !== null) {
       const ed = document.getElementById('inline-shape-editor') as HTMLTextAreaElement | null;
@@ -3308,6 +3510,9 @@ class VexioChromeOsApp {
     }
 
     const is1D = selectedShape.kind === 'Connector1D';
+    const inspFonts = this.getAvailableOsFontList(selectedShape.fontFamily);
+    const activeTextColor = /^#[0-9a-fA-F]{6}$/.test(this.textColorHex) ? this.textColorHex : '#0F172A';
+    const activeBgColor = /^#[0-9a-fA-F]{6}$/.test(this.textBgColorHex) ? this.textBgColorHex : '#FEF08A';
 
     return `
       <div class="insp-card">
@@ -3328,7 +3533,29 @@ class VexioChromeOsApp {
       <div class="insp-card">
         <div class="insp-card-title">Label &amp; Text Formatting</div>
         <input class="cell-input" id="shape-text-input" value="${selectedShape.text.replace(/"/g, '&quot;')}" placeholder="Type shape label (or double-click shape)..." />
-        <div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:6px">
+        <div style="display:flex;gap:6px;margin-top:4px;align-items:center">
+          <select class="cell-input" id="insp-font-family" style="flex:1;height:26px;padding:1px 6px;font-size:11.5px" title="Installed OS Font Family">
+            ${inspFonts
+              .map(
+                (f) => `<option value="${f.replace(/"/g, '&quot;')}" ${this.textFontFamily === f ? 'selected' : ''}>${f}</option>`
+              )
+              .join('')}
+          </select>
+          <label class="native-color-chip" title="Text Color (Native OS Color Picker)">
+            <span>A</span>
+            <input type="color" id="insp-text-color-picker" class="native-color-input" value="${activeTextColor}" />
+          </label>
+          <label class="native-color-chip" title="Text Highlight (Native OS Color Picker)">
+            <span>ab</span>
+            <input type="color" id="insp-text-bg-picker" class="native-color-input" value="${activeBgColor}" />
+          </label>
+          ${
+            this.textBgColorHex !== 'none'
+              ? `<button class="fmt-btn" id="btn-insp-clear-bg" title="${this.i18n.clearHighlight}">✕</button>`
+              : ''
+          }
+        </div>
+        <div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:4px">
           <button class="fmt-btn ${this.textBold ? 'active' : ''}" id="btn-insp-bold" title="Bold (Ctrl+B)"><strong>B</strong></button>
           <button class="fmt-btn ${this.textItalic ? 'active' : ''}" id="btn-insp-italic" title="Italic (Ctrl+I)"><em>I</em></button>
           <button class="fmt-btn ${this.textUnderline ? 'active' : ''}" id="btn-insp-underline" title="Underline (Ctrl+U)"><u>U</u></button>
@@ -3364,7 +3591,13 @@ class VexioChromeOsApp {
           `
           : `
             <div class="insp-card">
-              <div class="insp-card-title">Fill Color</div>
+              <div class="insp-card-title" style="display:flex;justify-content:space-between;align-items:center">
+                <span>${this.i18n.fillColor}</span>
+                <label class="native-color-chip" title="${this.i18n.fillColor} (Native OS Color Picker)">
+                  <span>Pick</span>
+                  <input type="color" id="insp-fill-color-picker" class="native-color-input" value="${this.shapeFillHex}" />
+                </label>
+              </div>
               <div class="swatch-row" style="justify-content:space-between">
                 ${['255,255,255', '239,246,255', '219,234,254', '220,252,231', '254,249,195', '254,226,226', '243,232,255', '226,232,240']
                   .map(
@@ -3378,7 +3611,13 @@ class VexioChromeOsApp {
       }
 
       <div class="insp-card">
-        <div class="insp-card-title">Stroke &amp; Line Style</div>
+        <div class="insp-card-title" style="display:flex;justify-content:space-between;align-items:center">
+          <span>Stroke &amp; Line Style</span>
+          <label class="native-color-chip" title="${this.i18n.lineColor} (Native OS Color Picker)">
+            <span>Pick</span>
+            <input type="color" id="insp-line-color-picker" class="native-color-input" value="${this.shapeLineHex}" />
+          </label>
+        </div>
         <div class="swatch-row" style="justify-content:space-between">
           ${['15,23,42', '37,99,235', '5,150,105', '217,119,6', '220,38,38', '124,58,237', '100,116,139']
             .map(
@@ -3499,7 +3738,8 @@ class VexioChromeOsApp {
 
             <div class="pane-header" style="margin-top:4px">Save &amp; Export Formats (100% Offline)</div>
             <div style="display:flex;gap:8px;flex-wrap:wrap">
-              <button class="m3-btn active" data-export-ext="vsdx">Save Visio (.vsdx)</button>
+              <button class="m3-btn active" data-export-ext="vsdx">${t.saveFile}</button>
+              <button class="m3-btn tonal" id="btn-backstage-save-as">${t.saveAs}</button>
               <button class="m3-btn tonal" data-export-ext="pdf">Export PDF/A (.pdf)</button>
               <button class="m3-btn tonal" data-export-ext="png">Export PNG (.png)</button>
               <button class="m3-btn tonal" data-export-ext="jpg">Export JPG (.jpg)</button>
@@ -3858,6 +4098,12 @@ class VexioChromeOsApp {
     document.getElementById('btn-open')?.addEventListener('click', () => this.handleOpenDisk());
     document.getElementById('btn-ins-cad')?.addEventListener('click', () => this.handleOpenDisk());
     document.getElementById('btn-save')?.addEventListener('click', () => this.handleSaveInPlace('vsdx'));
+    document.getElementById('btn-save-as')?.addEventListener('click', () => this.handleSaveAs('vsdx'));
+    document.getElementById('btn-backstage-save-as')?.addEventListener('click', async () => {
+      this.activeModal = null;
+      this.render();
+      await this.handleSaveAs('vsdx');
+    });
     document.getElementById('btn-export-jpg')?.addEventListener('click', () => this.handleSaveInPlace('jpg'));
     document.getElementById('btn-export-png')?.addEventListener('click', () => this.handleSaveInPlace('png'));
     document.getElementById('btn-export-pdf')?.addEventListener('click', () => this.handleSaveInPlace('pdf'));
@@ -3992,6 +4238,10 @@ class VexioChromeOsApp {
           case 'save-vsdx':
             this.render();
             await this.handleSaveInPlace('vsdx');
+            break;
+          case 'save-as-vsdx':
+            this.render();
+            await this.handleSaveAs('vsdx');
             break;
           case 'undo': {
             const res = await this.callEngine('undo');
@@ -4132,8 +4382,17 @@ class VexioChromeOsApp {
       });
     });
 
-    // Rich Text Formatting Listeners
+    // Rich Text & Native OS Font / Color Picker Listeners
+    document.getElementById('btn-load-os-fonts')?.addEventListener('click', async () => {
+      const fonts = await enumerateChromeOsSystemFonts();
+      this.systemFonts = fonts;
+      this.showToast(`Loaded ${fonts.length} installed OS font families`, 'info');
+      this.render();
+    });
     document.getElementById('ribbon-font-family')?.addEventListener('change', (e) => {
+      void this.applyRichTextPatch({ fontFamily: (e.target as HTMLSelectElement).value });
+    });
+    document.getElementById('insp-font-family')?.addEventListener('change', (e) => {
       void this.applyRichTextPatch({ fontFamily: (e.target as HTMLSelectElement).value });
     });
     document.getElementById('ribbon-font-size')?.addEventListener('change', (e) => {
@@ -4160,12 +4419,40 @@ class VexioChromeOsApp {
     });
     document.getElementById('btn-fmt-bullets')?.addEventListener('click', toggleBullets);
     document.getElementById('btn-insp-bullets')?.addEventListener('click', toggleBullets);
-    document.getElementById('ribbon-text-color')?.addEventListener('change', (e) => {
-      void this.applyRichTextPatch({ colorHex: (e.target as HTMLSelectElement).value });
+    const bindTextColorInput = (id: string) => {
+      document.getElementById(id)?.addEventListener('change', (e) => {
+        void this.applyRichTextPatch({ colorHex: (e.target as HTMLInputElement).value.toUpperCase() });
+      });
+    };
+    const bindTextBgInput = (id: string) => {
+      document.getElementById(id)?.addEventListener('change', (e) => {
+        void this.applyRichTextPatch({ bgColorHex: (e.target as HTMLInputElement).value.toUpperCase() });
+      });
+    };
+    bindTextColorInput('ribbon-text-color-picker');
+    bindTextColorInput('insp-text-color-picker');
+    bindTextBgInput('ribbon-text-bg-picker');
+    bindTextBgInput('insp-text-bg-picker');
+    document.getElementById('btn-clear-text-bg')?.addEventListener('click', () => {
+      void this.applyRichTextPatch({ bgColorHex: 'none' });
     });
-    document.getElementById('ribbon-text-bg')?.addEventListener('change', (e) => {
-      void this.applyRichTextPatch({ bgColorHex: (e.target as HTMLSelectElement).value });
+    document.getElementById('btn-insp-clear-bg')?.addEventListener('click', () => {
+      void this.applyRichTextPatch({ bgColorHex: 'none' });
     });
+    const bindFillColorInput = (id: string) => {
+      document.getElementById(id)?.addEventListener('change', (e) => {
+        void this.applyShapeFillHex((e.target as HTMLInputElement).value);
+      });
+    };
+    const bindLineColorInput = (id: string) => {
+      document.getElementById(id)?.addEventListener('change', (e) => {
+        void this.applyShapeLineHex((e.target as HTMLInputElement).value);
+      });
+    };
+    bindFillColorInput('ribbon-fill-color-picker');
+    bindFillColorInput('insp-fill-color-picker');
+    bindLineColorInput('ribbon-line-color-picker');
+    bindLineColorInput('insp-line-color-picker');
     document.querySelectorAll('[data-halign]').forEach((btn) => {
       btn.addEventListener('click', () => {
         void this.applyRichTextPatch({ horizAlign: Number((btn as HTMLElement).dataset.halign ?? 1) });
@@ -5480,6 +5767,7 @@ class VexioChromeOsApp {
             const res = await this.callEngine('openBytes', { bytes, ext });
             this.snapshot = res.snapshot;
             this.activeModal = null;
+            await this.syncCanvasAfterDocumentOpen();
             this.setSingleSelection(this.snapshot?.shapes[0]?.id ?? null);
             this.persistMutationSideEffects();
             this.showToast(`Opened dropped file "${droppedFile.name}"`, 'info');
@@ -6375,6 +6663,7 @@ class VexioChromeOsApp {
         this.snapshot = (await this.callEngine('selectPage', { pageId })).snapshot;
         this.selectedShapeIds = [];
         this.editingShapeId = null;
+        await this.syncCanvasAfterDocumentOpen();
         this.render();
       });
       el.addEventListener('contextmenu', (ev) => {
@@ -6388,19 +6677,45 @@ class VexioChromeOsApp {
         };
         this.render();
       });
-      el.addEventListener('dblclick', async (ev) => {
+      el.addEventListener('dblclick', (ev) => {
         ev.preventDefault();
         ev.stopPropagation();
         const curName = this.snapshot?.pages.find((p) => p.id === pageId)?.name ?? `Page-${pageId}`;
-        const nextName = window.prompt('Rename Page:', curName);
-        if (nextName && nextName.trim()) {
-          const res = await this.callEngine('renamePage', { pageId, name: nextName.trim() });
-          this.snapshot = res.snapshot;
-          this.persistMutationSideEffects(res.wal);
+        this.renamingPageId = pageId;
+        this.renamePageDraft = curName;
+        this.render();
+      });
+    });
+
+    const pageRenameInput = document.getElementById('page-rename-inline-input') as HTMLInputElement | null;
+    if (pageRenameInput) {
+      const targetPid = Number(pageRenameInput.dataset.renamePage ?? this.snapshot?.activePageId ?? 1);
+      let pageHandled = false;
+      pageRenameInput.addEventListener('input', () => {
+        this.renamePageDraft = pageRenameInput.value;
+      });
+      pageRenameInput.addEventListener('keydown', (ev) => {
+        if (ev.key === 'Enter') {
+          ev.preventDefault();
+          if (!pageHandled) {
+            pageHandled = true;
+            void this.commitPageRename(targetPid, pageRenameInput.value);
+          }
+        } else if (ev.key === 'Escape') {
+          ev.preventDefault();
+          pageHandled = true;
+          this.renamingPageId = null;
           this.render();
         }
       });
-    });
+      pageRenameInput.addEventListener('blur', () => {
+        if (this.isRebuildingDom || !pageRenameInput.isConnected) return;
+        if (!pageHandled) {
+          pageHandled = true;
+          void this.commitPageRename(targetPid, pageRenameInput.value);
+        }
+      });
+    }
 
     document.getElementById('btn-add-page')?.addEventListener('click', async () => {
       const nextNum = (this.snapshot?.pages.length ?? 1) + 1;
@@ -6654,14 +6969,10 @@ class VexioChromeOsApp {
             this.render();
             break;
           case 'page-rename': {
-            const targetPid = cm?.targetPageId ?? this.snapshot?.activePageId ?? 1;
+            const targetPid = cm?.targetPageId ?? this.snapshot?.activePageId ?? 0;
             const curName = this.snapshot?.pages.find((p) => p.id === targetPid)?.name ?? `Page-${targetPid}`;
-            const nextName = window.prompt('Rename Page:', curName);
-            if (nextName && nextName.trim()) {
-              const res = await this.callEngine('renamePage', { pageId: targetPid, name: nextName.trim() });
-              this.snapshot = res.snapshot;
-              this.persistMutationSideEffects(res.wal);
-            }
+            this.renamingPageId = targetPid;
+            this.renamePageDraft = curName;
             this.render();
             break;
           }

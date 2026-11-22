@@ -16,6 +16,7 @@ public struct VexioBackstageStartView: View {
     public let onOpenLocalFileSheet: () -> Void
     public let onOpenURLDirectly: (URL) -> Void
     public let onImportStencilSheet: () -> Void
+    public let onSaveSheet: () -> Void
     public let onSaveAsSheet: () -> Void
     public let onExportFormat: (VexioExportFormat) -> Void
 
@@ -29,6 +30,7 @@ public struct VexioBackstageStartView: View {
         onOpenLocalFileSheet: @escaping () -> Void,
         onOpenURLDirectly: @escaping (URL) -> Void,
         onImportStencilSheet: @escaping () -> Void,
+        onSaveSheet: @escaping () -> Void,
         onSaveAsSheet: @escaping () -> Void,
         onExportFormat: @escaping (VexioExportFormat) -> Void
     ) {
@@ -39,6 +41,7 @@ public struct VexioBackstageStartView: View {
         self.onOpenLocalFileSheet = onOpenLocalFileSheet
         self.onOpenURLDirectly = onOpenURLDirectly
         self.onImportStencilSheet = onImportStencilSheet
+        self.onSaveSheet = onSaveSheet
         self.onSaveAsSheet = onSaveAsSheet
         self.onExportFormat = onExportFormat
     }
@@ -119,23 +122,24 @@ public struct VexioBackstageStartView: View {
 
                 // Main Content Columns: Left Actions & Recent | Right Blank Page Presets & Templates
                 HStack(alignment: .top, spacing: 0) {
-                    // Left Column: Open, Save, Import Stencil, Recent Files
-                    VStack(alignment: .leading, spacing: 12) {
+                    // Left Column: Open, Save, Save As, Import Stencil, Recent Files
+                    VStack(alignment: .leading, spacing: 10) {
                         Button {
                             onOpenLocalFileSheet()
                         } label: {
-                            HStack(spacing: 10) {
+                            HStack(spacing: 8) {
                                 Image(systemName: "folder.badge.plus")
-                                    .font(.system(size: 16, weight: .semibold))
+                                    .font(.system(size: 14, weight: .semibold))
                                 Text(i18n.t("openFile"))
-                                    .font(.system(size: 13, weight: .semibold))
-                                Spacer()
+                                    .font(.system(size: 12.5, weight: .semibold))
+                                    .lineLimit(1)
+                                Spacer(minLength: 4)
                                 Text("⌘O")
-                                    .font(.system(size: 11, design: .monospaced))
-                                    .foregroundStyle(.secondary)
+                                    .font(.system(size: 10.5, design: .monospaced))
+                                    .foregroundStyle(.white.opacity(0.85))
                             }
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 9)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 8)
                             .frame(maxWidth: .infinity)
                         }
                         .buttonStyle(.borderedProminent)
@@ -143,12 +147,13 @@ public struct VexioBackstageStartView: View {
                         Button {
                             onImportStencilSheet()
                         } label: {
-                            HStack(spacing: 10) {
+                            HStack(spacing: 8) {
                                 Image(systemName: "square.grid.3x1.folder.badge.plus")
                                 Text(i18n.t("importStencil"))
-                                Spacer()
+                                    .lineLimit(1)
+                                Spacer(minLength: 4)
                                 Text(".vssx/.vss")
-                                    .font(.system(size: 10.5, design: .monospaced))
+                                    .font(.system(size: 10, design: .monospaced))
                                     .foregroundStyle(.secondary)
                             }
                             .padding(.horizontal, 10)
@@ -157,22 +162,43 @@ public struct VexioBackstageStartView: View {
                         }
                         .buttonStyle(.bordered)
 
-                        Button {
-                            onSaveAsSheet()
-                        } label: {
-                            HStack(spacing: 10) {
-                                Image(systemName: "square.and.arrow.down")
-                                Text(i18n.t("saveFile"))
-                                Spacer()
-                                Text("⌘S")
-                                    .font(.system(size: 11, design: .monospaced))
-                                    .foregroundStyle(.secondary)
+                        HStack(spacing: 8) {
+                            Button {
+                                onSaveSheet()
+                            } label: {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "square.and.arrow.down")
+                                    Text(i18n.t("saveFile"))
+                                        .lineLimit(1)
+                                    Spacer(minLength: 2)
+                                    Text("⌘S")
+                                        .font(.system(size: 10, design: .monospaced))
+                                        .foregroundStyle(.secondary)
+                                }
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 6)
+                                .frame(maxWidth: .infinity)
                             }
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 6)
-                            .frame(maxWidth: .infinity)
+                            .buttonStyle(.bordered)
+
+                            Button {
+                                onSaveAsSheet()
+                            } label: {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "square.and.arrow.down.on.square")
+                                    Text(i18n.t("saveAs"))
+                                        .lineLimit(1)
+                                    Spacer(minLength: 2)
+                                    Text("⇧⌘S")
+                                        .font(.system(size: 10, design: .monospaced))
+                                        .foregroundStyle(.secondary)
+                                }
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 6)
+                                .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.bordered)
                         }
-                        .buttonStyle(.bordered)
 
                         Menu {
                             ForEach(VexioExportFormat.allCases) { fmt in
@@ -185,6 +211,7 @@ public struct VexioBackstageStartView: View {
                             HStack {
                                 Image(systemName: "square.and.arrow.up")
                                 Text(i18n.t("export"))
+                                    .lineLimit(1)
                                 Spacer()
                             }
                             .frame(maxWidth: .infinity)
@@ -255,7 +282,7 @@ public struct VexioBackstageStartView: View {
                         Spacer()
                     }
                     .padding(20)
-                    .frame(width: 290)
+                    .frame(width: 336)
                     .onDrop(of: [.fileURL], isTargeted: $isDropTargeted) { providers in
                         guard let first = providers.first else { return false }
                         _ = first.loadObject(ofClass: URL.self) { droppedURL, _ in

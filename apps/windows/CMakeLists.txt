@@ -158,10 +158,11 @@ target_link_directories(Vexio PRIVATE
     "${VEXIO_RUST_TARGET_DIR}/${VEXIO_RUST_PROFILE}"
 )
 
-# Link Rust Core + DirectX 12 + DXGI + Windows App SDK 1.6
+# Link Rust Core + DirectX 12 + DirectWrite + DXGI + Windows App SDK 1.6
 target_link_libraries(Vexio PRIVATE
     vexio_core
     d3d12.lib
+    dwrite.lib
     dxgi.lib
     dxguid.lib
     WindowsApp.lib

@@ -32,6 +32,13 @@ export interface VexioStrings {
   flipVert: string;
   editLabel: string;
   renameHint: string;
+  saveFile: string;
+  saveAs: string;
+  renamePage: string;
+  fillColor: string;
+  lineColor: string;
+  clearHighlight: string;
+  loadOsFonts: string;
 }
 
 export const VEXIO_TRANSLATIONS: Record<VexioLangCode, VexioStrings> = {
@@ -67,6 +74,13 @@ export const VEXIO_TRANSLATIONS: Record<VexioLangCode, VexioStrings> = {
     flipVert: 'Flip Vertical (⇅)',
     editLabel: 'Edit Shape Label',
     renameHint: 'Double-click file name to select & rename inline',
+    saveFile: 'Save (.vsdx)',
+    saveAs: 'Save As…',
+    renamePage: 'Rename Page…',
+    fillColor: 'Fill Color',
+    lineColor: 'Line Color',
+    clearHighlight: 'Clear Highlight',
+    loadOsFonts: 'OS Fonts',
   },
   de: {
     code: 'de',
@@ -100,6 +114,13 @@ export const VEXIO_TRANSLATIONS: Record<VexioLangCode, VexioStrings> = {
     flipVert: 'Vertikal spiegeln (⇅)',
     editLabel: 'Beschriftung bearbeiten',
     renameHint: 'Doppelklicken zum Umbenennen',
+    saveFile: 'Speichern (.vsdx)',
+    saveAs: 'Speichern unter…',
+    renamePage: 'Zeichenblatt umbenennen…',
+    fillColor: 'Füllfarbe',
+    lineColor: 'Linienfarbe',
+    clearHighlight: 'Keine Hervorhebung',
+    loadOsFonts: 'Systemschriften',
   },
   it: {
     code: 'it',
@@ -133,6 +154,13 @@ export const VEXIO_TRANSLATIONS: Record<VexioLangCode, VexioStrings> = {
     flipVert: 'Capovolgi verticale (⇅)',
     editLabel: 'Modifica testo forma',
     renameHint: 'Doppio clic sul nome file per rinominare',
+    saveFile: 'Salva (.vsdx)',
+    saveAs: 'Salva con nome…',
+    renamePage: 'Rinomina pagina…',
+    fillColor: 'Colore riempimento',
+    lineColor: 'Colore linea',
+    clearHighlight: 'Nessuna evidenziazione',
+    loadOsFonts: 'Font di sistema',
   },
   fr: {
     code: 'fr',
@@ -166,6 +194,13 @@ export const VEXIO_TRANSLATIONS: Record<VexioLangCode, VexioStrings> = {
     flipVert: 'Retourner verticalement (⇅)',
     editLabel: 'Modifier le texte',
     renameHint: 'Double-cliquer sur le nom pour renommer',
+    saveFile: 'Enregistrer (.vsdx)',
+    saveAs: 'Enregistrer sous…',
+    renamePage: 'Renommer la page…',
+    fillColor: 'Remplissage',
+    lineColor: 'Couleur de trait',
+    clearHighlight: 'Aucun surlignage',
+    loadOsFonts: 'Polices OS',
   },
   es: {
     code: 'es',
@@ -199,6 +234,13 @@ export const VEXIO_TRANSLATIONS: Record<VexioLangCode, VexioStrings> = {
     flipVert: 'Voltear verticalmente (⇅)',
     editLabel: 'Editar etiqueta',
     renameHint: 'Doble clic en el nombre para renombrar',
+    saveFile: 'Guardar (.vsdx)',
+    saveAs: 'Guardar como…',
+    renamePage: 'Cambiar nombre de página…',
+    fillColor: 'Color de relleno',
+    lineColor: 'Color de línea',
+    clearHighlight: 'Sin resaltado',
+    loadOsFonts: 'Fuentes OS',
   },
   gr: {
     code: 'gr',
@@ -231,7 +273,14 @@ export const VEXIO_TRANSLATIONS: Record<VexioLangCode, VexioStrings> = {
     flipHoriz: 'Οριζόντια αναστροφή (⇆)',
     flipVert: 'Κατακόρυφη αναστροφή (⇅)',
     editLabel: 'Επεξεργασία ετικέτας',
-  renameHint: 'Διπλό κλικ στο όνομα αρχείου για μετονομασία',
+    renameHint: 'Διπλό κλικ στο όνομα αρχείου για μετονομασία',
+    saveFile: 'Αποθήκευση (.vsdx)',
+    saveAs: 'Αποθήκευση ως…',
+    renamePage: 'Μετονομασία σελίδας…',
+    fillColor: 'Χρώμα γεμίσματος',
+    lineColor: 'Χρώμα γραμμής',
+    clearHighlight: 'Χωρίς επισήμανση',
+    loadOsFonts: 'Γραμματοσειρές OS',
   },
 };
 

@@ -1,8 +1,9 @@
 //! Vector path tessellation (`lyon_path` + `lyon_tessellation`), level-of-detail (LOD)
 //! sub-3px proxy quads, selection/ruler/ink geometry builders, and content-addressed `MeshCache`.
 
+use lyon_path::iterator::PathIterator;
 use lyon_path::math::point;
-use lyon_path::Path;
+use lyon_path::{Event, Path};
 use lyon_tessellation::{
     BuffersBuilder, FillOptions, FillRule, FillTessellator, FillVertex, LineCap, LineJoin,
     StrokeOptions, StrokeTessellator, StrokeVertex, VertexBuffers,
@@ -11,7 +12,6 @@ use std::collections::HashMap;
 use std::f64::consts::{FRAC_PI_4, PI, TAU};
 use vexio_shapesheet::{
     EvaluatedGeometryPath, EvaluatedPathVerb, EvaluatedShapeVisual, MarkupInkStroke, RgbaColor,
-    ShapeKind,
 };
 
 /// Primitive kind constants stored in `GpuVertex::flags[0]`.
@@ -292,9 +292,11 @@ pub fn tessellate_shape(visual: &EvaluatedShapeVisual, pixels_per_inch: f64) -> 
 
 /// Full-precision Lyon tessellation of an `EvaluatedShapeVisual`, including:
 /// - `MoveTo`, `LineTo`, `QuadTo`, `CubicTo`, `ArcTo` circular arcs, `Ellipse`, `Close`
-/// - Corner fillet rounding (`rounding_in`)
-/// - `begin_arrow` and `end_arrow` arrowheads
-/// - Vector stroke glyph rendering for non-empty `visual.text`
+/// - Closed-only Visio fill rules (open figures never fill diagonally)
+/// - Dashed/dotted `line_pattern >= 2` stroke tessellation
+/// - Corner fillet rounding (`rounding_in`), `begin_arrow` and `end_arrow` arrowheads
+/// - Embedded `<ForeignData>` vector/raster media (`SVG`, `PNG`, `BMP`, `EMF`)
+/// - Full-Unicode OS-font-aware rich text shaper for non-empty `visual.text`
 pub fn tessellate_shape_full(
     visual: &EvaluatedShapeVisual,
     tolerance_in: f32,
@@ -311,34 +313,23 @@ pub fn tessellate_shape_full(
     let mut first_tangent: Option<([f64; 2], [f64; 2])> = None;
     let mut last_tangent: Option<([f64; 2], [f64; 2])> = None;
 
-    if visual.paths.is_empty() && visual.kind != ShapeKind::Guide {
-        // Fallback synthesized rectangle from ShapeTransform2D when no explicit Geometry section exists.
-        let tf = &visual.transform;
-        let c0: [f64; 2] = tf.local_to_parent(0.0, 0.0).into();
-        let c1: [f64; 2] = tf.local_to_parent(tf.width, 0.0).into();
-        let c2: [f64; 2] = tf.local_to_parent(tf.width, tf.height).into();
-        let c3: [f64; 2] = tf.local_to_parent(0.0, tf.height).into();
-        let synth = EvaluatedGeometryPath {
-            no_fill: visual.kind == ShapeKind::Connector1D,
-            no_line: false,
-            no_show: false,
-            fill_color: None,
-            stroke_color: None,
-            stroke_weight_in: None,
-            verbs_page_space: vec![
-                EvaluatedPathVerb::MoveTo(c0),
-                EvaluatedPathVerb::LineTo(c1),
-                EvaluatedPathVerb::LineTo(c2),
-                EvaluatedPathVerb::LineTo(c3),
-                EvaluatedPathVerb::Close,
-            ],
-        };
+    for geom in &visual.paths {
+        if geom.no_show || geom.verbs_page_space.is_empty() {
+            continue;
+        }
+        let g_fill = geom.fill_color.map(RgbaColor::to_linear_f32).or(fill_rgba);
+        let g_stroke = geom.stroke_color.map(RgbaColor::to_linear_f32).or(stroke_rgba);
+        let g_sw = geom
+            .stroke_weight_in
+            .map(|w| w.max(1.0 / 144.0) as f32)
+            .unwrap_or(stroke_w);
         tessellate_geometry_section(
-            &synth,
+            geom,
             visual.rounding_in,
-            fill_rgba,
-            stroke_rgba,
-            stroke_w,
+            visual.line_pattern,
+            g_fill,
+            g_stroke,
+            g_sw,
             tol,
             &mut fill_tess,
             &mut stroke_tess,
@@ -346,31 +337,6 @@ pub fn tessellate_shape_full(
             &mut first_tangent,
             &mut last_tangent,
         );
-    } else {
-        for geom in &visual.paths {
-            if geom.no_show || geom.verbs_page_space.is_empty() {
-                continue;
-            }
-            let g_fill = geom.fill_color.map(RgbaColor::to_linear_f32).or(fill_rgba);
-            let g_stroke = geom.stroke_color.map(RgbaColor::to_linear_f32).or(stroke_rgba);
-            let g_sw = geom
-                .stroke_weight_in
-                .map(|w| w.max(1.0 / 144.0) as f32)
-                .unwrap_or(stroke_w);
-            tessellate_geometry_section(
-                geom,
-                visual.rounding_in,
-                g_fill,
-                g_stroke,
-                g_sw,
-                tol,
-                &mut fill_tess,
-                &mut stroke_tess,
-                &mut lyon_buf,
-                &mut first_tangent,
-                &mut last_tangent,
-            );
-        }
     }
 
     // Arrowheads at Begin and End of paths when configured (`begin_arrow > 0` or `end_arrow > 0`).
@@ -408,60 +374,68 @@ pub fn tessellate_shape_full(
         }
     }
 
-    // Crisp vector stroke text for shape labels (routing multi-run rich text, multi-line,
-    // bullets, RTL Bidi, and vertical CJK blocks through `crate::typography`).
     let mut out_mesh = TessellatedMesh {
         vertices: lyon_buf.vertices,
         indices: lyon_buf.indices,
     };
+
+    if let Some(media) = &visual.foreign_media {
+        let foreign_mesh =
+            crate::foreign_media::tessellate_foreign_media(media, &visual.transform, tol);
+        out_mesh.append(&foreign_mesh);
+    }
+
+    // Crisp full-Unicode vector text for shape labels (supporting lowercase, punctuation like '&',
+    // German umlauts/'ß', Greek, Bidi, word-wrap, and Sans/Serif/Monospace OS font families).
     let trimmed_txt = visual.text.trim();
     if !trimmed_txt.is_empty() {
+        let box_w = visual
+            .txt_width
+            .unwrap_or(visual.transform.width)
+            .abs()
+            .max(0.45);
+        let box_h = visual
+            .txt_height
+            .unwrap_or(visual.transform.height)
+            .abs()
+            .max(0.28);
+
         if let Some(bg) = visual.text_bg_color {
             let bg_rgba = bg.to_linear_f32();
-            let hw = (visual.transform.width.max(0.4) * 0.46) as f32;
-            let hh = ((visual.font_size_pt / 72.0) * 0.85 * (trimmed_txt.lines().count().max(1) as f64)).min(visual.transform.height.max(0.35) * 0.48) as f32;
+            let hw = (box_w * 0.46) as f32;
+            let hh = ((visual.font_size_pt / 72.0)
+                * 0.85
+                * (trimmed_txt.lines().count().max(1) as f64))
+                .min(box_h * 0.48) as f32;
             let cx = visual.txt_pos[0] as f32;
             let cy = visual.txt_pos[1] as f32;
-            out_mesh.push_quad([cx - hw, cy - hh], [cx + hw, cy + hh], bg_rgba, [PRIM_FLAG_SHAPE, 0.0]);
-        }
-        let needs_rich = !trimmed_txt.is_ascii()
-            || trimmed_txt.contains('\n')
-            || trimmed_txt.contains('*')
-            || trimmed_txt.contains("__")
-            || trimmed_txt.contains("~~")
-            || trimmed_txt.contains('[')
-            || trimmed_txt.starts_with("- ")
-            || visual.char_style != 0
-            || visual.horiz_align != 1
-            || visual.vert_align != 1
-            || visual.bullet_style != 0;
-        if needs_rich {
-            let block = crate::typography::parse_inline_rich_text_styled(
-                trimmed_txt,
-                visual.font_size_pt,
-                visual.text_color,
-                visual.char_style,
-                visual.horiz_align,
-                visual.vert_align,
-                visual.bullet_style,
+            out_mesh.push_quad(
+                [cx - hw, cy - hh],
+                [cx + hw, cy + hh],
+                bg_rgba,
+                [PRIM_FLAG_SHAPE, 0.0],
             );
-            let rich_mesh = crate::typography::tessellate_rich_text_in_box(
-                &block,
-                visual.txt_pos[0],
-                visual.txt_pos[1],
-                visual.transform.width.max(0.8),
-                visual.transform.height.max(0.4),
-                visual.transform.angle_rad,
-            );
-            out_mesh.append(&rich_mesh);
-        } else {
-            let mut txt_buf: VertexBuffers<GpuVertex, u32> = VertexBuffers::new();
-            tessellate_vector_label(visual, tol, &mut stroke_tess, &mut txt_buf);
-            out_mesh.append(&TessellatedMesh {
-                vertices: txt_buf.vertices,
-                indices: txt_buf.indices,
-            });
         }
+
+        let block = crate::typography::parse_inline_rich_text_styled_with_font(
+            trimmed_txt,
+            visual.font_size_pt,
+            visual.text_color,
+            visual.char_style,
+            visual.horiz_align,
+            visual.vert_align,
+            visual.bullet_style,
+            &visual.font_family,
+        );
+        let rich_mesh = crate::typography::tessellate_rich_text_in_box(
+            &block,
+            visual.txt_pos[0],
+            visual.txt_pos[1],
+            box_w,
+            box_h,
+            visual.transform.angle_rad,
+        );
+        out_mesh.append(&rich_mesh);
     }
 
     out_mesh
@@ -471,6 +445,7 @@ pub fn tessellate_shape_full(
 fn tessellate_geometry_section(
     geom: &EvaluatedGeometryPath,
     rounding_in: f64,
+    line_pattern: u8,
     fill_rgba: Option<[f32; 4]>,
     stroke_rgba: Option<[f32; 4]>,
     stroke_w: f32,
@@ -481,17 +456,19 @@ fn tessellate_geometry_section(
     first_tangent: &mut Option<([f64; 2], [f64; 2])>,
     last_tangent: &mut Option<([f64; 2], [f64; 2])>,
 ) {
-    let path = build_lyon_path_from_verbs(
+    let (fill_path, stroke_path) = build_lyon_paths_from_verbs(
         &geom.verbs_page_space,
         rounding_in,
         first_tangent,
         last_tangent,
     );
 
+    // Visio ShapeSheet rule: only explicitly or geometrically CLOSED figures are filled.
+    // Open figures (`MoveTo -> LineTo -> LineTo` where end != start) never fill across the diagonal!
     if !geom.no_fill {
         if let Some(fc) = fill_rgba {
             let _ = fill_tess.tessellate_path(
-                &path,
+                &fill_path,
                 &FillOptions::tolerance(tol).with_fill_rule(FillRule::EvenOdd),
                 &mut BuffersBuilder::new(lyon_buf, |vertex: FillVertex| {
                     let p = vertex.position();
@@ -501,21 +478,170 @@ fn tessellate_geometry_section(
         }
     }
 
-    if !geom.no_line {
+    if !geom.no_line && line_pattern != 0 {
         if let Some(sc) = stroke_rgba {
-            let _ = stroke_tess.tessellate_path(
-                &path,
-                &StrokeOptions::tolerance(tol)
-                    .with_line_width(stroke_w)
-                    .with_line_cap(LineCap::Round)
-                    .with_line_join(LineJoin::Round),
-                &mut BuffersBuilder::new(lyon_buf, |vertex: StrokeVertex| {
-                    let p = vertex.position();
-                    GpuVertex::new([p.x, p.y], sc, [PRIM_FLAG_SHAPE, 0.0])
-                }),
-            );
+            if line_pattern >= 2 {
+                let dashed = dash_lyon_path(&stroke_path, line_pattern, stroke_w, tol);
+                let is_dotted = matches!(line_pattern, 3 | 10 | 17 | 23);
+                let cap = if is_dotted {
+                    LineCap::Round
+                } else {
+                    LineCap::Butt
+                };
+                let _ = stroke_tess.tessellate_path(
+                    &dashed,
+                    &StrokeOptions::tolerance(tol)
+                        .with_line_width(stroke_w)
+                        .with_line_cap(cap)
+                        .with_line_join(LineJoin::Round),
+                    &mut BuffersBuilder::new(lyon_buf, |vertex: StrokeVertex| {
+                        let p = vertex.position();
+                        GpuVertex::new([p.x, p.y], sc, [PRIM_FLAG_SHAPE, 0.0])
+                    }),
+                );
+            } else {
+                let _ = stroke_tess.tessellate_path(
+                    &stroke_path,
+                    &StrokeOptions::tolerance(tol)
+                        .with_line_width(stroke_w)
+                        .with_line_cap(LineCap::Round)
+                        .with_line_join(LineJoin::Round),
+                    &mut BuffersBuilder::new(lyon_buf, |vertex: StrokeVertex| {
+                        let p = vertex.position();
+                        GpuVertex::new([p.x, p.y], sc, [PRIM_FLAG_SHAPE, 0.0])
+                    }),
+                );
+            }
         }
     }
+}
+
+fn dash_lyon_path(path: &Path, line_pattern: u8, stroke_w: f32, tol: f32) -> Path {
+    let sw = stroke_w.max(1.0 / 96.0);
+    let pat_buf: [f32; 6];
+    let pattern: &[f32] = match line_pattern {
+        2 | 7 | 9 | 16 => {
+            pat_buf = [sw * 4.5, sw * 2.8, 0.0, 0.0, 0.0, 0.0];
+            &pat_buf[..2]
+        }
+        3 | 10 | 17 | 23 => {
+            pat_buf = [sw * 0.65, sw * 2.35, 0.0, 0.0, 0.0, 0.0];
+            &pat_buf[..2]
+        }
+        4 | 11 | 18 => {
+            pat_buf = [sw * 4.5, sw * 2.2, sw * 0.75, sw * 2.2, 0.0, 0.0];
+            &pat_buf[..4]
+        }
+        5 | 12 | 19 => {
+            pat_buf = [
+                sw * 4.5,
+                sw * 2.0,
+                sw * 0.75,
+                sw * 2.0,
+                sw * 0.75,
+                sw * 2.0,
+            ];
+            &pat_buf[..6]
+        }
+        _ => {
+            pat_buf = [sw * 3.8, sw * 2.4, 0.0, 0.0, 0.0, 0.0];
+            &pat_buf[..2]
+        }
+    };
+
+    let mut out = Path::builder();
+    let mut pat_idx = 0usize;
+    let mut rem = pattern[0];
+    let mut draw_on = true;
+    let mut sub_open = false;
+
+    let step_segment = |from: lyon_path::math::Point,
+                        to: lyon_path::math::Point,
+                        out: &mut lyon_path::path::Builder,
+                        pat_idx: &mut usize,
+                        rem: &mut f32,
+                        draw_on: &mut bool,
+                        sub_open: &mut bool| {
+        let dx = to.x - from.x;
+        let dy = to.y - from.y;
+        let seg_len = (dx * dx + dy * dy).sqrt();
+        if seg_len <= 1e-6 || !seg_len.is_finite() {
+            return;
+        }
+        let mut consumed = 0.0f32;
+        while consumed < seg_len - 1e-6 {
+            let take = (*rem).min(seg_len - consumed);
+            let t0 = consumed / seg_len;
+            let t1 = (consumed + take) / seg_len;
+            let p0 = point(from.x + dx * t0, from.y + dy * t0);
+            let p1 = point(from.x + dx * t1, from.y + dy * t1);
+            if *draw_on {
+                if !*sub_open {
+                    out.begin(p0);
+                    *sub_open = true;
+                }
+                out.line_to(p1);
+            }
+            consumed += take;
+            *rem -= take;
+            if *rem <= 1e-6 {
+                if *draw_on && *sub_open {
+                    out.end(false);
+                    *sub_open = false;
+                }
+                *pat_idx = (*pat_idx + 1) % pattern.len();
+                *rem = pattern[*pat_idx];
+                *draw_on = (*pat_idx % 2) == 0;
+            }
+        }
+    };
+
+    for evt in path.iter().flattened(tol.max(0.001)) {
+        match evt {
+            Event::Begin { .. } => {
+                if sub_open {
+                    out.end(false);
+                    sub_open = false;
+                }
+                pat_idx = 0;
+                rem = pattern[0];
+                draw_on = true;
+            }
+            Event::Line { from, to } => {
+                step_segment(
+                    from,
+                    to,
+                    &mut out,
+                    &mut pat_idx,
+                    &mut rem,
+                    &mut draw_on,
+                    &mut sub_open,
+                );
+            }
+            Event::End { first, last, close } => {
+                if close {
+                    step_segment(
+                        last,
+                        first,
+                        &mut out,
+                        &mut pat_idx,
+                        &mut rem,
+                        &mut draw_on,
+                        &mut sub_open,
+                    );
+                }
+                if sub_open {
+                    out.end(false);
+                    sub_open = false;
+                }
+            }
+            Event::Quadratic { .. } | Event::Cubic { .. } => {}
+        }
+    }
+    if sub_open {
+        out.end(false);
+    }
+    out.build()
 }
 
 #[derive(Clone, Debug)]
@@ -541,17 +667,19 @@ impl SubpathSeg {
     }
 }
 
-fn build_lyon_path_from_verbs(
+fn build_lyon_paths_from_verbs(
     verbs: &[EvaluatedPathVerb],
     rounding_in: f64,
     first_tangent: &mut Option<([f64; 2], [f64; 2])>,
     last_tangent: &mut Option<([f64; 2], [f64; 2])>,
-) -> Path {
-    let mut builder = Path::builder();
+) -> (Path, Path) {
+    let mut fill_builder = Path::builder();
+    let mut stroke_builder = Path::builder();
     let mut cur_start: Option<[f64; 2]> = None;
     let mut cur_segs: Vec<SubpathSeg> = Vec::new();
 
-    let flush_subpath = |builder: &mut lyon_path::path::Builder,
+    let flush_subpath = |fill_b: &mut lyon_path::path::Builder,
+                         stroke_b: &mut lyon_path::path::Builder,
                          start_opt: &mut Option<[f64; 2]>,
                          segs: &mut Vec<SubpathSeg>,
                          explicit_close: bool,
@@ -564,8 +692,10 @@ fn build_lyon_path_from_verbs(
         if segs.is_empty() {
             return;
         }
+        let last_end = segs.last().map(SubpathSeg::end_pt).unwrap_or(start);
+        let closes_at_start = explicit_close || dist_2d(start, last_end) < 1e-5;
         emit_subpath_into_builder(
-            builder,
+            stroke_b,
             start,
             segs,
             explicit_close,
@@ -573,6 +703,19 @@ fn build_lyon_path_from_verbs(
             first_tan,
             last_tan,
         );
+        if closes_at_start {
+            let mut dummy_first = None;
+            let mut dummy_last = None;
+            emit_subpath_into_builder(
+                fill_b,
+                start,
+                segs,
+                explicit_close,
+                rounding_in,
+                &mut dummy_first,
+                &mut dummy_last,
+            );
+        }
         segs.clear();
     };
 
@@ -583,7 +726,8 @@ fn build_lyon_path_from_verbs(
                     continue;
                 }
                 flush_subpath(
-                    &mut builder,
+                    &mut fill_builder,
+                    &mut stroke_builder,
                     &mut cur_start,
                     &mut cur_segs,
                     false,
@@ -639,7 +783,8 @@ fn build_lyon_path_from_verbs(
                 angle_rad,
             } => {
                 flush_subpath(
-                    &mut builder,
+                    &mut fill_builder,
+                    &mut stroke_builder,
                     &mut cur_start,
                     &mut cur_segs,
                     false,
@@ -648,12 +793,26 @@ fn build_lyon_path_from_verbs(
                 );
                 if is_finite_pt(center) && rx.is_finite() && ry.is_finite() && angle_rad.is_finite()
                 {
-                    emit_rotated_ellipse(&mut builder, center, rx.abs(), ry.abs(), angle_rad);
+                    emit_rotated_ellipse(
+                        &mut stroke_builder,
+                        center,
+                        rx.abs(),
+                        ry.abs(),
+                        angle_rad,
+                    );
+                    emit_rotated_ellipse(
+                        &mut fill_builder,
+                        center,
+                        rx.abs(),
+                        ry.abs(),
+                        angle_rad,
+                    );
                 }
             }
             EvaluatedPathVerb::Close => {
                 flush_subpath(
-                    &mut builder,
+                    &mut fill_builder,
+                    &mut stroke_builder,
                     &mut cur_start,
                     &mut cur_segs,
                     true,
@@ -665,7 +824,8 @@ fn build_lyon_path_from_verbs(
     }
 
     flush_subpath(
-        &mut builder,
+        &mut fill_builder,
+        &mut stroke_builder,
         &mut cur_start,
         &mut cur_segs,
         false,
@@ -673,7 +833,7 @@ fn build_lyon_path_from_verbs(
         last_tangent,
     );
 
-    builder.build()
+    (fill_builder.build(), stroke_builder.build())
 }
 
 fn emit_subpath_into_builder(
@@ -1521,320 +1681,6 @@ pub fn tessellate_ruler_and_grid_ticks(
     mesh
 }
 
-/// Built-in crisp Hershey-style vector stroke glyph renderer so shape labels render cleanly
-/// on GPU and software targets without external OS font dependencies.
-fn tessellate_vector_label(
-    visual: &EvaluatedShapeVisual,
-    tol: f32,
-    stroke_tess: &mut StrokeTessellator,
-    lyon_buf: &mut VertexBuffers<GpuVertex, u32>,
-) {
-    let text = visual.text.trim();
-    if text.is_empty() {
-        return;
-    }
-    let cap_h = ((visual.font_size_pt.clamp(5.0, 96.0)) / 72.0) * 0.72;
-    let glyph_w = cap_h * 0.58;
-    let advance = glyph_w * 1.28;
-    let stroke_w = (cap_h * 0.12).clamp(0.004, 0.08) as f32;
-    let text_rgba = visual.text_color.to_linear_f32();
-
-    let cx = visual.txt_pos[0];
-    let cy = visual.txt_pos[1];
-
-    let lines: Vec<&str> = text.lines().take(6).collect();
-    if lines.is_empty() {
-        return;
-    }
-    let line_h = cap_h * 1.45;
-    let total_h = (lines.len() as f64 - 1.0) * line_h + cap_h;
-    let top_baseline = cy + total_h * 0.5 - cap_h;
-
-    let mut b = Path::builder();
-    let mut any_stroke = false;
-
-    for (line_idx, line) in lines.iter().enumerate() {
-        let chars: Vec<char> = line.chars().take(64).collect();
-        if chars.is_empty() {
-            continue;
-        }
-        let line_w = (chars.len() as f64 - 1.0) * advance + glyph_w;
-        let start_x = cx - line_w * 0.5;
-        let base_y = top_baseline - (line_idx as f64) * line_h;
-
-        for (ci, &ch) in chars.iter().enumerate() {
-            let gx = start_x + (ci as f64) * advance;
-            for seg in glyph_strokes(ch) {
-                any_stroke = true;
-                let p0 = [gx + (seg[0] as f64) * glyph_w, base_y + (seg[1] as f64) * cap_h];
-                let p1 = [gx + (seg[2] as f64) * glyph_w, base_y + (seg[3] as f64) * cap_h];
-                b.begin(point(p0[0] as f32, p0[1] as f32));
-                b.line_to(point(p1[0] as f32, p1[1] as f32));
-                b.end(false);
-            }
-        }
-    }
-
-    if !any_stroke {
-        return;
-    }
-    let path = b.build();
-    let _ = stroke_tess.tessellate_path(
-        &path,
-        &StrokeOptions::tolerance(tol)
-            .with_line_width(stroke_w)
-            .with_line_cap(LineCap::Round)
-            .with_line_join(LineJoin::Round),
-        &mut BuffersBuilder::new(lyon_buf, |v: StrokeVertex| {
-            let p = v.position();
-            GpuVertex::new([p.x, p.y], text_rgba, [PRIM_FLAG_TEXT_GLYPH, 0.0])
-        }),
-    );
-}
-
-/// Normalized `[x0, y0, x1, y1]` vector segments in `[0..1] x [0..1]` (`+Y` up) for ASCII glyphs.
-fn glyph_strokes(ch: char) -> &'static [[f32; 4]] {
-    match ch.to_ascii_uppercase() {
-        'A' => &[
-            [0.0, 0.0, 0.5, 1.0],
-            [0.5, 1.0, 1.0, 0.0],
-            [0.2, 0.38, 0.8, 0.38],
-        ],
-        'B' => &[
-            [0.0, 0.0, 0.0, 1.0],
-            [0.0, 1.0, 0.78, 1.0],
-            [0.78, 1.0, 0.95, 0.75],
-            [0.95, 0.75, 0.78, 0.52],
-            [0.0, 0.52, 0.78, 0.52],
-            [0.78, 0.52, 1.0, 0.25],
-            [1.0, 0.25, 0.78, 0.0],
-            [0.78, 0.0, 0.0, 0.0],
-        ],
-        'C' => &[
-            [0.95, 0.85, 0.65, 1.0],
-            [0.65, 1.0, 0.25, 1.0],
-            [0.25, 1.0, 0.0, 0.75],
-            [0.0, 0.75, 0.0, 0.25],
-            [0.0, 0.25, 0.25, 0.0],
-            [0.25, 0.0, 0.65, 0.0],
-            [0.65, 0.0, 0.95, 0.15],
-        ],
-        'D' => &[
-            [0.0, 0.0, 0.0, 1.0],
-            [0.0, 1.0, 0.65, 1.0],
-            [0.65, 1.0, 1.0, 0.72],
-            [1.0, 0.72, 1.0, 0.28],
-            [1.0, 0.28, 0.65, 0.0],
-            [0.65, 0.0, 0.0, 0.0],
-        ],
-        'E' => &[
-            [0.0, 0.0, 0.0, 1.0],
-            [0.0, 1.0, 0.95, 1.0],
-            [0.0, 0.5, 0.78, 0.5],
-            [0.0, 0.0, 0.95, 0.0],
-        ],
-        'F' => &[
-            [0.0, 0.0, 0.0, 1.0],
-            [0.0, 1.0, 0.95, 1.0],
-            [0.0, 0.5, 0.75, 0.5],
-        ],
-        'G' => &[
-            [0.95, 0.85, 0.65, 1.0],
-            [0.65, 1.0, 0.25, 1.0],
-            [0.25, 1.0, 0.0, 0.75],
-            [0.0, 0.75, 0.0, 0.25],
-            [0.0, 0.25, 0.25, 0.0],
-            [0.25, 0.0, 0.95, 0.0],
-            [0.95, 0.0, 0.95, 0.45],
-            [0.55, 0.45, 0.95, 0.45],
-        ],
-        'H' => &[
-            [0.0, 0.0, 0.0, 1.0],
-            [1.0, 0.0, 1.0, 1.0],
-            [0.0, 0.5, 1.0, 0.5],
-        ],
-        'I' => &[
-            [0.2, 1.0, 0.8, 1.0],
-            [0.5, 0.0, 0.5, 1.0],
-            [0.2, 0.0, 0.8, 0.0],
-        ],
-        'J' => &[
-            [0.25, 1.0, 0.95, 1.0],
-            [0.75, 1.0, 0.75, 0.22],
-            [0.75, 0.22, 0.5, 0.0],
-            [0.5, 0.0, 0.2, 0.0],
-            [0.2, 0.0, 0.0, 0.22],
-        ],
-        'K' => &[
-            [0.0, 0.0, 0.0, 1.0],
-            [0.95, 1.0, 0.0, 0.48],
-            [0.28, 0.62, 0.98, 0.0],
-        ],
-        'L' => &[[0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 0.95, 0.0]],
-        'M' => &[
-            [0.0, 0.0, 0.0, 1.0],
-            [0.0, 1.0, 0.5, 0.35],
-            [0.5, 0.35, 1.0, 1.0],
-            [1.0, 1.0, 1.0, 0.0],
-        ],
-        'N' => &[
-            [0.0, 0.0, 0.0, 1.0],
-            [0.0, 1.0, 1.0, 0.0],
-            [1.0, 0.0, 1.0, 1.0],
-        ],
-        'O' | '0' => &[
-            [0.25, 1.0, 0.75, 1.0],
-            [0.75, 1.0, 1.0, 0.75],
-            [1.0, 0.75, 1.0, 0.25],
-            [1.0, 0.25, 0.75, 0.0],
-            [0.75, 0.0, 0.25, 0.0],
-            [0.25, 0.0, 0.0, 0.25],
-            [0.0, 0.25, 0.0, 0.75],
-            [0.0, 0.75, 0.25, 1.0],
-        ],
-        'P' => &[
-            [0.0, 0.0, 0.0, 1.0],
-            [0.0, 1.0, 0.78, 1.0],
-            [0.78, 1.0, 1.0, 0.75],
-            [1.0, 0.75, 0.78, 0.5],
-            [0.78, 0.5, 0.0, 0.5],
-        ],
-        'Q' => &[
-            [0.25, 1.0, 0.75, 1.0],
-            [0.75, 1.0, 1.0, 0.75],
-            [1.0, 0.75, 1.0, 0.25],
-            [1.0, 0.25, 0.75, 0.0],
-            [0.75, 0.0, 0.25, 0.0],
-            [0.25, 0.0, 0.0, 0.25],
-            [0.0, 0.25, 0.0, 0.75],
-            [0.0, 0.75, 0.25, 1.0],
-            [0.58, 0.28, 1.0, -0.08],
-        ],
-        'R' => &[
-            [0.0, 0.0, 0.0, 1.0],
-            [0.0, 1.0, 0.78, 1.0],
-            [0.78, 1.0, 1.0, 0.75],
-            [1.0, 0.75, 0.78, 0.5],
-            [0.78, 0.5, 0.0, 0.5],
-            [0.52, 0.5, 1.0, 0.0],
-        ],
-        'S' | '5' => &[
-            [0.95, 0.85, 0.7, 1.0],
-            [0.7, 1.0, 0.2, 1.0],
-            [0.2, 1.0, 0.0, 0.75],
-            [0.0, 0.75, 0.2, 0.52],
-            [0.2, 0.52, 0.8, 0.48],
-            [0.8, 0.48, 1.0, 0.25],
-            [1.0, 0.25, 0.75, 0.0],
-            [0.75, 0.0, 0.2, 0.0],
-            [0.2, 0.0, 0.0, 0.15],
-        ],
-        'T' => &[[0.0, 1.0, 1.0, 1.0], [0.5, 0.0, 0.5, 1.0]],
-        'U' => &[
-            [0.0, 1.0, 0.0, 0.22],
-            [0.0, 0.22, 0.25, 0.0],
-            [0.25, 0.0, 0.75, 0.0],
-            [0.75, 0.0, 1.0, 0.22],
-            [1.0, 0.22, 1.0, 1.0],
-        ],
-        'V' => &[[0.0, 1.0, 0.5, 0.0], [0.5, 0.0, 1.0, 1.0]],
-        'W' => &[
-            [0.0, 1.0, 0.22, 0.0],
-            [0.22, 0.0, 0.5, 0.62],
-            [0.5, 0.62, 0.78, 0.0],
-            [0.78, 0.0, 1.0, 1.0],
-        ],
-        'X' => &[[0.0, 0.0, 1.0, 1.0], [0.0, 1.0, 1.0, 0.0]],
-        'Y' => &[
-            [0.0, 1.0, 0.5, 0.48],
-            [1.0, 1.0, 0.5, 0.48],
-            [0.5, 0.48, 0.5, 0.0],
-        ],
-        'Z' | '2' => &[
-            [0.0, 1.0, 1.0, 1.0],
-            [1.0, 1.0, 0.0, 0.0],
-            [0.0, 0.0, 1.0, 0.0],
-        ],
-        '1' => &[
-            [0.2, 0.78, 0.5, 1.0],
-            [0.5, 1.0, 0.5, 0.0],
-            [0.18, 0.0, 0.82, 0.0],
-        ],
-        '3' => &[
-            [0.05, 0.88, 0.3, 1.0],
-            [0.3, 1.0, 0.8, 1.0],
-            [0.8, 1.0, 0.98, 0.75],
-            [0.98, 0.75, 0.7, 0.52],
-            [0.35, 0.52, 0.7, 0.52],
-            [0.7, 0.52, 1.0, 0.25],
-            [1.0, 0.25, 0.75, 0.0],
-            [0.75, 0.0, 0.15, 0.0],
-        ],
-        '4' => &[
-            [0.75, 0.0, 0.75, 1.0],
-            [0.75, 1.0, 0.0, 0.32],
-            [0.0, 0.32, 1.0, 0.32],
-        ],
-        '6' => &[
-            [0.85, 1.0, 0.25, 1.0],
-            [0.25, 1.0, 0.0, 0.65],
-            [0.0, 0.65, 0.0, 0.22],
-            [0.0, 0.22, 0.25, 0.0],
-            [0.25, 0.0, 0.8, 0.0],
-            [0.8, 0.0, 1.0, 0.28],
-            [1.0, 0.28, 0.78, 0.52],
-            [0.78, 0.52, 0.0, 0.52],
-        ],
-        '7' => &[[0.0, 1.0, 1.0, 1.0], [1.0, 1.0, 0.35, 0.0]],
-        '8' => &[
-            [0.2, 1.0, 0.8, 1.0],
-            [0.8, 1.0, 0.98, 0.75],
-            [0.98, 0.75, 0.8, 0.52],
-            [0.8, 0.52, 0.2, 0.52],
-            [0.2, 0.52, 0.02, 0.75],
-            [0.02, 0.75, 0.2, 1.0],
-            [0.8, 0.52, 1.0, 0.25],
-            [1.0, 0.25, 0.8, 0.0],
-            [0.8, 0.0, 0.2, 0.0],
-            [0.2, 0.0, 0.0, 0.25],
-            [0.0, 0.25, 0.2, 0.52],
-        ],
-        '9' => &[
-            [1.0, 0.48, 0.22, 0.48],
-            [0.22, 0.48, 0.0, 0.72],
-            [0.0, 0.72, 0.22, 1.0],
-            [0.22, 1.0, 0.78, 1.0],
-            [0.78, 1.0, 1.0, 0.72],
-            [1.0, 0.72, 1.0, 0.22],
-            [1.0, 0.22, 0.75, 0.0],
-            [0.75, 0.0, 0.2, 0.0],
-        ],
-        '-' => &[[0.12, 0.5, 0.88, 0.5]],
-        '+' => &[[0.12, 0.5, 0.88, 0.5], [0.5, 0.15, 0.5, 0.85]],
-        '_' => &[[0.0, 0.0, 1.0, 0.0]],
-        '.' => &[[0.44, 0.0, 0.56, 0.0], [0.5, 0.0, 0.5, 0.08]],
-        ':' => &[[0.5, 0.18, 0.5, 0.26], [0.5, 0.72, 0.5, 0.80]],
-        '/' => &[[0.08, 0.0, 0.92, 1.0]],
-        '(' => &[
-            [0.72, 1.0, 0.35, 0.72],
-            [0.35, 0.72, 0.35, 0.28],
-            [0.35, 0.28, 0.72, 0.0],
-        ],
-        ')' => &[
-            [0.28, 1.0, 0.65, 0.72],
-            [0.65, 0.72, 0.65, 0.28],
-            [0.65, 0.28, 0.28, 0.0],
-        ],
-        ' ' => &[],
-        _ => &[
-            [0.15, 0.15, 0.85, 0.15],
-            [0.85, 0.15, 0.85, 0.85],
-            [0.85, 0.85, 0.15, 0.85],
-            [0.15, 0.85, 0.15, 0.15],
-        ],
-    }
-}
-
 /// Deterministic 64-bit FNV-1a content hash of an `EvaluatedShapeVisual` for `MeshCache` invalidation.
 pub fn compute_visual_content_hash(v: &EvaluatedShapeVisual) -> u64 {
     const OFFSET_BASIS: u64 = 0xcbf2_9ce4_8422_2325;
@@ -1871,11 +1717,14 @@ pub fn compute_visual_content_hash(v: &EvaluatedShapeVisual) -> u64 {
     hash_rgba(&mut h, v.fill_color);
     hash_rgba(&mut h, v.stroke_color);
     hash_f64(&mut h, v.stroke_weight_in);
+    hash_u64(&mut h, v.line_pattern as u64);
     hash_f64(&mut h, v.rounding_in);
     hash_u64(&mut h, (v.begin_arrow as u64) | ((v.end_arrow as u64) << 8));
     hash_f64(&mut h, v.font_size_pt);
     hash_f64(&mut h, v.txt_pos[0]);
     hash_f64(&mut h, v.txt_pos[1]);
+    hash_f64(&mut h, v.txt_width.unwrap_or(-1.0));
+    hash_f64(&mut h, v.txt_height.unwrap_or(-1.0));
     hash_rgba(&mut h, Some(v.text_color));
     hash_rgba(&mut h, v.text_bg_color);
     hash_u64(
@@ -1894,6 +1743,20 @@ pub fn compute_visual_content_hash(v: &EvaluatedShapeVisual) -> u64 {
     for b in v.text.as_bytes() {
         h ^= *b as u64;
         h = h.wrapping_mul(0x0100_0000_01b3);
+    }
+    if let Some(fm) = &v.foreign_media {
+        for b in fm.media_type.as_bytes() {
+            h ^= *b as u64;
+            h = h.wrapping_mul(0x0100_0000_01b3);
+        }
+        hash_u64(&mut h, fm.data.len() as u64);
+        let step = (fm.data.len() / 64).max(1);
+        for b in fm.data.iter().step_by(step) {
+            h ^= *b as u64;
+            h = h.wrapping_mul(0x0100_0000_01b3);
+        }
+    } else {
+        hash_u64(&mut h, 0);
     }
     hash_u64(&mut h, v.paths.len() as u64);
     for gp in &v.paths {

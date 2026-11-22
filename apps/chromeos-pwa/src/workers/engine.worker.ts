@@ -30,6 +30,16 @@ export interface EngineShapeSummary {
   width: number;
   height: number;
   angleDeg: number;
+  flipX?: boolean;
+  flipY?: boolean;
+  fontFamily?: string;
+  fontSizePt?: number;
+  charStyle?: number;
+  textColor?: string;
+  textBgColor?: string | null;
+  horizAlign?: number;
+  vertAlign?: number;
+  bulletStyle?: number;
   beginX?: number | null;
   beginY?: number | null;
   endX?: number | null;
@@ -337,6 +347,9 @@ async function ensureWasmLoaded(): Promise<WasmSessionInstance> {
 
 function buildSnapshot(session: WasmSessionInstance): EngineSnapshot {
   const raw = JSON.parse(session.get_state_json(activePageId));
+  if (typeof raw.activePageId === 'number') {
+    activePageId = raw.activePageId;
+  }
   if (raw.wgpuSurfaceActive) {
     session.render_offscreen_frame(activePageId, new Uint32Array(selectedShapeIds));
   }
@@ -465,7 +478,7 @@ self.onmessage = async (ev: MessageEvent) => {
           activePageId = keepPid;
         } else {
           session.load_starter_template(tplId);
-          const nextState = JSON.parse(session.get_state_json(1));
+          const nextState = JSON.parse(session.get_state_json(0xffffffff));
           activePageId = Number(nextState.activePageId ?? 1);
         }
         latestIssues = [];
@@ -476,7 +489,7 @@ self.onmessage = async (ev: MessageEvent) => {
       }
       case 'openBytes': {
         session.open_bytes(payload.bytes, payload.ext);
-        activePageId = 1;
+        activePageId = 0xffffffff;
         latestIssues = [];
         selectedShapeIds = [];
         self.postMessage({ id, ok: true, snapshot: buildSnapshot(session) });

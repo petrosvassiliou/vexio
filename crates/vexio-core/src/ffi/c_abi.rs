@@ -290,11 +290,16 @@ impl VexioViewport {
             height_px.max(1),
             dpi_scale.max(0.5) as f64,
         );
-        if let Some(page) = doc.page(page_id).or_else(|| doc.pages.first()) {
+        let resolved_page = doc
+            .page(page_id)
+            .or_else(|| doc.pages.iter().find(|p| !p.is_background))
+            .or_else(|| doc.pages.first());
+        let resolved_id = resolved_page.map(|p| p.id).unwrap_or(page_id);
+        if let Some(page) = resolved_page {
             camera.fit_to_page(page.width_in(), page.height_in());
         }
         Self {
-            page_id,
+            page_id: resolved_id,
             camera,
             gpu_renderer: None,
             active_tool: NativeCanvasTool::Select,
@@ -1053,7 +1058,14 @@ pub(crate) fn build_native_state_json(session: &DocumentSession, active_page_id:
     let pid = if session.doc.page(active_page_id).is_some() {
         active_page_id
     } else {
-        session.doc.pages.first().map(|p| p.id).unwrap_or(1)
+        session
+            .doc
+            .pages
+            .iter()
+            .find(|p| !p.is_background)
+            .or_else(|| session.doc.pages.first())
+            .map(|p| p.id)
+            .unwrap_or(1)
     };
     let active_page = session.doc.page(pid);
     let page_width_in = active_page.map(|p| p.width_in()).unwrap_or(11.0);
@@ -1561,9 +1573,16 @@ pub unsafe extern "C" fn vexio_viewport_set_page(
         // SAFETY: `vp` and `doc` verified non-null.
         let vp_mut = unsafe { &mut *vp };
         let doc_ref = unsafe { &*doc };
-        vp_mut.page_id = page_id;
+        let target_page = doc_ref
+            .session
+            .doc
+            .page(page_id)
+            .or_else(|| doc_ref.session.doc.pages.iter().find(|p| !p.is_background))
+            .or_else(|| doc_ref.session.doc.pages.first());
+        let resolved_id = target_page.map(|p| p.id).unwrap_or(page_id);
+        vp_mut.page_id = resolved_id;
         vp_mut.selected_ids.clear();
-        if let Some(p) = doc_ref.session.doc.page(page_id) {
+        if let Some(p) = target_page {
             vp_mut.camera.fit_to_page(p.width_in(), p.height_in());
         }
         vp_mut.present_if_attached(&doc_ref.session.doc);
@@ -2845,6 +2864,30 @@ pub unsafe extern "C" fn vexio_doc_set_title(
         };
         d.session.set_document_title(title);
         VexioStatus::Ok
+    }));
+    res.unwrap_or(VexioStatus::ErrInternalPanic)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_doc_rename_page(
+    doc: *mut VexioDoc,
+    page_id: u32,
+    new_name_utf8: *const c_char,
+) -> VexioStatus {
+    let res = catch_unwind(AssertUnwindSafe(|| {
+        if doc.is_null() || new_name_utf8.is_null() {
+            return VexioStatus::ErrInvalidArg;
+        }
+        // SAFETY: `doc` and `new_name_utf8` verified non-null.
+        let d = unsafe { &mut *doc };
+        let Ok(name) = unsafe { CStr::from_ptr(new_name_utf8) }.to_str() else {
+            return VexioStatus::ErrInvalidArg;
+        };
+        if d.session.rename_page(page_id, name) {
+            VexioStatus::Ok
+        } else {
+            VexioStatus::ErrInvalidArg
+        }
     }));
     res.unwrap_or(VexioStatus::ErrInternalPanic)
 }

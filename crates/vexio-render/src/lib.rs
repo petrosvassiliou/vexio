@@ -2,6 +2,7 @@
 //! `WebGPU`/`WebGL2`), Lyon vector path tessellation, R*-tree spatial index for 120 FPS at
 //! 50,000+ shapes, and deterministic 4x-RGSS anti-aliased software rasterizer.
 
+pub mod foreign_media;
 pub mod pipeline;
 pub mod spatial;
 pub mod tessellate;
@@ -21,8 +22,10 @@ pub use tessellate::{
     PRIM_FLAG_OVERLAY_UI, PRIM_FLAG_PAGE_GRID, PRIM_FLAG_SHAPE, PRIM_FLAG_TEXT_GLYPH,
 };
 pub use typography::{
-    BulletStyle, RichTextBlock, RichTextRun, TextDirection, parse_inline_rich_text,
-    parse_inline_rich_text_styled, reorder_bidi_visual_line, tessellate_rich_text_in_box,
+    BulletStyle, FontFamilyClass, RichTextBlock, RichTextRun, TextDirection,
+    parse_inline_rich_text, parse_inline_rich_text_styled,
+    parse_inline_rich_text_styled_with_font, reorder_bidi_visual_line,
+    tessellate_rich_text_in_box,
 };
 pub use vexio_shapesheet::VisioDocument;
 
@@ -77,11 +80,14 @@ mod tests {
             }),
             stroke_color: Some(RgbaColor::BLACK),
             stroke_weight_in: 1.0 / 72.0,
+            line_pattern: 1,
             rounding_in: 0.0,
             end_arrow: 0,
             begin_arrow: 0,
             text: String::new(),
             txt_pos: [x_in + w_in * 0.5, y_in + h_in * 0.5],
+            txt_width: None,
+            txt_height: None,
             font_size_pt: 10.0,
             text_color: RgbaColor::BLACK,
             font_family: "Inter".into(),
@@ -90,6 +96,7 @@ mod tests {
             vert_align: 1,
             bullet_style: 0,
             text_bg_color: None,
+            foreign_media: None,
         }
     }
 
@@ -263,11 +270,14 @@ mod tests {
                 a: 255,
             }),
             stroke_weight_in: 2.0 / 72.0,
+            line_pattern: 1,
             rounding_in: 0.08,
             end_arrow: 4,
             begin_arrow: 1,
             text: "NODE-42".into(),
             txt_pos: [4.0, 4.0],
+            txt_width: None,
+            txt_height: None,
             font_size_pt: 12.0,
             text_color: RgbaColor::BLACK,
             font_family: "Inter".into(),
@@ -276,6 +286,7 @@ mod tests {
             vert_align: 1,
             bullet_style: 0,
             text_bg_color: None,
+            foreign_media: None,
         };
 
         let mesh = tessellate_shape(&complex_visual, 96.0);

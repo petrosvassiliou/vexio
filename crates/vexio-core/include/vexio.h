@@ -121,6 +121,7 @@ VexioStatus vexio_doc_rotate_flip_shapes(VexioDoc* doc, uint32_t page_id, const 
 VexioStatus vexio_doc_set_page_setup(VexioDoc* doc, uint32_t page_id, double width_in, double height_in, const char* unit_slug_utf8);
 VexioStatus vexio_doc_set_page_preset(VexioDoc* doc, uint32_t page_id, const char* preset_slug_utf8, bool landscape);
 VexioStatus vexio_doc_set_title(VexioDoc* doc, const char* title_utf8);
+VexioStatus vexio_doc_rename_page(VexioDoc* doc, uint32_t page_id, const char* new_name_utf8);
 
 #ifdef __cplusplus
 }

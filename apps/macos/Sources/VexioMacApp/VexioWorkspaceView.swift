@@ -39,6 +39,32 @@ public extension FocusedValues {
     }
 }
 
+// MARK: - AppKit Unified Full-Size Content Titlebar Configurator (Eliminates Excess Top Gap)
+
+private struct MacWindowUnifiedTitlebarAccessor: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView(frame: .zero)
+        DispatchQueue.main.async {
+            if let window = view.window {
+                window.styleMask.insert(.fullSizeContentView)
+                window.titleVisibility = .hidden
+                window.titlebarAppearsTransparent = true
+            }
+        }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        if let window = nsView.window {
+            if !window.styleMask.contains(.fullSizeContentView) {
+                window.styleMask.insert(.fullSizeContentView)
+            }
+            window.titleVisibility = .hidden
+            window.titlebarAppearsTransparent = true
+        }
+    }
+}
+
 // MARK: - Complete macOS Liquid Glass Workstation View
 
 public struct VexioWorkspaceView: View {
@@ -56,6 +82,8 @@ public struct VexioWorkspaceView: View {
     @State private var isBackstagePresented: Bool = false
     @State private var didHandleInitialLaunchPresentation: Bool = false
     @State private var inlineLabelDraft: String = ""
+    @State private var renamingPageId: UInt32? = nil
+    @State private var renamePageDraft: String = ""
 
     // ShapeSheet Editor State
     @State private var selectedShapeSheetSection: ShapeSheetSectionCategory?
@@ -78,11 +106,14 @@ public struct VexioWorkspaceView: View {
 
     public var body: some View {
         GeometryReader { windowGeo in
-            let isCompactStageManagerWidth = windowGeo.size.width < 1120
+            let isCompactStageManagerWidth = windowGeo.size.width < 1160
 
             ZStack {
+                MacWindowUnifiedTitlebarAccessor()
+                    .frame(width: 0, height: 0)
+
                 VStack(spacing: 0) {
-                    // Clean Top Header + Classic Collapsible Visio Ribbon Strip
+                    // Unified Top Header (Inline Traffic Lights) + Classic Collapsible Visio Ribbon Strip
                     VexioHeaderAndRibbonBar(
                         session: session,
                         i18n: i18n,
@@ -90,14 +121,15 @@ public struct VexioWorkspaceView: View {
                         isBackstagePresented: $isBackstagePresented,
                         onRequestOpenFile: presentInWindowOpenFileSheet,
                         onRequestSaveFile: presentInWindowSaveSheet,
+                        onRequestSaveAsFile: presentInWindowSaveAsSheet,
                         onRequestImportStencil: presentInWindowImportStencilSheet,
                         onRequestExport: triggerExport,
                         onRequestDataVisualizerExport: triggerDataVisualizerXlsxExport,
                         onRequestOffscreenPreview: generateAndShowOffscreenPreview
                     )
                     .padding(.horizontal, 10)
-                    .padding(.top, 28)
-                    .padding(.bottom, 6)
+                    .padding(.top, 6)
+                    .padding(.bottom, 5)
 
                     Divider()
 
@@ -153,7 +185,7 @@ public struct VexioWorkspaceView: View {
                                 },
                                 onRequestDataVisualizerExport: triggerDataVisualizerXlsxExport
                             )
-                            .frame(width: isCompactStageManagerWidth ? 268 : 304)
+                            .frame(width: isCompactStageManagerWidth ? 296 : 332)
                             .transition(.move(edge: .trailing).combined(with: .opacity))
                         }
                     }
@@ -171,13 +203,15 @@ public struct VexioWorkspaceView: View {
                             session.openLocalFile(from: url)
                         },
                         onImportStencilSheet: presentInWindowImportStencilSheet,
-                        onSaveAsSheet: presentInWindowSaveSheet,
+                        onSaveSheet: presentInWindowSaveSheet,
+                        onSaveAsSheet: presentInWindowSaveAsSheet,
                         onExportFormat: triggerExport
                     )
                     .transition(.opacity.combined(with: .scale(scale: 0.98)))
                 }
             }
         }
+        .ignoresSafeArea(.container, edges: .top)
         .frame(minWidth: 960, minHeight: 620)
         .focusedSceneValue(\.vexioDocumentSession, session)
         .onAppear {
@@ -210,6 +244,9 @@ public struct VexioWorkspaceView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .vexioSaveFileSheet)) { _ in
             presentInWindowSaveSheet()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .vexioSaveAsFileSheet)) { _ in
+            presentInWindowSaveAsSheet()
         }
         .onReceive(NotificationCenter.default.publisher(for: .vexioImportStencilSheet)) { _ in
             presentInWindowImportStencilSheet()
@@ -246,7 +283,7 @@ public struct VexioWorkspaceView: View {
         }
     }
 
-    // MARK: - Inline Canvas Shape / Text Box Label Editor Overlay (Fixes Remarks #2 & #4)
+    // MARK: - Inline Canvas Shape / Text Box Label Editor Overlay (Uses Selected OS Font)
 
     @ViewBuilder
     private func inlineCanvasLabelEditor(for edit: InlineShapeTextEditContext) -> some View {
@@ -261,6 +298,7 @@ public struct VexioWorkspaceView: View {
         SelectAllInlineTextField(
             text: $inlineLabelDraft,
             placeholder: "",
+            fontFamily: session.selectedFontFamily,
             fontSize: max(CGFloat(session.selectedFontSizePt * Double(session.zoomScale)), 11.5),
             fontWeight: (session.selectedCharStyle & 1) != 0 ? .bold : .regular,
             alignment: align,
@@ -411,54 +449,87 @@ public struct VexioWorkspaceView: View {
                 .transition(.scale(scale: 0.90).combined(with: .opacity))
             }
 
-            // Bottom Page Switcher, Subprocess, Compare & Zoom Liquid Glass Pill Controls
+            // Bottom Page Switcher (Single-Line Scrollable + Inline Rename), Subprocess, Compare & Zoom Liquid Glass Pill Controls
             VStack {
                 Spacer()
                 HStack(spacing: 12) {
-                    // Page Switcher, Subprocess Drill-Down & Diagram Compare Pill
                     LiquidGlassPillCluster(cornerRadius: 14) {
-                        ForEach(session.pages) { page in
-                            let isCurrent = (session.activePageId == page.id)
-                            Button {
-                                withAnimation(LiquidGlassPhysics.standardSpring) {
-                                    session.activePageId = page.id
-                                    session.reloadSelectedShapeSheetCells()
-                                }
-                            } label: {
-                                HStack(spacing: 4) {
-                                    if page.isBackgroundPage {
-                                        Image(systemName: "square.on.square.dashed")
-                                            .font(.system(size: 10))
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 4) {
+                                ForEach(session.pages) { page in
+                                    let isCurrent = (session.activePageId == page.id)
+                                    if renamingPageId == page.id {
+                                        SelectAllInlineTextField(
+                                            text: $renamePageDraft,
+                                            placeholder: page.title,
+                                            fontSize: 11.5,
+                                            fontWeight: .semibold,
+                                            onCommit: {
+                                                session.renamePage(pageId: page.id, to: renamePageDraft, undoManager: undoManager)
+                                                renamingPageId = nil
+                                            },
+                                            onCancel: {
+                                                renamingPageId = nil
+                                            }
+                                        )
+                                        .frame(width: 132, height: 22)
+                                    } else {
+                                        HStack(spacing: 4) {
+                                            if page.isBackgroundPage {
+                                                Image(systemName: "square.on.square.dashed")
+                                                    .font(.system(size: 10))
+                                            }
+                                            Text(page.title)
+                                                .font(.system(size: 11.5, weight: isCurrent ? .semibold : .regular))
+                                                .lineLimit(1)
+                                                .fixedSize(horizontal: true, vertical: false)
+                                        }
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 4)
+                                        .background(
+                                            Capsule()
+                                                .fill(isCurrent ? Color.accentColor.opacity(0.22) : Color.clear)
+                                        )
+                                        .contentShape(Capsule())
+                                        .help("\(page.title) — \(i18n.t("doubleClickRenameHint"))")
+                                        .onTapGesture(count: 2) {
+                                            session.selectPage(page.id)
+                                            renamePageDraft = page.title
+                                            renamingPageId = page.id
+                                        }
+                                        .onTapGesture(count: 1) {
+                                            withAnimation(LiquidGlassPhysics.standardSpring) {
+                                                session.selectPage(page.id)
+                                            }
+                                        }
+                                        .contextMenu {
+                                            Button("Switch to \(page.title)") {
+                                                session.selectPage(page.id)
+                                            }
+                                            Button(i18n.t("renamePage")) {
+                                                session.selectPage(page.id)
+                                                renamePageDraft = page.title
+                                                renamingPageId = page.id
+                                            }
+                                            Divider()
+                                            Button("Insert New Page") {
+                                                session.addNewPage()
+                                            }
+                                            Button("Create Linked Subprocess…") {
+                                                session.createSubprocessDrilldown(undoManager: undoManager)
+                                            }
+                                            Divider()
+                                            Button("Auto-Layout Active Page") {
+                                                session.applyAutoLayout(.hierarchicalTopDown, undoManager: undoManager)
+                                            }
+                                        }
                                     }
-                                    Text(page.title)
-                                        .font(.system(size: 11.5, weight: isCurrent ? .semibold : .regular))
-                                }
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 4)
-                                .background(
-                                    Capsule()
-                                        .fill(isCurrent ? Color.accentColor.opacity(0.20) : Color.clear)
-                                )
-                            }
-                            .buttonStyle(.plain)
-                            .contextMenu {
-                                Button("Switch to \(page.title)") {
-                                    session.activePageId = page.id
-                                    session.reloadSelectedShapeSheetCells()
-                                }
-                                Divider()
-                                Button("Insert New Page") {
-                                    session.addNewPage()
-                                }
-                                Button("Create Linked Subprocess…") {
-                                    session.createSubprocessDrilldown(undoManager: undoManager)
-                                }
-                                Divider()
-                                Button("Auto-Layout Active Page") {
-                                    session.applyAutoLayout(.hierarchicalTopDown, undoManager: undoManager)
                                 }
                             }
+                            .padding(.vertical, 1)
                         }
+                        .frame(maxWidth: 440, maxHeight: 28)
+                        .fixedSize(horizontal: false, vertical: true)
 
                         Button {
                             withAnimation(LiquidGlassPhysics.standardSpring) {
@@ -478,21 +549,19 @@ public struct VexioWorkspaceView: View {
                                 session.createSubprocessDrilldown(undoManager: undoManager)
                             }
                         } label: {
-                            Label("Create Subprocess", systemImage: "arrow.turn.down.right")
-                                .font(.system(size: 11, weight: .medium))
+                            Image(systemName: "arrow.turn.down.right")
+                                .font(.system(size: 11.5, weight: .medium))
                         }
                         .buttonStyle(.plain)
                         .help("Create & Link Drill-Down Subprocess Page (⇧⌘P)")
-
-                        Divider().frame(height: 14)
 
                         Button {
                             withAnimation(LiquidGlassPhysics.standardSpring) {
                                 session.compareWithSnapshot()
                             }
                         } label: {
-                            Label("Diagram Compare", systemImage: "arrow.left.arrow.right.square")
-                                .font(.system(size: 11, weight: .medium))
+                            Image(systemName: "arrow.left.arrow.right.square")
+                                .font(.system(size: 11.5, weight: .medium))
                         }
                         .buttonStyle(.plain)
                         .help("Compare Active Diagram Against Baseline Snapshot (⇧⌘D)")
@@ -500,30 +569,30 @@ public struct VexioWorkspaceView: View {
                         Divider().frame(height: 14)
 
                         Text(
-                            String(
-                                format: "X: %.2f in  Y: %.2f in",
-                                session.cursorCanvasInches.x,
-                                session.cursorCanvasInches.y
-                            )
+                            "X: \(i18n.unitPreference.formatFromInches(Double(session.cursorCanvasInches.x)))  Y: \(i18n.unitPreference.formatFromInches(Double(session.cursorCanvasInches.y)))"
                         )
-                        .font(.system(size: 11, design: .monospaced))
+                        .font(.system(size: 10.5, design: .monospaced))
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
                         .foregroundStyle(.secondary)
                     }
+                    .fixedSize(horizontal: false, vertical: true)
 
-                    Spacer()
+                    Spacer(minLength: 8)
 
-                    // Zoom & Viewport Reset Pill
+                    // Zoom & Viewport Fit Pill
                     LiquidGlassPillCluster(cornerRadius: 14) {
                         LiquidGlassIconButton(systemImage: "minus.magnifyingglass", title: "Zoom Out") {
                             session.zoomScale = max(session.zoomScale / 1.25, 0.10)
                         }
 
                         Slider(value: $session.zoomScale, in: 0.10...8.0)
-                            .frame(width: 96)
+                            .frame(width: 88)
                             .controlSize(.small)
 
                         Text("\(Int((session.zoomScale * 100.0).rounded()))%")
                             .font(.system(size: 11.5, weight: .medium, design: .monospaced))
+                            .lineLimit(1)
                             .frame(width: 46, alignment: .trailing)
 
                         LiquidGlassIconButton(systemImage: "plus.magnifyingglass", title: "Zoom In") {
@@ -534,15 +603,15 @@ public struct VexioWorkspaceView: View {
 
                         LiquidGlassIconButton(
                             systemImage: "arrow.up.left.and.down.right.magnifyingglass",
-                            title: "Reset Zoom & Center Page (100%)"
+                            title: "Fit Page to Window (⌘0)"
                         ) {
-                            session.zoomScale = 1.0
-                            session.panOffset = .zero
+                            session.fitViewportToActivePage()
                         }
                     }
+                    .fixedSize(horizontal: true, vertical: true)
                 }
                 .padding(.horizontal, 16)
-                .padding(.bottom, 12)
+                .padding(.bottom, 10)
             }
         }
     }
@@ -602,7 +671,7 @@ public struct VexioWorkspaceView: View {
         }
     }
 
-    // MARK: - In-Window NSOpenPanel / NSSavePanel Sheets (Attached Inside Active Window)
+    // MARK: - In-Window NSOpenPanel / NSSavePanel Sheets (Save vs Save As…)
 
     private func presentInWindowOpenFileSheet() {
         let panel = NSOpenPanel()
@@ -661,21 +730,61 @@ public struct VexioWorkspaceView: View {
         if let existing = session.currentFileURL {
             do {
                 try session.saveToURL(existing)
+                isBackstagePresented = false
                 return
             } catch {
                 session.statusMessage = error.localizedDescription
             }
         }
+        presentInWindowSaveAsSheet()
+    }
+
+    private func presentInWindowSaveAsSheet() {
         let panel = NSSavePanel()
-        panel.title = i18n.t("saveFile")
+        panel.title = i18n.t("saveAs")
+        let formats: [(label: String, ext: String)] = [
+            ("Visio Drawing (.vsdx)", "vsdx"),
+            ("Visio Stencil (.vssx)", "vssx"),
+            ("Visio Template (.vstx)", "vstx"),
+            ("Visio Legacy Binary (.vsd)", "vsd"),
+            ("Visio XML Drawing (.vdx)", "vdx"),
+            ("AutoCAD Drawing Exchange (.dxf)", "dxf"),
+            ("Vector PDF Document (.pdf)", "pdf"),
+            ("Scalable Vector Graphics (.svg)", "svg"),
+            ("PNG Image (.png)", "png"),
+        ]
+        let popup = NSPopUpButton(frame: NSRect(x: 0, y: 0, width: 260, height: 26), pullsDown: false)
+        for item in formats {
+            popup.addItem(withTitle: item.label)
+        }
+        let accessory = NSStackView()
+        accessory.orientation = .horizontal
+        accessory.spacing = 8
+        accessory.edgeInsets = NSEdgeInsets(top: 8, left: 12, bottom: 8, right: 12)
+        let fmtLabel = NSTextField(labelWithString: "Format:")
+        fmtLabel.font = NSFont.systemFont(ofSize: 12, weight: .medium)
+        accessory.addArrangedSubview(fmtLabel)
+        accessory.addArrangedSubview(popup)
+        panel.accessoryView = accessory
         panel.nameFieldStringValue = "\(session.documentTitle).vsdx"
         panel.canCreateDirectories = true
-        panel.allowedContentTypes = [.visioDrawing]
+        panel.isExtensionHidden = false
+
         if let window = NSApp.keyWindow ?? NSApp.windows.first {
             panel.beginSheetModal(for: window) { response in
-                guard response == .OK, let url = panel.url else { return }
+                guard response == .OK, var chosenURL = panel.url else { return }
+                let idx = max(0, min(popup.indexOfSelectedItem, formats.count - 1))
+                let chosenExt = formats[idx].ext
+                if chosenURL.pathExtension.lowercased() != chosenExt {
+                    chosenURL = chosenURL.deletingPathExtension().appendingPathExtension(chosenExt)
+                }
                 Task { @MainActor in
-                    try? session.saveToURL(url)
+                    isBackstagePresented = false
+                    do {
+                        try session.saveToURL(chosenURL)
+                    } catch {
+                        session.statusMessage = error.localizedDescription
+                    }
                 }
             }
         }
@@ -688,6 +797,7 @@ public extension Notification.Name {
     static let vexioShowFileBackstage = Notification.Name("app.vexio.showFileBackstage")
     static let vexioOpenFileSheet = Notification.Name("app.vexio.openFileSheet")
     static let vexioSaveFileSheet = Notification.Name("app.vexio.saveFileSheet")
+    static let vexioSaveAsFileSheet = Notification.Name("app.vexio.saveAsFileSheet")
     static let vexioImportStencilSheet = Notification.Name("app.vexio.importStencilSheet")
     static let vexioOpenExternalURL = Notification.Name("app.vexio.openExternalURL")
 }
@@ -1011,8 +1121,8 @@ private struct VexioInspectorSidebar: View {
                 }
                 .padding(.horizontal, 12)
 
-                // Segmented Inspector Mode Bar
-                HStack(spacing: 4) {
+                // Segmented Inspector Mode Bar (Single-Line, Zero Wrapping)
+                HStack(spacing: 3) {
                     ForEach(VexioInspectorTab.allCases) { tab in
                         let isSelected = (selectedTab == tab)
                         Button {
@@ -1025,10 +1135,13 @@ private struct VexioInspectorSidebar: View {
                                     .font(.system(size: 12, weight: isSelected ? .semibold : .regular))
                                 Text(tab.rawValue)
                                     .font(.system(size: 9.5, weight: isSelected ? .semibold : .regular))
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.85)
                             }
                             .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 5)
+                            .padding(.horizontal, 2)
                             .background(
                                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                                     .fill(isSelected ? Color.accentColor.opacity(0.16) : Color.clear)
@@ -1037,7 +1150,7 @@ private struct VexioInspectorSidebar: View {
                         .buttonStyle(.plain)
                     }
                 }
-                .padding(.horizontal, 10)
+                .padding(.horizontal, 8)
 
                 Divider()
 
@@ -1181,9 +1294,31 @@ private struct VexioInspectorSidebar: View {
                 .font(.system(size: 10.5, weight: .bold))
                 .foregroundStyle(.secondary)
 
-            VStack(alignment: .leading, spacing: 6) {
-                Text("FillForeground (RGB Formula)")
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    ColorPicker(
+                        "Fill Color",
+                        selection: Binding(
+                            get: { Color(vexioHex: session.selectedFillColorHex) },
+                            set: { session.applyFillColor($0, undoManager: undoManager) }
+                        ),
+                        supportsOpacity: false
+                    )
                     .font(.system(size: 11.5, weight: .medium))
+
+                    Spacer()
+
+                    ColorPicker(
+                        "Line Color",
+                        selection: Binding(
+                            get: { Color(vexioHex: session.selectedLineColorHex) },
+                            set: { session.applyLineColor($0, undoManager: undoManager) }
+                        ),
+                        supportsOpacity: false
+                    )
+                    .font(.system(size: 11.5, weight: .medium))
+                }
+
                 HStack(spacing: 8) {
                     ForEach(
                         [
@@ -1205,14 +1340,15 @@ private struct VexioInspectorSidebar: View {
                             Circle()
                                 .fill(previewColor)
                                 .overlay(Circle().strokeBorder(Color.primary.opacity(0.25), lineWidth: 1))
-                                .frame(width: 24, height: 24)
+                                .frame(width: 22, height: 22)
                         }
                         .buttonStyle(.plain)
                         .help("\(label): \(formula)")
                     }
                 }
-                Text("Current: \(session.readCellFormula(cellName: "FillForegnd"))")
-                    .font(.system(size: 10.5, design: .monospaced))
+                Text("Fill: \(session.readCellFormula(cellName: "FillForegnd"))")
+                    .font(.system(size: 10, design: .monospaced))
+                    .lineLimit(1)
                     .foregroundStyle(.secondary)
             }
 

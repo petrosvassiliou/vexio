@@ -335,7 +335,14 @@ impl WasmVexioSession {
             return false;
         };
         renderer.camera.dpi_scale = dpi.max(0.5);
-        if let Some(p) = self.inner.doc.pages.first() {
+        if let Some(p) = self
+            .inner
+            .doc
+            .pages
+            .iter()
+            .find(|p| !p.is_background)
+            .or_else(|| self.inner.doc.pages.first())
+        {
             renderer.camera.fit_to_page(p.width_in(), p.height_in());
             let _ = renderer.render_surface_frame(&self.inner.doc, p.id);
         }
@@ -353,11 +360,23 @@ impl WasmVexioSession {
         let Some(r) = &mut self.wgpu_renderer else {
             return false;
         };
-        if let Some(p) = self.inner.doc.page(page_id) {
+        let resolved_pid = if self.inner.doc.page(page_id).is_some() {
+            page_id
+        } else {
+            self.inner
+                .doc
+                .pages
+                .iter()
+                .find(|p| !p.is_background)
+                .or_else(|| self.inner.doc.pages.first())
+                .map(|p| p.id)
+                .unwrap_or(page_id)
+        };
+        if let Some(p) = self.inner.doc.page(resolved_pid) {
             r.camera.fit_to_page(p.width_in(), p.height_in());
         }
         r.selected_shapes = selected_ids.iter().map(|&i| i as u64).collect();
-        r.render_surface_frame(&self.inner.doc, page_id).is_ok()
+        r.render_surface_frame(&self.inner.doc, resolved_pid).is_ok()
     }
 
     // --- Stencils & Backstage Templates ---
@@ -1697,7 +1716,14 @@ impl WasmVexioSession {
         let pid = if self.inner.doc.page(active_page_id).is_some() {
             active_page_id
         } else {
-            self.inner.doc.pages.first().map(|p| p.id).unwrap_or(1)
+            self.inner
+                .doc
+                .pages
+                .iter()
+                .find(|p| !p.is_background)
+                .or_else(|| self.inner.doc.pages.first())
+                .map(|p| p.id)
+                .unwrap_or(0)
         };
         let active_page = self.inner.doc.page(pid);
         let page_width_in = active_page.map(|p| p.width_in()).unwrap_or(11.0);

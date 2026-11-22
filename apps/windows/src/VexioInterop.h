@@ -835,6 +835,14 @@ public:
         return VexioResult<uint32_t>{VEXIO_OK, outPid};
     }
 
+    [[nodiscard]] VexioStatus RenamePage(uint32_t pageId, std::string_view newNameUtf8) {
+        if (m_ptr == nullptr || newNameUtf8.empty()) {
+            return VEXIO_ERR_INVALID_ARG;
+        }
+        const std::string name{newNameUtf8};
+        return vexio_doc_rename_page(m_ptr, pageId, name.c_str());
+    }
+
     [[nodiscard]] VexioStatus AutoLayout(uint32_t pageId, std::string_view algoUtf8) {
         if (m_ptr == nullptr || algoUtf8.empty()) {
             return VEXIO_ERR_INVALID_ARG;

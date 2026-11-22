@@ -18,6 +18,8 @@ pub struct Cell {
     pub formula: String,
     pub ast: Option<Expr>,
     pub value: CellValue,
+    #[serde(default)]
+    pub vsdx_cached_value: Option<CellValue>,
     pub unit_hint: Option<Unit>,
     pub deleted: bool,
 }
@@ -72,6 +74,7 @@ impl Cell {
             formula,
             ast,
             value,
+            vsdx_cached_value: None,
             unit_hint,
             deleted: false,
         }
@@ -87,6 +90,7 @@ impl Cell {
             formula,
             ast,
             value: CellValue::Num { internal, unit },
+            vsdx_cached_value: None,
             unit_hint: Some(unit),
             deleted: false,
         }
@@ -231,6 +235,8 @@ pub struct GeometrySection {
     pub no_show: String,
     pub no_snap: String,
     pub no_quick_drag: String,
+    #[serde(default)]
+    pub explicit_flags: u8,
     pub rows: Vec<GeometryRow>,
     pub deleted: bool,
 }
@@ -244,6 +250,7 @@ impl GeometrySection {
             no_show: "FALSE".into(),
             no_snap: "FALSE".into(),
             no_quick_drag: "FALSE".into(),
+            explicit_flags: 0,
             rows: Vec::new(),
             deleted: false,
         }
@@ -506,10 +513,19 @@ impl ShapeSheet {
     }
 
     pub fn get_color(&self, name: &str) -> Option<RgbaColor> {
-        match &self.get_cell(name)?.value {
+        let cell = self.get_cell(name)?;
+        match &cell.value {
             CellValue::Color(c) => Some(*c),
-            CellValue::Str(s) => RgbaColor::from_hex(s),
-            _ => None,
+            CellValue::Str(s) => RgbaColor::from_hex(s).or_else(|| {
+                s.trim().parse::<u32>().ok().and_then(visio_standard_palette_color)
+            }),
+            CellValue::Num { internal, .. } if internal.is_finite() && *internal >= 0.0 => {
+                visio_standard_palette_color(internal.round() as u32)
+            }
+            _ => match &cell.vsdx_cached_value {
+                Some(CellValue::Color(c)) => Some(*c),
+                _ => None,
+            },
         }
     }
 
@@ -555,11 +571,21 @@ impl ShapeSheet {
 
     fn sync_geometry_to_cells(&mut self, sec: &GeometrySection) {
         let prefix = format!("Geometry{}", sec.index);
-        self.set_formula(format!("{prefix}.NoFill"), sec.no_fill.clone(), Some(Unit::Boolean));
-        self.set_formula(format!("{prefix}.NoLine"), sec.no_line.clone(), Some(Unit::Boolean));
-        self.set_formula(format!("{prefix}.NoShow"), sec.no_show.clone(), Some(Unit::Boolean));
-        self.set_formula(format!("{prefix}.NoSnap"), sec.no_snap.clone(), Some(Unit::Boolean));
-        self.set_formula(format!("{prefix}.NoQuickDrag"), sec.no_quick_drag.clone(), Some(Unit::Boolean));
+        if !sec.no_fill.eq_ignore_ascii_case("Inh") {
+            self.set_formula(format!("{prefix}.NoFill"), sec.no_fill.clone(), Some(Unit::Boolean));
+        }
+        if !sec.no_line.eq_ignore_ascii_case("Inh") {
+            self.set_formula(format!("{prefix}.NoLine"), sec.no_line.clone(), Some(Unit::Boolean));
+        }
+        if !sec.no_show.eq_ignore_ascii_case("Inh") {
+            self.set_formula(format!("{prefix}.NoShow"), sec.no_show.clone(), Some(Unit::Boolean));
+        }
+        if !sec.no_snap.eq_ignore_ascii_case("Inh") {
+            self.set_formula(format!("{prefix}.NoSnap"), sec.no_snap.clone(), Some(Unit::Boolean));
+        }
+        if !sec.no_quick_drag.eq_ignore_ascii_case("Inh") {
+            self.set_formula(format!("{prefix}.NoQuickDrag"), sec.no_quick_drag.clone(), Some(Unit::Boolean));
+        }
         for row in &sec.rows {
             if row.deleted {
                 continue;
@@ -577,8 +603,12 @@ impl ShapeSheet {
             } else {
                 Unit::Inch
             };
-            self.set_formula(format!("{prefix}.X{ix}"), row.x.clone(), Some(x_unit));
-            self.set_formula(format!("{prefix}.Y{ix}"), row.y.clone(), Some(x_unit));
+            if !row.x.eq_ignore_ascii_case("Inh") {
+                self.set_formula(format!("{prefix}.X{ix}"), row.x.clone(), Some(x_unit));
+            }
+            if !row.y.eq_ignore_ascii_case("Inh") {
+                self.set_formula(format!("{prefix}.Y{ix}"), row.y.clone(), Some(x_unit));
+            }
             if let Some(a) = &row.a {
                 self.set_formula(format!("{prefix}.A{ix}"), a.clone(), None);
             }
@@ -689,7 +719,7 @@ pub fn default_unit_for_cell(canonical_key: &str) -> Option<Unit> {
         "lineweight" | "char.size" => Some(Unit::Point),
         "flipx" | "flipy" | "lockwidth" | "lockheight" | "lockaspect" | "lockmovex"
         | "lockmovey" | "lockrotate" | "lockdelete" | "lockselect" | "lockformat"
-        | "locktextedit" => Some(Unit::Boolean),
+        | "locktextedit" | "char.strikethru" | "char.smallcaps" => Some(Unit::Boolean),
         "fillforegnd" | "fillbkgnd" | "linecolor" | "char.color" | "shdwforegnd" | "textbkgnd" => {
             Some(Unit::Color)
         }
@@ -702,3 +732,36 @@ pub fn default_unit_for_cell(canonical_key: &str) -> Option<Unit> {
         _ => None,
     }
 }
+
+/// Standard 24-entry Microsoft Visio `[MS-VSDX]` color table (`IX=0..23`).
+pub fn visio_standard_palette_color(idx: u32) -> Option<RgbaColor> {
+    let (r, g, b) = match idx {
+        0 => (0x00, 0x00, 0x00),
+        1 => (0xFF, 0xFF, 0xFF),
+        2 => (0xFF, 0x00, 0x00),
+        3 => (0x00, 0xFF, 0x00),
+        4 => (0x00, 0x00, 0xFF),
+        5 => (0xFF, 0xFF, 0x00),
+        6 => (0xFF, 0x00, 0xFF),
+        7 => (0x00, 0xFF, 0xFF),
+        8 => (0x80, 0x00, 0x00),
+        9 => (0x00, 0x80, 0x00),
+        10 => (0x00, 0x00, 0x80),
+        11 => (0x80, 0x80, 0x00),
+        12 => (0x80, 0x00, 0x80),
+        13 => (0x00, 0x80, 0x80),
+        14 => (0xC0, 0xC0, 0xC0),
+        15 => (0x80, 0x80, 0x80),
+        16 => (0x99, 0x99, 0xFF),
+        17 => (0x99, 0x33, 0x66),
+        18 => (0xFF, 0xFF, 0xCC),
+        19 => (0xCC, 0xFF, 0xFF),
+        20 => (0x66, 0x00, 0x66),
+        21 => (0xFF, 0x80, 0x80),
+        22 => (0x00, 0x66, 0xCC),
+        23 => (0xCC, 0xCC, 0xFF),
+        _ => return None,
+    };
+    Some(RgbaColor { r, g, b, a: 255 })
+}
+

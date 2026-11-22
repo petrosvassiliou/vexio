@@ -687,15 +687,67 @@ fn render_single_shape_svg(
                 }
             }
             if !d.is_empty() {
+                let mut first_move: Option<[f64; 2]> = None;
+                let mut last_end: Option<[f64; 2]> = None;
+                let mut has_explicit_close = rounded_emitted;
+                for verb in &path.verbs_page_space {
+                    match *verb {
+                        EvaluatedPathVerb::MoveTo(p) => {
+                            if first_move.is_none() {
+                                first_move = Some(p);
+                            }
+                            last_end = Some(p);
+                        }
+                        EvaluatedPathVerb::LineTo(p)
+                        | EvaluatedPathVerb::QuadTo { to: p, .. }
+                        | EvaluatedPathVerb::CubicTo { to: p, .. }
+                        | EvaluatedPathVerb::ArcTo { to: p, .. } => {
+                            last_end = Some(p);
+                        }
+                        EvaluatedPathVerb::Ellipse { .. } | EvaluatedPathVerb::Close => {
+                            has_explicit_close = true;
+                        }
+                    }
+                }
+                let closes_geometrically = first_move
+                    .zip(last_end)
+                    .is_some_and(|(a, b)| ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2)).sqrt() < 1e-4);
+                let effective_fill = if has_explicit_close || closes_geometrically {
+                    p_fill
+                } else {
+                    "none"
+                };
+                let effective_stroke = if vis.line_pattern == 0 {
+                    "none"
+                } else {
+                    p_stroke
+                };
+                let dash_attr = match vis.line_pattern {
+                    0 | 1 => String::new(),
+                    2 | 7 | 9 | 16 => {
+                        format!(" stroke-dasharray=\"{:.1},{:.1}\"", p_sw_px * 4.5, p_sw_px * 2.8)
+                    }
+                    3 | 10 | 17 | 23 => {
+                        format!(" stroke-dasharray=\"{:.1},{:.1}\"", p_sw_px * 0.8, p_sw_px * 2.4)
+                    }
+                    4 | 11 | 18 => format!(
+                        " stroke-dasharray=\"{:.1},{:.1},{:.1},{:.1}\"",
+                        p_sw_px * 4.5,
+                        p_sw_px * 2.2,
+                        p_sw_px * 0.9,
+                        p_sw_px * 2.2
+                    ),
+                    _ => format!(" stroke-dasharray=\"{:.1},{:.1}\"", p_sw_px * 3.8, p_sw_px * 2.4),
+                };
                 let _ = writeln!(
                     body,
-                    "<path d=\"{}\" fill=\"{p_fill}\" stroke=\"{p_stroke}\" stroke-width=\"{p_sw_px:.2}\" stroke-linejoin=\"round\" stroke-linecap=\"round\"{marker_end}/>",
+                    "<path d=\"{}\" fill=\"{effective_fill}\" stroke=\"{effective_stroke}\" stroke-width=\"{p_sw_px:.2}\" stroke-linejoin=\"round\" stroke-linecap=\"round\"{dash_attr}{marker_end}/>",
                     d.trim()
                 );
-                if sketchy && !sketch_d.is_empty() && p_stroke != "none" {
+                if sketchy && !sketch_d.is_empty() && effective_stroke != "none" {
                     let _ = writeln!(
                         body,
-                        "<path d=\"{}\" fill=\"none\" stroke=\"{p_stroke}\" stroke-width=\"{:.2}\" stroke-opacity=\"0.55\"/>",
+                        "<path d=\"{}\" fill=\"none\" stroke=\"{effective_stroke}\" stroke-width=\"{:.2}\" stroke-opacity=\"0.55\"/>",
                         sketch_d.trim(),
                         (p_sw_px * 0.7).max(0.6)
                     );
@@ -705,76 +757,97 @@ fn render_single_shape_svg(
     }
 
     // Embedded `ForeignMediaData` Vector SVG (synchronous zero-flicker inline `<svg>`) or Cropped Raster Image
-    if let Some(sh) = shape_opt {
-        if let Some(fd) = &sh.foreign_data {
-            if !fd.data.is_empty() {
-                let box_left = to_svg_x(vis.transform.pin_x - vis.transform.width * 0.5);
-                let box_top = to_svg_y(vis.transform.pin_y + vis.transform.height * 0.5);
-                let box_w = (vis.transform.width * ppi).max(4.0);
-                let box_h = (vis.transform.height * ppi).max(4.0);
-                let cx = to_svg_x(vis.transform.pin_x);
-                let cy = to_svg_y(vis.transform.pin_y);
-                let angle_deg = vis.transform.angle_rad.to_degrees();
+    let fd_resolved = vis
+        .foreign_media
+        .as_ref()
+        .or_else(|| shape_opt.and_then(|sh| sh.foreign_data.as_ref()));
+    if let Some(fd) = fd_resolved {
+        if !fd.data.is_empty() {
+            let box_left = to_svg_x(vis.transform.pin_x - vis.transform.width * 0.5);
+            let box_top = to_svg_y(vis.transform.pin_y + vis.transform.height * 0.5);
+            let box_w = (vis.transform.width * ppi).max(4.0);
+            let box_h = (vis.transform.height * ppi).max(4.0);
+            let cx = to_svg_x(vis.transform.pin_x);
+            let cy = to_svg_y(vis.transform.pin_y);
+            let angle_deg = vis.transform.angle_rad.to_degrees();
 
-                let mut inlined_svg = false;
-                if fd.media_type.eq_ignore_ascii_case("SVG") {
-                    if let Ok(svg_txt) = std::str::from_utf8(&fd.data) {
-                        if let Some((vb, inner)) = extract_inline_svg_payload(
-                            svg_txt,
-                            &format!("vx-{ns_prefix}-{}-", vis.shape_id),
-                        ) {
-                            if angle_deg.abs() > 0.01 {
-                                let _ = write!(
-                                    body,
-                                    "<g transform=\"rotate({:.2} {cx:.2} {cy:.2})\">",
-                                    -angle_deg
-                                );
-                            }
-                            let _ = writeln!(
+            let mut inlined_svg = false;
+            if fd.media_type.eq_ignore_ascii_case("SVG") {
+                if let Ok(svg_txt) = std::str::from_utf8(&fd.data) {
+                    if let Some((vb, inner)) = extract_inline_svg_payload(
+                        svg_txt,
+                        &format!("vx-{ns_prefix}-{}-", vis.shape_id),
+                    ) {
+                        if angle_deg.abs() > 0.01 {
+                            let _ = write!(
                                 body,
-                                "<svg x=\"{box_left:.1}\" y=\"{box_top:.1}\" width=\"{box_w:.1}\" height=\"{box_h:.1}\" viewBox=\"{vb}\" preserveAspectRatio=\"none\" overflow=\"visible\">{inner}</svg>"
+                                "<g transform=\"rotate({:.2} {cx:.2} {cy:.2})\">",
+                                -angle_deg
                             );
-                            if angle_deg.abs() > 0.01 {
-                                body.push_str("</g>");
-                            }
-                            inlined_svg = true;
                         }
+                        let _ = writeln!(
+                            body,
+                            "<svg x=\"{box_left:.1}\" y=\"{box_top:.1}\" width=\"{box_w:.1}\" height=\"{box_h:.1}\" viewBox=\"{vb}\" preserveAspectRatio=\"none\" overflow=\"visible\">{inner}</svg>"
+                        );
+                        if angle_deg.abs() > 0.01 {
+                            body.push_str("</g>");
+                        }
+                        inlined_svg = true;
                     }
                 }
+            }
 
-                if !inlined_svg {
-                    let mime = match fd.media_type.to_ascii_uppercase().as_str() {
-                        "JPG" | "JPEG" => "image/jpeg",
-                        "SVG" => "image/svg+xml",
-                        _ => "image/png",
-                    };
-                    let b64 = base64::engine::general_purpose::STANDARD.encode(&fd.data);
-                    let crop_l = sh.sheet.get_f64("CropLeft").unwrap_or(0.0) * ppi;
-                    let crop_r = sh.sheet.get_f64("CropRight").unwrap_or(0.0) * ppi;
-                    let crop_t = sh.sheet.get_f64("CropTop").unwrap_or(0.0) * ppi;
-                    let crop_b = sh.sheet.get_f64("CropBottom").unwrap_or(0.0) * ppi;
-                    let brightness = sh.sheet.get_f64("Brightness").unwrap_or(1.0).clamp(0.1, 3.0);
-                    let contrast = sh.sheet.get_f64("Contrast").unwrap_or(1.0).clamp(0.1, 3.0);
+            if !inlined_svg {
+                let mime = match fd.media_type.to_ascii_uppercase().as_str() {
+                    "JPG" | "JPEG" => "image/jpeg",
+                    "SVG" => "image/svg+xml",
+                    "BMP" => "image/bmp",
+                    _ => "image/png",
+                };
+                let b64 = base64::engine::general_purpose::STANDARD.encode(&fd.data);
+                let crop_l = shape_opt
+                    .and_then(|sh| sh.sheet.get_f64("CropLeft"))
+                    .unwrap_or(0.0)
+                    * ppi;
+                let crop_r = shape_opt
+                    .and_then(|sh| sh.sheet.get_f64("CropRight"))
+                    .unwrap_or(0.0)
+                    * ppi;
+                let crop_t = shape_opt
+                    .and_then(|sh| sh.sheet.get_f64("CropTop"))
+                    .unwrap_or(0.0)
+                    * ppi;
+                let crop_b = shape_opt
+                    .and_then(|sh| sh.sheet.get_f64("CropBottom"))
+                    .unwrap_or(0.0)
+                    * ppi;
+                let brightness = shape_opt
+                    .and_then(|sh| sh.sheet.get_f64("Brightness"))
+                    .unwrap_or(1.0)
+                    .clamp(0.1, 3.0);
+                let contrast = shape_opt
+                    .and_then(|sh| sh.sheet.get_f64("Contrast"))
+                    .unwrap_or(1.0)
+                    .clamp(0.1, 3.0);
 
-                    let clip_id = format!("vexio-imgclip-{ns_prefix}-{}", vis.shape_id);
-                    let _ = writeln!(
-                        defs,
-                        "<clipPath id=\"{clip_id}\"><rect x=\"{:.1}\" y=\"{:.1}\" width=\"{:.1}\" height=\"{:.1}\"/></clipPath>",
-                        box_left + crop_l,
-                        box_top + crop_t,
-                        (box_w - crop_l - crop_r).max(2.0),
-                        (box_h - crop_t - crop_b).max(2.0)
-                    );
-                    let rot_attr = if angle_deg.abs() > 0.01 {
-                        format!(" transform=\"rotate({:.2} {cx:.2} {cy:.2})\"", -angle_deg)
-                    } else {
-                        String::new()
-                    };
-                    let _ = writeln!(
-                        body,
-                        "<image href=\"data:{mime};base64,{b64}\" x=\"{box_left:.1}\" y=\"{box_top:.1}\" width=\"{box_w:.1}\" height=\"{box_h:.1}\" preserveAspectRatio=\"none\" clip-path=\"url(#{clip_id})\"{rot_attr} style=\"filter:brightness({brightness:.2}) contrast({contrast:.2})\"/>"
-                    );
-                }
+                let clip_id = format!("vexio-imgclip-{ns_prefix}-{}", vis.shape_id);
+                let _ = writeln!(
+                    defs,
+                    "<clipPath id=\"{clip_id}\"><rect x=\"{:.1}\" y=\"{:.1}\" width=\"{:.1}\" height=\"{:.1}\"/></clipPath>",
+                    box_left + crop_l,
+                    box_top + crop_t,
+                    (box_w - crop_l - crop_r).max(2.0),
+                    (box_h - crop_t - crop_b).max(2.0)
+                );
+                let rot_attr = if angle_deg.abs() > 0.01 {
+                    format!(" transform=\"rotate({:.2} {cx:.2} {cy:.2})\"", -angle_deg)
+                } else {
+                    String::new()
+                };
+                let _ = writeln!(
+                    body,
+                    "<image href=\"data:{mime};base64,{b64}\" x=\"{box_left:.1}\" y=\"{box_top:.1}\" width=\"{box_w:.1}\" height=\"{box_h:.1}\" preserveAspectRatio=\"none\" clip-path=\"url(#{clip_id})\"{rot_attr} style=\"filter:brightness({brightness:.2}) contrast({contrast:.2})\"/>"
+                );
             }
         }
     }

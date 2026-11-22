@@ -277,7 +277,12 @@ pub fn build_page_scene_mesh(
     selected_shapes: &[u64],
 ) -> Result<(TessellatedMesh, FrameStats, f64), RenderError> {
     let t0 = monotonic_now_ms();
-    let page = doc.page(page_id).ok_or(RenderError::PageNotFound(page_id))?;
+    let page = doc
+        .page(page_id)
+        .or_else(|| doc.pages.iter().find(|p| !p.is_background))
+        .or_else(|| doc.pages.first())
+        .ok_or(RenderError::PageNotFound(page_id))?;
+    let resolved_page_id = page.id;
 
     let page_w = page.width_in();
     let page_h = page.height_in();
@@ -327,7 +332,7 @@ pub fn build_page_scene_mesh(
 
     // Render attached background page (`back_page_id`) underneath foreground shapes.
     if let Some(back_id) = page.back_page_id {
-        if back_id != page_id {
+        if back_id != resolved_page_id {
             if let Some(back_page) = doc.page(back_id) {
                 let back_visuals = ReactiveEngine::evaluate_page_visuals(doc, back_id);
                 let back_spatial = SpatialIndex::build(&back_visuals);
@@ -347,7 +352,7 @@ pub fn build_page_scene_mesh(
     }
 
     // Evaluate and spatially cull foreground shapes.
-    let visuals = ReactiveEngine::evaluate_page_visuals(doc, page_id);
+    let visuals = ReactiveEngine::evaluate_page_visuals(doc, resolved_page_id);
     let spatial = SpatialIndex::build(&visuals);
     let mut stats =
         prepare_visible_shape_batch(&spatial, &visuals, camera, mesh_cache, &mut scene);

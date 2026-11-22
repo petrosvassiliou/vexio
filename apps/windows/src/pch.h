@@ -12,6 +12,7 @@
 #include <restrictederrorinfo.h>
 #include <hstring.h>
 #include <d3d12.h>
+#include <dwrite.h>
 #include <dxgi1_6.h>
 #include <shobjidl_core.h>
 #include <winnls.h>

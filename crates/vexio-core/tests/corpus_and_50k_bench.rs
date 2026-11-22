@@ -67,11 +67,14 @@ fn make_bench_visual(id: u64, x_in: f64, y_in: f64) -> EvaluatedShapeVisual {
         }),
         stroke_color: Some(RgbaColor::BLACK),
         stroke_weight_in: 1.0 / 72.0,
+        line_pattern: 1,
         rounding_in: 0.04,
         end_arrow: 0,
         begin_arrow: 0,
         text: String::new(),
         txt_pos: [x_in + w_in * 0.5, y_in + h_in * 0.5],
+        txt_width: None,
+        txt_height: None,
         font_size_pt: 10.0,
         text_color: RgbaColor::BLACK,
         font_family: "Inter".into(),
@@ -80,6 +83,7 @@ fn make_bench_visual(id: u64, x_in: f64, y_in: f64) -> EvaluatedShapeVisual {
         vert_align: 1,
         bullet_style: 0,
         text_bg_color: None,
+        foreign_media: None,
     }
 }
 
@@ -297,5 +301,337 @@ fn full_enterprise_corpus_roundtrip_matrix_and_three_peer_crdt_convergence() {
         let sh = converged.page(1).unwrap().find_shape(s2).unwrap();
         assert_eq!(sh.text, "Validated Order");
         assert!((sh.sheet.get_f64("PinY").unwrap() - 6.25).abs() < 1e-6);
+    }
+}
+
+#[test]
+fn real_world_mssc_architektur_vsdx_fidelity_and_page_zero_selection() {
+    use std::ffi::CString;
+    use vexio_core::ffi::c_abi::{
+        VexioByteSlice, VexioOwnedBuffer, VexioStatus, VexioViewport, vexio_buffer_free,
+        vexio_doc_destroy, vexio_doc_get_state_json, vexio_doc_open_bytes, vexio_doc_rename_page,
+        vexio_engine_create, vexio_engine_destroy, vexio_viewport_create_headless,
+        vexio_viewport_destroy, vexio_viewport_render_rgba,
+    };
+    use vexio_vsdx::opc::RawOpcArchive;
+
+    let mut archive = RawOpcArchive::default();
+    archive.files.insert(
+        "[Content_Types].xml".into(),
+        br#"<?xml version="1.0" encoding="UTF-8"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Default Extension="svg" ContentType="image/svg+xml"/>
+  <Override PartName="/visio/document.xml" ContentType="application/vnd.ms-visio.drawing.main+xml"/>
+</Types>"#
+            .to_vec(),
+    );
+    archive.files.insert(
+        "visio/document.xml".into(),
+        r##"<?xml version="1.0" encoding="UTF-8"?>
+<VisioDocument xmlns="http://schemas.microsoft.com/office/visio/2012/main">
+  <Colors>
+    <ColorEntry IX="0" RGB="#000000"/>
+    <ColorEntry IX="1" RGB="#FFFFFF"/>
+    <ColorEntry IX="2" RGB="#2F5597"/>
+  </Colors>
+  <FaceNames>
+    <FaceName ID="1" Name="Segoe UI"/>
+  </FaceNames>
+</VisioDocument>"##
+            .as_bytes()
+            .to_vec(),
+    );
+    archive.files.insert(
+        "visio/masters/masters.xml".into(),
+        r##"<?xml version="1.0" encoding="UTF-8"?>
+<Masters xmlns="http://schemas.microsoft.com/office/visio/2012/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <Master ID="2" NameU="Entra Group" Name="Entra Group">
+    <Rel r:id="rId1"/>
+  </Master>
+</Masters>"##
+            .as_bytes()
+            .to_vec(),
+    );
+    archive.files.insert(
+        "visio/masters/_rels/masters.xml.rels".into(),
+        r##"<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.microsoft.com/office/2006/relationships/visio/master" Target="master1.xml"/>
+</Relationships>"##
+            .as_bytes()
+            .to_vec(),
+    );
+    archive.files.insert(
+        "visio/masters/master1.xml".into(),
+        r##"<?xml version="1.0" encoding="UTF-8"?>
+<MasterContents xmlns="http://schemas.microsoft.com/office/visio/2012/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <Shapes>
+    <Shape ID="5" Type="Group" NameU="EntraGroupRoot">
+      <Cell N="PinX" V="1"/>
+      <Cell N="PinY" V="1"/>
+      <Cell N="Width" V="1.6"/>
+      <Cell N="Height" V="1.2"/>
+      <Cell N="LocPinX" V="0.8" F="Width*0.5"/>
+      <Cell N="LocPinY" V="0.6" F="Height*0.5"/>
+      <Shapes>
+        <Shape ID="6" Type="Foreign" NameU="EntraBadge">
+          <Cell N="PinX" V="0.8" F="Sheet.5!Width*0.5"/>
+          <Cell N="PinY" V="0.72" F="Sheet.5!Height*0.6"/>
+          <Cell N="Width" V="0.8" F="Sheet.5!Width*0.5"/>
+          <Cell N="Height" V="0.6" F="Sheet.5!Height*0.5"/>
+          <Cell N="LocPinX" V="0.4" F="Width*0.5"/>
+          <Cell N="LocPinY" V="0.3" F="Height*0.5"/>
+          <ForeignData ForeignType="Img">
+            <Rel r:id="rIdImg1"/>
+          </ForeignData>
+        </Shape>
+      </Shapes>
+    </Shape>
+  </Shapes>
+</MasterContents>"##
+            .as_bytes()
+            .to_vec(),
+    );
+    archive.files.insert(
+        "visio/masters/_rels/master1.xml.rels".into(),
+        r##"<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rIdImg1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/entra.svg"/>
+</Relationships>"##
+            .as_bytes()
+            .to_vec(),
+    );
+    archive.files.insert(
+        "visio/media/entra.svg".into(),
+        r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><path d="M16 2 L30 28 L2 28 Z" fill="#0078D4"/></svg>"##
+            .as_bytes()
+            .to_vec(),
+    );
+    // Pages: Background Page ID="4" listed FIRST, Foreground Page ID="0" listed SECOND!
+    archive.files.insert(
+        "visio/pages/pages.xml".into(),
+        r##"<?xml version="1.0" encoding="UTF-8"?>
+<Pages xmlns="http://schemas.microsoft.com/office/visio/2012/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <Page ID="4" NameU="VBackground-1" Name="Hintergrund-1" Background="1">
+    <PageSheet>
+      <Cell N="PageWidth" V="11.6929"/>
+      <Cell N="PageHeight" V="8.2677"/>
+    </PageSheet>
+    <Rel r:id="rIdBg"/>
+  </Page>
+  <Page ID="0" NameU="MSSC Architektur" Name="MSSC Architektur">
+    <PageSheet>
+      <Cell N="PageWidth" V="11.6929"/>
+      <Cell N="PageHeight" V="8.2677"/>
+    </PageSheet>
+    <Rel r:id="rIdFg"/>
+  </Page>
+</Pages>"##
+            .as_bytes()
+            .to_vec(),
+    );
+    archive.files.insert(
+        "visio/pages/_rels/pages.xml.rels".into(),
+        r##"<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rIdBg" Type="http://schemas.microsoft.com/office/2006/relationships/visio/page" Target="page1.xml"/>
+  <Relationship Id="rIdFg" Type="http://schemas.microsoft.com/office/2006/relationships/visio/page" Target="page2.xml"/>
+</Relationships>"##
+            .as_bytes()
+            .to_vec(),
+    );
+    archive.files.insert(
+        "visio/pages/page1.xml".into(),
+        r##"<?xml version="1.0" encoding="UTF-8"?><PageContents xmlns="http://schemas.microsoft.com/office/visio/2012/main"><Shapes/></PageContents>"##
+            .as_bytes()
+            .to_vec(),
+    );
+    archive.files.insert(
+        "visio/pages/page2.xml".into(),
+        r##"<?xml version="1.0" encoding="UTF-8"?>
+<PageContents xmlns="http://schemas.microsoft.com/office/visio/2012/main">
+  <Shapes>
+    <Shape ID="10" Type="Shape" NameU="LayerContainer">
+      <Cell N="PinX" V="5.5"/>
+      <Cell N="PinY" V="4.2"/>
+      <Cell N="Width" V="8.0"/>
+      <Cell N="Height" V="5.0"/>
+      <Cell N="LocPinX" V="4.0"/>
+      <Cell N="LocPinY" V="2.5"/>
+      <Cell N="FillForegnd" V="#D9E1F2" F="THEMEVAL(&quot;FillColor&quot;)"/>
+      <Cell N="LineColor" V="2"/>
+      <Cell N="LinePattern" V="2"/>
+      <Cell N="LineWeight" V="0.02"/>
+      <Section N="Character">
+        <Row IX="0">
+          <Cell N="Font" V="1"/>
+          <Cell N="Size" V="0.1666"/>
+          <Cell N="Style" V="10"/>
+          <Cell N="Color" V="#1F3864"/>
+        </Row>
+      </Section>
+      <Section N="Geometry" IX="0">
+        <Cell N="NoFill" V="0"/>
+        <Cell N="NoLine" V="0"/>
+        <Row T="MoveTo" IX="1"><Cell N="X" V="0"/><Cell N="Y" V="4.4"/></Row>
+        <Row T="LineTo" IX="2"><Cell N="X" V="8.0"/><Cell N="Y" V="4.4"/></Row>
+        <Row T="LineTo" IX="3"><Cell N="X" V="8.0"/><Cell N="Y" V="5.0"/></Row>
+        <Row T="LineTo" IX="4"><Cell N="X" V="0"/><Cell N="Y" V="5.0"/></Row>
+        <Row T="LineTo" IX="5"><Cell N="X" V="0"/><Cell N="Y" V="4.4"/></Row>
+      </Section>
+      <Section N="Geometry" IX="1">
+        <Cell N="NoFill" V="0"/>
+        <Cell N="NoLine" V="0"/>
+        <Row T="MoveTo" IX="1"><Cell N="X" V="0"/><Cell N="Y" V="4.4"/></Row>
+        <Row T="LineTo" IX="2"><Cell N="X" V="0"/><Cell N="Y" V="0"/></Row>
+        <Row T="LineTo" IX="3"><Cell N="X" V="8.0"/><Cell N="Y" V="0"/></Row>
+        <Row T="LineTo" IX="4"><Cell N="X" V="8.0"/><Cell N="Y" V="4.4"/></Row>
+      </Section>
+      <Text>User &amp; Device Layer (Größe Δ)</Text>
+    </Shape>
+    <Shape ID="20" Master="2" Type="Group" NameU="EntraInstance">
+      <Cell N="PinX" V="3.2"/>
+      <Cell N="PinY" V="3.4"/>
+      <Cell N="Width" V="1.6"/>
+      <Cell N="Height" V="1.2"/>
+      <Text>Entra ID</Text>
+    </Shape>
+  </Shapes>
+</PageContents>"##
+            .as_bytes()
+            .to_vec(),
+    );
+
+    let vsdx_bytes = archive.to_bytes().expect("valid vsdx zip");
+    let (parsed_doc, _) = vexio_vsdx::read_vsdx(&vsdx_bytes).expect("parse real-world vsdx");
+
+    // 1. Verify both Geometry IX=0 (`Geometry1`) and IX=1 (`Geometry2`) survived without collision!
+    let fg_page = parsed_doc.page(0).expect("foreground Page ID=0 exists");
+    let container = fg_page.find_shape(10).expect("container shape 10");
+    assert_eq!(container.sheet.geometries.len(), 2);
+
+    // 2. Verify Master Group hydration cloned child shape with remapped `Sheet.<inst>!` formula + ForeignData!
+    let entra_inst = fg_page.find_shape(20).expect("entra master instance 20");
+    assert_eq!(entra_inst.children.len(), 1);
+    assert!(entra_inst.children[0].foreign_data.is_some());
+
+    // 3. Evaluate visuals on Page ID=0: verify cached `#D9E1F2` fill, palette `IX=2` (`#2F5597`) stroke,
+    //    `Segoe UI` FaceName lookup, `SmallCaps` bit 8 NOT mapped to strikethrough, and hydrated child ForeignData!
+    let visuals = vexio_shapesheet::ReactiveEngine::evaluate_page_visuals(&parsed_doc, 0);
+    let vis_container = visuals.iter().find(|v| v.shape_id == 10).unwrap();
+    assert_eq!(
+        vis_container.fill_color,
+        Some(vexio_shapesheet::RgbaColor {
+            r: 0xD9,
+            g: 0xE1,
+            b: 0xF2,
+            a: 255
+        })
+    );
+    assert_eq!(
+        vis_container.stroke_color,
+        Some(vexio_shapesheet::RgbaColor {
+            r: 0x2F,
+            g: 0x55,
+            b: 0x97,
+            a: 255
+        })
+    );
+    assert_eq!(vis_container.line_pattern, 2);
+    assert_eq!(vis_container.font_family, "Segoe UI");
+    // Italic bit (2) is set, Strikethrough bit (8) MUST NOT be set from Visio SmallCaps!
+    assert_eq!(vis_container.char_style & 2, 2);
+    assert_eq!(vis_container.char_style & 8, 0);
+    assert!(visuals.iter().any(|v| v.foreign_media.is_some()));
+
+    // 4. Verify C-ABI opening with `page_id = 1` auto-selects foreground `Page ID=0` (NOT background `Page ID=4`),
+    //    renders without diagonal triangle fill in the open container interior, and supports `vexio_doc_rename_page`!
+    let ext = CString::new("vsdx").unwrap();
+    // SAFETY: All FFI pointers are valid and destroyed within this scope.
+    unsafe {
+        let eng = vexio_engine_create();
+        let mut c_doc = std::ptr::null_mut();
+        assert_eq!(
+            vexio_doc_open_bytes(
+                eng,
+                VexioByteSlice {
+                    ptr: vsdx_bytes.as_ptr(),
+                    len: vsdx_bytes.len(),
+                },
+                ext.as_ptr(),
+                &mut c_doc,
+            ),
+            VexioStatus::Ok
+        );
+
+        let mut state_buf = VexioOwnedBuffer {
+            ptr: std::ptr::null_mut(),
+            len: 0,
+            cap: 0,
+        };
+        assert_eq!(
+            vexio_doc_get_state_json(c_doc, 1, &mut state_buf),
+            VexioStatus::Ok
+        );
+        let state_json =
+            std::str::from_utf8(std::slice::from_raw_parts(state_buf.ptr, state_buf.len)).unwrap();
+        assert!(
+            state_json.contains("\"activePageId\":0"),
+            "Expected activePageId 0 (first foreground page), got: {state_json}"
+        );
+        vexio_buffer_free(state_buf);
+
+        let mut vp: *mut VexioViewport = std::ptr::null_mut();
+        assert_eq!(
+            vexio_viewport_create_headless(eng, c_doc, 1, 800, 600, 1.0, &mut vp),
+            VexioStatus::Ok
+        );
+        let mut rgba_buf = VexioOwnedBuffer {
+            ptr: std::ptr::null_mut(),
+            len: 0,
+            cap: 0,
+        };
+        assert_eq!(
+            vexio_viewport_render_rgba(vp, c_doc, &mut rgba_buf),
+            VexioStatus::Ok
+        );
+        let rgba = std::slice::from_raw_parts(rgba_buf.ptr, rgba_buf.len);
+        // Sample interior right half of the open U-border (`x=520, y=340`) — must remain crisp white page background, NOT blue diagonal fill!
+        let px_idx = (340 * 800 + 520) * 4;
+        assert!(
+            rgba[px_idx] > 245 && rgba[px_idx + 1] > 245 && rgba[px_idx + 2] > 245,
+            "Open U-border interior pixel must be white, got RGB({}, {}, {})",
+            rgba[px_idx],
+            rgba[px_idx + 1],
+            rgba[px_idx + 2]
+        );
+        vexio_buffer_free(rgba_buf);
+
+        // Verify `vexio_doc_rename_page` on Page ID=0!
+        let renamed = CString::new("Cloud & Netzwerk Übersicht").unwrap();
+        assert_eq!(
+            vexio_doc_rename_page(c_doc, 0, renamed.as_ptr()),
+            VexioStatus::Ok
+        );
+        let mut state_buf2 = VexioOwnedBuffer {
+            ptr: std::ptr::null_mut(),
+            len: 0,
+            cap: 0,
+        };
+        assert_eq!(
+            vexio_doc_get_state_json(c_doc, 0, &mut state_buf2),
+            VexioStatus::Ok
+        );
+        let state_json2 =
+            std::str::from_utf8(std::slice::from_raw_parts(state_buf2.ptr, state_buf2.len))
+                .unwrap();
+        assert!(state_json2.contains("Cloud & Netzwerk Übersicht"));
+        vexio_buffer_free(state_buf2);
+
+        vexio_viewport_destroy(vp);
+        vexio_doc_destroy(c_doc);
+        vexio_engine_destroy(eng);
     }
 }
