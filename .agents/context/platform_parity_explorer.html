@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
+</head>
+<body class="bg-transparent text-[var(--foreground)] antialiased p-0 m-0">
+  <div class="py-2 space-y-3 text-xs">
+    <!-- Top Mode & OS Selector Bar -->
+    <div class="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-[var(--card-border)]">
+      <div class="flex flex-wrap gap-1.5" id="os-tabs">
+        <button data-os="windows" class="os-btn px-2.5 py-1 rounded-md font-medium border border-[var(--primary)] bg-[var(--card)] text-[var(--foreground)]">Windows 11 (WinUI 3)</button>
+        <button data-os="macos" class="os-btn px-2.5 py-1 rounded-md font-medium border border-[var(--card-border)] text-[var(--muted-foreground)]">macOS (Liquid Glass)</button>
+        <button data-os="googlebook" class="os-btn px-2.5 py-1 rounded-md font-medium border border-[var(--card-border)] text-[var(--muted-foreground)]">Googlebook OS (M3E)</button>
+        <button data-os="chromeos" class="os-btn px-2.5 py-1 rounded-md font-medium border border-[var(--card-border)] text-[var(--muted-foreground)]">ChromeOS (Firebase PWA)</button>
+        <button data-os="parity" class="os-btn px-2.5 py-1 rounded-md font-medium border border-[var(--card-border)] text-[var(--muted-foreground)]">100% Plan 2 Matrix</button>
+      </div>
+      <span id="stack-badge" class="font-mono px-2 py-0.5 rounded border border-[var(--card-border)] bg-[var(--card)] text-[var(--muted-foreground)]">C++20 • DX12 SwapChain</span>
+    </div>
+
+    <!-- Interactive Shell Schematic / Parity View -->
+    <div id="stage" class="rounded-lg border border-[var(--card-border)] bg-[var(--card)] p-3 space-y-2.5"></div>
+  </div>
+
+  <script>
+    const PLATFORMS = {
+      windows: {
+        badge: 'C++20 / CppWinRT • DirectX 12 • vexio.h C-ABI',
+        chromeTop: 'Quick Access Toolbar (Save, Undo, Redo, Tiled Print, Compare)  |  Drawing1.vsdx  |  DX12 SwapChain • 120 FPS',
+        bar2: 'Classic 9-Tab Visio Ribbon: [File Backstage]  Home • Insert • Design • Data • Process • Review • View • Developer (Boolean Ops)',
+        leftTitle: 'Shapes & Stencils Dock',
+        leftItems: ['12 .vssx Stencil Packs', 'Live Master Search', 'Drag-Drop to Page Inches'],
+        centerTitle: 'ISwapChainPanelNative (DirectX 12 Hardware Viewport)',
+        centerItems: ['8-Handle Resize, Rotation Knob, Yellow Control Diamonds & Vertex Grips', 'GPU Rich-Text Shaping (BiDi/CJK) + 6×4 Themes, Gradients, Bevels & Shadows', 'Bottom Split-View: Dockable ShapeSheet Formula Table (Shift+F5)'],
+        rightTitle: 'Dockable Task Panes',
+        rightItems: ['Shape Data & Hyperlinks', 'Data Visualizer & SQLite', 'Pan & Zoom Minimap'],
+        footer: 'Exports: .vsdx, .vsd (v5–v11), .dwg (R13–R2024), .dxf, .emf/.wmf, PDF/A, .pptx, .docx, Power Automate & Power BI'
+      },
+      macos: {
+        badge: 'Swift 6 • SwiftUI/AppKit Liquid Glass • Metal CAMetalLayer',
+        chromeTop: '● ● ●   Floating Translucent Liquid Glass Pill Toolbar  |  Cloud-Architecture.vsdx  |  Auto-Layout • Metal 120 FPS',
+        bar2: 'Global macOS Menu Bar + Stage Manager Reflow + Continuity / Handoff Activity Sync + Offline Quick Look (.vsdx/.vsd)',
+        leftTitle: 'Vibrancy Stencil Sidebar',
+        leftItems: ['NSVisualEffectView Blur', 'Floating Glass Tool Palette', 'Freeform NURBS Curve Tool'],
+        centerTitle: 'Full-Bleed CAMetalLayer Viewport + Force Touch',
+        centerItems: ['2-Finger Trackpad Pan, Pinch-to-Zoom, Rotation & Subprocess Drill-Down', 'Force Touch Deep-Click Popover: Quick-Inspect GUARD() & SETF', 'Visual Diagram Compare Overlay + Translucent ShapeSheet Drawer'],
+        rightTitle: '6-Tab Vibrancy Inspector',
+        rightItems: ['6×4 Theme & Effects', 'Prop.* & Data Graphics', 'CAD Layers & Validate'],
+        footer: 'Quick Look Extensions: QLThumbnailProvider + QLPreviewProvider render .vsdx/.vsd natively in Finder & Spotlight'
+      },
+      googlebook: {
+        badge: 'Kotlin • Jetpack Compose M3 Expressive • Vulkan NDK JNI',
+        chromeTop: 'Morphing M3 Expressive Top Bar: [Pointer] [Freeform] [USI Ink] [Boolean Ops] [Compare]  |  Vulkan Zero-Copy JNI',
+        bar2: 'Navigation 3 Adaptive Posture: COMPACT_CONVERTIBLE  ⇄  EXPANDED_DUAL_PANE  ⇄  ULTRAWIDE_DESKTOP + Multi-Window',
+        leftTitle: 'M3 Nav Rail + Stencils',
+        leftItems: ['Expressive Pill Rail', '+ New Freeform Window', 'Cross-Window Drag & Drop'],
+        centerTitle: 'Android SurfaceView (Vulkan NDK) + MotionPredictor',
+        centerItems: ['32-Byte DirectByteBuffer Zero-Copy Motion & USI Stylus Batching', 'Interactive Yellow Controls.* Diamonds, Vertex Grips & 12 Hardware Cursors', 'Palm Rejection + Tilt/Pressure Markup Ink'],
+        rightTitle: 'Tonal M3E Inspector',
+        rightItems: ['Subprocess & ScreenTips', 'SQLite / Cloud Discovery', 'PrintManager Vector PDF'],
+        footer: 'Storage Access Framework (SAF) In-Place Local Disk Editing + Full Hardware Keyboard Shortcut Parity'
+      },
+      chromeos: {
+        badge: 'Firebase Hosting (COOP/COEP) • Rust WASM SIMD • WebGPU + OPFS',
+        chromeTop: '[VEXIO] [File / Templates] [Open Disk] [Save] [+ Snapshot]  |  ● HLC CRDT Co-Editors  |  SAB+SIMD • wgpu OffscreenCanvas',
+        bar2: 'Window Controls Overlay Titlebar Merge + 8-Tab M3E Ribbon (Boolean Ops, 6×4 Themes, Data Visualizer, Cloud/LDIF, Diff)',
+        leftTitle: '12 Precached Stencils',
+        leftItems: ['25-Asset SW Precache', '100% Offline Unauth Boot', 'Cloud/ERD/Elec/Wireframe'],
+        centerTitle: 'OffscreenCanvas WebGPU + Per-Cell HLC CRDT Layer',
+        centerItems: ['Boolean Union/Combine/Fragment/Subtract, Freeform Bezier & Yellow Control Handles', 'Conflict-Free Per-Cell HLC CRDT Co-Editing (BroadcastChannel + Firestore)', 'Pan & Zoom Live Minimap + Dockable ShapeSheet Split-View'],
+        rightTitle: 'Inspector & OPFS WAL',
+        rightItems: ['SyncAccessHandle WAL', 'Visual Diagram Compare', '.pptx / .docx / Flow Export'],
+        footer: 'ChromeOS Files Launch Queue (.vsdx/.vsd/.dwg/.dxf/.emf/.wmf/.ldif) + Direct In-Place Disk Save'
+      }
+    };
+
+    const PARITY = [
+      { area: 'Geometry, 8 Boolean Ops, Freeform Bezier, Vertex & Yellow Control Handles', pct: 100, note: 'Union, Combine, Fragment, Intersect, Subtract, Trim, Join, Offset, RDP+Catmull-Rom RelCubBezTo curves, vertex grips & Controls.Row_N diamonds.' },
+      { area: 'GPU Rich-Text Typography (BiDi/CJK), 6×4 Themes & Visual Effects', pct: 100, note: 'Inline bold/italic/underline/strike/color/bullets, RTL Arabic/Hebrew, vertical CJK GPU triangles, gradients, hatches, shadows, 3D bevels & sketchy strokes.' },
+      { area: 'Modern AutoCAD .dwg (R2004–R2024), Visio v5, RPN Bytecode & .emf/.wmf', pct: 100, note: 'R2004 LCG cipher, OpenDWG LZ77, GF(2^8) Reed-Solomon parity, UTF-16 TU strings, HATCH/DIMENSION/VIEWPORT, Visio v5, RPN formulas & cropped ForeignData.' },
+      { area: 'Subprocess Drill-Down, .pptx/.docx, Visual Diagram Compare & Plan 2 Cloud/CRDT', pct: 100, note: '2-way Excel Data Visualizer, Power Automate/BI JSON, AWS/Azure/GCP & Entra/LDIF import, pure-Rust SQLite 3 B-tree, VBA UserForms/events & per-cell HLC CRDT.' }
+    ];
+
+    const stage = document.getElementById('stage');
+    const badge = document.getElementById('stack-badge');
+
+    function renderOs(key) {
+      document.querySelectorAll('.os-btn').forEach((b) => {
+        const active = b.dataset.os === key;
+        b.className = active
+          ? 'os-btn px-2.5 py-1 rounded-md font-medium border border-[var(--primary)] bg-[var(--card)] text-[var(--foreground)]'
+          : 'os-btn px-2.5 py-1 rounded-md font-medium border border-[var(--card-border)] text-[var(--muted-foreground)]';
+      });
+
+      if (key === 'parity') {
+        badge.textContent = '51/51 Rust Suites • 6/6 Firebase/WASM Gates • Zero Stubs';
+        stage.innerHTML = PARITY.map((g) => `
+          <div class="space-y-1">
+            <div class="flex justify-between font-medium">
+              <span>${g.area}</span>
+              <span class="font-mono text-emerald-500">${g.pct}%</span>
+            </div>
+            <div class="w-full h-2 rounded-full bg-[var(--background)] overflow-hidden border border-[var(--card-border)]">
+              <div class="h-full bg-emerald-500" style="width:${g.pct}%"></div>
+            </div>
+            <div class="text-[var(--muted-foreground)] leading-snug">${g.note}</div>
+          </div>
+        `).join('');
+        return;
+      }
+
+      const p = PLATFORMS[key];
+      badge.textContent = p.badge;
+      stage.innerHTML = `
+        <div class="px-2.5 py-1.5 rounded border border-[var(--card-border)] bg-[var(--background)] font-mono truncate">${p.chromeTop}</div>
+        <div class="px-2.5 py-1 rounded border border-[var(--card-border)] text-[var(--muted-foreground)] truncate">${p.bar2}</div>
+        <div class="grid grid-cols-12 gap-2">
+          <div class="col-span-3 p-2 rounded border border-[var(--card-border)] bg-[var(--background)] space-y-1">
+            <div class="font-semibold text-[var(--primary)]">${p.leftTitle}</div>
+            ${p.leftItems.map((i) => `<div class="text-[var(--muted-foreground)]">• ${i}</div>`).join('')}
+          </div>
+          <div class="col-span-6 p-2 rounded border border-[var(--primary)] bg-[var(--background)] space-y-1">
+            <div class="font-semibold">${p.centerTitle}</div>
+            ${p.centerItems.map((i) => `<div class="text-[var(--muted-foreground)]">• ${i}</div>`).join('')}
+          </div>
+          <div class="col-span-3 p-2 rounded border border-[var(--card-border)] bg-[var(--background)] space-y-1">
+            <div class="font-semibold text-[var(--primary)]">${p.rightTitle}</div>
+            ${p.rightItems.map((i) => `<div class="text-[var(--muted-foreground)]">• ${i}</div>`).join('')}
+          </div>
+        </div>
+        <div class="px-2.5 py-1 rounded border border-[var(--card-border)] text-[var(--muted-foreground)] truncate">${p.footer}</div>
+      `;
+    }
+
+    document.querySelectorAll('.os-btn').forEach((b) => {
+      b.addEventListener('click', () => renderOs(b.dataset.os));
+    });
+    renderOs('parity');
+  </script>
+</body>
+</html>

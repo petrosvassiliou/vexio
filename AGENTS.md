@@ -38,3 +38,12 @@
 - Run `cargo test --workspace` after every Rust core change; zero failing tests or compiler warnings allowed.
 - Run WASM build (`wasm32-unknown-unknown` with SIMD) and Vite/Workbox bundle checks after any `apps/chromeos-pwa` or `ffi::wasm_api` change.
 - Verify COOP/COEP headers, `.wasm` MIME types, Firestore/Storage security rules, and 100% unauthenticated offline load against the local Firebase Emulator Suite.
+
+## 6. Session Context & Roadmap Handoff (`.agents/context/`)
+When starting or resuming work in a local Antigravity workspace, consult `.agents/context/` for full historical context, completed milestones through `v0.2.1-alpha`, and next-phase plans:
+- `.agents/context/README.md` — Local Mac setup, build quickstart, and release index
+- `.agents/context/task.md` — Completed Phases 1–6 checklist (`v0.2.1-alpha`)
+- `.agents/context/walkthrough.md` — Latest `v0.2.1-alpha` technical walkthrough & verification results
+- `.agents/context/implementation_plan.md` — Detailed architectural plan & upcoming Pillar #3/#4 roadmap
+- `.agents/context/platform_functionality_audit.md` — Cross-OS parity matrix across Windows, macOS, Android/Googlebook, and ChromeOS PWA
+

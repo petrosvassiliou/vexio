@@ -120,6 +120,8 @@ service-account*.json
 !/.agents/
 !/.agents/rules/
 !/.agents/rules/*.md
+!/.agents/context/
+!/.agents/context/**
 !/.github/
 !/.github/workflows/
 !/.github/workflows/*.yml
