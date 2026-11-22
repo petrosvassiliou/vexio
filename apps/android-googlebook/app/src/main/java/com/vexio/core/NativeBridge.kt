@@ -1884,7 +1884,8 @@ class VexioSessionViewModel(
             if (vScroll != 0f) {
                 val delta = if (vScroll > 0f) 10 else -10
                 adjustZoom(delta)
-                return _uiState.value.activeCursorCode
+                directMotionBatchBuffer.clear()
+                return true
             }
         }
 
