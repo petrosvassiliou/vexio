@@ -902,8 +902,28 @@ pub fn build_project_timeline(
 
 /// Instantiate one of Vexio's 8 built-in Visio Backstage Starter Templates!
 pub fn instantiate_starter_template(template_id: &str) -> VisioDocument {
-    match template_id {
-        "bpmn_fulfillment" => {
+    match template_id.trim().to_ascii_lowercase().as_str() {
+        "flowchart" => {
+            let mut sess = crate::workspace::DocumentSession::new_blank("Cross-Functional Flowchart");
+            let s1 = sess.drop_builtin_shape(1, "Basic Flowchart", "Start/End", 2.0, 6.2).unwrap();
+            let _ = sess.set_shape_text(1, s1, "Receive Request");
+            let s2 = sess.drop_builtin_shape(1, "Basic Flowchart", "Process", 4.6, 6.2).unwrap();
+            let _ = sess.set_shape_text(1, s2, "Validate Payload");
+            let s3 = sess.drop_builtin_shape(1, "Basic Flowchart", "Decision", 7.2, 6.2).unwrap();
+            let _ = sess.set_shape_text(1, s3, "Approved?");
+            let s4 = sess.drop_builtin_shape(1, "Basic Flowchart", "Process", 7.2, 3.6).unwrap();
+            let _ = sess.set_shape_text(1, s4, "Provision Service");
+            let s5 = sess.drop_builtin_shape(1, "Basic Flowchart", "Start/End", 9.6, 3.6).unwrap();
+            let _ = sess.set_shape_text(1, s5, "Complete");
+            let _ = sess.connect_shapes(1, s1, s2);
+            let _ = sess.connect_shapes(1, s2, s3);
+            if let Ok(cy) = sess.connect_shapes(1, s3, s4) {
+                let _ = sess.set_shape_text(1, cy, "Yes");
+            }
+            let _ = sess.connect_shapes(1, s4, s5);
+            sess.doc
+        }
+        "bpmn_fulfillment" | "bpmn" | "bpmn2" => {
             let mut sess = crate::workspace::DocumentSession::new_blank("BPMN 2.0 Order Fulfillment");
             let s1 = sess.drop_builtin_shape(1, "BPMN 2.0", "Start Event", 1.5, 4.5).unwrap();
             let s2 = sess.drop_builtin_shape(1, "BPMN 2.0", "Task", 3.6, 4.5).unwrap();
@@ -924,7 +944,7 @@ pub fn instantiate_starter_template(template_id: &str) -> VisioDocument {
             let _ = sess.connect_shapes(1, s4, s5);
             sess.doc
         }
-        "cloud_microservices" => {
+        "cloud_microservices" | "network" => {
             let mut sess = crate::workspace::DocumentSession::new_blank("Cloud Kubernetes Architecture");
             let lb = sess
                 .drop_builtin_shape(1, "Cloud Architecture (AWS / GCP / Azure)", "Edge CDN / Load Balancer", 2.0, 4.25)
@@ -945,7 +965,7 @@ pub fn instantiate_starter_template(template_id: &str) -> VisioDocument {
             let _ = crate::containers::create_container(&mut sess.doc, 1, "Production VPC (Multi-Zone)", &[k8s, fn_s, db], 0.4);
             sess.doc
         }
-        "sql_ecommerce_erd" => {
+        "sql_ecommerce_erd" | "uml" | "erd" => {
             let mut doc = VisioDocument::new_blank("E-Commerce Crow's Foot ERD");
             reverse_engineer_sql_ddl(
                 &mut doc,
@@ -958,7 +978,7 @@ pub fn instantiate_starter_template(template_id: &str) -> VisioDocument {
             );
             doc
         }
-        "executive_org_chart" => {
+        "executive_org_chart" | "orgchart" => {
             let mut doc = VisioDocument::new_blank("Executive Organization Chart");
             build_org_chart_from_csv(
                 &mut doc,
@@ -972,7 +992,7 @@ pub fn instantiate_starter_template(template_id: &str) -> VisioDocument {
             );
             doc
         }
-        "release_gantt" => {
+        "release_gantt" | "gantt" => {
             let mut doc = VisioDocument::new_blank("Product Launch Gantt Schedule");
             build_gantt_chart(
                 &mut doc,
@@ -986,7 +1006,7 @@ pub fn instantiate_starter_template(template_id: &str) -> VisioDocument {
             );
             doc
         }
-        "project_timeline" => {
+        "project_timeline" | "timeline" => {
             let mut doc = VisioDocument::new_blank("Annual Architecture Roadmap");
             build_project_timeline(
                 &mut doc,
@@ -1002,7 +1022,7 @@ pub fn instantiate_starter_template(template_id: &str) -> VisioDocument {
             );
             doc
         }
-        "datacenter_floorplan" => {
+        "datacenter_floorplan" | "floorplan" | "cad_floorplan" => {
             let mut doc = VisioDocument::new_blank("Data Center Architectural Floor Plan");
             if let Some(p) = doc.page_mut(1) {
                 p.page_sheet.set_formula("PageScale", "0.25 in", Some(Unit::Inch));

@@ -45,6 +45,7 @@ export type OpfsWorkerRequest =
   | { id: number; op: 'writeAutosave'; docId: string; vsdxBytes: Uint8Array }
   | { id: number; op: 'readAutosave'; docId: string }
   | { id: number; op: 'cacheStencil'; name: string; vssxBytes: Uint8Array }
+  | { id: number; op: 'readStencil'; name: string }
   | { id: number; op: 'listStencils' }
   | { id: number; op: 'saveVersion'; docId: string; versionId: string; label: string; vsdxBytes: Uint8Array }
   | { id: number; op: 'listVersions'; docId: string }
@@ -165,6 +166,14 @@ self.onmessage = async (ev: MessageEvent<OpfsWorkerRequest>) => {
           writeSyncAtomic(h, req.vssxBytes)
         );
         self.postMessage({ id: req.id, ok: true, byteLength } satisfies OpfsWorkerResponse);
+        break;
+      }
+      case 'readStencil': {
+        const bytes = await withSyncHandle('stencils', req.name, (h) => readSyncAll(h));
+        self.postMessage(
+          { id: req.id, ok: true, bytes } satisfies OpfsWorkerResponse,
+          { transfer: [bytes.buffer] }
+        );
         break;
       }
       case 'listStencils': {

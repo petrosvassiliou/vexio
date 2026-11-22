@@ -288,6 +288,7 @@ fun GooglebookWorkstationScreen(
     onExternalUriDropped: (Uri) -> Unit,
     onImportStencilRequested: () -> Unit = {},
     onExportJpgRequested: () -> Unit = { viewModel.exportPlan2Artifact("jpg") },
+    onExportFormatRequested: (String) -> Unit = { fmt -> viewModel.exportPlan2Artifact(fmt) },
     onPrintRequested: () -> Unit = { }
 ) {
     val context = LocalContext.current
@@ -463,7 +464,7 @@ fun GooglebookWorkstationScreen(
                 onSaveClick = onSaveDocumentRequested,
                 onSaveAsClick = onSaveAsDocumentRequested,
                 onExportJpgClick = onExportJpgRequested,
-                onExportFormat = { fmt -> viewModel.exportPlan2Artifact(fmt) },
+                onExportFormat = onExportFormatRequested,
                 onPrintClick = onPrintRequested,
                 onUndoClick = viewModel::performUndo,
                 onRedoClick = viewModel::performRedo,
@@ -545,7 +546,7 @@ fun GooglebookWorkstationScreen(
                         """.trimIndent()
                         viewModel.applyCrdtBatchJson(crdtDeltaJson, uiState.crdtReplicaId)
                     },
-                    onExportPlan2Format = { fmt -> viewModel.exportPlan2Artifact(fmt) }
+                    onExportPlan2Format = onExportFormatRequested
                 )
             }
 
@@ -1301,6 +1302,7 @@ private fun ClassicVisioM3Ribbon(
 ) {
     val lang = uiState.language
     var fontMenuOpen by remember { mutableStateOf(false) }
+    var fontSizeMenuOpen by remember { mutableStateOf(false) }
     var fontSearchQuery by remember { mutableStateOf("") }
     var pageSizeMenuOpen by remember { mutableStateOf(false) }
 
@@ -1456,11 +1458,32 @@ private fun ClassicVisioM3Ribbon(
                                     }
                                 }
                             }
-                            ExpressivePlan2ActionPill(
-                                label = "${uiState.textFontSizePt} pt",
-                                selected = false,
-                                onClick = { viewModel.applyRichTextStyle(fontSizePt = uiState.textFontSizePt + 2) }
-                            )
+                            Box {
+                                ExpressivePlan2ActionPill(
+                                    label = "${uiState.textFontSizePt} pt ▾",
+                                    selected = false,
+                                    onClick = { fontSizeMenuOpen = true }
+                                )
+                                DropdownMenu(
+                                    expanded = fontSizeMenuOpen,
+                                    onDismissRequest = { fontSizeMenuOpen = false }
+                                ) {
+                                    listOf(8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 36, 48, 72).forEach { pt ->
+                                        DropdownMenuItem(
+                                            text = { Text("$pt pt") },
+                                            leadingIcon = {
+                                                if (uiState.textFontSizePt == pt) {
+                                                    Icon(Icons.Default.Check, contentDescription = null)
+                                                }
+                                            },
+                                            onClick = {
+                                                fontSizeMenuOpen = false
+                                                viewModel.applyRichTextStyle(fontSizePt = pt)
+                                            }
+                                        )
+                                    }
+                                }
+                            }
                             ExpressivePlan2ActionPill(
                                 label = "A▲",
                                 selected = false,
@@ -1656,9 +1679,14 @@ private fun ClassicVisioM3Ribbon(
 
                         "Process" -> {
                             ExpressivePlan2ActionPill(
-                                label = "Validate BPMN 2.0 / UML 2.5 ✓",
-                                selected = true,
-                                onClick = { viewModel.createOrLinkSubprocess() }
+                                label = "Validate BPMN 2.0 ✓",
+                                selected = uiState.validationSummary.standard == "BPMN 2.0",
+                                onClick = { viewModel.validateActiveDiagram("bpmn") }
+                            )
+                            ExpressivePlan2ActionPill(
+                                label = "Validate UML 2.5 ✓",
+                                selected = uiState.validationSummary.standard == "UML 2.5",
+                                onClick = { viewModel.validateActiveDiagram("uml") }
                             )
                             ExpressivePlan2ActionPill(
                                 label = "Create Subprocess Drill-Down",
@@ -3474,15 +3502,27 @@ private fun VulkanCanvasDropZone(
                     .height(boxHeightDp)
                     .background(
                         if (uiState.textBgColorHex != "none") {
-                            parseColorHexOrFallback(uiState.textBgColorHex, MaterialTheme.colorScheme.surface)
+                            parseColorHexOrFallback(uiState.textBgColorHex, Color.White)
                         } else {
-                            MaterialTheme.colorScheme.surface
+                            Color.White
                         },
                         RoundedCornerShape(2.dp)
                     )
                     .border(1.5.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(2.dp))
                     .padding(horizontal = 4.dp, vertical = 2.dp)
             ) {
+                val combinedDecoration = when {
+                    uiState.textUnderline && uiState.textStrikethrough ->
+                        androidx.compose.ui.text.style.TextDecoration.combine(
+                            listOf(
+                                androidx.compose.ui.text.style.TextDecoration.Underline,
+                                androidx.compose.ui.text.style.TextDecoration.LineThrough
+                            )
+                        )
+                    uiState.textUnderline -> androidx.compose.ui.text.style.TextDecoration.Underline
+                    uiState.textStrikethrough -> androidx.compose.ui.text.style.TextDecoration.LineThrough
+                    else -> androidx.compose.ui.text.style.TextDecoration.None
+                }
                 BasicTextField(
                     value = inlineFieldValue,
                     onValueChange = { next ->
@@ -3490,10 +3530,11 @@ private fun VulkanCanvasDropZone(
                         viewModel.updateInlineTextDraft(next.text)
                     },
                     textStyle = MaterialTheme.typography.bodyMedium.copy(
-                        color = parseColorHexOrFallback(uiState.textColorHex, MaterialTheme.colorScheme.onSurface),
+                        color = parseColorHexOrFallback(uiState.textColorHex, Color(0xFF0F172A)),
                         fontFamily = resolveComposeFontFamily(uiState.textFontFamily),
                         fontWeight = if (uiState.textBold) FontWeight.Bold else FontWeight.Normal,
                         fontStyle = if (uiState.textItalic) FontStyle.Italic else FontStyle.Normal,
+                        textDecoration = combinedDecoration,
                         textAlign = when (uiState.textHorizAlign) {
                             0 -> androidx.compose.ui.text.style.TextAlign.Start
                             2 -> androidx.compose.ui.text.style.TextAlign.End
@@ -4136,6 +4177,27 @@ private fun ShapeInspectorPane(
                                 )
                             }
                         }
+                    }
+
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        ExpressivePlan2ActionPill(
+                            label = "Run BPMN 2.0",
+                            selected = uiState.validationSummary.standard == "BPMN 2.0",
+                            onClick = { viewModel.validateActiveDiagram("bpmn") }
+                        )
+                        ExpressivePlan2ActionPill(
+                            label = "Run UML 2.5",
+                            selected = uiState.validationSummary.standard == "UML 2.5",
+                            onClick = { viewModel.validateActiveDiagram("uml") }
+                        )
+                        ExpressivePlan2ActionPill(
+                            label = "Workflow",
+                            selected = uiState.validationSummary.standard == "Workflow",
+                            onClick = { viewModel.validateActiveDiagram("workflow") }
+                        )
                     }
 
                     Surface(

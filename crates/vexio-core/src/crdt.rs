@@ -848,6 +848,10 @@ fn is_routed_connector_derived_cell(ckey: &str) -> bool {
                 | "width"
                 | "height"
                 | "angle"
+                | "txtpinx"
+                | "txtpiny"
+                | "txtwidth"
+                | "txtheight"
         )
 }
 

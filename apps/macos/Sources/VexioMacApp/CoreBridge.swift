@@ -277,8 +277,8 @@ public enum ConnectorRoutingStyle: String, CaseIterable, Identifiable, Sendable 
 
     public var shapeLineRouteExtValue: String {
         switch self {
-        case .orthogonalJumps: return "1"
-        case .curvedBezier: return "2"
+        case .orthogonalJumps: return "16"
+        case .curvedBezier: return "6"
         case .straightDirect: return "0"
         }
     }
@@ -294,10 +294,10 @@ public enum AutoLayoutPreset: String, CaseIterable, Identifiable, Sendable {
 
     public var engineAlgorithmSlug: String {
         switch self {
-        case .hierarchicalTopDown: return "hierarchical_tb"
-        case .swimlaneLeftRight: return "hierarchical_lr"
+        case .hierarchicalTopDown: return "tb"
+        case .swimlaneLeftRight: return "lr"
         case .radialCluster: return "radial"
-        case .compactOrthogonal: return "force_directed"
+        case .compactOrthogonal: return "circular"
         }
     }
 }
@@ -898,6 +898,39 @@ private final class NativeDocumentCore: @unchecked Sendable {
         if let activeViewport = viewport {
             _ = vexio_viewport_set_zoom(activeViewport, doc, zoomScale, panXIn, panYIn)
         }
+    }
+
+    func hasViewport() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return viewport != nil
+    }
+
+    func resizeViewport(widthPx: UInt32, heightPx: UInt32, dpiScale: Float) {
+        lock.lock()
+        defer { lock.unlock() }
+        if let activeViewport = viewport {
+            _ = vexio_viewport_resize(
+                activeViewport,
+                max(widthPx, 1),
+                max(heightPx, 1),
+                max(dpiScale, 1.0)
+            )
+        }
+    }
+
+    func validateDiagramJSON(ruleset: String) throws -> String {
+        lock.lock()
+        defer { lock.unlock() }
+        var outBuf = VexioOwnedBuffer(ptr: nil, len: 0, cap: 0)
+        let status = ruleset.withCString { rsCStr in
+            vexio_doc_validate_json(doc, rsCStr, &outBuf)
+        }
+        if let err = VexioBridgeError.from(status: status, context: "validate_json(\(ruleset))") {
+            vexio_buffer_free(outBuf)
+            throw err
+        }
+        return Self.consumeOwnedBufferAsUTF8(outBuf)
     }
 
     func renderViewportFrame() {
@@ -1918,9 +1951,18 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
     // MARK: - Metal Viewport & Pointer Dispatch
 
     private func syncViewportCamera() {
-        let panXIn = -Double(panOffset.width) / (96.0 * Double(max(zoomScale, 0.1)))
-        let panYIn = Double(panOffset.height) / (96.0 * Double(max(zoomScale, 0.1)))
+        let panXIn = pageWidthInches * 0.5 - Double(panOffset.width) / (96.0 * Double(max(zoomScale, 0.1)))
+        let panYIn = pageHeightInches * 0.5 + Double(panOffset.height) / (96.0 * Double(max(zoomScale, 0.1)))
         core.setViewportZoom(zoomScale: Double(zoomScale), panXIn: panXIn, panYIn: panYIn)
+        core.renderViewportFrame()
+    }
+
+    public func hasAttachedMetalViewport() -> Bool {
+        core.hasViewport()
+    }
+
+    public func resizeMetalViewport(widthPx: UInt32, heightPx: UInt32, dpiScale: Float) {
+        core.resizeViewport(widthPx: widthPx, heightPx: heightPx, dpiScale: dpiScale)
         core.renderViewportFrame()
     }
 
@@ -2488,36 +2530,39 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
     }
 
     public func runDiagramValidation(standard: ValidationStandardKind) {
-        var findings: [DiagramValidationDiagnostic] = []
-        let widthExpr = readCellFormula(cellName: "Width")
-        let routeStyle = readCellFormula(cellName: "ShapeRouteStyle")
-
-        if widthExpr.hasPrefix("0") {
-            findings.append(
-                DiagramValidationDiagnostic(
-                    id: UUID(),
-                    ruleId: "\(standard.rawValue.prefix(4).uppercased())-GEOM-001",
-                    standard: standard,
-                    severity: .error,
-                    pageId: activePageId,
-                    shapeId: selectedShapeId,
-                    message: "Sheet.\(selectedShapeId) has zero width and cannot anchor dynamic glue connectors."
-                )
-            )
+        let rulesetSlug: String
+        switch standard {
+        case .bpmn20: rulesetSlug = "bpmn"
+        case .uml25: rulesetSlug = "uml"
+        case .sharePointWorkflow: rulesetSlug = "workflow"
         }
 
-        if standard == .bpmn20 && routeStyle == "0" {
-            findings.append(
-                DiagramValidationDiagnostic(
+        struct EngineValidationIssueDto: Decodable {
+            let rule_code: String
+            let severity: String
+            let description: String
+            let page_id: UInt32
+            let shape_id: UInt64?
+        }
+
+        var findings: [DiagramValidationDiagnostic] = []
+        if let jsonStr = try? core.validateDiagramJSON(ruleset: rulesetSlug),
+           let jsonData = jsonStr.data(using: .utf8),
+           let decoded = try? JSONDecoder().decode([EngineValidationIssueDto].self, from: jsonData)
+        {
+            findings = decoded.map { item in
+                let sev: DiagramValidationDiagnostic.Severity =
+                    item.severity.lowercased() == "error" ? .error : .warning
+                return DiagramValidationDiagnostic(
                     id: UUID(),
-                    ruleId: "BPMN-SEQ-014",
-                    standard: .bpmn20,
-                    severity: .warning,
-                    pageId: activePageId,
-                    shapeId: selectedShapeId,
-                    message: "Sequence flow uses straight routing; BPMN 2.0 recommends orthogonal routing with obstacle avoidance."
+                    ruleId: item.rule_code,
+                    standard: standard,
+                    severity: sev,
+                    pageId: item.page_id,
+                    shapeId: item.shape_id ?? 0,
+                    message: item.description
                 )
-            )
+            }
         }
 
         if findings.isEmpty {
@@ -2532,10 +2577,12 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
                     message: "All \(standard.rawValue) structural connectivity, boundary event, and container rules passed."
                 )
             )
+            statusMessage = "\(standard.rawValue) validation passed (0 issues)"
+        } else {
+            statusMessage = "\(standard.rawValue) validation found \(findings.count) issue(s)"
         }
 
         validationDiagnostics = findings
-        statusMessage = "\(standard.rawValue) validation finished (\(findings.count) diagnostic item(s))"
     }
 
     // MARK: - Phase 7 Plan 2 @MainActor Workstation Actions
@@ -2576,6 +2623,8 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
             lastBannerError = nil
             registerJournalUndoStep(actionName: "Shape \(operation.displayName)", undoManager: undoManager)
             reloadSelectedShapeSheetCells()
+            syncSelectedShapeMetadataFromCore()
+            core.renderViewportFrame()
             if operation == .offset {
                 statusMessage = String(format: "Applied Offset (%+.3f in) to Sheet.%llu", resolvedOffset, selectedShapeId)
             } else {
@@ -2603,6 +2652,8 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
             lastBannerError = nil
             registerJournalUndoStep(actionName: "Apply Theme \(themeSlug)", undoManager: undoManager)
             reloadSelectedShapeSheetCells()
+            syncSelectedShapeMetadataFromCore()
+            core.renderViewportFrame()
             let label = VexioThemePreset(rawValue: themeSlug)?.displayName ?? themeSlug
             statusMessage = "Applied '\(label)' Theme · Variant \(clampedVariant + 1)"
         } catch let bridgeErr as VexioBridgeError {
@@ -2635,6 +2686,8 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
             lastBannerError = nil
             registerJournalUndoStep(actionName: "Visual Effect \(presetSlug)", undoManager: undoManager)
             reloadSelectedShapeSheetCells()
+            syncSelectedShapeMetadataFromCore()
+            core.renderViewportFrame()
             let display = VexioVisualEffectPreset(rawValue: presetSlug)?.displayName ?? presetSlug
             statusMessage = "Applied '\(display)' to Sheet.\(selectedShapeId)"
         } catch let bridgeErr as VexioBridgeError {
@@ -2673,7 +2726,10 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
             selectedShapeIds = [1]
             lastBannerError = nil
             registerJournalUndoStep(actionName: "Create Subprocess \(resolvedTitle)", undoManager: undoManager)
+            core.setViewportPage(pageId: subPageId)
             reloadSelectedShapeSheetCells()
+            syncSelectedShapeMetadataFromCore()
+            core.renderViewportFrame()
             statusMessage = "Created linked subprocess page '\(resolvedTitle)' (Page ID \(subPageId))"
         } catch let bridgeErr as VexioBridgeError {
             lastBannerError = bridgeErr
@@ -2756,6 +2812,8 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
             lastBannerError = nil
             registerJournalUndoStep(actionName: "Import Data Visualizer", undoManager: undoManager)
             reloadSelectedShapeSheetCells()
+            syncSelectedShapeMetadataFromCore()
+            core.renderViewportFrame()
             statusMessage = "Data Visualizer imported \(importedSteps) cross-functional swimlane steps"
         } catch let bridgeErr as VexioBridgeError {
             lastBannerError = bridgeErr
@@ -2840,6 +2898,8 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
             lastBannerError = nil
             registerJournalUndoStep(actionName: "Import Cloud Topology", undoManager: undoManager)
             reloadSelectedShapeSheetCells()
+            syncSelectedShapeMetadataFromCore()
+            core.renderViewportFrame()
             statusMessage = "Imported \(count) cloud resources into VPC/Region containers"
         } catch let bridgeErr as VexioBridgeError {
             lastBannerError = bridgeErr
@@ -2896,6 +2956,8 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
             lastBannerError = nil
             registerJournalUndoStep(actionName: "Import Entra / LDIF Org Chart", undoManager: undoManager)
             reloadSelectedShapeSheetCells()
+            syncSelectedShapeMetadataFromCore()
+            core.renderViewportFrame()
             statusMessage = "Imported \(count) directory records into hierarchical Org Chart"
         } catch let bridgeErr as VexioBridgeError {
             lastBannerError = bridgeErr
@@ -2956,6 +3018,8 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
             try core.applyCrdtJSON(replicaId: replicaId, opsJSON: resolvedJSON)
             lastBannerError = nil
             reloadSelectedShapeSheetCells()
+            syncSelectedShapeMetadataFromCore()
+            core.renderViewportFrame()
             statusMessage = "Merged HLC CRDT batch from '\(replicaId)'"
         } catch let bridgeErr as VexioBridgeError {
             lastBannerError = bridgeErr

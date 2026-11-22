@@ -681,7 +681,7 @@ body,
 }
 
 .stencil-group-pill.active {
-  background: var(--m3-primary-soft);
+  background: var(--m3-primary-container);
   border-color: var(--m3-primary);
   color: var(--m3-primary);
 }

@@ -1361,7 +1361,7 @@ pub unsafe extern "C" fn vexio_cell_get_formula(
     cell_name: *const c_char,
     out_utf8: *mut VexioOwnedBuffer,
 ) -> VexioStatus {
-    let res = catch_unwind(|| {
+    catch_ffi_status(|| {
         if doc.is_null() || cell_name.is_null() || out_utf8.is_null() {
             return VexioStatus::ErrInvalidArg;
         }
@@ -1370,21 +1370,20 @@ pub unsafe extern "C" fn vexio_cell_get_formula(
         let Ok(cname) = unsafe { CStr::from_ptr(cell_name) }.to_str() else {
             return VexioStatus::ErrInvalidArg;
         };
-        let Some(f) = doc_ref
-            .session
-            .doc
-            .page(page_id)
-            .and_then(|p| p.find_shape(shape_id))
-            .and_then(|s| s.sheet.get_cell(cname))
-            .map(|c| c.formula.clone())
-        else {
+        let cell_opt = doc_ref.session.doc.page(page_id).and_then(|p| {
+            if shape_id == 0 {
+                p.page_sheet.get_cell(cname)
+            } else {
+                p.find_shape(shape_id).and_then(|s| s.sheet.get_cell(cname))
+            }
+        });
+        let Some(f) = cell_opt.map(|c| c.formula.clone()) else {
             return VexioStatus::ErrInvalidArg;
         };
         // SAFETY: `out_utf8` verified non-null.
         unsafe { *out_utf8 = VexioOwnedBuffer::from_vec(f.into_bytes()) };
         VexioStatus::Ok
-    });
-    res.unwrap_or(VexioStatus::ErrInternalPanic)
+    })
 }
 
 #[no_mangle]
@@ -1395,7 +1394,7 @@ pub unsafe extern "C" fn vexio_cell_get_value_str(
     cell_name: *const c_char,
     out_utf8: *mut VexioOwnedBuffer,
 ) -> VexioStatus {
-    let res = catch_unwind(|| {
+    catch_ffi_status(|| {
         if doc.is_null() || cell_name.is_null() || out_utf8.is_null() {
             return VexioStatus::ErrInvalidArg;
         }
@@ -1404,25 +1403,24 @@ pub unsafe extern "C" fn vexio_cell_get_value_str(
         let Ok(cname) = unsafe { CStr::from_ptr(cell_name) }.to_str() else {
             return VexioStatus::ErrInvalidArg;
         };
-        let Some(val_str) = doc_ref
-            .session
-            .doc
-            .page(page_id)
-            .and_then(|p| p.find_shape(shape_id))
-            .and_then(|s| s.sheet.get_cell(cname))
-            .map(|c| {
-                c.value
-                    .as_str_coerced()
-                    .unwrap_or_else(|e| e.as_str().to_string())
-            })
-        else {
+        let cell_opt = doc_ref.session.doc.page(page_id).and_then(|p| {
+            if shape_id == 0 {
+                p.page_sheet.get_cell(cname)
+            } else {
+                p.find_shape(shape_id).and_then(|s| s.sheet.get_cell(cname))
+            }
+        });
+        let Some(val_str) = cell_opt.map(|c| {
+            c.value
+                .as_str_coerced()
+                .unwrap_or_else(|e| e.as_str().to_string())
+        }) else {
             return VexioStatus::ErrInvalidArg;
         };
         // SAFETY: `out_utf8` verified non-null.
         unsafe { *out_utf8 = VexioOwnedBuffer::from_vec(val_str.into_bytes()) };
         VexioStatus::Ok
-    });
-    res.unwrap_or(VexioStatus::ErrInternalPanic)
+    })
 }
 
 #[no_mangle]
@@ -2171,8 +2169,10 @@ pub unsafe extern "C" fn vexio_doc_import_stencil_bytes(
         match d.session.import_stencil_package(fname, raw) {
             Ok((pack_title, previews)) => {
                 set_last_ffi_error("");
+                let master_names: Vec<String> = previews.iter().map(|p| p.name.clone()).collect();
                 let payload = serde_json::json!({
                     "packTitle": pack_title,
+                    "masterNames": master_names,
                     "masters": previews,
                     "previews": previews,
                 });
@@ -3237,7 +3237,367 @@ mod tests {
             vexio_engine_destroy(eng);
         }
     }
+
+    #[test]
+    fn c_abi_all_62_functions_and_16_tools_smoke_test() {
+        // SAFETY: All pointers created via `vexio_engine_create`, `vexio_doc_create_blank`,
+        // `vexio_viewport_create_headless`, and stack-owned `CString` / slices are valid,
+        // non-null (except deliberate null-arg error-path checks), properly aligned, owned
+        // on the current test thread, and freed via `vexio_buffer_free` / `*_destroy`.
+        unsafe {
+            let take_utf8 = |buf: VexioOwnedBuffer| -> String {
+                let slice = if buf.ptr.is_null() || buf.len == 0 {
+                    &[][..]
+                } else {
+                    std::slice::from_raw_parts(buf.ptr, buf.len)
+                };
+                let s = String::from_utf8_lossy(slice).into_owned();
+                vexio_buffer_free(buf);
+                s
+            };
+            let take_bytes = |buf: VexioOwnedBuffer| -> Vec<u8> {
+                let v = if buf.ptr.is_null() || buf.len == 0 {
+                    Vec::new()
+                } else {
+                    std::slice::from_raw_parts(buf.ptr, buf.len).to_vec()
+                };
+                vexio_buffer_free(buf);
+                v
+            };
+
+            let eng = vexio_engine_create();
+            assert!(!eng.is_null());
+
+            // Deliberate invalid-surface checks for DX12/Metal null surface pointers + error message readback
+            let title_c = CString::new("Full C-ABI Smoke").unwrap();
+            let doc = vexio_doc_create_blank(title_c.as_ptr());
+            assert!(!doc.is_null());
+
+            let mut null_vp: *mut VexioViewport = ptr::null_mut();
+            assert_ne!(
+                vexio_viewport_create_dx12_swapchain(
+                    eng,
+                    doc,
+                    ptr::null_mut(),
+                    800,
+                    600,
+                    1.0,
+                    &mut null_vp
+                ),
+                VexioStatus::Ok
+            );
+            assert_ne!(
+                vexio_viewport_create_metal_layer(
+                    eng,
+                    doc,
+                    ptr::null_mut(),
+                    800,
+                    600,
+                    1.0,
+                    &mut null_vp
+                ),
+                VexioStatus::Ok
+            );
+
+            // Corrupt open check to exercise `vexio_last_error_message`
+            let bad_bytes = b"not-a-valid-vsdx-zip";
+            let mut bad_doc: *mut VexioDoc = ptr::null_mut();
+            let vsdx_ext = CString::new("vsdx").unwrap();
+            assert_eq!(
+                vexio_doc_open_bytes(
+                    eng,
+                    VexioByteSlice {
+                        ptr: bad_bytes.as_ptr(),
+                        len: bad_bytes.len(),
+                    },
+                    vsdx_ext.as_ptr(),
+                    &mut bad_doc
+                ),
+                VexioStatus::ErrIoCorruptFormat
+            );
+            let mut err_buf = VexioOwnedBuffer {
+                ptr: ptr::null_mut(),
+                len: 0,
+                cap: 0,
+            };
+            assert_eq!(vexio_last_error_message(&mut err_buf), VexioStatus::Ok);
+            let err_msg = take_utf8(err_buf);
+            assert!(!err_msg.is_empty(), "vexio_last_error_message must return diagnostic text");
+
+            // Baseline clone for CRDT & Diagram Compare
+            let base_doc = vexio_doc_create_blank(title_c.as_ptr());
+            assert!(!base_doc.is_null());
+
+            // List built-in stencils JSON
+            let mut stencils_buf = VexioOwnedBuffer {
+                ptr: ptr::null_mut(),
+                len: 0,
+                cap: 0,
+            };
+            assert_eq!(vexio_doc_list_stencils_json(doc, &mut stencils_buf), VexioStatus::Ok);
+            let stencils_json = take_utf8(stencils_buf);
+            assert!(stencils_json.contains("BPMN 2.0") && stencils_json.contains("Basic Shapes"));
+
+            // Starter template + Page setup + Page preset + Add/Rename page + PageSheet (shape_id == 0) cells
+            for slug in ["bpmn2", "cad_floorplan", "flowchart", "blank"] {
+                let slug_c = CString::new(slug).unwrap();
+                assert_eq!(vexio_doc_load_starter_template(doc, slug_c.as_ptr()), VexioStatus::Ok);
+            }
+            let a3_c = CString::new("a3").unwrap();
+            assert_eq!(vexio_doc_set_page_preset(doc, 1, a3_c.as_ptr(), true), VexioStatus::Ok);
+            let mm_c = CString::new("mm").unwrap();
+            assert_eq!(vexio_doc_set_page_setup(doc, 1, 11.6929, 8.2677, mm_c.as_ptr()), VexioStatus::Ok);
+
+            // PageSheet cell access via shape_id == 0
+            let page_color_cell = CString::new("PageColor").unwrap();
+            let page_color_val = CString::new("RGB(248,250,252)").unwrap();
+            assert_eq!(
+                vexio_cell_set_formula(doc, 1, 0, page_color_cell.as_ptr(), page_color_val.as_ptr(), true),
+                VexioStatus::Ok
+            );
+            let mut ps_f_buf = VexioOwnedBuffer { ptr: ptr::null_mut(), len: 0, cap: 0 };
+            assert_eq!(
+                vexio_cell_get_formula(doc, 1, 0, page_color_cell.as_ptr(), &mut ps_f_buf),
+                VexioStatus::Ok
+            );
+            assert!(take_utf8(ps_f_buf).contains("248"));
+            let mut ps_v_buf = VexioOwnedBuffer { ptr: ptr::null_mut(), len: 0, cap: 0 };
+            assert_eq!(
+                vexio_cell_get_value_str(doc, 1, 0, page_color_cell.as_ptr(), &mut ps_v_buf),
+                VexioStatus::Ok
+            );
+            let _ = take_utf8(ps_v_buf);
+
+            // Headless viewport + resize + page + zoom + all 16 tools (0..=15) pointer dispatch!
+            let mut vp: *mut VexioViewport = ptr::null_mut();
+            assert_eq!(
+                vexio_viewport_create_headless(eng, doc, 1, 1024, 768, 1.0, &mut vp),
+                VexioStatus::Ok
+            );
+            assert!(!vp.is_null());
+            assert_eq!(vexio_viewport_resize(vp, 1280, 800, 1.0), VexioStatus::Ok);
+            assert_eq!(vexio_viewport_set_page(vp, doc, 1), VexioStatus::Ok);
+            assert_eq!(vexio_viewport_set_zoom(vp, doc, 1.0, 5.8, 4.1), VexioStatus::Ok);
+
+            for tool_code in 0u32..=15u32 {
+                assert_eq!(vexio_viewport_set_tool(vp, tool_code), VexioStatus::Ok);
+                assert_eq!(vexio_viewport_get_active_tool(vp), tool_code);
+                let base_x = 180.0 + (tool_code as f64) * 42.0;
+                let base_y = 220.0 + ((tool_code % 4) as f64) * 55.0;
+                let mut cur = 0u32;
+                let down = VexioPointerEvent {
+                    kind: 1,
+                    buttons: 1,
+                    modifiers: 0,
+                    x_px: base_x,
+                    y_px: base_y,
+                    pressure: 0.75,
+                    tilt_x_deg: 0.0,
+                    tilt_y_deg: 0.0,
+                    timestamp_us: 1000 + (tool_code as u64) * 10,
+                };
+                let mv = VexioPointerEvent {
+                    kind: 0,
+                    buttons: 1,
+                    modifiers: 0,
+                    x_px: base_x + 36.0,
+                    y_px: base_y + 28.0,
+                    pressure: 0.75,
+                    tilt_x_deg: 0.0,
+                    tilt_y_deg: 0.0,
+                    timestamp_us: 1005 + (tool_code as u64) * 10,
+                };
+                let up = VexioPointerEvent {
+                    kind: 2,
+                    buttons: 0,
+                    modifiers: 0,
+                    x_px: base_x + 36.0,
+                    y_px: base_y + 28.0,
+                    pressure: 0.0,
+                    tilt_x_deg: 0.0,
+                    tilt_y_deg: 0.0,
+                    timestamp_us: 1009 + (tool_code as u64) * 10,
+                };
+                assert_eq!(vexio_viewport_dispatch_pointer(vp, doc, &down, &mut cur), VexioStatus::Ok);
+                assert_eq!(vexio_viewport_dispatch_pointer(vp, doc, &mv, &mut cur), VexioStatus::Ok);
+                assert_eq!(vexio_viewport_dispatch_pointer(vp, doc, &up, &mut cur), VexioStatus::Ok);
+                let _ = vexio_viewport_pop_created_text_shape(vp);
+            }
+
+            // Wheel zoom via kind=4
+            let mut wheel_cur = 0u32;
+            let wheel_ev = VexioPointerEvent {
+                kind: 4,
+                buttons: 0,
+                modifiers: 2, // Ctrl
+                x_px: 640.0,
+                y_px: 400.0,
+                pressure: 0.0,
+                tilt_x_deg: 0.0,
+                tilt_y_deg: 120.0,
+                timestamp_us: 5000,
+            };
+            assert_eq!(vexio_viewport_dispatch_pointer(vp, doc, &wheel_ev, &mut wheel_cur), VexioStatus::Ok);
+            assert_eq!(vexio_viewport_render_frame(vp, doc), VexioStatus::Ok);
+
+            let mut vp_rgba = VexioOwnedBuffer { ptr: ptr::null_mut(), len: 0, cap: 0 };
+            assert_eq!(vexio_viewport_render_rgba(vp, doc, &mut vp_rgba), VexioStatus::Ok);
+            let vp_pixels = take_bytes(vp_rgba);
+            assert_eq!(vp_pixels.len(), 1280 * 800 * 4);
+
+            let mut prev_rgba = VexioOwnedBuffer { ptr: ptr::null_mut(), len: 0, cap: 0 };
+            assert_eq!(vexio_render_preview_rgba(doc, 1, 320, 200, &mut prev_rgba), VexioStatus::Ok);
+            assert_eq!(take_bytes(prev_rgba).len(), 320 * 200 * 4);
+
+            // Drop stencils, draw primitive, connect, transform, duplicate, reorder, text, boolean, visual preset, theme
+            let cat_c = CString::new("BPMN 2.0").unwrap();
+            let m1_c = CString::new("Start Event").unwrap();
+            let m2_c = CString::new("Task").unwrap();
+            let (mut s1, mut s2, mut s3, mut conn_id) = (0u64, 0u64, 0u64, 0u64);
+            assert_eq!(vexio_doc_drop_stencil(doc, 1, cat_c.as_ptr(), m1_c.as_ptr(), 2.0, 5.0, &mut s1), VexioStatus::Ok);
+            assert_eq!(vexio_doc_drop_stencil(doc, 1, cat_c.as_ptr(), m2_c.as_ptr(), 5.5, 5.0, &mut s2), VexioStatus::Ok);
+            let rect_c = CString::new("rect").unwrap();
+            assert_eq!(vexio_doc_draw_primitive(doc, 1, rect_c.as_ptr(), 5.0, 4.5, 7.0, 5.8, &mut s3), VexioStatus::Ok);
+            assert_eq!(vexio_doc_connect_shapes(doc, 1, s1, s2, &mut conn_id), VexioStatus::Ok);
+            assert!(conn_id > 0);
+
+            let label_c = CString::new("Approve Architecture\nGröße & Έλεγχος").unwrap();
+            assert_eq!(vexio_doc_set_shape_text(doc, 1, s2, label_c.as_ptr()), VexioStatus::Ok);
+            assert_eq!(vexio_doc_transform_shape(doc, 1, s2, 5.5, 5.0, 2.2, 1.1, 15.0), VexioStatus::Ok);
+
+            let preset_c = CString::new("shadow_soft").unwrap();
+            assert_eq!(vexio_doc_apply_visual_preset(doc, 1, s2, preset_c.as_ptr()), VexioStatus::Ok);
+            let theme_c = CString::new("modern").unwrap();
+            assert_eq!(vexio_doc_apply_theme(doc, theme_c.as_ptr(), 0), VexioStatus::Ok);
+
+            let mut dup_id = 0u64;
+            let dup_src = [s2];
+            assert_eq!(vexio_doc_duplicate_shapes(doc, 1, dup_src.as_ptr(), 1, 0.5, -0.5, &mut dup_id), VexioStatus::Ok);
+            assert!(dup_id > 0);
+            let front_c = CString::new("front").unwrap();
+            assert_eq!(vexio_doc_reorder_shapes(doc, 1, dup_src.as_ptr(), 1, front_c.as_ptr()), VexioStatus::Ok);
+
+            let bool_pair = [s2, s3];
+            let union_c = CString::new("union").unwrap();
+            assert_eq!(vexio_doc_boolean_op(doc, 1, bool_pair.as_ptr(), 2, union_c.as_ptr(), 0.0), VexioStatus::Ok);
+
+            let mut del_cnt = 0u32;
+            let del_ids = [dup_id];
+            assert_eq!(vexio_doc_delete_shapes(doc, 1, del_ids.as_ptr(), 1, &mut del_cnt), VexioStatus::Ok);
+            assert_eq!(del_cnt, 1);
+
+            // Undo & Redo
+            assert_eq!(vexio_doc_undo(doc), VexioStatus::Ok);
+            assert_eq!(vexio_doc_redo(doc), VexioStatus::Ok);
+
+            // Auto-layout & Validate JSON
+            let lr_c = CString::new("hierarchical_lr").unwrap();
+            assert_eq!(vexio_doc_auto_layout(doc, 1, lr_c.as_ptr()), VexioStatus::Ok);
+            let bpmn_c = CString::new("bpmn").unwrap();
+            let mut val_buf = VexioOwnedBuffer { ptr: ptr::null_mut(), len: 0, cap: 0 };
+            assert_eq!(vexio_doc_validate_json(doc, bpmn_c.as_ptr(), &mut val_buf), VexioStatus::Ok);
+            assert!(take_utf8(val_buf).starts_with('['));
+
+            // Subprocess + Add/Rename Page + State JSON
+            let sub_c = CString::new("Sub-Audit").unwrap();
+            let mut sub_pid = 0u32;
+            assert_eq!(vexio_doc_create_subprocess(doc, 1, s1, sub_c.as_ptr(), &mut sub_pid), VexioStatus::Ok);
+            assert!(sub_pid > 1);
+            let mut added_pid = 0u32;
+            let p3_c = CString::new("Page-3").unwrap();
+            assert_eq!(vexio_doc_add_page(doc, p3_c.as_ptr(), &mut added_pid), VexioStatus::Ok);
+            let p3_ren = CString::new("Network Core").unwrap();
+            assert_eq!(vexio_doc_rename_page(doc, added_pid, p3_ren.as_ptr()), VexioStatus::Ok);
+
+            let mut state_buf = VexioOwnedBuffer { ptr: ptr::null_mut(), len: 0, cap: 0 };
+            assert_eq!(vexio_doc_get_state_json(doc, 1, &mut state_buf), VexioStatus::Ok);
+            let state_str = take_utf8(state_buf);
+            assert!(state_str.contains("Network Core"));
+
+            // Save .vsdx, reopen via vexio_doc_open_bytes, and import as stencil via vexio_doc_import_stencil_bytes!
+            let mut saved_vsdx = VexioOwnedBuffer { ptr: ptr::null_mut(), len: 0, cap: 0 };
+            assert_eq!(vexio_doc_save_format(doc, vsdx_ext.as_ptr(), &mut saved_vsdx), VexioStatus::Ok);
+            let vsdx_bytes = take_bytes(saved_vsdx);
+            assert!(vsdx_bytes.starts_with(b"PK\x03\x04"));
+
+            let mut reopened: *mut VexioDoc = ptr::null_mut();
+            assert_eq!(
+                vexio_doc_open_bytes(
+                    eng,
+                    VexioByteSlice { ptr: vsdx_bytes.as_ptr(), len: vsdx_bytes.len() },
+                    vsdx_ext.as_ptr(),
+                    &mut reopened
+                ),
+                VexioStatus::Ok
+            );
+            assert!(!reopened.is_null());
+
+            let imp_name = CString::new("CustomPack.vsdx").unwrap();
+            let mut imp_buf = VexioOwnedBuffer { ptr: ptr::null_mut(), len: 0, cap: 0 };
+            assert_eq!(
+                vexio_doc_import_stencil_bytes(
+                    reopened,
+                    imp_name.as_ptr(),
+                    VexioByteSlice { ptr: vsdx_bytes.as_ptr(), len: vsdx_bytes.len() },
+                    &mut imp_buf
+                ),
+                VexioStatus::Ok
+            );
+            let imp_json = take_utf8(imp_buf);
+            assert!(imp_json.contains("\"masters\"") && imp_json.contains("\"masterNames\"") && imp_json.contains("\"previews\""));
+
+            // CRDT flush & apply + Diagram Compare
+            let rep_c = CString::new("smoke-peer").unwrap();
+            let mut crdt_buf = VexioOwnedBuffer { ptr: ptr::null_mut(), len: 0, cap: 0 };
+            assert_eq!(
+                vexio_doc_flush_crdt_json(base_doc, doc, rep_c.as_ptr(), 1_760_000_000_000, &mut crdt_buf),
+                VexioStatus::Ok
+            );
+            let crdt_ops = take_utf8(crdt_buf);
+            let crdt_ops_c = CString::new(crdt_ops).unwrap();
+            assert_eq!(vexio_doc_apply_crdt_json(reopened, rep_c.as_ptr(), crdt_ops_c.as_ptr()), VexioStatus::Ok);
+
+            let mut cmp_buf = VexioOwnedBuffer { ptr: ptr::null_mut(), len: 0, cap: 0 };
+            assert_eq!(vexio_doc_compare(base_doc, doc, &mut cmp_buf), VexioStatus::Ok);
+            assert!(take_utf8(cmp_buf).contains("\"added_count\""));
+
+            // Data Visualizer CSV -> XLSX, Cloud Discovery, Entra/LDIF Org Chart
+            let dv_csv = b"Process Step ID,Process Step Description,Next Step ID,Shape Type,Function\nS1,Start,S2,Start,Ops\nS2,Finish,,End,Ops\n";
+            let mut dv_cnt = 0u32;
+            assert_eq!(
+                vexio_doc_import_data_visualizer(
+                    doc,
+                    added_pid,
+                    VexioByteSlice { ptr: dv_csv.as_ptr(), len: dv_csv.len() },
+                    &mut dv_cnt
+                ),
+                VexioStatus::Ok
+            );
+            assert!(dv_cnt >= 2);
+            let mut dv_xlsx = VexioOwnedBuffer { ptr: ptr::null_mut(), len: 0, cap: 0 };
+            assert_eq!(vexio_doc_export_data_visualizer_xlsx(doc, added_pid, &mut dv_xlsx), VexioStatus::Ok);
+            assert!(take_bytes(dv_xlsx).starts_with(b"PK\x03\x04"));
+
+            let cloud_c = CString::new(r#"{"resources":[{"id":"r1","name":"API","kind":"compute","vpc":"v1"}]}"#).unwrap();
+            let mut cloud_cnt = 0u32;
+            assert_eq!(vexio_doc_import_cloud_discovery(doc, added_pid, cloud_c.as_ptr(), &mut cloud_cnt), VexioStatus::Ok);
+            assert!(cloud_cnt >= 1);
+
+            let ldif_c = CString::new("dn: cn=Ada,dc=vexio\ncn: Ada\ntitle: CTO\n").unwrap();
+            let mut ldif_cnt = 0u32;
+            assert_eq!(vexio_doc_import_entra_or_ldif(doc, added_pid, ldif_c.as_ptr(), &mut ldif_cnt), VexioStatus::Ok);
+            assert!(ldif_cnt >= 1);
+
+            let _ = vexio_viewport_get_primary_selection(vp);
+            vexio_viewport_destroy(vp);
+            vexio_doc_destroy(reopened);
+            vexio_doc_destroy(base_doc);
+            vexio_doc_destroy(doc);
+            vexio_engine_destroy(eng);
+        }
+    }
 }
+
 
 
 

@@ -977,11 +977,11 @@
 
                     <!-- Pure In-Place Canvas Text Label Editor (Directly Over Shape or Below-Icon Caption) -->
                     <Canvas x:Name="InlineEditorOverlayCanvas" IsHitTestVisible="True">
-                        <Border x:Name="InlineCanvasEditorBorder" Visibility="Collapsed"
+                        <Border x:Name="InlineCanvasEditorBorder" Visibility="Collapsed" RequestedTheme="Light"
                                 Background="#FFFFFFFF" BorderBrush="#FF2563EB" BorderThickness="1.5" CornerRadius="2" Padding="2,1">
                             <TextBox x:Name="InlineCanvasTextBox" AcceptsReturn="True" TextWrapping="Wrap"
                                      TextAlignment="Center" MinWidth="120" MinHeight="24" FontSize="12" Padding="3,2"
-                                     BorderThickness="0" Background="Transparent" PlaceholderText=""
+                                     Foreground="#FF0F172A" BorderThickness="0" Background="Transparent" PlaceholderText=""
                                      KeyDown="OnInlineCanvasTextKeyDown" LostFocus="OnInlineCanvasTextLostFocus" />
                         </Border>
                     </Canvas>

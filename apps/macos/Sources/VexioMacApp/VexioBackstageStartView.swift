@@ -415,6 +415,9 @@ public struct VexioBackstageStartView: View {
                         }
                         .labelsHidden()
                         .frame(width: 165)
+                        .onChange(of: i18n.unitPreference) { _, newUnit in
+                            session.applyMeasurementUnit(newUnit.resolvedEngineSlug, undoManager: undoManager)
+                        }
                     }
 
                     Button {

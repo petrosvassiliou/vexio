@@ -197,6 +197,18 @@ void MainWindow::AttachOrResizeDx12SwapChain() {
     const uint32_t physWidth  = std::max<uint32_t>(1u, static_cast<uint32_t>(std::lround(logicalW * scaleX)));
     const uint32_t physHeight = std::max<uint32_t>(1u, static_cast<uint32_t>(std::lround(logicalH * scaleY)));
 
+    if (m_viewport) {
+        if (m_viewport.Resize(physWidth, physHeight, scaleX) == VEXIO_OK) {
+            if (!m_usingHeadlessFallback) {
+                GpuSwapChainBadgeText().Text(hstring{
+                    std::format(L"DX12 120Hz • {}x{} @ {:.0f}%", physWidth, physHeight, scaleX * 100.0f)
+                });
+            }
+            PresentViewportFrame();
+            return;
+        }
+    }
+
     const com_ptr<ISwapChainPanelNative> panelNative = panel.try_as<ISwapChainPanelNative>();
 
     m_viewport.Reset();
@@ -356,7 +368,9 @@ void MainWindow::DispatchCanvasPointerEvent(uint32_t kindOverride, PointerRouted
     rawEv.y_px         = static_cast<double>(pos.Y) * static_cast<double>(scaleY);
     rawEv.pressure     = std::clamp(props.Pressure(), 0.0f, 1.0f);
     rawEv.tilt_x_deg   = props.XTilt();
-    rawEv.tilt_y_deg   = props.YTilt();
+    rawEv.tilt_y_deg   = (effectiveKind == static_cast<uint32_t>(vexio::win::PointerEventKind::Wheel))
+        ? static_cast<float>(props.MouseWheelDelta())
+        : props.YTilt();
     rawEv.timestamp_us = pt.Timestamp();
 
     if (m_viewport && m_doc) {
@@ -364,6 +378,7 @@ void MainWindow::DispatchCanvasPointerEvent(uint32_t kindOverride, PointerRouted
         if (dispatchRes.ok()) {
             ApplyCanvasCursor(*dispatchRes.value);
         } else if (dispatchRes.status == VEXIO_ERR_GPU_SURFACE_LOST) {
+            m_viewport.Reset();
             AttachOrResizeDx12SwapChain();
         }
     }
@@ -427,8 +442,9 @@ void MainWindow::OnCanvasPointerWheelChanged(IInspectable const&, PointerRoutedE
     if ((e.KeyModifiers() & VirtualKeyModifiers::Control) != VirtualKeyModifiers::None) {
         const double step = delta > 0 ? 10.0 : -10.0;
         SetZoomPercent(std::clamp(m_zoomPercent + step, 25.0, 400.0));
+    } else {
+        DispatchCanvasPointerEvent(static_cast<uint32_t>(vexio::win::PointerEventKind::Wheel), e);
     }
-    DispatchCanvasPointerEvent(static_cast<uint32_t>(vexio::win::PointerEventKind::Wheel), e);
     PresentViewportFrame();
     e.Handled(true);
 }
@@ -476,6 +492,17 @@ void MainWindow::OnCanvasRightTapped(IInspectable const&, RightTappedRoutedEvent
         OnCopyShapeClick(nullptr, nullptr);
     });
     addItem(L"Paste Here", [this, clickXIn, clickYIn](IInspectable const&, RoutedEventArgs const&) {
+        if (m_doc && m_selectedShapeId > 0) {
+            const std::array<uint64_t, 1> ids{m_selectedShapeId};
+            const auto dup = m_doc.DuplicateShapes(m_activePageId, ids, 0.35, -0.35);
+            if (dup.ok() && *dup.value > 0) {
+                m_selectedShapeId = *dup.value;
+                MarkDocumentDirty(true);
+                PresentViewportFrame();
+                SyncInspectorFromShapeSheet();
+                return;
+            }
+        }
         for (auto const& m : m_allMasters) {
             if (m.id == m_clipboardMasterId) {
                 InstantiateMasterOnCanvas(m, clickXIn, clickYIn);
@@ -1974,7 +2001,7 @@ void MainWindow::OnSendBackClick(IInspectable const&, RoutedEventArgs const&) {
 void MainWindow::OnConnectorRoutingChanged(IInspectable const&, SelectionChangedEventArgs const&) {
     if (!m_isInitialized || !m_doc) return;
     const int32_t idx = std::clamp(ConnectorRoutingCombo().SelectedIndex(), 0, 2);
-    const std::array<const char*, 3> routeStyles{"16", "1", "2"};
+    const std::array<const char*, 3> routeStyles{"16", "6", "1"};
     (void)m_doc.SetCellFormula(m_activePageId, m_selectedShapeId, "ShapeRouteStyle", routeStyles[idx], true);
     MarkDocumentDirty(true);
     PresentViewportFrame();
@@ -2322,6 +2349,31 @@ void MainWindow::OnCheckDiagramClick(IInspectable const&, RoutedEventArgs const&
     std::wstring ruleSet = L"BPMN 2.0";
     if (auto sel = ValidationRuleSetCombo().SelectedItem().try_as<hstring>()) {
         ruleSet = sel->c_str();
+    }
+    std::string_view slug = "bpmn";
+    if (ruleSet.find(L"UML") != std::wstring::npos) {
+        slug = "uml";
+    } else if (ruleSet.find(L"SharePoint") != std::wstring::npos || ruleSet.find(L"Workflow") != std::wstring::npos) {
+        slug = "workflow";
+    }
+
+    if (m_doc) {
+        const auto valRes = m_doc.ValidateJson(slug);
+        if (valRes.ok()) {
+            winrt::Windows::Data::Json::JsonArray arr{nullptr};
+            if (winrt::Windows::Data::Json::JsonArray::TryParse(*valRes.value, arr) && arr.Size() > 0) {
+                const uint32_t count = arr.Size();
+                std::wstring firstDesc = L"Structural rule violation detected.";
+                const auto firstObj = arr.GetObjectAt(0);
+                if (firstObj.HasKey(L"description")) {
+                    firstDesc = firstObj.GetNamedString(L"description").c_str();
+                }
+                StatusValidationBadgeText().Text(hstring{std::format(L"⚠ {} Issue(s) ({})", count, ruleSet)});
+                ShowBanner(InfoBarSeverity::Warning, L"Diagram Validation Diagnostics",
+                           std::format(L"{} found {} issue(s): {}", ruleSet, count, firstDesc));
+                return;
+            }
+        }
     }
 
     StatusValidationBadgeText().Text(hstring{std::format(L"✓ 0 Validation Issues ({})", ruleSet)});
@@ -4020,7 +4072,7 @@ void MainWindow::OnShapeLineColorPickerChanged(ColorPicker const&, ColorChangedE
 void MainWindow::OnRotateLeft90Click(IInspectable const&, RoutedEventArgs const&) {
     if (!m_doc || m_selectedShapeId == 0) return;
     const std::array<uint64_t, 1> ids{m_selectedShapeId};
-    if (m_doc.RotateFlipShapes(m_activePageId, ids, -90.0, false, false) == VEXIO_OK) {
+    if (m_doc.RotateFlipShapes(m_activePageId, ids, 90.0, false, false) == VEXIO_OK) {
         MarkDocumentDirty(true);
         PresentViewportFrame();
         SyncInspectorFromShapeSheet();
@@ -4031,7 +4083,7 @@ void MainWindow::OnRotateLeft90Click(IInspectable const&, RoutedEventArgs const&
 void MainWindow::OnRotateRight90Click(IInspectable const&, RoutedEventArgs const&) {
     if (!m_doc || m_selectedShapeId == 0) return;
     const std::array<uint64_t, 1> ids{m_selectedShapeId};
-    if (m_doc.RotateFlipShapes(m_activePageId, ids, 90.0, false, false) == VEXIO_OK) {
+    if (m_doc.RotateFlipShapes(m_activePageId, ids, -90.0, false, false) == VEXIO_OK) {
         MarkDocumentDirty(true);
         PresentViewportFrame();
         SyncInspectorFromShapeSheet();

@@ -33,6 +33,11 @@ pub fn export_page_svg(doc: &VisioDocument, page_id: u32) -> String {
     let page_bg_hex = page
         .page_sheet
         .get_color("PageColor")
+        .or_else(|| {
+            doc.active_theme_id
+                .and_then(|tid| doc.themes.iter().find(|t| t.id == tid))
+                .map(|t| t.background_color)
+        })
         .map(|c| c.to_hex_rgb())
         .unwrap_or_else(|| "#FFFFFF".into());
 
@@ -59,6 +64,7 @@ pub fn export_page_svg(doc: &VisioDocument, page_id: u32) -> String {
                         vis,
                         h_in,
                         ppi,
+                        &page_bg_hex,
                         &mut defs,
                         &mut body,
                         "bg",
@@ -72,7 +78,7 @@ pub fn export_page_svg(doc: &VisioDocument, page_id: u32) -> String {
     // 2. Render Foreground Page Shapes
     let visuals = ReactiveEngine::evaluate_page_visuals(doc, page_id);
     for vis in &visuals {
-        render_single_shape_svg(page, vis, h_in, ppi, &mut defs, &mut body, "fg");
+        render_single_shape_svg(page, vis, h_in, ppi, &page_bg_hex, &mut defs, &mut body, "fg");
     }
 
     // 3. Render Header & Footer (`doc.header_footer`)
@@ -160,11 +166,13 @@ pub fn export_page_svg(doc: &VisioDocument, page_id: u32) -> String {
     svg
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_single_shape_svg(
     page: &VisioPage,
     vis: &EvaluatedShapeVisual,
     h_in: f64,
     ppi: f64,
+    page_bg_hex: &str,
     defs: &mut String,
     body: &mut String,
     ns_prefix: &str,
@@ -859,6 +867,7 @@ fn render_single_shape_svg(
             vis,
             to_svg_x(vis.txt_pos[0]),
             to_svg_y(vis.txt_pos[1]),
+            page_bg_hex,
         );
     }
 
@@ -904,25 +913,107 @@ fn extract_inline_svg_payload(svg_txt: &str, id_prefix: &str) -> Option<(String,
     Some((vb, inner))
 }
 
-fn render_rich_svg_text(body: &mut String, vis: &EvaluatedShapeVisual, tx: f64, ty: f64) {
+fn format_bullet_line(trimmed: &str, bullet_style: u8, idx: usize) -> String {
+    if let Some(rest) = trimmed.strip_prefix("- ") {
+        return format!("• {rest}");
+    }
+    match bullet_style {
+        1 if !trimmed.starts_with('•') => format!("• {trimmed}"),
+        2 => {
+            let already_numbered = trimmed
+                .split_once(". ")
+                .is_some_and(|(prefix, _)| !prefix.is_empty() && prefix.chars().all(|c| c.is_ascii_digit()));
+            if already_numbered {
+                trimmed.to_string()
+            } else {
+                format!("{}. {trimmed}", idx + 1)
+            }
+        }
+        3 if !trimmed.starts_with('◦') => format!("◦ {trimmed}"),
+        4 if !trimmed.starts_with('▪') => format!("▪ {trimmed}"),
+        _ => trimmed.to_string(),
+    }
+}
+
+fn strip_inline_markup_plain(mut s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    while !s.is_empty() {
+        if let Some(after) = s.strip_prefix("[color=") {
+            if let Some(close_br) = after.find(']') {
+                let body_rest = &after[close_br + 1..];
+                if let Some(close_tag) = body_rest.find("[/color]") {
+                    out.push_str(&strip_inline_markup_plain(&body_rest[..close_tag]));
+                    s = &body_rest[close_tag + 8..];
+                    continue;
+                }
+            }
+        }
+        for marker in ["***", "**", "__", "~~"] {
+            if let Some(after) = s.strip_prefix(marker) {
+                if let Some(end) = after.find(marker) {
+                    out.push_str(&after[..end]);
+                    s = &after[end + marker.len()..];
+                    break;
+                }
+            }
+        }
+        if s.is_empty() {
+            break;
+        }
+        if let Some(after) = s.strip_prefix('*') {
+            if let Some(end) = after.find('*') {
+                if end > 0 {
+                    out.push_str(&after[..end]);
+                    s = &after[end + 1..];
+                    continue;
+                }
+            }
+        }
+        let Some(ch) = s.chars().next() else { break };
+        out.push(ch);
+        s = &s[ch.len_utf8()..];
+    }
+    out
+}
+
+fn render_rich_svg_text(
+    body: &mut String,
+    vis: &EvaluatedShapeVisual,
+    tx: f64,
+    ty: f64,
+    page_bg_hex: &str,
+) {
     let raw = vis.text.trim();
+    if raw.is_empty() {
+        return;
+    }
     let is_vertical = raw.starts_with("[vert]");
     let cleaned_raw = raw.strip_prefix("[vert]").unwrap_or(raw).trim();
     let has_rtl = cleaned_raw
         .chars()
         .any(|c| ('\u{0590}'..='\u{08FF}').contains(&c));
 
-    let fsize = (vis.font_size_pt * (96.0 / 72.0)).max(8.5);
+    let fsize = (vis.font_size_pt.clamp(4.0, 144.0) * (96.0 / 72.0)).max(5.3);
     let line_h = fsize * 1.25;
     let tcol = vis.text_color.to_hex_rgb();
     let lines: Vec<&str> = cleaned_raw.lines().collect();
     let total_block_h = (lines.len().saturating_sub(1) as f64) * line_h;
-    let is_external_caption =
-        vis.txt_pos[1] < vis.transform.pin_y - vis.transform.height * 0.48
-            || vis.txt_pos[1] > vis.transform.pin_y + vis.transform.height * 0.48;
+    let is_external_caption = vis.kind != vexio_shapesheet::ShapeKind::Connector1D
+        && (vis.txt_pos[1] < vis.transform.pin_y - vis.transform.height * 0.48
+            || vis.txt_pos[1] > vis.transform.pin_y + vis.transform.height * 0.48);
 
-    let box_w_px = vis.transform.width * 96.0;
-    let box_h_px = vis.transform.height * 96.0;
+    let default_w_in = if vis.kind == vexio_shapesheet::ShapeKind::Connector1D {
+        vis.transform.width.abs().max(2.2)
+    } else {
+        vis.transform.width.abs()
+    };
+    let default_h_in = if vis.kind == vexio_shapesheet::ShapeKind::Connector1D {
+        vis.transform.height.abs().max(0.5)
+    } else {
+        vis.transform.height.abs()
+    };
+    let box_w_px = vis.txt_width.unwrap_or(default_w_in) * 96.0;
+    let box_h_px = vis.txt_height.unwrap_or(default_h_in) * 96.0;
     let pad_px = 6.0;
     let (anchor_x, anchor_attr) = if is_external_caption {
         (tx, "middle")
@@ -934,7 +1025,7 @@ fn render_rich_svg_text(body: &mut String, vis: &EvaluatedShapeVisual, tx: f64, 
         }
     };
 
-    let start_y = if is_external_caption && vis.txt_pos[1] < vis.transform.pin_y {
+    let start_y = if is_external_caption {
         ty
     } else {
         match vis.vert_align {
@@ -944,9 +1035,24 @@ fn render_rich_svg_text(body: &mut String, vis: &EvaluatedShapeVisual, tx: f64, 
         }
     };
 
+    let readable_rad = vexio_render::tessellate::readable_text_angle_rad(vis.transform.angle_rad);
+    // Visio angles are CCW in Y-up page coordinates, which maps to `-deg` in SVG Y-down coordinates!
+    let svg_rot_deg = -readable_rad.to_degrees();
+    let has_rot = svg_rot_deg.abs() > 0.05;
+    if has_rot {
+        let _ = writeln!(
+            body,
+            "<g transform=\"rotate({svg_rot_deg:.2} {tx:.2} {ty:.2})\">"
+        );
+    }
+
     if let Some(bg) = vis.text_bg_color {
-        let max_chars = lines.iter().map(|l| l.chars().count()).max().unwrap_or(1) as f64;
-        let est_w = (max_chars * fsize * 0.62 + 10.0).min(box_w_px.max(24.0));
+        let max_chars = lines
+            .iter()
+            .map(|l| strip_inline_markup_plain(l).chars().count())
+            .max()
+            .unwrap_or(1) as f64;
+        let est_w = (max_chars * fsize * 0.62 + 10.0).min(box_w_px.max(36.0));
         let est_h = (lines.len().max(1) as f64) * line_h + 4.0;
         let rx_bg = match anchor_attr {
             "start" => anchor_x - 4.0,
@@ -986,10 +1092,13 @@ fn render_rich_svg_text(body: &mut String, vis: &EvaluatedShapeVisual, tx: f64, 
         (false, true) => " text-decoration=\"line-through\"",
         (false, false) => "",
     };
-    let halo_attr = if is_external_caption {
-        " paint-order=\"stroke\" stroke=\"#ffffff\" stroke-width=\"2.6\" stroke-linejoin=\"round\""
+    let halo_attr = if is_external_caption || (vis.kind == vexio_shapesheet::ShapeKind::Connector1D && vis.text_bg_color.is_none()) {
+        format!(
+            " paint-order=\"stroke\" stroke=\"{}\" stroke-width=\"2.6\" stroke-linejoin=\"round\"",
+            vexio_vsdx::opc::xml_escape(page_bg_hex)
+        )
     } else {
-        ""
+        String::new()
     };
     let safe_font = vexio_vsdx::opc::xml_escape(if vis.font_family.trim().is_empty() {
         "Inter, Segoe UI, sans-serif"
@@ -1004,25 +1113,47 @@ fn render_rich_svg_text(body: &mut String, vis: &EvaluatedShapeVisual, tx: f64, 
 
     for (idx, line) in lines.iter().enumerate() {
         let dy = if idx == 0 { 0.0 } else { line_h };
-        let trimmed = line.trim();
-        let bullet_normalized = if let Some(rest) = trimmed.strip_prefix("- ") {
-            format!("• {rest}")
-        } else if vis.bullet_style == 1 && !trimmed.starts_with('•') {
-            format!("• {trimmed}")
-        } else if vis.bullet_style == 2 {
-            format!("{}. {trimmed}", idx + 1)
-        } else {
-            trimmed.to_string()
-        };
+        let bullet_normalized = format_bullet_line(line.trim(), vis.bullet_style, idx);
         let _ = write!(body, "<tspan x=\"{anchor_x:.2}\" dy=\"{dy:.1}\">");
         emit_inline_styled_tspans(body, &bullet_normalized);
         body.push_str("</tspan>");
     }
     body.push_str("</text>\n");
+    if has_rot {
+        body.push_str("</g>\n");
+    }
 }
 
 fn emit_inline_styled_tspans(out: &mut String, mut rest: &str) {
     while !rest.is_empty() {
+        if let Some(after_open) = rest.strip_prefix("[color=") {
+            if let Some(close_br) = after_open.find(']') {
+                let col_str = after_open[..close_br].trim();
+                let body_rest = &after_open[close_br + 1..];
+                if let Some(close_tag) = body_rest.find("[/color]") {
+                    let _ = write!(
+                        out,
+                        "<tspan fill=\"{}\">",
+                        vexio_vsdx::opc::xml_escape(col_str)
+                    );
+                    emit_inline_styled_tspans(out, &body_rest[..close_tag]);
+                    out.push_str("</tspan>");
+                    rest = &body_rest[close_tag + 8..];
+                    continue;
+                }
+            }
+        }
+        if let Some(after_open) = rest.strip_prefix("***") {
+            if let Some(end) = after_open.find("***") {
+                let _ = write!(
+                    out,
+                    "<tspan font-weight=\"bold\" font-style=\"italic\">{}</tspan>",
+                    vexio_vsdx::opc::xml_escape(&after_open[..end])
+                );
+                rest = &after_open[end + 3..];
+                continue;
+            }
+        }
         if let Some(after_open) = rest.strip_prefix("**") {
             if let Some(end) = after_open.find("**") {
                 let _ = write!(
@@ -1071,7 +1202,7 @@ fn emit_inline_styled_tspans(out: &mut String, mut rest: &str) {
         }
         // Emit plain text up to the next potential marker (stepping past the first full UTF-8 codepoint)
         let first_len = rest.chars().next().map_or(rest.len(), char::len_utf8);
-        let next_marker = ['*', '_', '~']
+        let next_marker = ['*', '_', '~', '[']
             .iter()
             .filter_map(|&m| rest[first_len..].find(m).map(|p| p + first_len))
             .min()
@@ -1084,6 +1215,50 @@ fn emit_inline_styled_tspans(out: &mut String, mut rest: &str) {
 // ============================================================================
 // 2. Vector PDF 1.7 / PDF/A-1b Multi-Page Document Export
 // ============================================================================
+
+fn char_to_winansi_byte(ch: char) -> Option<u8> {
+    let cp = ch as u32;
+    if (0x20..=0x7E).contains(&cp) || (0xA0..=0xFF).contains(&cp) {
+        return Some(cp as u8);
+    }
+    match ch {
+        '€' => Some(0x80),
+        '‚' => Some(0x82),
+        '„' => Some(0x84),
+        '…' => Some(0x85),
+        'Œ' => Some(0x8C),
+        '‘' => Some(0x91),
+        '’' => Some(0x92),
+        '“' => Some(0x93),
+        '”' => Some(0x94),
+        '•' | '◦' | '▪' => Some(0x95),
+        '–' => Some(0x96),
+        '—' => Some(0x97),
+        '™' => Some(0x99),
+        'œ' => Some(0x9C),
+        'Ÿ' => Some(0x9F),
+        _ => None,
+    }
+}
+
+fn encode_pdf_winansi_literal(s: &str) -> Option<String> {
+    let mut out = String::with_capacity(s.len() + 8);
+    out.push('(');
+    for ch in s.chars() {
+        let b = char_to_winansi_byte(ch)?;
+        match b {
+            b'\\' => out.push_str("\\\\"),
+            b'(' => out.push_str("\\("),
+            b')' => out.push_str("\\)"),
+            0x20..=0x7E => out.push(b as char),
+            _ => {
+                let _ = write!(out, "\\{b:03o}");
+            }
+        }
+    }
+    out.push(')');
+    Some(out)
+}
 
 pub fn export_document_pdf(doc: &VisioDocument) -> Vec<u8> {
     let mut out = Vec::new();
@@ -1100,15 +1275,26 @@ pub fn export_document_pdf(doc: &VisioDocument) -> Vec<u8> {
 
     offsets.push(0); // placeholder 1 = Catalog
     offsets.push(0); // placeholder 2 = Pages
-    let font_obj = {
-        let id = offsets.len();
-        offsets.push(out.len());
-        out.extend_from_slice(
-            format!("{id} 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n")
-                .as_bytes(),
-        );
-        id
-    };
+    let font_regular = add_obj(
+        &mut out,
+        &mut offsets,
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>",
+    );
+    let font_bold = add_obj(
+        &mut out,
+        &mut offsets,
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>",
+    );
+    let font_italic = add_obj(
+        &mut out,
+        &mut offsets,
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Oblique /Encoding /WinAnsiEncoding >>",
+    );
+    let font_bold_italic = add_obj(
+        &mut out,
+        &mut offsets,
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-BoldOblique /Encoding /WinAnsiEncoding >>",
+    );
 
     let mut page_obj_ids = Vec::new();
     for page in &doc.pages {
@@ -1119,6 +1305,18 @@ pub fn export_document_pdf(doc: &VisioDocument) -> Vec<u8> {
         let h_pt = page.height_in() * 72.0;
         let visuals = ReactiveEngine::evaluate_page_visuals(doc, page.id);
         let mut stream = String::new();
+
+        // Paint page background when custom PageColor or theme background is active
+        if let Some(pbg) = page.page_sheet.get_color("PageColor").or_else(|| {
+            doc.active_theme_id
+                .and_then(|tid| doc.themes.iter().find(|t| t.id == tid))
+                .map(|t| t.background_color)
+        }) {
+            if pbg != RgbaColor::WHITE {
+                let [pr, pg, pb, _] = pbg.to_linear_f32();
+                let _ = writeln!(stream, "{pr:.3} {pg:.3} {pb:.3} rg 0 0 {w_pt:.2} {h_pt:.2} re f");
+            }
+        }
 
         for vis in &visuals {
             for path in &vis.paths {
@@ -1192,21 +1390,173 @@ pub fn export_document_pdf(doc: &VisioDocument) -> Vec<u8> {
                 let _ = writeln!(stream, "{paint_op}");
             }
 
-            if !vis.text.is_empty() {
-                let first = vis
-                    .text
+            let trimmed_txt = vis.text.trim();
+            if !trimmed_txt.is_empty() {
+                let cleaned_txt = trimmed_txt.strip_prefix("[vert]").unwrap_or(trimmed_txt).trim();
+                let font_pt = vis.font_size_pt.clamp(4.0, 144.0);
+                let line_h_pt = font_pt * 1.25;
+                let default_w_in = if vis.kind == vexio_shapesheet::ShapeKind::Connector1D {
+                    vis.transform.width.abs().max(2.2)
+                } else {
+                    vis.transform.width.abs().max(0.45)
+                };
+                let default_h_in = if vis.kind == vexio_shapesheet::ShapeKind::Connector1D {
+                    vis.transform.height.abs().max(0.5)
+                } else {
+                    vis.transform.height.abs().max(0.28)
+                };
+                let box_w_pt = vis.txt_width.unwrap_or(default_w_in) * 72.0;
+                let box_h_pt = vis.txt_height.unwrap_or(default_h_in) * 72.0;
+                let readable_rad =
+                    vexio_render::tessellate::readable_text_angle_rad(vis.transform.angle_rad);
+                let (sa, ca) = readable_rad.sin_cos();
+                let cx_pt = vis.txt_pos[0] * 72.0;
+                let cy_pt = vis.txt_pos[1] * 72.0;
+
+                let plain_lines: Vec<String> = cleaned_txt
                     .lines()
-                    .next()
-                    .unwrap_or("")
-                    .replace('(', "\\(")
-                    .replace(')', "\\)");
-                let tx = vis.txt_pos[0] * 72.0 - (first.len() as f64 * vis.font_size_pt * 0.25);
-                let ty = vis.txt_pos[1] * 72.0 - vis.font_size_pt * 0.35;
-                let _ = writeln!(
-                    stream,
-                    "BT /F1 {:.1} Tf {:.2} {:.2} Td ({first}) Tj ET",
-                    vis.font_size_pt, tx, ty
-                );
+                    .enumerate()
+                    .map(|(i, l)| {
+                        let bul = format_bullet_line(l.trim(), vis.bullet_style, i);
+                        strip_inline_markup_plain(&bul)
+                    })
+                    .collect();
+
+                if let Some(bg) = vis.text_bg_color {
+                    let br = bg.r as f64 / 255.0;
+                    let bg_g = bg.g as f64 / 255.0;
+                    let bb = bg.b as f64 / 255.0;
+                    let max_ch = plain_lines.iter().map(|l| l.chars().count()).max().unwrap_or(1) as f64;
+                    let hw = (max_ch * font_pt * 0.56 + 8.0).min(box_w_pt.max(24.0)) * 0.5;
+                    let hh = ((plain_lines.len().max(1) as f64) * line_h_pt + 4.0) * 0.5;
+                    let map_pt = |lx: f64, ly: f64| -> (f64, f64) {
+                        (cx_pt + lx * ca - ly * sa, cy_pt + lx * sa + ly * ca)
+                    };
+                    let (x0, y0) = map_pt(-hw, -hh);
+                    let (x1, y1) = map_pt(hw, -hh);
+                    let (x2, y2) = map_pt(hw, hh);
+                    let (x3, y3) = map_pt(-hw, hh);
+                    let _ = writeln!(
+                        stream,
+                        "{br:.3} {bg_g:.3} {bb:.3} rg {x0:.2} {y0:.2} m {x1:.2} {y1:.2} l {x2:.2} {y2:.2} l {x3:.2} {y3:.2} l h f"
+                    );
+                }
+
+                // Explicitly set PDF stroke & fill color to sRGB `vis.text_color` so text is NEVER invisible against shape fill!
+                let tr = vis.text_color.r as f64 / 255.0;
+                let tg = vis.text_color.g as f64 / 255.0;
+                let tb = vis.text_color.b as f64 / 255.0;
+                let _ = writeln!(stream, "{tr:.3} {tg:.3} {tb:.3} RG\n{tr:.3} {tg:.3} {tb:.3} rg");
+
+                let encoded_lines: Option<Vec<String>> = plain_lines
+                    .iter()
+                    .map(|l| encode_pdf_winansi_literal(l))
+                    .collect();
+
+                if let Some(winansi_literals) = encoded_lines {
+                    let font_tag = match (vis.char_style & 1 != 0, vis.char_style & 2 != 0) {
+                        (true, true) => "/F4",
+                        (true, false) => "/F2",
+                        (false, true) => "/F3",
+                        (false, false) => "/F1",
+                    };
+                    let n_lines = plain_lines.len().max(1);
+                    let total_block_h = (n_lines.saturating_sub(1) as f64) * line_h_pt;
+                    let top_line_y = match vis.vert_align {
+                        0 => box_h_pt * 0.5 - 4.0 - font_pt * 0.85,
+                        2 => -box_h_pt * 0.5 + 4.0 + total_block_h + font_pt * 0.15,
+                        _ => total_block_h * 0.5 - font_pt * 0.35,
+                    };
+
+                    for (idx, (plain, pdf_lit)) in
+                        plain_lines.iter().zip(winansi_literals.iter()).enumerate()
+                    {
+                        let est_line_w = (plain.chars().count() as f64) * font_pt * 0.52;
+                        let local_x = match vis.horiz_align {
+                            0 => -box_w_pt * 0.5 + 4.0,
+                            2 => box_w_pt * 0.5 - 4.0 - est_line_w,
+                            _ => -est_line_w * 0.5,
+                        };
+                        let local_y = top_line_y - (idx as f64) * line_h_pt;
+                        let px = cx_pt + local_x * ca - local_y * sa;
+                        let py = cy_pt + local_x * sa + local_y * ca;
+                        let _ = writeln!(
+                            stream,
+                            "BT {font_tag} {font_pt:.1} Tf {ca:.4} {sa:.4} {:.4} {ca:.4} {px:.2} {py:.2} Tm {pdf_lit} Tj ET",
+                            -sa
+                        );
+                        // Emit underline (`char_style & 4`) and strikethrough (`char_style & 8`) vector lines
+                        if (vis.char_style & 4) != 0 && est_line_w > 0.5 {
+                            let uy = local_y - font_pt * 0.14;
+                            let ux0 = cx_pt + local_x * ca - uy * sa;
+                            let uy0 = cy_pt + local_x * sa + uy * ca;
+                            let ux1 = cx_pt + (local_x + est_line_w) * ca - uy * sa;
+                            let uy1 = cy_pt + (local_x + est_line_w) * sa + uy * ca;
+                            let _ = writeln!(
+                                stream,
+                                "{:.2} w {ux0:.2} {uy0:.2} m {ux1:.2} {uy1:.2} l S",
+                                (font_pt * 0.065).max(0.5)
+                            );
+                        }
+                        if (vis.char_style & 8) != 0 && est_line_w > 0.5 {
+                            let sy = local_y + font_pt * 0.28;
+                            let sx0 = cx_pt + local_x * ca - sy * sa;
+                            let sy0 = cy_pt + local_x * sa + sy * ca;
+                            let sx1 = cx_pt + (local_x + est_line_w) * ca - sy * sa;
+                            let sy1 = cy_pt + (local_x + est_line_w) * sa + sy * ca;
+                            let _ = writeln!(
+                                stream,
+                                "{:.2} w {sx0:.2} {sy0:.2} m {sx1:.2} {sy1:.2} l S",
+                                (font_pt * 0.065).max(0.5)
+                            );
+                        }
+                    }
+                } else {
+                    // Non-WinAnsi scripts (Greek Α-ω with tonos/dialytika, Hebrew, Arabic, CJK):
+                    // emit crisp vector glyph triangles via `vexio_render::typography` so 0 characters vanish!
+                    let block = vexio_render::typography::parse_inline_rich_text_styled_with_font(
+                        trimmed_txt,
+                        font_pt,
+                        vis.text_color,
+                        vis.char_style,
+                        vis.horiz_align,
+                        vis.vert_align,
+                        vis.bullet_style,
+                        &vis.font_family,
+                    );
+                    let glyph_mesh = vexio_render::typography::tessellate_rich_text_in_box(
+                        &block,
+                        vis.txt_pos[0],
+                        vis.txt_pos[1],
+                        box_w_pt / 72.0,
+                        box_h_pt / 72.0,
+                        readable_rad,
+                    );
+                    let mut last_col: Option<[f32; 4]> = None;
+                    for tri in glyph_mesh.indices.chunks_exact(3) {
+                        let v0 = &glyph_mesh.vertices[tri[0] as usize];
+                        let v1 = &glyph_mesh.vertices[tri[1] as usize];
+                        let v2 = &glyph_mesh.vertices[tri[2] as usize];
+                        if last_col != Some(v0.color) {
+                            let _ = writeln!(
+                                stream,
+                                "{:.3} {:.3} {:.3} rg",
+                                v0.color[0], v0.color[1], v0.color[2]
+                            );
+                            last_col = Some(v0.color);
+                        }
+                        let _ = writeln!(
+                            stream,
+                            "{:.2} {:.2} m {:.2} {:.2} l {:.2} {:.2} l h f",
+                            v0.pos[0] * 72.0,
+                            v0.pos[1] * 72.0,
+                            v1.pos[0] * 72.0,
+                            v1.pos[1] * 72.0,
+                            v2.pos[0] * 72.0,
+                            v2.pos[1] * 72.0
+                        );
+                    }
+                }
             }
         }
 
@@ -1220,7 +1570,7 @@ pub fn export_document_pdf(doc: &VisioDocument) -> Vec<u8> {
             &mut offsets,
             &format!(
                 "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {w_pt:.2} {h_pt:.2}] \
-                 /Resources << /Font << /F1 {font_obj} 0 R >> >> /Contents {content_id} 0 R >>"
+                 /Resources << /Font << /F1 {font_regular} 0 R /F2 {font_bold} 0 R /F3 {font_italic} 0 R /F4 {font_bold_italic} 0 R >> >> /Contents {content_id} 0 R >>"
             ),
         );
         page_obj_ids.push(page_obj);

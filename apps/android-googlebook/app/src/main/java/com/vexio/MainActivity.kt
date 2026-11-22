@@ -62,6 +62,8 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private var pendingExportFormat: String = "pdf"
+
     /**
      * SAF CreateDocument contract for 1-click High-DPI JPEG (.jpg) diagram export.
      */
@@ -70,6 +72,17 @@ class MainActivity : ComponentActivity() {
     ) { targetUri: Uri? ->
         if (targetUri != null) {
             writeExportFormatToSafUri(targetUri, "jpg")
+        }
+    }
+
+    /**
+     * SAF CreateDocument contract for PDF, SVG, DXF, PPTX, DOCX, Power Automate, and Power BI exports.
+     */
+    private val exportFormatLauncher = registerForActivityResult(
+        ActivityResultContracts.CreateDocument("*/*")
+    ) { targetUri: Uri? ->
+        if (targetUri != null) {
+            writeExportFormatToSafUri(targetUri, pendingExportFormat)
         }
     }
 
@@ -124,6 +137,7 @@ class MainActivity : ComponentActivity() {
                     onSaveAsDocumentRequested = ::triggerSaveAsSafPicker,
                     onImportStencilRequested = ::triggerImportStencilSafPicker,
                     onExportJpgRequested = ::triggerExportJpgSafPicker,
+                    onExportFormatRequested = ::triggerExportFormatSafPicker,
                     onExternalUriDropped = ::loadDiagramFromSafUri,
                     onPrintRequested = {
                         launchVexioVectorPrintJob(this@MainActivity, sessionViewModel)
@@ -157,6 +171,9 @@ class MainActivity : ComponentActivity() {
                     else -> "Untitled_Diagram.vsdx"
                 }
                 sessionViewModel.initializeEngineAndBlankDocument(initialTitle, hideStartBackstage = true)
+                if (template != "blank") {
+                    sessionViewModel.loadStarterTemplate(template)
+                }
             }
         }
     }
@@ -233,6 +250,23 @@ class MainActivity : ComponentActivity() {
         val stem = sessionViewModel.uiState.value.documentTitle.substringBeforeLast('.')
             .ifBlank { "Diagram_Export" }
         exportJpgLauncher.launch("$stem.jpg")
+    }
+
+    private fun triggerExportFormatSafPicker(rawFormat: String) {
+        val clean = rawFormat.trim().trimStart('.').lowercase()
+        if (clean == "jpg" || clean == "jpeg") {
+            triggerExportJpgSafPicker()
+            return
+        }
+        pendingExportFormat = clean
+        val fileSuffix = when (clean) {
+            "powerautomate" -> "flow.json"
+            "powerbi" -> "pbi.json"
+            else -> clean
+        }
+        val stem = sessionViewModel.uiState.value.documentTitle.substringBeforeLast('.')
+            .ifBlank { "Diagram_Export" }
+        exportFormatLauncher.launch("$stem.$fileSuffix")
     }
 
     private fun writeExportFormatToSafUri(uri: Uri, ext: String) {

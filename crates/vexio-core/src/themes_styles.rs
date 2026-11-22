@@ -252,24 +252,24 @@ fn build_theme_variant_tokens(preset: ThemePresetId, variant_index: u8) -> Theme
                 ),
                 1 => (
                     rgb(255, 255, 255),
-                    rgb(249, 115, 22),
-                    rgb(251, 146, 60),
                     rgb(194, 65, 12),
+                    rgb(234, 88, 12),
+                    rgb(154, 52, 18),
                     rgb(255, 255, 255),
                     30,
                 ),
                 2 => (
                     rgb(245, 243, 255),
-                    rgb(99, 102, 241),
-                    rgb(139, 92, 246),
-                    rgb(67, 56, 202),
+                    rgb(79, 70, 229),
+                    rgb(124, 58, 237),
+                    rgb(55, 48, 163),
                     rgb(255, 255, 255),
                     30,
                 ),
                 _ => (
                     rgb(24, 24, 27),
-                    rgb(217, 70, 239),
-                    rgb(168, 85, 247),
+                    rgb(162, 28, 175),
+                    rgb(126, 34, 206),
                     rgb(240, 171, 252),
                     rgb(255, 255, 255),
                     36,
@@ -613,10 +613,42 @@ fn harmonize_shape_tree(shape: &mut VisioShape, tokens: &ThemeVariantTokens) -> 
             );
         }
 
+        let cur_pat = shape.sheet.get_f64("FillPattern").unwrap_or(1.0) as i32;
+        let shape_h = shape.sheet.get_f64("Height").unwrap_or(1.0);
+        let txt_pin_y = shape.sheet.get_f64("TxtPinY").unwrap_or(shape_h * 0.5);
+        let sits_over_page_bg = shape.kind == ShapeKind::Connector1D
+            || cur_pat == 0
+            || txt_pin_y < -0.01
+            || txt_pin_y > shape_h + 0.01;
+        let target_text_col = if sits_over_page_bg {
+            let pbg = tokens.theme_def.background_color;
+            let lum = (0.2126 * (pbg.r as f64)
+                + 0.7152 * (pbg.g as f64)
+                + 0.0722 * (pbg.b as f64))
+                / 255.0;
+            if lum < 0.42 {
+                RgbaColor {
+                    r: 248,
+                    g: 250,
+                    b: 252,
+                    a: 255,
+                }
+            } else {
+                RgbaColor {
+                    r: 15,
+                    g: 23,
+                    b: 42,
+                    a: 255,
+                }
+            }
+        } else {
+            tokens.shape_text
+        };
+
         let _ = set_cell_respecting_guard(
             &mut shape.sheet,
             "Char.Color",
-            color_formula(tokens.shape_text),
+            color_formula(target_text_col),
             Unit::Color,
         );
         let _ = set_cell_respecting_guard(&mut shape.sheet, "Char.Font", font_quoted, Unit::String);

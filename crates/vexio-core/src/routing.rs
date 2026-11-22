@@ -395,6 +395,58 @@ pub fn route_page_connectors(doc: &mut VisioDocument, page_id: u32) {
                 ix += 1;
             }
         }
+        // Compute true arc-length midpoint along `poly` so 1D connector labels always sit
+        // directly on the routed path (even when `EndX < BeginX`, `EndY < BeginY`, or L/U-routed!).
+        let mut mid_page = [(bx + ex) * 0.5, (by + ey) * 0.5];
+        if mode == ConnectorRouteMode::Curved && poly.len() == 2 {
+            let cdx = ex - bx;
+            let cdy = ey - by;
+            let clen = cdx.hypot(cdy);
+            if clen > 1e-6 {
+                // First half of S-curve bows by +0.25 in; overall center sits near `(bx+ex)/2, (by+ey)/2`
+                mid_page = [bx + cdx * 0.5, by + cdy * 0.5];
+            }
+        } else if poly.len() >= 2 {
+            let total_len: f64 = poly
+                .windows(2)
+                .map(|w| (w[1][0] - w[0][0]).hypot(w[1][1] - w[0][1]))
+                .sum();
+            if total_len > 1e-6 {
+                let half = total_len * 0.5;
+                let mut acc = 0.0;
+                for seg in poly.windows(2) {
+                    let slen = (seg[1][0] - seg[0][0]).hypot(seg[1][1] - seg[0][1]);
+                    if acc + slen >= half && slen > 1e-9 {
+                        let t = ((half - acc) / slen).clamp(0.0, 1.0);
+                        mid_page = [
+                            seg[0][0] + (seg[1][0] - seg[0][0]) * t,
+                            seg[0][1] + (seg[1][1] - seg[0][1]) * t,
+                        ];
+                        break;
+                    }
+                    acc += slen;
+                }
+            }
+        }
+        let _ = s.sheet.try_set_formula_respecting_guard(
+            "TxtPinX",
+            format!("{} in", format_clean_f64(mid_page[0] - bx)),
+            false,
+        );
+        let _ = s.sheet.try_set_formula_respecting_guard(
+            "TxtPinY",
+            format!("{} in", format_clean_f64(mid_page[1] - by)),
+            false,
+        );
+        if s.sheet.get_cell("TxtWidth").is_none() {
+            s.sheet
+                .set_formula("TxtWidth", "2.2 in".to_string(), Some(Unit::Inch));
+        }
+        if s.sheet.get_cell("TxtHeight").is_none() {
+            s.sheet
+                .set_formula("TxtHeight", "0.5 in".to_string(), Some(Unit::Inch));
+        }
+
         s.sheet.add_geometry(geom);
     }
 

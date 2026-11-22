@@ -170,12 +170,20 @@ public final class VexioMetalNSView: NSView {
         lastBoundPixelSize = targetPixelSize
         lastBoundScale = scale
 
-        session.attachMetalLayer(
-            metalLayer,
-            widthPx: UInt32(pixelWidth),
-            heightPx: UInt32(pixelHeight),
-            dpiScale: Float(scale)
-        )
+        if !forceRebind && session.hasAttachedMetalViewport() {
+            session.resizeMetalViewport(
+                widthPx: UInt32(pixelWidth),
+                heightPx: UInt32(pixelHeight),
+                dpiScale: Float(scale)
+            )
+        } else {
+            session.attachMetalLayer(
+                metalLayer,
+                widthPx: UInt32(pixelWidth),
+                heightPx: UInt32(pixelHeight),
+                dpiScale: Float(scale)
+            )
+        }
     }
 
     // MARK: - Tracking Areas & Dynamic NSCursor Management
@@ -617,8 +625,39 @@ public final class VexioMetalNSView: NSView {
             session.panOffset.width += event.scrollingDeltaX * multiplier
             session.panOffset.height += event.scrollingDeltaY * multiplier
         }
+    }
 
-        forwardPointer(event: event, kind: 3)
+    @objc public func changeFont(_ sender: Any?) {
+        guard let session else { return }
+        let fm = NSFontManager.shared
+        let baseFont = NSFont(name: session.selectedFontFamily, size: CGFloat(session.selectedFontSizePt))
+            ?? NSFont.systemFont(ofSize: CGFloat(session.selectedFontSizePt))
+        let converted = fm.convert(baseFont)
+        let traits = fm.traits(of: converted)
+        var toggleMask: UInt8 = 0
+        let wantsBold = traits.contains(.boldFontMask)
+        let wantsItalic = traits.contains(.italicFontMask)
+        if wantsBold != ((session.selectedCharStyle & 1) != 0) { toggleMask |= 1 }
+        if wantsItalic != ((session.selectedCharStyle & 2) != 0) { toggleMask |= 2 }
+        session.applyTextStyle(
+            fontFamily: converted.familyName ?? converted.fontName,
+            fontSizePt: Double(converted.pointSize),
+            toggleStyleMask: toggleMask == 0 ? nil : toggleMask,
+            undoManager: activeUndoManager
+        )
+    }
+
+    @objc public func changeColor(_ sender: Any?) {
+        guard let session else { return }
+        let nsCol = (sender as? NSColorPanel)?.color ?? NSColorPanel.shared.color
+        guard let srgb = nsCol.usingColorSpace(.sRGB) else { return }
+        let hex = String(
+            format: "#%02X%02X%02X",
+            Int((srgb.redComponent * 255.0).rounded()),
+            Int((srgb.greenComponent * 255.0).rounded()),
+            Int((srgb.blueComponent * 255.0).rounded())
+        )
+        session.applyTextStyle(textColorHex: hex, undoManager: activeUndoManager)
     }
 
     override public func rotate(with event: NSEvent) {

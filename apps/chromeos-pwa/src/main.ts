@@ -13,6 +13,7 @@ import { VexioCollabSession, type PeerPresence } from './platform/collabAndVersi
 import {
   detectDefaultLanguage,
   detectDefaultMetricUnits,
+  normalizeLangCode,
   PAGE_PRESET_OPTIONS,
   VEXIO_TRANSLATIONS,
   type VexioLangCode,
@@ -823,7 +824,7 @@ class VexioChromeOsApp {
   private latestSnappedPin: [number, number] | null = null;
 
   private get i18n(): VexioStrings {
-    return VEXIO_TRANSLATIONS[this.lang];
+    return VEXIO_TRANSLATIONS[normalizeLangCode(this.lang)];
   }
 
   private formatLengthFromIn(inches: number): string {
@@ -1018,13 +1019,31 @@ class VexioChromeOsApp {
     if (this.selectedShapeIds.length === 0) return;
     const res = await this.callEngine('rotateFlipShapes', {
       shapeIds: this.selectedShapeIds,
-      deltaAngleDeg,
+      deltaAngleDeg: -deltaAngleDeg,
       toggleFlipX,
       toggleFlipY,
     });
     if (res.snapshot) this.snapshot = res.snapshot;
     this.persistMutationSideEffects(res.wal);
     this.render();
+  }
+
+  private compareSemVer(candidate: string, current: string): number {
+    if (!candidate || candidate === current) return 0;
+    const [candCore, candPre] = candidate.split('-', 2);
+    const [currCore, currPre] = current.split('-', 2);
+    const candNums = candCore.split('.').map((n) => Number.parseInt(n, 10) || 0);
+    const currNums = currCore.split('.').map((n) => Number.parseInt(n, 10) || 0);
+    const maxLen = Math.max(candNums.length, currNums.length);
+    for (let i = 0; i < maxLen; i++) {
+      const a = candNums[i] ?? 0;
+      const b = currNums[i] ?? 0;
+      if (a !== b) return a > b ? 1 : -1;
+    }
+    if (!candPre && currPre) return 1;
+    if (candPre && !currPre) return -1;
+    if (candPre && currPre && candPre !== currPre) return candPre > currPre ? 1 : -1;
+    return 0;
   }
 
   private async applyPagePresetById(presetId: string, resetBlank = false): Promise<void> {
@@ -1107,7 +1126,7 @@ class VexioChromeOsApp {
       const tag = latest?.tag_name ?? `v${currentVersion}`;
       const cleanTag = tag.replace(/^[vV]/, '');
       this.latestReleaseUrl = latest?.html_url ?? this.latestReleaseUrl;
-      const hasNewer = cleanTag.length > 0 && cleanTag !== currentVersion && cleanTag > currentVersion;
+      const hasNewer = this.compareSemVer(cleanTag, currentVersion) > 0;
       this.latestReleaseTag = hasNewer ? tag : null;
       this.updateStatusText = hasNewer
         ? `New release available: ${tag} (Installed: v${currentVersion})`
@@ -1498,7 +1517,33 @@ class VexioChromeOsApp {
       );
     }
 
-    // Preload recent OPFS workspaces & versions for the in-app Start Backstage hub (100% offline-safe)
+    // Preload recent OPFS workspaces, versions & cached custom stencils (100% offline-safe)
+    this.callOpfs('listStencils')
+      .then(async (sRes) => {
+        const names: string[] = sRes?.stencils ?? [];
+        for (const stName of names) {
+          try {
+            const r = await this.callOpfs('readStencil', { name: stName });
+            if (r?.bytes && r.bytes.byteLength > 0) {
+              const imp = await this.callEngine(
+                'importStencil',
+                { fileName: stName, bytes: r.bytes },
+                [r.bytes.buffer]
+              );
+              if (imp.packTitle && Array.isArray(imp.masterNames) && imp.masterNames.length > 0) {
+                this.stencilCatalog = { [imp.packTitle]: imp.masterNames, ...this.stencilCatalog };
+                this.stencilPreviews = { [imp.packTitle]: imp.previews ?? [], ...this.stencilPreviews };
+                this.packOrder = [imp.packTitle, ...this.packOrder.filter((p) => p !== imp.packTitle)];
+              }
+            }
+          } catch {
+            // Ignore unreadable cached stencil
+          }
+        }
+        if (names.length > 0) this.render();
+      })
+      .catch(() => {});
+
     if (!this.launchedWithExternalFile) {
       Promise.all([
         this.callOpfs('listVersions', { docId: this.docId }).catch(() => ({ versions: [] })),
@@ -1983,6 +2028,8 @@ class VexioChromeOsApp {
     const opened = await openLocalDiagramFile();
     if (!opened) return;
     if (['vssx', 'vssm', 'vss', 'vst'].includes(opened.ext)) {
+      const opfsCopy = new Uint8Array(opened.bytes);
+      this.callOpfs('cacheStencil', { name: opened.name, vssxBytes: opfsCopy }, [opfsCopy.buffer]).catch(() => {});
       const res = await this.callEngine(
         'importStencil',
         { fileName: opened.name, bytes: opened.bytes },
@@ -2373,7 +2420,9 @@ class VexioChromeOsApp {
     const hasClip = this.clipboardShapeIds.length > 0 || this.clipboardSpecs.length > 0;
     const primarySh = this.primarySelectedId ? snap.shapes.find((s) => s.id === this.primarySelectedId) : null;
     const fontList = this.getAvailableOsFontList(primarySh?.fontFamily);
-    const fontSizes = [8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 36, 48];
+    const fontSizes = Array.from(
+      new Set([this.textFontSizePt, 8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 36, 48])
+    ).sort((a, b) => a - b);
     const activeTextColor = /^#[0-9a-fA-F]{6}$/.test(this.textColorHex) ? this.textColorHex : '#0F172A';
     const activeBgColor = /^#[0-9a-fA-F]{6}$/.test(this.textBgColorHex) ? this.textBgColorHex : '#FEF08A';
 
@@ -2415,13 +2464,14 @@ class VexioChromeOsApp {
             <span>A</span>
             <input type="color" id="ribbon-text-color-picker" class="native-color-input" value="${activeTextColor}" />
           </label>
-          <label class="native-color-chip" title="Text Highlight (Native OS Color Picker)">
-            <span>ab</span>
+          <button class="fmt-btn ${this.textBgColorHex !== 'none' ? 'active' : ''}" id="btn-apply-text-bg" title="Toggle Yellow Text Highlight">${this.textBgColorHex !== 'none' ? 'ab✓' : 'ab'}</button>
+          <label class="native-color-chip" title="Text Highlight Color (Native OS Color Picker)">
+            <span>▾</span>
             <input type="color" id="ribbon-text-bg-picker" class="native-color-input" value="${activeBgColor}" />
           </label>
           ${
             this.textBgColorHex !== 'none'
-              ? `<button class="fmt-btn" id="btn-clear-text-bg" title="${this.i18n.clearHighlight}">ab✕</button>`
+              ? `<button class="fmt-btn" id="btn-clear-text-bg" title="${this.i18n.clearHighlight}">✕</button>`
               : ''
           }
           <button class="fmt-btn ${this.textHorizAlign === 0 ? 'active' : ''}" data-halign="0" title="Align Text Left">≡L</button>
@@ -2753,15 +2803,26 @@ class VexioChromeOsApp {
     if (this.editingShapeId !== null) {
       const editSh = snap.shapes.find((s) => s.id === this.editingShapeId);
       if (editSh) {
-        const belowCap = this.shapeHasBelowCaption(editSh);
-        const wPx = belowCap
-          ? Math.max(150, editSh.width * ppi + 32)
-          : Math.max(120, editSh.width * ppi);
-        const hPx = belowCap ? 38 : Math.max(40, editSh.height * ppi);
-        const leftPx = editSh.pinX * ppi - wPx * 0.5;
-        const centerYPx = belowCap
-          ? (snap.pageHeightIn - (editSh.pinY - editSh.height * 0.5 - 0.18)) * ppi
-          : (snap.pageHeightIn - editSh.pinY) * ppi;
+        const is1D = editSh.kind === 'Connector1D';
+        const belowCap = !is1D && this.shapeHasBelowCaption(editSh);
+        const wPx = is1D
+          ? 180
+          : belowCap
+            ? Math.max(150, editSh.width * ppi + 32)
+            : Math.max(120, editSh.width * ppi);
+        const hPx = is1D || belowCap ? 38 : Math.max(40, editSh.height * ppi);
+        const anchorXIn =
+          typeof editSh.txtX === 'number' && Number.isFinite(editSh.txtX)
+            ? editSh.txtX
+            : editSh.pinX;
+        const anchorYIn =
+          typeof editSh.txtY === 'number' && Number.isFinite(editSh.txtY)
+            ? editSh.txtY
+            : belowCap
+              ? editSh.pinY - editSh.height * 0.5 - 0.18
+              : editSh.pinY;
+        const leftPx = anchorXIn * ppi - wPx * 0.5;
+        const centerYPx = (snap.pageHeightIn - anchorYIn) * ppi;
         const topPx = centerYPx - hPx * 0.5;
         const escapedDraft = this.inlineTextDraft
           .replace(/&/g, '&amp;')
@@ -2801,6 +2862,24 @@ class VexioChromeOsApp {
       }
       if (selectedShape.fontFamily) {
         this.textFontFamily = selectedShape.fontFamily;
+      }
+      if (typeof selectedShape.fontSizePt === 'number' && Number.isFinite(selectedShape.fontSizePt)) {
+        this.textFontSizePt = Math.max(6, Math.min(96, Math.round(selectedShape.fontSizePt)));
+      }
+      if (typeof selectedShape.charStyle === 'number') {
+        this.textBold = (selectedShape.charStyle & 1) !== 0;
+        this.textItalic = (selectedShape.charStyle & 2) !== 0;
+        this.textUnderline = (selectedShape.charStyle & 4) !== 0;
+        this.textStrikethrough = (selectedShape.charStyle & 8) !== 0;
+      }
+      if (typeof selectedShape.horizAlign === 'number') {
+        this.textHorizAlign = selectedShape.horizAlign;
+      }
+      if (typeof selectedShape.vertAlign === 'number') {
+        this.textVertAlign = selectedShape.vertAlign;
+      }
+      if (typeof selectedShape.bulletStyle === 'number') {
+        this.textBullets = selectedShape.bulletStyle > 0;
       }
       if (selectedShape.textColor && /^#[0-9a-fA-F]{6}$/.test(selectedShape.textColor)) {
         this.textColorHex = selectedShape.textColor.toUpperCase();
@@ -2987,6 +3066,7 @@ class VexioChromeOsApp {
             <button class="m3-btn icon-only" id="btn-open" title="${t.openLocalFile} (Ctrl+O)">${UI_ICONS.open}</button>
             <button class="m3-btn icon-only" id="btn-save" title="${t.saveFile} (Ctrl+S)">${UI_ICONS.save}</button>
             <button class="m3-btn" id="btn-save-as" style="height:26px;padding:0 7px;font-size:11px" title="${t.saveAs} (Ctrl+Shift+S)">${t.saveAs}</button>
+            <button class="m3-btn icon-only" id="btn-snapshot-quick" title="Save OPFS Version Snapshot">${UI_ICONS.snapshot}</button>
             <button class="m3-btn icon-only" id="btn-undo" title="Undo (Ctrl+Z)" ${snap.canUndo ? '' : 'disabled'}>${UI_ICONS.undo}</button>
             <button class="m3-btn icon-only" id="btn-redo" title="Redo (Ctrl+Y)" ${snap.canRedo ? '' : 'disabled'}>${UI_ICONS.redo}</button>
           </div>
@@ -4279,6 +4359,9 @@ class VexioChromeOsApp {
             await this.handleSaveInPlace('pdf');
             break;
           case 'exp-svg':
+            if (this.snapshot) {
+              await copyDiagramVectorToClipboard(this.snapshot.svgPreview, this.snapshot.title).catch(() => {});
+            }
             this.render();
             await this.handleSaveInPlace('svg');
             break;
@@ -4342,12 +4425,14 @@ class VexioChromeOsApp {
       docTitleInput.addEventListener('keydown', (ev) => {
         if (ev.key === 'Enter') {
           ev.preventDefault();
+          ev.stopPropagation();
           if (!titleHandled) {
             titleHandled = true;
             void this.commitDocTitleRename(docTitleInput.value);
           }
         } else if (ev.key === 'Escape') {
           ev.preventDefault();
+          ev.stopPropagation();
           titleHandled = true;
           this.isRenamingDocTitle = false;
           this.render();
@@ -4363,7 +4448,8 @@ class VexioChromeOsApp {
     }
 
     // 6-Language Switcher (EN, DE, IT, FR, ES, GR)
-    const switchLang = (code: VexioLangCode) => {
+    const switchLang = (rawCode: string) => {
+      const code = normalizeLangCode(rawCode);
       this.lang = code;
       document.documentElement.lang = code === 'gr' ? 'el' : code;
       try {
@@ -4374,11 +4460,11 @@ class VexioChromeOsApp {
       this.render();
     };
     document.getElementById('lang-switcher')?.addEventListener('change', (e) => {
-      switchLang((e.target as HTMLSelectElement).value as VexioLangCode);
+      switchLang((e.target as HTMLSelectElement).value);
     });
     document.querySelectorAll('[data-set-lang]').forEach((btn) => {
       btn.addEventListener('click', () => {
-        switchLang(((btn as HTMLElement).dataset.setLang ?? 'en') as VexioLangCode);
+        switchLang((btn as HTMLElement).dataset.setLang ?? 'en');
       });
     });
 
@@ -4419,15 +4505,27 @@ class VexioChromeOsApp {
     });
     document.getElementById('btn-fmt-bullets')?.addEventListener('click', toggleBullets);
     document.getElementById('btn-insp-bullets')?.addEventListener('click', toggleBullets);
+    document.getElementById('btn-apply-text-bg')?.addEventListener('click', () => {
+      const nextBg = this.textBgColorHex === 'none' ? '#FEF08A' : 'none';
+      void this.applyRichTextPatch({ bgColorHex: nextBg });
+    });
     const bindTextColorInput = (id: string) => {
-      document.getElementById(id)?.addEventListener('change', (e) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      const onPick = (e: Event) => {
         void this.applyRichTextPatch({ colorHex: (e.target as HTMLInputElement).value.toUpperCase() });
-      });
+      };
+      el.addEventListener('input', onPick);
+      el.addEventListener('change', onPick);
     };
     const bindTextBgInput = (id: string) => {
-      document.getElementById(id)?.addEventListener('change', (e) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      const onPick = (e: Event) => {
         void this.applyRichTextPatch({ bgColorHex: (e.target as HTMLInputElement).value.toUpperCase() });
-      });
+      };
+      el.addEventListener('input', onPick);
+      el.addEventListener('change', onPick);
     };
     bindTextColorInput('ribbon-text-color-picker');
     bindTextColorInput('insp-text-color-picker');
@@ -4440,14 +4538,22 @@ class VexioChromeOsApp {
       void this.applyRichTextPatch({ bgColorHex: 'none' });
     });
     const bindFillColorInput = (id: string) => {
-      document.getElementById(id)?.addEventListener('change', (e) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      const onPick = (e: Event) => {
         void this.applyShapeFillHex((e.target as HTMLInputElement).value);
-      });
+      };
+      el.addEventListener('input', onPick);
+      el.addEventListener('change', onPick);
     };
     const bindLineColorInput = (id: string) => {
-      document.getElementById(id)?.addEventListener('change', (e) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      const onPick = (e: Event) => {
         void this.applyShapeLineHex((e.target as HTMLInputElement).value);
-      });
+      };
+      el.addEventListener('input', onPick);
+      el.addEventListener('change', onPick);
     };
     bindFillColorInput('ribbon-fill-color-picker');
     bindFillColorInput('insp-fill-color-picker');
@@ -5524,6 +5630,8 @@ class VexioChromeOsApp {
     const importVssxFile = async (file: File) => {
       try {
         const bytes = new Uint8Array(await file.arrayBuffer());
+        const opfsCopy = new Uint8Array(bytes);
+        this.callOpfs('cacheStencil', { name: file.name, vssxBytes: opfsCopy }, [opfsCopy.buffer]).catch(() => {});
         const res = await this.callEngine(
           'importStencil',
           { fileName: file.name, bytes },
@@ -5695,9 +5803,11 @@ class VexioChromeOsApp {
       inlineEditor.addEventListener('keydown', (e) => {
         if (e.key === 'Enter' && !e.shiftKey) {
           e.preventDefault();
+          e.stopPropagation();
           commitInlineText();
         } else if (e.key === 'Escape') {
           e.preventDefault();
+          e.stopPropagation();
           committed = true;
           this.editingShapeId = null;
           this.render();
@@ -6697,12 +6807,14 @@ class VexioChromeOsApp {
       pageRenameInput.addEventListener('keydown', (ev) => {
         if (ev.key === 'Enter') {
           ev.preventDefault();
+          ev.stopPropagation();
           if (!pageHandled) {
             pageHandled = true;
             void this.commitPageRename(targetPid, pageRenameInput.value);
           }
         } else if (ev.key === 'Escape') {
           ev.preventDefault();
+          ev.stopPropagation();
           pageHandled = true;
           this.renamingPageId = null;
           this.render();

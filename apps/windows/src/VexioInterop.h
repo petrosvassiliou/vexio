@@ -43,19 +43,19 @@ namespace KeyModifiers {
     inline constexpr uint32_t Meta  = 8;
 } // namespace KeyModifiers
 
-// Canonical cursor codes emitted by vexio_viewport_dispatch_pointer
+// Canonical cursor codes emitted by vexio_viewport_dispatch_pointer (`c_abi.rs`)
 enum class ViewportCursor : uint32_t {
     Arrow       = 0,
-    Hand        = 1,
-    IBeam       = 2,
-    Crosshair   = 3,
-    MoveAll     = 4,
+    MoveAll     = 1,
+    Crosshair   = 2,
+    Hand        = 3,
+    Forbidden   = 4,
     ResizeNS    = 5,
     ResizeWE    = 6,
-    ResizeNWSE  = 7,
-    ResizeNESW  = 8,
-    Forbidden   = 9,
-    Rotate      = 10,
+    IBeam       = 7,
+    ResizeNWSE  = 11,
+    ResizeNESW  = 12,
+    Rotate      = 13,
 };
 
 [[nodiscard]] constexpr winrt::Microsoft::UI::Input::InputSystemCursorShape
@@ -63,20 +63,17 @@ MapCursorToWinUI(uint32_t cursorKind) noexcept {
     using Shape = winrt::Microsoft::UI::Input::InputSystemCursorShape;
     switch (static_cast<ViewportCursor>(cursorKind)) {
         case ViewportCursor::Arrow:      return Shape::Arrow;
-        case ViewportCursor::Hand:       return Shape::Hand;
-        case ViewportCursor::IBeam:      return Shape::IBeam;
-        case ViewportCursor::Crosshair:  return Shape::Cross;
         case ViewportCursor::MoveAll:    return Shape::SizeAll;
+        case ViewportCursor::Crosshair:  return Shape::Cross;
+        case ViewportCursor::Hand:       return Shape::Hand;
+        case ViewportCursor::Forbidden:  return Shape::UniversalNo;
         case ViewportCursor::ResizeNS:   return Shape::SizeNorthSouth;
         case ViewportCursor::ResizeWE:   return Shape::SizeWestEast;
+        case ViewportCursor::IBeam:      return Shape::IBeam;
         case ViewportCursor::ResizeNWSE: return Shape::SizeNorthwestSoutheast;
         case ViewportCursor::ResizeNESW: return Shape::SizeNortheastSouthwest;
-        case ViewportCursor::Forbidden:  return Shape::UniversalNo;
         case ViewportCursor::Rotate:     return Shape::Cross;
         default:
-            if (cursorKind == 11) return Shape::SizeNorthwestSoutheast;
-            if (cursorKind == 12) return Shape::SizeNortheastSouthwest;
-            if (cursorKind == 13) return Shape::Cross;
             return Shape::Arrow;
     }
 }

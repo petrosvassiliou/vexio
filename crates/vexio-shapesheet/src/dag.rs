@@ -2029,10 +2029,14 @@ fn collect_shape_cell_ids_page(page_id: u32, s: &VisioShape, out: &mut Vec<Globa
             "char.size",
             "char.color",
             "char.style",
+            "char.smallcaps",
             "char.strikethru",
             "char.font",
             "para.horzalign",
+            "para.bullet",
             "verticalalign",
+            "textbkgnd",
+            "textbkgndtrans",
             "txtpinx",
             "txtpiny",
             "txtwidth",
@@ -2457,15 +2461,56 @@ fn collect_shape_visuals(
             })
     };
 
-    let txt_lx = ss.get_f64("TxtPinX").unwrap_or(w * 0.5);
-    let txt_ly = ss.get_f64("TxtPinY").unwrap_or(h * 0.5);
-    let (txt_px, txt_py) = world_tf.local_to_parent(txt_lx, txt_ly);
+    let (txt_px, txt_py) = if shape.kind == ShapeKind::Connector1D
+        && ss.get_cell("TxtPinX").is_none()
+        && ss.get_cell("TxtPinY").is_none()
+    {
+        // Unrouted 1D connector fallback: use midpoint of evaluated path vertices (or Begin..End)
+        let mut pts = Vec::new();
+        for p in &paths {
+            for v in &p.verbs_page_space {
+                match v {
+                    EvaluatedPathVerb::MoveTo(pt)
+                    | EvaluatedPathVerb::LineTo(pt)
+                    | EvaluatedPathVerb::ArcTo { to: pt, .. }
+                    | EvaluatedPathVerb::QuadTo { to: pt, .. }
+                    | EvaluatedPathVerb::CubicTo { to: pt, .. } => pts.push(*pt),
+                    EvaluatedPathVerb::Ellipse { center, .. } => pts.push(*center),
+                    EvaluatedPathVerb::Close => {}
+                }
+            }
+        }
+        if pts.len() >= 2 {
+            let mid = pts.len() / 2;
+            (
+                (pts[mid - 1][0] + pts[mid][0]) * 0.5,
+                (pts[mid - 1][1] + pts[mid][1]) * 0.5,
+            )
+        } else if let (Some(bx), Some(by), Some(ex), Some(ey)) = (
+            ss.get_f64("BeginX"),
+            ss.get_f64("BeginY"),
+            ss.get_f64("EndX"),
+            ss.get_f64("EndY"),
+        ) {
+            ((bx + ex) * 0.5, (by + ey) * 0.5)
+        } else {
+            world_tf.local_to_parent(w * 0.5, h * 0.5)
+        }
+    } else {
+        let txt_lx = ss.get_f64("TxtPinX").unwrap_or(w * 0.5);
+        let txt_ly = ss.get_f64("TxtPinY").unwrap_or(h * 0.5);
+        world_tf.local_to_parent(txt_lx, txt_ly)
+    };
     let txt_width = ss.get_f64("TxtWidth").filter(|v| v.is_finite() && *v > 0.05);
     let txt_height = ss.get_f64("TxtHeight").filter(|v| v.is_finite() && *v > 0.05);
 
-    let txt_bg_trans = ss.get_f64("TextBkgndTrans").unwrap_or(1.0);
+    let txt_bg_trans = ss
+        .get_f64("TextBkgndTrans")
+        .or_else(|| master_shape.and_then(|ms| ms.sheet.get_f64("TextBkgndTrans")))
+        .unwrap_or(1.0);
     let text_bg_color = if txt_bg_trans < 0.99 {
         ss.get_color("TextBkgnd")
+            .or_else(|| master_shape.and_then(|ms| ms.sheet.get_color("TextBkgnd")))
     } else {
         None
     };
@@ -2496,6 +2541,39 @@ fn collect_shape_visuals(
         String::new()
     };
 
+    // Expand AABB to encompass external captions / connector labels so R*-tree frustum culling never clips text!
+    if !effective_text.trim().is_empty() && txt_px.is_finite() && txt_py.is_finite() {
+        let half_tw = txt_width.unwrap_or_else(|| w.abs().max(1.2)) * 0.5;
+        let half_th = txt_height.unwrap_or(0.32) * 0.5;
+        aabb_min[0] = aabb_min[0].min(txt_px - half_tw);
+        aabb_min[1] = aabb_min[1].min(txt_py - half_th);
+        aabb_max[0] = aabb_max[0].max(txt_px + half_tw);
+        aabb_max[1] = aabb_max[1].max(txt_py + half_th);
+    }
+
+    let fallback_text_color = {
+        let bg = page
+            .page_sheet
+            .get_color("PageColor")
+            .or_else(|| {
+                doc.active_theme_id
+                    .and_then(|tid| doc.themes.iter().find(|t| t.id == tid))
+                    .map(|t| t.background_color)
+            })
+            .unwrap_or(RgbaColor::WHITE);
+        let lum = (0.2126 * (bg.r as f64) + 0.7152 * (bg.g as f64) + 0.0722 * (bg.b as f64)) / 255.0;
+        if lum < 0.38 {
+            RgbaColor {
+                r: 248,
+                g: 250,
+                b: 252,
+                a: 255,
+            }
+        } else {
+            RgbaColor::BLACK
+        }
+    };
+
     out.push(EvaluatedShapeVisual {
         shape_id: shape.id,
         kind: shape.kind,
@@ -2518,7 +2596,7 @@ fn collect_shape_visuals(
             .get_f64("Char.Size")
             .map(|inches| inches * 72.0)
             .unwrap_or(10.0),
-        text_color: ss.get_color("Char.Color").unwrap_or(RgbaColor::BLACK),
+        text_color: ss.get_color("Char.Color").unwrap_or(fallback_text_color),
         font_family: ss
             .get_str("Char.Font")
             .filter(|s| !s.is_empty())
@@ -2536,6 +2614,7 @@ fn collect_shape_visuals(
             .clamp(0.0, 2.0) as u8,
         bullet_style: ss
             .get_f64("Para.Bullet")
+            .or_else(|| master_shape.and_then(|ms| ms.sheet.get_f64("Para.Bullet")))
             .unwrap_or(0.0)
             .round()
             .clamp(0.0, 4.0) as u8,

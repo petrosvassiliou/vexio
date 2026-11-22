@@ -173,6 +173,8 @@ struct WasmShapeInfo {
     text: String,
     pin_x: f64,
     pin_y: f64,
+    txt_x: f64,
+    txt_y: f64,
     width: f64,
     height: f64,
     angle_deg: f64,
@@ -1851,40 +1853,67 @@ impl WasmVexioSession {
                         let end_arrow = s.sheet.get_f64("EndArrow").unwrap_or(if is_1d { 4.0 } else { 0.0 }).round() as i32;
                         let line_weight_pt = (s.sheet.get_f64("LineWeight").unwrap_or(1.25 / 72.0) * 72.0 * 100.0).round() / 100.0;
                         let line_pattern = s.sheet.get_f64("LinePattern").unwrap_or(1.0).round() as i32;
+                        let ev_vis = vis_by_id.get(&s.id).copied();
                         let bg_trans = s.sheet.get_f64("TextBkgndTrans").unwrap_or(1.0);
-                        let text_bg_color = if bg_trans < 0.99 {
-                            s.sheet.get_color("TextBkgnd").map(|c| c.to_hex_rgb())
-                        } else {
-                            None
-                        };
+                        let text_bg_color = ev_vis
+                            .and_then(|v| v.text_bg_color.map(|c| c.to_hex_rgb()))
+                            .or_else(|| {
+                                if bg_trans < 0.99 {
+                                    s.sheet.get_color("TextBkgnd").map(|c| c.to_hex_rgb())
+                                } else {
+                                    None
+                                }
+                            });
+                        let pin_x = s.sheet.get_f64("PinX").unwrap_or(0.0);
+                        let pin_y = s.sheet.get_f64("PinY").unwrap_or(0.0);
+                        let (txt_x, txt_y) = ev_vis
+                            .map(|v| (v.txt_pos[0], v.txt_pos[1]))
+                            .unwrap_or((pin_x, pin_y));
                         WasmShapeInfo {
                             id: s.id,
                             name: s.name.clone(),
                             kind: format!("{:?}", s.kind),
                             text: s.text.clone(),
-                            pin_x: s.sheet.get_f64("PinX").unwrap_or(0.0),
-                            pin_y: s.sheet.get_f64("PinY").unwrap_or(0.0),
+                            pin_x,
+                            pin_y,
+                            txt_x,
+                            txt_y,
                             width: s.sheet.get_f64("Width").unwrap_or(1.0),
                             height: s.sheet.get_f64("Height").unwrap_or(1.0),
                             angle_deg: s.sheet.get_f64("Angle").unwrap_or(0.0).to_degrees(),
                             flip_x: s.sheet.get_bool("FlipX").unwrap_or(false),
                             flip_y: s.sheet.get_bool("FlipY").unwrap_or(false),
-                            font_family: s
-                                .sheet
-                                .get_str("Char.Font")
+                            font_family: ev_vis
+                                .map(|v| v.font_family.clone())
                                 .filter(|f| !f.is_empty())
+                                .or_else(|| s.sheet.get_str("Char.Font").filter(|f| !f.is_empty()))
                                 .unwrap_or_else(|| "Inter".to_string()),
-                            font_size_pt: (s.sheet.get_f64("Char.Size").unwrap_or(10.0 / 72.0) * 72.0 * 10.0).round() / 10.0,
-                            char_style: s.sheet.get_f64("Char.Style").unwrap_or(0.0).round().clamp(0.0, 15.0) as u8,
-                            text_color: s
-                                .sheet
-                                .get_color("Char.Color")
-                                .unwrap_or(vexio_shapesheet::RgbaColor::BLACK)
-                                .to_hex_rgb(),
+                            font_size_pt: ev_vis
+                                .map(|v| (v.font_size_pt * 10.0).round() / 10.0)
+                                .unwrap_or_else(|| {
+                                    (s.sheet.get_f64("Char.Size").unwrap_or(10.0 / 72.0) * 72.0 * 10.0).round() / 10.0
+                                }),
+                            char_style: ev_vis
+                                .map(|v| v.char_style)
+                                .unwrap_or_else(|| s.sheet.get_f64("Char.Style").unwrap_or(0.0).round().clamp(0.0, 15.0) as u8),
+                            text_color: ev_vis
+                                .map(|v| v.text_color.to_hex_rgb())
+                                .unwrap_or_else(|| {
+                                    s.sheet
+                                        .get_color("Char.Color")
+                                        .unwrap_or(vexio_shapesheet::RgbaColor::BLACK)
+                                        .to_hex_rgb()
+                                }),
                             text_bg_color,
-                            horiz_align: s.sheet.get_f64("Para.HorzAlign").unwrap_or(1.0).round().clamp(0.0, 3.0) as u8,
-                            vert_align: s.sheet.get_f64("VerticalAlign").unwrap_or(1.0).round().clamp(0.0, 2.0) as u8,
-                            bullet_style: s.sheet.get_f64("Para.Bullet").unwrap_or(0.0).round().clamp(0.0, 4.0) as u8,
+                            horiz_align: ev_vis
+                                .map(|v| v.horiz_align)
+                                .unwrap_or_else(|| s.sheet.get_f64("Para.HorzAlign").unwrap_or(1.0).round().clamp(0.0, 3.0) as u8),
+                            vert_align: ev_vis
+                                .map(|v| v.vert_align)
+                                .unwrap_or_else(|| s.sheet.get_f64("VerticalAlign").unwrap_or(1.0).round().clamp(0.0, 2.0) as u8),
+                            bullet_style: ev_vis
+                                .map(|v| v.bullet_style)
+                                .unwrap_or_else(|| s.sheet.get_f64("Para.Bullet").unwrap_or(0.0).round().clamp(0.0, 4.0) as u8),
                             begin_x,
                             begin_y,
                             end_x,

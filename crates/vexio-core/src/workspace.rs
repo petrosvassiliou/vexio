@@ -1204,6 +1204,42 @@ impl DocumentSession {
         new_formula: &str,
         force_setf: bool,
     ) -> Result<(), CoreError> {
+        if shape_id == 0 {
+            let Some(page_check) = self.doc.page(page_id) else {
+                return Err(CoreError::Journal(crate::journal::JournalError::PageNotFound(
+                    page_id,
+                )));
+            };
+            if !force_setf
+                && page_check
+                    .page_sheet
+                    .get_cell(cell_name)
+                    .is_some_and(|c| c.is_guarded())
+            {
+                return Err(CoreError::Journal(crate::journal::JournalError::CellGuarded(
+                    cell_name.to_string(),
+                )));
+            }
+            let cname = cell_name.to_string();
+            let fstr = new_formula.to_string();
+            let _ = self.journal.record_mutation(
+                &mut self.doc,
+                format!("Set PageSheet {cname}"),
+                |doc| {
+                    if let Some(p) = doc.page_mut(page_id) {
+                        let _ = p.page_sheet.try_set_formula_respecting_guard(
+                            &cname,
+                            fstr.clone(),
+                            force_setf,
+                        );
+                    }
+                    ReactiveEngine::recalculate_document(doc);
+                },
+            );
+            route_page_connectors(&mut self.doc, page_id);
+            return Ok(());
+        }
+
         let old_formula = self
             .doc
             .page(page_id)
@@ -1324,7 +1360,29 @@ impl DocumentSession {
 
     pub fn add_page(&mut self, name: &str) -> Result<u32, CoreError> {
         let next_id = self.doc.pages.iter().map(|p| p.id).max().unwrap_or(0) + 1;
-        let page = VisioPage::new(next_id, name, 11.0, 8.5);
+        let ref_page = self
+            .doc
+            .pages
+            .iter()
+            .find(|p| !p.is_background)
+            .or_else(|| self.doc.pages.first());
+        let (w_in, h_in, unit_opt) = ref_page
+            .map(|p| {
+                (
+                    p.width_in(),
+                    p.height_in(),
+                    p.page_sheet.get_str("User.DisplayUnit"),
+                )
+            })
+            .unwrap_or((297.0 / 25.4, 210.0 / 25.4, Some("mm".to_string())));
+        let mut page = VisioPage::new(next_id, name, w_in, h_in);
+        if let Some(u) = unit_opt {
+            page.page_sheet.set_formula(
+                "User.DisplayUnit",
+                format!("\"{}\"", u.replace('"', "")),
+                Some(Unit::String),
+            );
+        }
         self.journal
             .execute(&mut self.doc, DocCommand::AddPage { page })?;
         Ok(next_id)
@@ -1374,13 +1432,17 @@ impl DocumentSession {
     }
 
     pub fn layout(&mut self, page_id: u32, key: &str) {
-        let algorithm = match key.to_ascii_lowercase().as_str() {
-            "lr" | "lefttoright" => LayoutAlgorithm::HierarchicalLeftToRight,
-            "bt" | "bottomtotop" => LayoutAlgorithm::HierarchicalBottomToTop,
-            "rl" | "righttoleft" => LayoutAlgorithm::HierarchicalRightToLeft,
+        let algorithm = match key.trim().to_ascii_lowercase().as_str() {
+            "lr" | "lefttoright" | "hierarchical_lr" | "swimlane_lr" => {
+                LayoutAlgorithm::HierarchicalLeftToRight
+            }
+            "bt" | "bottomtotop" | "hierarchical_bt" => LayoutAlgorithm::HierarchicalBottomToTop,
+            "rl" | "righttoleft" | "hierarchical_rl" => LayoutAlgorithm::HierarchicalRightToLeft,
             "radial" => LayoutAlgorithm::Radial,
-            "tree" | "compacttree" => LayoutAlgorithm::CompactTree,
-            "circular" => LayoutAlgorithm::Circular,
+            "tree" | "compacttree" | "compact_tree" => LayoutAlgorithm::CompactTree,
+            "circular" | "force_directed" | "compact_orthogonal" | "grid" => {
+                LayoutAlgorithm::Circular
+            }
             _ => LayoutAlgorithm::HierarchicalTopToBottom,
         };
         let _ = self

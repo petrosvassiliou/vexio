@@ -306,7 +306,7 @@ pub fn build_page_scene_mesh(
 
     // Page sheet quad tagged with `PRIM_FLAG_PAGE_GRID` so `canvas.wgsl` & software rasterizer
     // render crisp anti-aliased Visio grid lines directly on the sheet.
-    let page_bg = active_page_background_color(doc).to_linear_f32();
+    let page_bg = active_page_background_color(doc, resolved_page_id).to_linear_f32();
     scene.push_quad(
         [0.0, 0.0],
         [page_w as f32, page_h as f32],
@@ -1014,7 +1014,7 @@ impl WgpuCanvasRenderer {
         });
 
         let pipeline = self.lookup_pipeline(format, eff_samples);
-        let page_bg = active_page_background_color(doc);
+        let page_bg = active_page_background_color(doc, page_id);
         let clear = to_wgpu_color(page_bg);
 
         let mut encoder = self
@@ -1309,7 +1309,7 @@ pub fn render_page_software_rgba_with_selection(
         a: 255,
     };
     let clear = if selected_shapes.is_empty() && !show_grid {
-        active_page_background_color(doc)
+        active_page_background_color(doc, page_id)
     } else {
         pasteboard
     };
@@ -1704,7 +1704,16 @@ fn page_grid_spacing_in(page: &VisioPage) -> f64 {
         .unwrap_or(0.25)
 }
 
-fn active_page_background_color(doc: &VisioDocument) -> RgbaColor {
+fn active_page_background_color(doc: &VisioDocument, page_id: u32) -> RgbaColor {
+    if let Some(page) = doc
+        .page(page_id)
+        .or_else(|| doc.pages.iter().find(|p| !p.is_background))
+        .or_else(|| doc.pages.first())
+    {
+        if let Some(c) = page.page_sheet.get_color("PageColor") {
+            return c;
+        }
+    }
     if let Some(tid) = doc.active_theme_id {
         if let Some(theme) = doc.themes.iter().find(|t| t.id == tid) {
             return theme.background_color;

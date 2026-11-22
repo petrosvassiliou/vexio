@@ -230,6 +230,17 @@ object NativeBridge {
     external fun nativeAddPage(docPtr: Long, name: String): Int
 
     @JvmStatic
+    external fun nativeConnectShapes(
+        docPtr: Long,
+        pageId: Int,
+        fromShapeId: Long,
+        toShapeId: Long
+    ): Long
+
+    @JvmStatic
+    external fun nativeValidateJson(docPtr: Long, ruleset: String): String
+
+    @JvmStatic
     external fun nativeAutoLayout(docPtr: Long, pageId: Int, algo: String)
 
     @JvmStatic
@@ -1865,7 +1876,7 @@ class VexioSessionViewModel(
         directMotionBatchBuffer.position(0)
         directMotionBatchBuffer.limit(sampleCount * MotionBatchFormat.SAMPLE_STRIDE_BYTES)
 
-        // Handle Ctrl + Scroll-wheel zoom deterministically
+        // Handle Ctrl + Scroll-wheel zoom deterministically without double-zooming
         if (mappedAction == MotionBatchFormat.ACTION_SCROLL &&
             (metaState and KeyEvent.META_CTRL_ON) != 0
         ) {
@@ -1873,6 +1884,7 @@ class VexioSessionViewModel(
             if (vScroll != 0f) {
                 val delta = if (vScroll > 0f) 10 else -10
                 adjustZoom(delta)
+                return _uiState.value.activeCursorCode
             }
         }
 
@@ -1884,6 +1896,9 @@ class VexioSessionViewModel(
                 directBatchBuffer = directMotionBatchBuffer,
                 count = sampleCount
             )
+            if (mappedAction == MotionBatchFormat.ACTION_SCROLL) {
+                presentViewportOrFallback()
+            }
             if (mappedAction == MotionBatchFormat.ACTION_UP ||
                 mappedAction == MotionBatchFormat.ACTION_DOWN ||
                 mappedAction == MotionBatchFormat.ACTION_MOVE
@@ -2650,6 +2665,7 @@ class VexioSessionViewModel(
             )
         }
         refreshSelectedShapeFormulas()
+        presentViewportOrFallback()
         return createdCount
     }
 
@@ -2711,6 +2727,7 @@ class VexioSessionViewModel(
             )
         }
         refreshSelectedShapeFormulas()
+        presentViewportOrFallback()
         return resolvedCount
     }
 
@@ -2782,8 +2799,57 @@ class VexioSessionViewModel(
                 )
             }
             refreshSelectedShapeFormulas()
+            presentViewportOrFallback()
         }
         return succeeded
+    }
+
+    /**
+     * Runs real BPMN 2.0 / UML 2.5 / SharePoint structural validation via `NativeBridge.nativeValidateJson`.
+     */
+    @Synchronized
+    fun validateActiveDiagram(rulesetSlug: String = "bpmn"): Int {
+        val norm = rulesetSlug.trim().lowercase(Locale.US)
+        val label = when {
+            norm.startsWith("uml") -> "UML 2.5"
+            norm.startsWith("work") || norm.startsWith("share") -> "SharePoint Workflow"
+            else -> "BPMN 2.0"
+        }
+        var errCount = 0
+        var warnCount = 0
+        var firstMessage: String? = null
+        if (NativeBridge.isNativeAvailable && docPtr != 0L) {
+            val rawJson = NativeBridge.nativeValidateJson(docPtr, norm)
+            val arr = runCatching { Json.parseToJsonElement(rawJson) as? JsonArray }.getOrNull()
+            if (arr != null) {
+                for (el in arr) {
+                    val obj = el as? JsonObject ?: continue
+                    val sev = obj["severity"]?.jsonPrimitive?.contentOrNull.orEmpty().lowercase(Locale.US)
+                    if (sev == "error") errCount++ else warnCount++
+                    if (firstMessage == null) {
+                        firstMessage = obj["description"]?.jsonPrimitive?.contentOrNull
+                    }
+                }
+            }
+        }
+        val total = errCount + warnCount
+        val summaryMsg = if (total == 0) {
+            "0 $label structural issues"
+        } else {
+            "$errCount error(s), $warnCount warning(s): ${firstMessage ?: "Rule violation"}"
+        }
+        _uiState.update { state ->
+            state.copy(
+                validationSummary = ValidationBadgeSummary(
+                    standard = label,
+                    errorCount = errCount,
+                    warningCount = warnCount,
+                    statusMessage = summaryMsg
+                ),
+                statusBanner = "$label Validation: $summaryMsg"
+            )
+        }
+        return total
     }
 
     /**
@@ -2846,6 +2912,10 @@ class VexioSessionViewModel(
                 statusBanner = "Subprocess drill-down '$cleanName' linked (Page $resolvedSubPageId)"
             )
         }
+        if (NativeBridge.isNativeAvailable && viewportPtr != 0L && docPtr != 0L) {
+            NativeBridge.nativeSetViewportPage(viewportPtr, docPtr, resolvedSubPageId)
+        }
+        presentViewportOrFallback()
         return resolvedSubPageId
     }
 
@@ -3123,6 +3193,7 @@ class VexioSessionViewModel(
             )
         }
         refreshSelectedShapeFormulas()
+        presentViewportOrFallback()
         return finalApplied
     }
 
@@ -3161,6 +3232,7 @@ class VexioSessionViewModel(
             )
         }
         refreshSelectedShapeFormulas()
+        presentViewportOrFallback()
         return resolvedCount
     }
 
@@ -3297,6 +3369,7 @@ class VexioSessionViewModel(
             )
         }
         refreshSelectedShapeFormulas()
+        presentViewportOrFallback()
         return resolvedCount
     }
 
@@ -3358,6 +3431,7 @@ class VexioSessionViewModel(
             )
         }
         refreshSelectedShapeFormulas()
+        presentViewportOrFallback()
         return resolvedCount
     }
 
@@ -3694,7 +3768,7 @@ class VexioSessionViewModel(
                 docPtr = docPtr,
                 pageId = resolveNativePageId(state.activePageId),
                 shapeIds = targets,
-                deltaAngleDeg = deltaAngleDeg,
+                deltaAngleDeg = -deltaAngleDeg,
                 toggleFlipX = flipX,
                 toggleFlipY = flipY
             )
@@ -4010,7 +4084,7 @@ class VexioSessionViewModel(
                     return@withContext
                 }
                 val cleanTag = latestTag.orEmpty().removePrefix("v").removePrefix("V")
-                val hasNewer = cleanTag.isNotEmpty() && cleanTag != currentVersion && cleanTag > currentVersion
+                val hasNewer = isSemVerNewer(cleanTag, currentVersion)
                 _uiState.update {
                     it.copy(
                         availableUpdateTag = if (hasNewer) latestTag else null,
@@ -4025,6 +4099,26 @@ class VexioSessionViewModel(
                 }
             }
         }
+    }
+
+    private fun isSemVerNewer(candidate: String, current: String): Boolean {
+        if (candidate.isBlank() || candidate == current) return false
+        val candParts = candidate.split('-', limit = 2)
+        val currParts = current.split('-', limit = 2)
+        val candNums = candParts[0].split('.').map { it.toIntOrNull() ?: 0 }
+        val currNums = currParts[0].split('.').map { it.toIntOrNull() ?: 0 }
+        val len = max(candNums.size, currNums.size)
+        for (i in 0 until len) {
+            val c = candNums.getOrElse(i) { 0 }
+            val b = currNums.getOrElse(i) { 0 }
+            if (c != b) return c > b
+        }
+        val candPre = candParts.getOrNull(1)
+        val currPre = currParts.getOrNull(1)
+        if (candPre == null && currPre != null) return true
+        if (candPre != null && currPre == null) return false
+        if (candPre != null && currPre != null) return candPre > currPre
+        return false
     }
 
     /**
@@ -4099,13 +4193,24 @@ class VexioSessionViewModel(
 
     override fun onCleared() {
         synchronized(this) {
+            if (NativeBridge.isNativeAvailable) {
+                if (viewportPtr != 0L) {
+                    NativeBridge.nativeDestroyViewport(viewportPtr)
+                }
+                if (cachedBlankBaselineDocPtr != 0L) {
+                    NativeBridge.nativeDestroyDocument(cachedBlankBaselineDocPtr)
+                }
+                if (docPtr != 0L) {
+                    NativeBridge.nativeDestroyDocument(docPtr)
+                }
+                if (enginePtr != 0L) {
+                    NativeBridge.nativeDestroyEngine(enginePtr)
+                }
+            }
             viewportPtr = 0L
             docPtr = 0L
             cachedBlankBaselineDocPtr = 0L
-            if (enginePtr != 0L && NativeBridge.isNativeAvailable) {
-                NativeBridge.nativeDestroyEngine(enginePtr)
-                enginePtr = 0L
-            }
+            enginePtr = 0L
         }
         super.onCleared()
     }
@@ -4129,6 +4234,7 @@ class VexioSessionViewModel(
             append("0.10 0.45 0.91 RG 1.5 w\n")
             append("0.91 0.94 0.99 rg\n")
             append("216 360 180 90 re B\n")
+            append("0.06 0.09 0.16 rg\n")
             append("BT /F1 12 Tf 230 412 Td (Vexio Print: $safeTitle) Tj ET\n")
             append("BT /F1 10 Tf 230 392 Td (Active Shape: $safeShape) Tj ET\n")
             append("Q\n")

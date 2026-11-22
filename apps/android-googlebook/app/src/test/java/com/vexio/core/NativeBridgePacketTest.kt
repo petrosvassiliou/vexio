@@ -247,6 +247,8 @@ class NativeBridgePacketTest {
         verifyNative("nativeSetPagePreset", boolT, longT, intT, String::class.java, boolT)
         verifyNative("nativeSetDocumentTitle", boolT, longT, String::class.java)
         verifyNative("nativeRenamePage", boolT, longT, intT, String::class.java)
+        verifyNative("nativeConnectShapes", longT, longT, intT, longT, longT, String::class.java, String::class.java)
+        verifyNative("nativeValidateJson", String::class.java, longT, String::class.java)
     }
 
     @Test

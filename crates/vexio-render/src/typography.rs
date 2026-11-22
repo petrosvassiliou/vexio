@@ -482,12 +482,13 @@ pub fn reorder_bidi_visual_line(
     }
 
     // Partition logical cells into directional runs `(is_rtl_run, slice)`.
+    let is_strong_ltr = |c: char| (c.is_alphabetic() && !is_rtl_codepoint(c)) || c.is_numeric();
     let default_rtl = base_dir == TextDirection::RightToLeft;
     let mut char_rtl = vec![default_rtl; logical.len()];
     for (idx, cell) in logical.iter().enumerate() {
         if is_rtl_codepoint(cell.ch) {
             char_rtl[idx] = true;
-        } else if cell.ch.is_ascii_alphabetic() || cell.ch.is_ascii_digit() {
+        } else if is_strong_ltr(cell.ch) {
             char_rtl[idx] = false;
         } else {
             // Neutral punctuation/whitespace inherits surrounding strong direction or `default_rtl`.
@@ -495,7 +496,7 @@ pub fn reorder_bidi_visual_line(
                 let c = logical[p].ch;
                 if is_rtl_codepoint(c) {
                     Some(true)
-                } else if c.is_ascii_alphanumeric() {
+                } else if is_strong_ltr(c) {
                     Some(false)
                 } else {
                     None
@@ -505,7 +506,7 @@ pub fn reorder_bidi_visual_line(
                 let c = logical[n].ch;
                 if is_rtl_codepoint(c) {
                     Some(true)
-                } else if c.is_ascii_alphanumeric() {
+                } else if is_strong_ltr(c) {
                     Some(false)
                 } else {
                     None
@@ -1117,7 +1118,7 @@ fn layout_vertical_cjk_columns(
                 let gx = col_center_x - glyph_w * 0.5;
                 let shear = if cell.italic { 0.22 } else { 0.0 };
 
-                for stroke in glyph_strokes(cell.ch) {
+                for stroke in glyph_strokes_styled(cell.ch, cell.family_class) {
                     let mapped: Vec<[f64; 2]> = stroke
                         .into_iter()
                         .map(|pt| {
@@ -1977,11 +1978,61 @@ pub fn glyph_strokes(ch: char) -> Vec<Vec<[f32; 2]>> {
             vec![[0.78, 0.92], [0.46, 1.0], [0.22, 0.84], [0.76, 0.52], [0.24, 0.2], [0.54, 0.0], [0.82, 0.12]],
             vec![[0.26, 0.68], [0.78, 0.36]],
         ],
-        '“' | '”' | '„' => vec![
+        '“' | '”' => vec![
             vec![[0.32, 0.96], [0.26, 0.72]],
             vec![[0.68, 0.96], [0.62, 0.72]],
         ],
+        '„' => vec![
+            vec![[0.32, 0.22], [0.24, -0.06]],
+            vec![[0.68, 0.22], [0.60, -0.06]],
+        ],
         '’' | '‘' => vec![vec![[0.52, 0.96], [0.44, 0.72]]],
+        '‚' => vec![vec![[0.52, 0.22], [0.44, -0.06]]],
+        '·' => vec![oval_ring(0.5, 0.48, 0.12, 0.12)],
+        ';' => glyph_strokes(';'),
+        '¿' => vec![
+            vec![[0.5, 0.92], [0.5, 0.86]],
+            vec![[0.5, 0.68], [0.5, 0.46], [0.22, 0.28], [0.26, 0.06], [0.64, 0.0], [0.8, 0.16]],
+        ],
+        '¡' => vec![
+            vec![[0.5, 0.92], [0.5, 0.86]],
+            vec![[0.5, 0.68], [0.5, 0.0]],
+        ],
+        '©' => vec![
+            oval_ring(0.5, 0.5, 0.44, 0.48),
+            vec![[0.64, 0.66], [0.42, 0.7], [0.32, 0.5], [0.42, 0.3], [0.64, 0.34]],
+        ],
+        '®' => vec![
+            oval_ring(0.5, 0.5, 0.44, 0.48),
+            vec![[0.36, 0.26], [0.36, 0.74], [0.58, 0.74], [0.64, 0.6], [0.36, 0.52], [0.64, 0.26]],
+        ],
+        '™' => vec![
+            vec![[0.06, 0.96], [0.42, 0.96]],
+            vec![[0.24, 0.96], [0.24, 0.54]],
+            vec![[0.52, 0.54], [0.52, 0.96], [0.72, 0.68], [0.92, 0.96], [0.92, 0.54]],
+        ],
+        'Æ' => vec![
+            vec![[0.06, 0.0], [0.44, 1.0], [0.92, 1.0]],
+            vec![[0.44, 1.0], [0.44, 0.0], [0.92, 0.0]],
+            vec![[0.22, 0.48], [0.82, 0.48]],
+        ],
+        'æ' => vec![
+            oval_ring(0.32, 0.34, 0.24, 0.32),
+            oval_ring(0.68, 0.34, 0.24, 0.32),
+            vec![[0.48, 0.34], [0.92, 0.34]],
+        ],
+        'Œ' => vec![
+            oval_ring(0.36, 0.5, 0.28, 0.5),
+            vec![[0.54, 0.0], [0.54, 1.0], [0.94, 1.0]],
+            vec![[0.54, 0.5], [0.86, 0.5]],
+            vec![[0.54, 0.0], [0.94, 0.0]],
+        ],
+        'œ' => vec![
+            oval_ring(0.34, 0.34, 0.24, 0.34),
+            oval_ring(0.68, 0.34, 0.24, 0.34),
+            vec![[0.46, 0.34], [0.92, 0.34]],
+        ],
+        '\u{200B}' | '\u{200C}' | '\u{200D}' | '\u{FEFF}' | '\u{00AD}' => Vec::new(),
         '«' => vec![
             vec![[0.52, 0.72], [0.16, 0.44], [0.52, 0.16]],
             vec![[0.86, 0.72], [0.5, 0.44], [0.86, 0.16]],
@@ -1991,19 +2042,24 @@ pub fn glyph_strokes(ch: char) -> Vec<Vec<[f32; 2]>> {
             vec![[0.48, 0.72], [0.84, 0.44], [0.48, 0.16]],
         ],
 
-        // --- Greek Alphabet (EN, DE, IT, FR, ES, GR Localization Parity) ---
-        'Α' | 'Ά' => glyph_strokes('A'),
+        // --- Greek Alphabet with Tonos (`΄`) & Dialytika (`¨`) Diacritics ---
+        'Α' => glyph_strokes('A'),
+        'Ά' => with_greek_cap_tonos(glyph_strokes('A')),
         'Β' => glyph_strokes('B'),
         'Γ' => vec![vec![[0.12, 0.0], [0.12, 1.0], [0.9, 1.0]]],
         'Δ' => vec![vec![[0.06, 0.0], [0.5, 1.0], [0.94, 0.0], [0.06, 0.0]]],
-        'Ε' | 'Έ' => glyph_strokes('E'),
+        'Ε' => glyph_strokes('E'),
+        'Έ' => with_greek_cap_tonos(glyph_strokes('E')),
         'Ζ' => glyph_strokes('Z'),
-        'Η' | 'Ή' => glyph_strokes('H'),
+        'Η' => glyph_strokes('H'),
+        'Ή' => with_greek_cap_tonos(glyph_strokes('H')),
         'Θ' => vec![
             oval_ring(0.5, 0.5, 0.44, 0.5),
             vec![[0.24, 0.5], [0.76, 0.5]],
         ],
-        'Ι' | 'Ί' | 'Ϊ' => glyph_strokes('I'),
+        'Ι' => glyph_strokes('I'),
+        'Ί' => with_greek_cap_tonos(glyph_strokes('I')),
+        'Ϊ' => with_greek_dialytika(glyph_strokes('I'), 1.12),
         'Κ' => glyph_strokes('K'),
         'Λ' => vec![vec![[0.06, 0.0], [0.5, 1.0], [0.94, 0.0]]],
         'Μ' => glyph_strokes('M'),
@@ -2013,12 +2069,15 @@ pub fn glyph_strokes(ch: char) -> Vec<Vec<[f32; 2]>> {
             vec![[0.22, 0.5], [0.78, 0.5]],
             vec![[0.08, 0.0], [0.92, 0.0]],
         ],
-        'Ο' | 'Ό' => glyph_strokes('O'),
+        'Ο' => glyph_strokes('O'),
+        'Ό' => with_greek_cap_tonos(glyph_strokes('O')),
         'Π' => vec![vec![[0.1, 0.0], [0.1, 1.0], [0.9, 1.0], [0.9, 0.0]]],
         'Ρ' => glyph_strokes('P'),
         'Σ' => vec![vec![[0.88, 1.0], [0.12, 1.0], [0.56, 0.5], [0.12, 0.0], [0.88, 0.0]]],
         'Τ' => glyph_strokes('T'),
-        'Υ' | 'Ύ' | 'Ϋ' => glyph_strokes('Y'),
+        'Υ' => glyph_strokes('Y'),
+        'Ύ' => with_greek_cap_tonos(glyph_strokes('Y')),
+        'Ϋ' => with_greek_dialytika(glyph_strokes('Y'), 1.12),
         'Φ' => vec![
             oval_ring(0.5, 0.52, 0.42, 0.28),
             vec![[0.5, 1.0], [0.5, 0.0]],
@@ -2028,7 +2087,7 @@ pub fn glyph_strokes(ch: char) -> Vec<Vec<[f32; 2]>> {
             vec![[0.1, 0.92], [0.18, 0.48], [0.5, 0.36], [0.82, 0.48], [0.9, 0.92]],
             vec![[0.5, 1.0], [0.5, 0.0]],
         ],
-        'Ω' | 'Ώ' => vec![vec![
+        'Ω' => vec![vec![
             [0.08, 0.0],
             [0.34, 0.0],
             [0.16, 0.36],
@@ -2040,10 +2099,12 @@ pub fn glyph_strokes(ch: char) -> Vec<Vec<[f32; 2]>> {
             [0.66, 0.0],
             [0.92, 0.0],
         ]],
-        'α' | 'ά' => vec![
+        'Ώ' => with_greek_cap_tonos(glyph_strokes('Ω')),
+        'α' => vec![
             oval_ring(0.42, 0.34, 0.32, 0.34),
             vec![[0.88, 0.68], [0.68, 0.14], [0.9, 0.0]],
         ],
+        'ά' => with_greek_tonos(glyph_strokes('α'), 0.82),
         'β' => vec![vec![
             [0.16, -0.22],
             [0.16, 0.84],
@@ -2064,7 +2125,7 @@ pub fn glyph_strokes(ch: char) -> Vec<Vec<[f32; 2]>> {
             oval_ring(0.5, 0.3, 0.36, 0.3),
             vec![[0.5, 0.6], [0.24, 0.84], [0.54, 1.0], [0.82, 0.92]],
         ],
-        'ε' | 'έ' => vec![vec![
+        'ε' => vec![vec![
             [0.82, 0.62],
             [0.44, 0.68],
             [0.18, 0.52],
@@ -2075,16 +2136,21 @@ pub fn glyph_strokes(ch: char) -> Vec<Vec<[f32; 2]>> {
             [0.44, 0.0],
             [0.84, 0.08],
         ]],
+        'έ' => with_greek_tonos(glyph_strokes('ε'), 0.82),
         'ζ' => vec![vec![[0.2, 0.96], [0.82, 0.96], [0.18, 0.24], [0.66, 0.0], [0.54, -0.22]]],
-        'η' | 'ή' => vec![
+        'η' => vec![
             vec![[0.14, 0.68], [0.14, 0.0]],
             vec![[0.14, 0.5], [0.42, 0.68], [0.76, 0.68], [0.86, 0.48], [0.86, -0.22]],
         ],
+        'ή' => with_greek_tonos(glyph_strokes('η'), 0.82),
         'θ' => vec![
             oval_ring(0.5, 0.48, 0.38, 0.48),
             vec![[0.18, 0.48], [0.82, 0.48]],
         ],
-        'ι' | 'ί' | 'ϊ' | 'ΐ' => vec![vec![[0.46, 0.68], [0.46, 0.12], [0.68, 0.0]]],
+        'ι' => vec![vec![[0.46, 0.68], [0.46, 0.12], [0.68, 0.0]]],
+        'ί' => with_greek_tonos(glyph_strokes('ι'), 0.82),
+        'ϊ' => with_greek_dialytika(glyph_strokes('ι'), 0.82),
+        'ΐ' => with_greek_tonos(with_greek_dialytika(glyph_strokes('ι'), 0.80), 0.92),
         'κ' => glyph_strokes('k'),
         'λ' => vec![
             vec![[0.18, 1.0], [0.88, 0.0]],
@@ -2097,7 +2163,8 @@ pub fn glyph_strokes(ch: char) -> Vec<Vec<[f32; 2]>> {
         ],
         'ν' => glyph_strokes('v'),
         'ξ' => vec![vec![[0.24, 1.0], [0.78, 0.94], [0.24, 0.64], [0.76, 0.54], [0.18, 0.18], [0.68, 0.0], [0.54, -0.22]]],
-        'ο' | 'ό' => glyph_strokes('o'),
+        'ο' => glyph_strokes('o'),
+        'ό' => with_greek_tonos(glyph_strokes('ο'), 0.82),
         'π' => vec![
             vec![[0.08, 0.68], [0.92, 0.68]],
             vec![[0.3, 0.68], [0.26, 0.0]],
@@ -2112,7 +2179,10 @@ pub fn glyph_strokes(ch: char) -> Vec<Vec<[f32; 2]>> {
             vec![[0.12, 0.68], [0.88, 0.68]],
             vec![[0.5, 0.68], [0.5, 0.08], [0.68, 0.0]],
         ],
-        'υ' | 'ύ' | 'ϋ' | 'ΰ' => glyph_strokes('u'),
+        'υ' => glyph_strokes('u'),
+        'ύ' => with_greek_tonos(glyph_strokes('υ'), 0.82),
+        'ϋ' => with_greek_dialytika(glyph_strokes('υ'), 0.82),
+        'ΰ' => with_greek_tonos(with_greek_dialytika(glyph_strokes('υ'), 0.80), 0.92),
         'φ' => vec![
             oval_ring(0.5, 0.36, 0.38, 0.28),
             vec![[0.5, 0.84], [0.5, -0.22]],
@@ -2125,10 +2195,27 @@ pub fn glyph_strokes(ch: char) -> Vec<Vec<[f32; 2]>> {
             vec![[0.12, 0.68], [0.2, 0.26], [0.5, 0.14], [0.8, 0.26], [0.88, 0.68]],
             vec![[0.5, 0.78], [0.5, -0.22]],
         ],
-        'ω' | 'ώ' => glyph_strokes('w'),
+        'ω' => glyph_strokes('w'),
+        'ώ' => with_greek_tonos(glyph_strokes('ω'), 0.82),
 
         other => extended_unicode_glyph_strokes(other),
     }
+}
+
+fn with_greek_tonos(mut base: Vec<Vec<[f32; 2]>>, top: f32) -> Vec<Vec<[f32; 2]>> {
+    base.push(vec![[0.46, top], [0.62, top + 0.15]]);
+    base
+}
+
+fn with_greek_cap_tonos(mut base: Vec<Vec<[f32; 2]>>) -> Vec<Vec<[f32; 2]>> {
+    base.push(vec![[0.0, 1.04], [0.12, 1.18]]);
+    base
+}
+
+fn with_greek_dialytika(mut base: Vec<Vec<[f32; 2]>>, top: f32) -> Vec<Vec<[f32; 2]>> {
+    base.push(vec![[0.32, top + 0.04], [0.36, top + 0.04]]);
+    base.push(vec![[0.64, top + 0.04], [0.68, top + 0.04]]);
+    base
 }
 
 /// Apply OS font-family serif / monospace visual terminal accents on top of base `glyph_strokes`.
@@ -2335,6 +2422,10 @@ fn decompose_latin_accent(ch: char) -> Option<(char, u8)> {
         'ù' => Some(('u', 2)),
         'û' => Some(('u', 3)),
         'ü' => Some(('u', 4)),
+        'Ý' => Some(('Y', 1)),
+        'ý' => Some(('y', 1)),
+        'Ÿ' => Some(('Y', 4)),
+        'ÿ' => Some(('y', 4)),
         _ => None,
     }
 }

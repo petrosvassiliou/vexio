@@ -310,23 +310,26 @@ export const PAGE_PRESET_OPTIONS: PagePresetOption[] = [
   { id: 'tabloid_l', slug: 'tabloid', landscape: true, isMetric: false, label: 'Tabloid / ANSI B (17 × 11 in)', shortLabel: 'Tabloid', widthIn: 17.0, heightIn: 11.0 },
 ];
 
+export function normalizeLangCode(raw?: string | null): VexioLangCode {
+  const low = (raw ?? 'en').trim().toLowerCase().split('-')[0];
+  if (low === 'el' || low === 'gr') return 'gr';
+  if (low === 'de' || low === 'it' || low === 'fr' || low === 'es' || low === 'en') {
+    return low;
+  }
+  return 'en';
+}
+
 export function detectDefaultLanguage(): VexioLangCode {
   try {
-    const saved = localStorage.getItem('vexio.lang')?.toLowerCase();
-    if (saved && saved in VEXIO_TRANSLATIONS) {
-      return saved as VexioLangCode;
+    const saved = localStorage.getItem('vexio.lang');
+    if (saved) {
+      return normalizeLangCode(saved);
     }
   } catch {
     // Ignore storage block
   }
-  const nav = (typeof navigator !== 'undefined' ? navigator.language : 'en').toLowerCase();
-  const primary = nav.split('-')[0];
-  if (primary === 'de') return 'de';
-  if (primary === 'it') return 'it';
-  if (primary === 'fr') return 'fr';
-  if (primary === 'es') return 'es';
-  if (primary === 'el' || primary === 'gr') return 'gr';
-  return 'en';
+  const nav = typeof navigator !== 'undefined' ? navigator.language : 'en';
+  return normalizeLangCode(nav);
 }
 
 export function detectDefaultMetricUnits(): boolean {

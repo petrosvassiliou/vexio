@@ -245,16 +245,11 @@ pub fn emit_lod_bounding_quad(
     pixels_per_inch: f64,
     out: &mut TessellatedMesh,
 ) {
-    let color_rgba = visual
-        .fill_color
-        .or(visual.stroke_color)
-        .unwrap_or(RgbaColor {
-            r: 71,
-            g: 85,
-            b: 105,
-            a: 255,
-        })
-        .to_linear_f32();
+    let Some(base_col) = visual.fill_color.or(visual.stroke_color) else {
+        // Pure transparent text boxes (`FillPattern=0`, `LinePattern=0`) must not draw a solid LOD rectangle.
+        return;
+    };
+    let color_rgba = base_col.to_linear_f32();
     let min_px_in = (1.0 / pixels_per_inch.max(1e-4)) as f32;
     let mut x0 = visual.aabb_min[0] as f32;
     let mut y0 = visual.aabb_min[1] as f32;
@@ -274,6 +269,19 @@ pub fn emit_lod_bounding_quad(
         y1 = cy + 0.5 * min_px_in;
     }
     out.push_quad([x0, y0], [x1, y1], color_rgba, [PRIM_FLAG_SHAPE, 0.0]);
+}
+
+/// Normalize text rotation angle so upside-down shapes (`cos(angle) < 0`) flip `+180°` to remain readable, matching Visio.
+#[inline]
+pub fn readable_text_angle_rad(raw_angle_rad: f64) -> f64 {
+    if !raw_angle_rad.is_finite() {
+        return 0.0;
+    }
+    if raw_angle_rad.cos() < -1e-4 {
+        raw_angle_rad + std::f64::consts::PI
+    } else {
+        raw_angle_rad
+    }
 }
 
 /// Tessellate a single `EvaluatedShapeVisual` respecting LOD (`pixels_per_inch * shape_size < 3.0`).
@@ -403,32 +411,66 @@ pub fn tessellate_shape_full(
     // German umlauts/'ß', Greek, Bidi, word-wrap, and Sans/Serif/Monospace OS font families).
     let trimmed_txt = visual.text.trim();
     if !trimmed_txt.is_empty() {
-        let box_w = visual
-            .txt_width
-            .unwrap_or(visual.transform.width)
-            .abs()
-            .max(0.45);
-        let box_h = visual
-            .txt_height
-            .unwrap_or(visual.transform.height)
-            .abs()
-            .max(0.28);
+        let default_w = if visual.kind == vexio_shapesheet::ShapeKind::Connector1D {
+            visual.transform.width.abs().max(2.2)
+        } else {
+            visual.transform.width.abs().max(0.45)
+        };
+        let default_h = if visual.kind == vexio_shapesheet::ShapeKind::Connector1D {
+            visual.transform.height.abs().max(0.5)
+        } else {
+            visual.transform.height.abs().max(0.28)
+        };
+        let box_w = visual.txt_width.unwrap_or(default_w).abs().max(0.45);
+        let box_h = visual.txt_height.unwrap_or(default_h).abs().max(0.28);
+        let text_angle = readable_text_angle_rad(visual.transform.angle_rad);
 
         if let Some(bg) = visual.text_bg_color {
             let bg_rgba = bg.to_linear_f32();
-            let hw = (box_w * 0.46) as f32;
-            let hh = ((visual.font_size_pt / 72.0)
-                * 0.85
-                * (trimmed_txt.lines().count().max(1) as f64))
-                .min(box_h * 0.48) as f32;
-            let cx = visual.txt_pos[0] as f32;
-            let cy = visual.txt_pos[1] as f32;
-            out_mesh.push_quad(
-                [cx - hw, cy - hh],
-                [cx + hw, cy + hh],
-                bg_rgba,
-                [PRIM_FLAG_SHAPE, 0.0],
-            );
+            let font_in = (visual.font_size_pt.clamp(4.0, 144.0)) / 72.0;
+            let n_lines = trimmed_txt.lines().count().max(1) as f64;
+            let max_chars = trimmed_txt
+                .lines()
+                .map(|l| l.chars().count())
+                .max()
+                .unwrap_or(1) as f64;
+            let span_w = (max_chars * font_in * 0.62 + 0.12).min(box_w).max(0.22);
+            let span_h = (n_lines * font_in * 1.32 + 0.06).min(box_h).max(font_in * 1.15);
+            let pad = 0.05;
+            let local_cx = match visual.horiz_align {
+                0 => -box_w * 0.5 + pad + span_w * 0.5,
+                2 => box_w * 0.5 - pad - span_w * 0.5,
+                _ => 0.0,
+            };
+            let local_cy = match visual.vert_align {
+                0 => (box_h * 0.5 - pad - span_h * 0.5).max(0.0),
+                2 => (-box_h * 0.5 + pad + span_h * 0.5).min(0.0),
+                _ => 0.0,
+            };
+            let hw = span_w * 0.5;
+            let hh = span_h * 0.5;
+            let (sa, ca) = text_angle.sin_cos();
+            let rot_pt = |lx: f64, ly: f64| -> [f32; 2] {
+                [
+                    (visual.txt_pos[0] + lx * ca - ly * sa) as f32,
+                    (visual.txt_pos[1] + lx * sa + ly * ca) as f32,
+                ]
+            };
+            let c0 = rot_pt(local_cx - hw, local_cy - hh);
+            let c1 = rot_pt(local_cx + hw, local_cy - hh);
+            let c2 = rot_pt(local_cx + hw, local_cy + hh);
+            let c3 = rot_pt(local_cx - hw, local_cy + hh);
+            let base = out_mesh.vertices.len() as u32;
+            for pos in [c0, c1, c2, c3] {
+                out_mesh.vertices.push(GpuVertex {
+                    pos,
+                    color: bg_rgba,
+                    flags: [PRIM_FLAG_SHAPE, 0.0],
+                });
+            }
+            out_mesh
+                .indices
+                .extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
         }
 
         let block = crate::typography::parse_inline_rich_text_styled_with_font(
@@ -447,7 +489,7 @@ pub fn tessellate_shape_full(
             visual.txt_pos[1],
             box_w,
             box_h,
-            visual.transform.angle_rad,
+            text_angle,
         );
         out_mesh.append(&rich_mesh);
     }

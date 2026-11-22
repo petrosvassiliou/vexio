@@ -27,6 +27,8 @@ export interface EngineShapeSummary {
   text: string;
   pinX: number;
   pinY: number;
+  txtX?: number;
+  txtY?: number;
   width: number;
   height: number;
   angleDeg: number;
