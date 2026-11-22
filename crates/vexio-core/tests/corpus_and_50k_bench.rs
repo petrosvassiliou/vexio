@@ -635,3 +635,415 @@ fn real_world_mssc_architektur_vsdx_fidelity_and_page_zero_selection() {
         vexio_engine_destroy(eng);
     }
 }
+
+#[test]
+fn vsdx_german_utf8_open_and_stencil_import_zero_panic_regression() {
+    use std::ffi::CString;
+    use vexio_core::ffi::c_abi::{
+        VexioByteSlice, VexioOwnedBuffer, VexioStatus, VexioViewport, vexio_buffer_free,
+        vexio_doc_create_blank, vexio_doc_destroy, vexio_doc_drop_stencil,
+        vexio_doc_get_state_json, vexio_doc_import_stencil_bytes, vexio_doc_open_bytes,
+        vexio_doc_save_format, vexio_engine_create, vexio_engine_destroy,
+        vexio_last_error_message, vexio_viewport_create_headless, vexio_viewport_destroy,
+        vexio_viewport_render_rgba,
+    };
+    use vexio_vsdx::opc::RawOpcArchive;
+
+    let mut archive = RawOpcArchive::default();
+    archive.files.insert(
+        "[Content_Types].xml".into(),
+        br#"<?xml version="1.0" encoding="UTF-8"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Default Extension="svg" ContentType="image/svg+xml"/>
+  <Override PartName="/visio/document.xml" ContentType="application/vnd.ms-visio.drawing.main+xml"/>
+</Types>"#
+            .to_vec(),
+    );
+    // Include cyclic StyleSheets (Style 1 <-> Style 2) and BOM-prefixed XML!
+    archive.files.insert(
+        "visio/document.xml".into(),
+        "\u{FEFF}<?xml version=\"1.0\" encoding=\"UTF-8\"?>
+<VisioDocument xmlns=\"http://schemas.microsoft.com/office/visio/2012/main\">
+  <StyleSheets>
+    <StyleSheet ID=\"1\" NameU=\"GermanStyleA\" LineStyle=\"2\" FillStyle=\"2\" TextStyle=\"2\">
+      <Cell N=\"FillForegnd\" V=\"#E8F0FE\"/>
+    </StyleSheet>
+    <StyleSheet ID=\"2\" NameU=\"GermanStyleB\" LineStyle=\"1\" FillStyle=\"1\" TextStyle=\"1\">
+      <Cell N=\"LineWeight\" V=\"0.02\"/>
+    </StyleSheet>
+  </StyleSheets>
+</VisioDocument>"
+            .as_bytes()
+            .to_vec(),
+    );
+    // Masters:
+    // - Master 1: Group Master whose children use ID="1" and ID="2" (previously collided with `sh.id = 1`!)
+    //   and 6-byte / 8-byte UTF-8 German strings ("Länge", "Höhen", "Büros", "Händler", "Währung", "#Länge", "#Händler")
+    // - Master 2: Zero-width 1D Dynamic Connector master (filtered out when 2D/Group masters exist)
+    archive.files.insert(
+        "visio/masters/masters.xml".into(),
+        r##"<?xml version="1.0" encoding="UTF-8"?>
+<Masters xmlns="http://schemas.microsoft.com/office/visio/2012/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <Master ID="1" NameU="MSSC Gerät" Name="MSSC Gerät">
+    <Rel r:id="rIdM1"/>
+  </Master>
+  <Master ID="2" NameU="Dynamic connector" Name="Dynamischer Verbinder">
+    <Rel r:id="rIdM2"/>
+  </Master>
+</Masters>"##
+            .as_bytes()
+            .to_vec(),
+    );
+    archive.files.insert(
+        "visio/masters/_rels/masters.xml.rels".into(),
+        r##"<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rIdM1" Type="http://schemas.microsoft.com/office/visio/2006/relationships/master" Target="master1.xml"/>
+  <Relationship Id="rIdM2" Type="http://schemas.microsoft.com/office/visio/2006/relationships/master" Target="master2.xml"/>
+</Relationships>"##
+            .as_bytes()
+            .to_vec(),
+    );
+    archive.files.insert(
+        "visio/masters/master1.xml".into(),
+        r##"<?xml version="1.0" encoding="UTF-8"?>
+<MasterContents xmlns="http://schemas.microsoft.com/office/visio/2012/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <Shapes>
+    <Shape ID="5" Type="Group" NameU="GeräteGruppe" LineStyle="1" FillStyle="1" TextStyle="1">
+      <Cell N="PinX" V="1.0"/>
+      <Cell N="PinY" V="1.0"/>
+      <Cell N="Width" V="1.8"/>
+      <Cell N="Height" V="1.2"/>
+      <Cell N="LocPinX" V="0.9" F="Width*0.5"/>
+      <Cell N="LocPinY" V="0.6" F="Height*0.5"/>
+      <Section N="Property">
+        <Row N="Größe">
+          <Cell N="Label" V="Länge" U="STR"/>
+          <Cell N="Value" V="Höhen"/>
+          <Cell N="Prompt" V="Händler" U="STR"/>
+          <Cell N="Format" V="#Länge"/>
+        </Row>
+        <Row N="Währung">
+          <Cell N="Label" V="Büros"/>
+          <Cell N="Value" V="Währung" U="STR"/>
+          <Cell N="Format" V="#Händler"/>
+        </Row>
+      </Section>
+      <Shapes>
+        <Shape ID="1" Type="Shape" NameU="KindRahmen">
+          <Cell N="PinX" V="0.9" F="Sheet.5!Width*0.5"/>
+          <Cell N="PinY" V="0.6" F="Sheet.5!Height*0.5"/>
+          <Cell N="Width" V="1.8" F="Sheet.5!Width"/>
+          <Cell N="Height" V="1.2" F="Sheet.5!Height"/>
+          <Cell N="LocPinX" V="0.9" F="Width*0.5"/>
+          <Cell N="LocPinY" V="0.6" F="Height*0.5"/>
+          <Cell N="FillForegnd" V="#DBEAFE"/>
+          <Cell N="LineWeight" V="NaN" F="0/0"/>
+          <Section N="Geometry" IX="0">
+            <Row T="MoveTo" IX="1"><Cell N="X" V="0"/><Cell N="Y" V="0"/></Row>
+            <Row T="LineTo" IX="2"><Cell N="X" V="1.8" F="Width"/><Cell N="Y" V="0"/></Row>
+            <Row T="LineTo" IX="3"><Cell N="X" V="1.8" F="Width"/><Cell N="Y" V="1.2" F="Height"/></Row>
+            <Row T="LineTo" IX="4"><Cell N="X" V="0"/><Cell N="Y" V="1.2" F="Height"/></Row>
+            <Row T="LineTo" IX="5"><Cell N="X" V="0"/><Cell N="Y" V="0"/></Row>
+          </Section>
+        </Shape>
+        <Shape ID="2" Type="Foreign" NameU="KindIcon">
+          <Cell N="PinX" V="0.9" F="Sheet.5!Width*0.5"/>
+          <Cell N="PinY" V="0.6" F="Sheet.5!Height*0.5"/>
+          <Cell N="Width" V="0.8" F="Sheet.5!Width*0.45"/>
+          <Cell N="Height" V="0.6" F="Sheet.5!Height*0.5"/>
+          <ForeignData ForeignType="Img">
+            <Rel r:id="rIdSvg"/>
+          </ForeignData>
+        </Shape>
+      </Shapes>
+    </Shape>
+  </Shapes>
+</MasterContents>"##
+            .as_bytes()
+            .to_vec(),
+    );
+    archive.files.insert(
+        "visio/masters/_rels/master1.xml.rels".into(),
+        r##"<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rIdSvg" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/icon_ümlaut.svg"/>
+</Relationships>"##
+            .as_bytes()
+            .to_vec(),
+    );
+    archive.files.insert(
+        "visio/media/icon_ümlaut.svg".into(),
+        r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="#2563EB"/></svg>"##
+            .as_bytes()
+            .to_vec(),
+    );
+    archive.files.insert(
+        "visio/masters/master2.xml".into(),
+        r##"<?xml version="1.0" encoding="UTF-8"?>
+<MasterContents xmlns="http://schemas.microsoft.com/office/visio/2012/main">
+  <Shapes>
+    <Shape ID="1" Type="Shape" NameU="Dynamic connector">
+      <Cell N="BeginX" V="0"/>
+      <Cell N="BeginY" V="0"/>
+      <Cell N="EndX" V="0"/>
+      <Cell N="EndY" V="1"/>
+      <Cell N="Width" V="0"/>
+      <Cell N="Height" V="1"/>
+      <Cell N="ObjType" V="2"/>
+    </Shape>
+  </Shapes>
+</MasterContents>"##
+            .as_bytes()
+            .to_vec(),
+    );
+    archive.files.insert(
+        "visio/pages/pages.xml".into(),
+        r##"<?xml version="1.0" encoding="UTF-8"?>
+<Pages xmlns="http://schemas.microsoft.com/office/visio/2012/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <Page ID="0" NameU="Übersicht" Name="Übersicht">
+    <PageSheet>
+      <Cell N="PageWidth" V="11.6929"/>
+      <Cell N="PageHeight" V="8.2677"/>
+    </PageSheet>
+    <Rel r:id="rIdP1"/>
+  </Page>
+</Pages>"##
+            .as_bytes()
+            .to_vec(),
+    );
+    archive.files.insert(
+        "visio/pages/_rels/pages.xml.rels".into(),
+        r##"<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rIdP1" Type="http://schemas.microsoft.com/office/visio/2006/relationships/page" Target="page1.xml"/>
+</Relationships>"##
+            .as_bytes()
+            .to_vec(),
+    );
+    archive.files.insert(
+        "visio/pages/page1.xml".into(),
+        r##"<?xml version="1.0" encoding="UTF-8"?>
+<PageContents xmlns="http://schemas.microsoft.com/office/visio/2012/main">
+  <Shapes>
+    <Shape ID="10" Master="1" Type="Group" NameU="GerätInstanz" LineStyle="1" FillStyle="2">
+      <Cell N="PinX" V="4.0"/>
+      <Cell N="PinY" V="4.0"/>
+      <Cell N="Width" V="2.2"/>
+      <Cell N="Height" V="1.4"/>
+      <Section N="User">
+        <Row N="Räume">
+          <Cell N="Value" V="Türen"/>
+          <Cell N="Prompt" V="Wände" F="GUARD(&quot;Größen&quot;)"/>
+        </Row>
+      </Section>
+      <Text>MSSC Übersicht — Türen &amp; Räume</Text>
+    </Shape>
+    <Shape ID="11" Type="Shape" NameU="EdgeCaseFormulas" LineStyle="2">
+      <Cell N="PinX" V="7.5"/>
+      <Cell N="PinY" V="4.0"/>
+      <Cell N="Width" V="1.6" F="IF(ISERR(SQRT(-1)), 1.6, 0)"/>
+      <Cell N="Height" V="1.0"/>
+      <Cell N="Rounding" V="#REF!" F="#REF!"/>
+      <Text>Währung € / Größe</Text>
+    </Shape>
+  </Shapes>
+</PageContents>"##
+            .as_bytes()
+            .to_vec(),
+    );
+
+    let vsdx_bytes = archive.to_bytes().expect("build german vsdx zip");
+    let ext = CString::new("vsdx").unwrap();
+    let fname = CString::new("MSSC Architektur.vsdx").unwrap();
+    let blank_title = CString::new("Target Drawing").unwrap();
+
+    // SAFETY: All FFI pointers are owned and freed within this test block.
+    unsafe {
+        let eng = vexio_engine_create();
+
+        // Part A: Open `.vsdx` directly via `vexio_doc_open_bytes`, render RGBA, inspect state JSON, and round-trip save!
+        let mut opened_doc = std::ptr::null_mut();
+        assert_eq!(
+            vexio_doc_open_bytes(
+                eng,
+                VexioByteSlice {
+                    ptr: vsdx_bytes.as_ptr(),
+                    len: vsdx_bytes.len(),
+                },
+                ext.as_ptr(),
+                &mut opened_doc,
+            ),
+            VexioStatus::Ok
+        );
+        let mut vp_open: *mut VexioViewport = std::ptr::null_mut();
+        assert_eq!(
+            vexio_viewport_create_headless(eng, opened_doc, 1, 640, 480, 1.0, &mut vp_open),
+            VexioStatus::Ok
+        );
+        let mut rgba_open = VexioOwnedBuffer {
+            ptr: std::ptr::null_mut(),
+            len: 0,
+            cap: 0,
+        };
+        assert_eq!(
+            vexio_viewport_render_rgba(vp_open, opened_doc, &mut rgba_open),
+            VexioStatus::Ok
+        );
+        assert_eq!(rgba_open.len, 640 * 480 * 4);
+        vexio_buffer_free(rgba_open);
+
+        let mut saved_vsdx = VexioOwnedBuffer {
+            ptr: std::ptr::null_mut(),
+            len: 0,
+            cap: 0,
+        };
+        assert_eq!(
+            vexio_doc_save_format(opened_doc, ext.as_ptr(), &mut saved_vsdx),
+            VexioStatus::Ok
+        );
+        assert!(saved_vsdx.len > 500);
+        vexio_buffer_free(saved_vsdx);
+
+        // Part B: Import the `.vsdx` as a stencil pack into an open document via `vexio_doc_import_stencil_bytes`!
+        let target_doc = vexio_doc_create_blank(blank_title.as_ptr());
+        let mut import_json_buf = VexioOwnedBuffer {
+            ptr: std::ptr::null_mut(),
+            len: 0,
+            cap: 0,
+        };
+        assert_eq!(
+            vexio_doc_import_stencil_bytes(
+                target_doc,
+                fname.as_ptr(),
+                VexioByteSlice {
+                    ptr: vsdx_bytes.as_ptr(),
+                    len: vsdx_bytes.len(),
+                },
+                &mut import_json_buf,
+            ),
+            VexioStatus::Ok
+        );
+        let import_json = std::str::from_utf8(std::slice::from_raw_parts(
+            import_json_buf.ptr,
+            import_json_buf.len,
+        ))
+        .unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(import_json).unwrap();
+        assert_eq!(parsed["packTitle"], "MSSC Architektur");
+        let masters_arr = parsed["masters"].as_array().expect("masters array for macOS/Android");
+        let previews_arr = parsed["previews"].as_array().expect("previews array for Windows/PWA");
+        assert_eq!(masters_arr.len(), 1, "1D connector master filtered, 2D Group master kept");
+        assert_eq!(previews_arr.len(), 1);
+        assert_eq!(masters_arr[0]["name"], "MSSC Gerät");
+        assert!(masters_arr[0]["svg"].as_str().unwrap().contains("<svg"));
+        vexio_buffer_free(import_json_buf);
+
+        // Drop TWO instances of the imported Group Master onto Page 1 and verify non-colliding IDs + RGBA render!
+        let cat_c = CString::new("MSSC Architektur").unwrap();
+        let master_c = CString::new("MSSC Gerät").unwrap();
+        let mut dropped_1 = 0u64;
+        let mut dropped_2 = 0u64;
+        assert_eq!(
+            vexio_doc_drop_stencil(
+                target_doc,
+                1,
+                cat_c.as_ptr(),
+                master_c.as_ptr(),
+                3.0,
+                4.0,
+                &mut dropped_1,
+            ),
+            VexioStatus::Ok
+        );
+        assert_eq!(
+            vexio_doc_drop_stencil(
+                target_doc,
+                1,
+                cat_c.as_ptr(),
+                master_c.as_ptr(),
+                6.0,
+                4.0,
+                &mut dropped_2,
+            ),
+            VexioStatus::Ok
+        );
+        assert!(dropped_1 > 0 && dropped_2 > dropped_1);
+
+        let page1 = (&*target_doc).session.doc.page(1).unwrap();
+        let g1 = page1.find_shape(dropped_1).unwrap();
+        let g2 = page1.find_shape(dropped_2).unwrap();
+        assert_eq!(g1.children.len(), 2);
+        assert_eq!(g2.children.len(), 2);
+        assert_ne!(g1.children[0].id, g2.children[0].id);
+        assert!(
+            g1.children[0]
+                .sheet
+                .get_cell("Width")
+                .unwrap()
+                .formula
+                .contains(&format!("Sheet.{dropped_1}!Width"))
+        );
+
+        let mut vp_target: *mut VexioViewport = std::ptr::null_mut();
+        assert_eq!(
+            vexio_viewport_create_headless(eng, target_doc, 1, 640, 480, 1.0, &mut vp_target),
+            VexioStatus::Ok
+        );
+        let mut rgba_target = VexioOwnedBuffer {
+            ptr: std::ptr::null_mut(),
+            len: 0,
+            cap: 0,
+        };
+        assert_eq!(
+            vexio_viewport_render_rgba(vp_target, target_doc, &mut rgba_target),
+            VexioStatus::Ok
+        );
+        assert_eq!(rgba_target.len, 640 * 480 * 4);
+        vexio_buffer_free(rgba_target);
+
+        let mut state_target = VexioOwnedBuffer {
+            ptr: std::ptr::null_mut(),
+            len: 0,
+            cap: 0,
+        };
+        assert_eq!(
+            vexio_doc_get_state_json(target_doc, 1, &mut state_target),
+            VexioStatus::Ok
+        );
+        vexio_buffer_free(state_target);
+
+        // Verify `vexio_last_error_message` reports structured error on invalid corrupt bytes without panicking
+        let bad = b"not-a-valid-zip-or-vsdx";
+        let mut bad_out = std::ptr::null_mut();
+        assert_eq!(
+            vexio_doc_open_bytes(
+                eng,
+                VexioByteSlice {
+                    ptr: bad.as_ptr(),
+                    len: bad.len(),
+                },
+                ext.as_ptr(),
+                &mut bad_out,
+            ),
+            VexioStatus::ErrIoCorruptFormat
+        );
+        let mut err_buf = VexioOwnedBuffer {
+            ptr: std::ptr::null_mut(),
+            len: 0,
+            cap: 0,
+        };
+        assert_eq!(vexio_last_error_message(&mut err_buf), VexioStatus::Ok);
+        assert!(err_buf.len > 0);
+        vexio_buffer_free(err_buf);
+
+        vexio_viewport_destroy(vp_target);
+        vexio_doc_destroy(target_doc);
+        vexio_viewport_destroy(vp_open);
+        vexio_doc_destroy(opened_doc);
+        vexio_engine_destroy(eng);
+    }
+}
+

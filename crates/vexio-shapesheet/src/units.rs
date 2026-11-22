@@ -263,6 +263,9 @@ impl RgbaColor {
 
     pub fn from_hex(hex: &str) -> Option<Self> {
         let s = hex.trim().trim_start_matches('#');
+        if !s.is_ascii() {
+            return None;
+        }
         match s.len() {
             6 => {
                 let r = u8::from_str_radix(&s[0..2], 16).ok()?;

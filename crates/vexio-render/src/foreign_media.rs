@@ -21,7 +21,15 @@ pub fn tessellate_foreign_media(
     world_tf: &ShapeTransform2D,
     tol_in: f32,
 ) -> TessellatedMesh {
-    if media.data.is_empty() || world_tf.width <= 1e-6 || world_tf.height <= 1e-6 {
+    if media.data.is_empty()
+        || !world_tf.pin_x.is_finite()
+        || !world_tf.pin_y.is_finite()
+        || !(world_tf.width.is_finite() && world_tf.width > 1e-6)
+        || !(world_tf.height.is_finite() && world_tf.height > 1e-6)
+        || !world_tf.loc_pin_x.is_finite()
+        || !world_tf.loc_pin_y.is_finite()
+        || !world_tf.angle_rad.is_finite()
+    {
         return TessellatedMesh::new();
     }
     let mt = media.media_type.to_ascii_uppercase();
@@ -337,14 +345,24 @@ fn emit_svg_shape_elem(
     stroke_tess: &mut StrokeTessellator,
     lyon_buf: &mut VertexBuffers<GpuVertex, u32>,
 ) {
+    let fallback_pt = point(world_tf.pin_x as f32, world_tf.pin_y as f32);
     let map_svg = |sx: f64, sy: f64| -> lyon_path::math::Point {
+        if !sx.is_finite() || !sy.is_finite() || !vb.2.is_finite() || !vb.3.is_finite() || vb.2.abs() < 1e-9 || vb.3.abs() < 1e-9 {
+            return fallback_pt;
+        }
         let tx = st.tx + sx * st.sx;
         let ty = st.ty + sy * st.sy;
         let nx = (tx - vb.0) / vb.2;
         // SVG Y points down (`0` = top, `vb.3` = bottom); Visio local Y points up (`height` = top, `0` = bottom)!
         let ny = 1.0 - (ty - vb.1) / vb.3;
         let (wx, wy) = world_tf.local_to_parent(nx * world_tf.width, ny * world_tf.height);
-        point(wx as f32, wy as f32)
+        let fx = wx as f32;
+        let fy = wy as f32;
+        if fx.is_finite() && fy.is_finite() {
+            point(fx, fy)
+        } else {
+            fallback_pt
+        }
     };
 
     let mut b = Path::builder();
@@ -356,7 +374,7 @@ fn emit_svg_shape_elem(
             let y = attr_val(e, b"y").and_then(|s| parse_svg_num(&s)).unwrap_or(0.0);
             let w = attr_val(e, b"width").and_then(|s| parse_svg_num(&s)).unwrap_or(0.0);
             let h = attr_val(e, b"height").and_then(|s| parse_svg_num(&s)).unwrap_or(0.0);
-            if w > 0.0 && h > 0.0 {
+            if w.is_finite() && h.is_finite() && w > 0.0 && h > 0.0 {
                 b.begin(map_svg(x, y));
                 b.line_to(map_svg(x + w, y));
                 b.line_to(map_svg(x + w, y + h));
@@ -377,7 +395,7 @@ fn emit_svg_shape_elem(
                     attr_val(e, b"ry").and_then(|s| parse_svg_num(&s)).unwrap_or(0.0),
                 )
             };
-            if rx > 0.0 && ry > 0.0 {
+            if rx.is_finite() && ry.is_finite() && rx > 0.0 && ry > 0.0 {
                 const STEPS: usize = 24;
                 b.begin(map_svg(cx + rx, cy));
                 for i in 1..STEPS {
@@ -403,7 +421,7 @@ fn emit_svg_shape_elem(
                 let nums: Vec<f64> = pts_str
                     .split(|c: char| c.is_whitespace() || c == ',')
                     .filter(|t| !t.is_empty())
-                    .filter_map(|t| t.parse::<f64>().ok())
+                    .filter_map(|t| t.parse::<f64>().ok().filter(|v| v.is_finite()))
                     .collect();
                 if nums.len() >= 4 {
                     b.begin(map_svg(nums[0], nums[1]));
@@ -449,8 +467,15 @@ fn emit_svg_shape_elem(
         sc.a = ((sc.a as f64) * st.opacity).round().clamp(0.0, 255.0) as u8;
         if sc.a > 0 {
             let rgba = sc.to_linear_f32();
-            let scale_in = (world_tf.width / vb.2).min(world_tf.height / vb.3).max(0.002);
-            let sw = ((st.stroke_width * st.sx.abs().max(0.5) * scale_in) as f32).clamp(0.006, 0.25);
+            let scale_in = (world_tf.width / vb.2.max(1e-6))
+                .min(world_tf.height / vb.3.max(1e-6))
+                .max(0.002);
+            let raw_sw = st.stroke_width * st.sx.abs().max(0.5) * scale_in;
+            let sw = if raw_sw.is_finite() {
+                (raw_sw as f32).clamp(0.006, 0.25)
+            } else {
+                0.015
+            };
             let _ = stroke_tess.tessellate_path(
                 &path,
                 &StrokeOptions::tolerance(tol_in)
@@ -847,9 +872,11 @@ fn decode_png_rgba8(bytes: &[u8]) -> Option<(u32, u32, Vec<u8>)> {
     }
     let bytes_per_sample = (bit_depth / 8) as usize;
     let bpp = channels * bytes_per_sample;
-    let stride = (width as usize) * bpp;
+    let stride = (width as usize).checked_mul(bpp)?;
+    let row_bytes = stride.checked_add(1)?;
+    let expected_raw_len = (height as usize).checked_mul(row_bytes)?;
     let raw = miniz_oxide::inflate::decompress_to_vec_zlib(&idat).ok()?;
-    if raw.len() < (height as usize) * (1 + stride) {
+    if raw.len() < expected_raw_len {
         return None;
     }
 
@@ -858,7 +885,7 @@ fn decode_png_rgba8(bytes: &[u8]) -> Option<(u32, u32, Vec<u8>)> {
     let mut rgba = Vec::with_capacity((width as usize) * (height as usize) * 4);
 
     for y in 0..(height as usize) {
-        let row_off = y * (1 + stride);
+        let row_off = y * row_bytes;
         let filter = raw[row_off];
         let src = &raw[row_off + 1..row_off + 1 + stride];
         for i in 0..stride {
@@ -929,10 +956,14 @@ fn decode_bmp_rgba8(bytes: &[u8]) -> Option<(u32, u32, Vec<u8>)> {
     }
     let w = width as usize;
     let h = height_signed.unsigned_abs() as usize;
+    if w > 4096 || h > 4096 {
+        return None;
+    }
     let top_down = height_signed < 0;
     let bytes_pp = (bpp / 8) as usize;
-    let row_stride = (w * bytes_pp + 3) & !3;
-    if pixel_offset + row_stride * h > bytes.len() {
+    let row_stride = (w.checked_mul(bytes_pp)?.checked_add(3)?) & !3;
+    let end_offset = pixel_offset.checked_add(row_stride.checked_mul(h)?)?;
+    if end_offset > bytes.len() {
         return None;
     }
     let mut rgba = vec![0u8; w * h * 4];
@@ -1244,7 +1275,8 @@ fn tessellate_emf_foreign(bytes: &[u8], world_tf: &ShapeTransform2D, tol_in: f32
                 let is_closed = rec_type == 3 || rec_type == 86;
                 let is_16 = rec_type >= 85;
                 let step = if is_16 { 4 } else { 8 };
-                if count >= 2 && 28 + count * step <= rec.len() {
+                let needed = count.checked_mul(step).and_then(|n| n.checked_add(28));
+                if count >= 2 && needed.is_some_and(|end| end <= rec.len()) {
                     let mut b = Path::builder();
                     for i in 0..count {
                         let off = pos + 28 + i * step;

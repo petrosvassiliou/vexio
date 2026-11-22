@@ -207,8 +207,9 @@ impl<'a> Lexer<'a> {
                     let mut out = String::new();
                     let mut closed = false;
                     while self.pos < self.bytes.len() {
-                        let ch_str = &self.src[self.pos..];
-                        let ch = ch_str.chars().next().unwrap();
+                        let Some(ch) = self.src.get(self.pos..).and_then(|s| s.chars().next()) else {
+                            break;
+                        };
                         self.pos += ch.len_utf8();
                         if ch == '"' {
                             if self.pos < self.bytes.len() && self.bytes[self.pos] == b'"' {
@@ -486,26 +487,31 @@ impl<'a> Lexer<'a> {
                         });
                     }
                 }
-                _ if b.is_ascii_alphabetic() || b == b'_' || b == b'$' => {
-                    while self.pos < self.bytes.len()
-                        && (self.bytes[self.pos].is_ascii_alphanumeric()
-                            || self.bytes[self.pos] == b'_'
-                            || self.bytes[self.pos] == b'$')
-                    {
-                        self.pos += 1;
-                    }
-                    let ident = self.src[start..self.pos].to_string();
-                    tokens.push(Token {
-                        kind: TokenKind::Ident(ident),
-                        pos: start,
-                    });
-                }
                 _ => {
-                    return Err(FormulaParseError::UnexpectedToken {
-                        pos: start,
-                        found: (b as char).to_string(),
-                        expected: "expression token".into(),
-                    });
+                    let Some(first_ch) = self.src.get(start..).and_then(|s| s.chars().next()) else {
+                        break;
+                    };
+                    if first_ch.is_alphabetic() || first_ch == '_' || first_ch == '$' {
+                        self.pos += first_ch.len_utf8();
+                        while let Some(ch) = self.src.get(self.pos..).and_then(|s| s.chars().next()) {
+                            if ch.is_alphanumeric() || ch == '_' || ch == '$' {
+                                self.pos += ch.len_utf8();
+                            } else {
+                                break;
+                            }
+                        }
+                        let ident = self.src[start..self.pos].to_string();
+                        tokens.push(Token {
+                            kind: TokenKind::Ident(ident),
+                            pos: start,
+                        });
+                    } else {
+                        return Err(FormulaParseError::UnexpectedToken {
+                            pos: start,
+                            found: first_ch.to_string(),
+                            expected: "expression token".into(),
+                        });
+                    }
                 }
             }
         }
@@ -752,8 +758,13 @@ impl Parser {
         if let TokenKind::Ident(id) = &self.peek().kind {
             if id.eq_ignore_ascii_case("Pages") && matches!(self.peek_n(1).kind, TokenKind::BracketIdent(_)) {
                 self.bump(); // Pages
-                let TokenKind::BracketIdent(page_name) = self.bump().kind else {
-                    unreachable!();
+                let bumped = self.bump();
+                let TokenKind::BracketIdent(page_name) = bumped.kind else {
+                    return Err(FormulaParseError::UnexpectedToken {
+                        pos: bumped.pos,
+                        found: format!("{:?}", bumped.kind),
+                        expected: "'[PageName]'".into(),
+                    });
                 };
                 if !matches!(self.peek().kind, TokenKind::Bang) {
                     return Err(FormulaParseError::UnexpectedToken {

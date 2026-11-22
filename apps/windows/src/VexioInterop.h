@@ -110,6 +110,20 @@ MapCursorToWinUI(uint32_t cursorKind) noexcept {
     return winrt::to_hstring(utf8);
 }
 
+[[nodiscard]] inline std::wstring ReadLastErrorDetail() {
+    VexioOwnedBuffer buf{nullptr, 0, 0};
+    if (vexio_last_error_message(&buf) != VEXIO_OK || buf.ptr == nullptr || buf.len == 0) {
+        if (buf.ptr != nullptr) {
+            vexio_buffer_free(buf);
+        }
+        return {};
+    }
+    const std::string_view utf8{reinterpret_cast<const char*>(buf.ptr), buf.len};
+    std::wstring wide{winrt::to_hstring(utf8)};
+    vexio_buffer_free(buf);
+    return wide;
+}
+
 template <typename T>
 struct VexioResult {
     VexioStatus        status{VEXIO_OK};
@@ -119,8 +133,17 @@ struct VexioResult {
         return status == VEXIO_OK && value.has_value();
     }
 
-    [[nodiscard]] constexpr std::wstring_view message() const noexcept {
-        return DescribeStatus(status);
+    [[nodiscard]] std::wstring message() const {
+        std::wstring msg{DescribeStatus(status)};
+        if (status == VEXIO_ERR_IO_CORRUPT_FORMAT || status == VEXIO_ERR_INTERNAL_PANIC) {
+            const std::wstring detail = ReadLastErrorDetail();
+            if (!detail.empty()) {
+                msg += L" (";
+                msg += detail;
+                msg += L")";
+            }
+        }
+        return msg;
     }
 };
 

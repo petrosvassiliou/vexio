@@ -54,6 +54,40 @@ impl VexioOwnedBuffer {
     }
 }
 
+thread_local! {
+    static LAST_FFI_ERROR: std::cell::RefCell<String> = const { std::cell::RefCell::new(String::new()) };
+}
+
+fn set_last_ffi_error(msg: impl Into<String>) {
+    let s = msg.into();
+    LAST_FFI_ERROR.with(|slot| {
+        *slot.borrow_mut() = s;
+    });
+}
+
+fn panic_payload_to_string(payload: &(dyn std::any::Any + Send)) -> String {
+    if let Some(s) = payload.downcast_ref::<&str>() {
+        (*s).to_string()
+    } else if let Some(s) = payload.downcast_ref::<String>() {
+        s.clone()
+    } else {
+        "unexpected non-string panic payload".to_string()
+    }
+}
+
+fn catch_ffi_status<F>(f: F) -> VexioStatus
+where
+    F: FnOnce() -> VexioStatus,
+{
+    match catch_unwind(AssertUnwindSafe(f)) {
+        Ok(status) => status,
+        Err(payload) => {
+            set_last_ffi_error(format!("Rust panic: {}", panic_payload_to_string(&*payload)));
+            VexioStatus::ErrInternalPanic
+        }
+    }
+}
+
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct VexioPointerEvent {
@@ -1228,7 +1262,7 @@ pub unsafe extern "C" fn vexio_doc_open_bytes(
     ext_utf8: *const c_char,
     out_doc: *mut *mut VexioDoc,
 ) -> VexioStatus {
-    let res = catch_unwind(|| {
+    catch_ffi_status(|| {
         if engine.is_null() || out_doc.is_null() || ext_utf8.is_null() || (bytes.ptr.is_null() && bytes.len > 0) {
             return VexioStatus::ErrInvalidArg;
         }
@@ -1245,16 +1279,19 @@ pub unsafe extern "C" fn vexio_doc_open_bytes(
         let mut session = DocumentSession::new_blank("Imported");
         match session.open_bytes(raw_slice, ext) {
             Ok(()) => {
+                set_last_ffi_error("");
                 // SAFETY: `out_doc` verified non-null above.
                 unsafe {
                     *out_doc = Box::into_raw(Box::new(VexioDoc { session }));
                 }
                 VexioStatus::Ok
             }
-            Err(_) => VexioStatus::ErrIoCorruptFormat,
+            Err(e) => {
+                set_last_ffi_error(e.to_string());
+                VexioStatus::ErrIoCorruptFormat
+            }
         }
-    });
-    res.unwrap_or(VexioStatus::ErrInternalPanic)
+    })
 }
 
 #[no_mangle]
@@ -1263,7 +1300,7 @@ pub unsafe extern "C" fn vexio_doc_save_format(
     ext_utf8: *const c_char,
     out_buf: *mut VexioOwnedBuffer,
 ) -> VexioStatus {
-    let res = catch_unwind(|| {
+    catch_ffi_status(|| {
         if doc.is_null() || ext_utf8.is_null() || out_buf.is_null() {
             return VexioStatus::ErrInvalidArg;
         }
@@ -1274,14 +1311,17 @@ pub unsafe extern "C" fn vexio_doc_save_format(
         };
         match doc_ref.session.save_format(ext) {
             Ok(vec) => {
+                set_last_ffi_error("");
                 // SAFETY: `out_buf` verified non-null.
                 unsafe { *out_buf = VexioOwnedBuffer::from_vec(vec) };
                 VexioStatus::Ok
             }
-            Err(_) => VexioStatus::ErrIoCorruptFormat,
+            Err(e) => {
+                set_last_ffi_error(e.to_string());
+                VexioStatus::ErrIoCorruptFormat
+            }
         }
-    });
-    res.unwrap_or(VexioStatus::ErrInternalPanic)
+    })
 }
 
 #[no_mangle]
@@ -1298,6 +1338,19 @@ pub unsafe extern "C" fn vexio_buffer_free(buf: VexioOwnedBuffer) {
         // SAFETY: Reconstructs the `Vec<u8>` originally forgotten in `VexioOwnedBuffer::from_vec`.
         drop(unsafe { Vec::from_raw_parts(buf.ptr, buf.len, buf.cap) });
     }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_last_error_message(
+    out_utf8: *mut VexioOwnedBuffer,
+) -> VexioStatus {
+    if out_utf8.is_null() {
+        return VexioStatus::ErrInvalidArg;
+    }
+    let msg = LAST_FFI_ERROR.with(|slot| slot.borrow().clone());
+    // SAFETY: `out_utf8` verified non-null above.
+    unsafe { *out_utf8 = VexioOwnedBuffer::from_vec(msg.into_bytes()) };
+    VexioStatus::Ok
 }
 
 #[no_mangle]
@@ -1566,7 +1619,7 @@ pub unsafe extern "C" fn vexio_viewport_set_page(
     doc: *const VexioDoc,
     page_id: u32,
 ) -> VexioStatus {
-    let res = catch_unwind(AssertUnwindSafe(|| {
+    catch_ffi_status(|| {
         if vp.is_null() || doc.is_null() {
             return VexioStatus::ErrInvalidArg;
         }
@@ -1587,8 +1640,7 @@ pub unsafe extern "C" fn vexio_viewport_set_page(
         }
         vp_mut.present_if_attached(&doc_ref.session.doc);
         VexioStatus::Ok
-    }));
-    res.unwrap_or(VexioStatus::ErrInternalPanic)
+    })
 }
 
 #[no_mangle]
@@ -1599,7 +1651,7 @@ pub unsafe extern "C" fn vexio_viewport_set_zoom(
     pan_x_in: f64,
     pan_y_in: f64,
 ) -> VexioStatus {
-    let res = catch_unwind(AssertUnwindSafe(|| {
+    catch_ffi_status(|| {
         if vp.is_null() || doc.is_null() {
             return VexioStatus::ErrInvalidArg;
         }
@@ -1619,8 +1671,7 @@ pub unsafe extern "C" fn vexio_viewport_set_zoom(
         }
         vp_mut.present_if_attached(&doc_ref.session.doc);
         VexioStatus::Ok
-    }));
-    res.unwrap_or(VexioStatus::ErrInternalPanic)
+    })
 }
 
 #[no_mangle]
@@ -1628,7 +1679,7 @@ pub unsafe extern "C" fn vexio_viewport_render_frame(
     vp: *mut VexioViewport,
     doc: *const VexioDoc,
 ) -> VexioStatus {
-    let res = catch_unwind(AssertUnwindSafe(|| {
+    catch_ffi_status(|| {
         if vp.is_null() || doc.is_null() {
             return VexioStatus::ErrInvalidArg;
         }
@@ -1637,8 +1688,7 @@ pub unsafe extern "C" fn vexio_viewport_render_frame(
         let doc_ref = unsafe { &*doc };
         vp_mut.present_if_attached(&doc_ref.session.doc);
         VexioStatus::Ok
-    }));
-    res.unwrap_or(VexioStatus::ErrInternalPanic)
+    })
 }
 
 #[no_mangle]
@@ -1647,7 +1697,7 @@ pub unsafe extern "C" fn vexio_viewport_render_rgba(
     doc: *const VexioDoc,
     out_rgba: *mut VexioOwnedBuffer,
 ) -> VexioStatus {
-    let res = catch_unwind(AssertUnwindSafe(|| {
+    catch_ffi_status(|| {
         if vp.is_null() || doc.is_null() || out_rgba.is_null() {
             return VexioStatus::ErrInvalidArg;
         }
@@ -1668,8 +1718,7 @@ pub unsafe extern "C" fn vexio_viewport_render_rgba(
             }
             Err(_) => VexioStatus::ErrGpuSurfaceLost,
         }
-    }));
-    res.unwrap_or(VexioStatus::ErrInternalPanic)
+    })
 }
 
 #[no_mangle]
@@ -1689,7 +1738,7 @@ pub unsafe extern "C" fn vexio_viewport_dispatch_pointer(
     ev: *const VexioPointerEvent,
     out_cursor_kind: *mut u32,
 ) -> VexioStatus {
-    let res = catch_unwind(AssertUnwindSafe(|| {
+    catch_ffi_status(|| {
         if vp.is_null() || doc.is_null() || ev.is_null() {
             return VexioStatus::ErrInvalidArg;
         }
@@ -1703,8 +1752,7 @@ pub unsafe extern "C" fn vexio_viewport_dispatch_pointer(
             unsafe { ptr::write(out_cursor_kind, cursor) };
         }
         VexioStatus::Ok
-    }));
-    res.unwrap_or(VexioStatus::ErrInternalPanic)
+    })
 }
 
 #[no_mangle]
@@ -1715,7 +1763,7 @@ pub unsafe extern "C" fn vexio_render_preview_rgba(
     height_px: u32,
     out_rgba: *mut VexioOwnedBuffer,
 ) -> VexioStatus {
-    let res = catch_unwind(|| {
+    catch_ffi_status(|| {
         if doc.is_null() || out_rgba.is_null() || width_px == 0 || height_px == 0 {
             return VexioStatus::ErrInvalidArg;
         }
@@ -1734,8 +1782,7 @@ pub unsafe extern "C" fn vexio_render_preview_rgba(
             }
             Err(_) => VexioStatus::ErrGpuSurfaceLost,
         }
-    });
-    res.unwrap_or(VexioStatus::ErrInternalPanic)
+    })
 }
 
 #[no_mangle]
@@ -1743,7 +1790,7 @@ pub unsafe extern "C" fn vexio_doc_list_stencils_json(
     doc: *const VexioDoc,
     out_json: *mut VexioOwnedBuffer,
 ) -> VexioStatus {
-    let res = catch_unwind(|| {
+    catch_ffi_status(|| {
         if doc.is_null() || out_json.is_null() {
             return VexioStatus::ErrInvalidArg;
         }
@@ -1753,8 +1800,7 @@ pub unsafe extern "C" fn vexio_doc_list_stencils_json(
         // SAFETY: `out_json` verified non-null.
         unsafe { *out_json = VexioOwnedBuffer::from_vec(json.into_bytes()) };
         VexioStatus::Ok
-    });
-    res.unwrap_or(VexioStatus::ErrInternalPanic)
+    })
 }
 
 #[no_mangle]
@@ -1762,7 +1808,7 @@ pub unsafe extern "C" fn vexio_doc_load_starter_template(
     doc: *mut VexioDoc,
     template_id_utf8: *const c_char,
 ) -> VexioStatus {
-    let res = catch_unwind(AssertUnwindSafe(|| {
+    catch_ffi_status(|| {
         if doc.is_null() || template_id_utf8.is_null() {
             return VexioStatus::ErrInvalidArg;
         }
@@ -1773,8 +1819,7 @@ pub unsafe extern "C" fn vexio_doc_load_starter_template(
         };
         d.session.load_starter_template(tid);
         VexioStatus::Ok
-    }));
-    res.unwrap_or(VexioStatus::ErrInternalPanic)
+    })
 }
 
 #[no_mangle]
@@ -1783,7 +1828,7 @@ pub unsafe extern "C" fn vexio_doc_get_state_json(
     active_page_id: u32,
     out_json: *mut VexioOwnedBuffer,
 ) -> VexioStatus {
-    let res = catch_unwind(|| {
+    catch_ffi_status(|| {
         if doc.is_null() || out_json.is_null() {
             return VexioStatus::ErrInvalidArg;
         }
@@ -1792,8 +1837,7 @@ pub unsafe extern "C" fn vexio_doc_get_state_json(
         let json = build_native_state_json(&d.session, active_page_id);
         unsafe { *out_json = VexioOwnedBuffer::from_vec(json.into_bytes()) };
         VexioStatus::Ok
-    });
-    res.unwrap_or(VexioStatus::ErrInternalPanic)
+    })
 }
 
 #[no_mangle]
@@ -1806,7 +1850,7 @@ pub unsafe extern "C" fn vexio_doc_drop_stencil(
     y_in: f64,
     out_shape_id: *mut u64,
 ) -> VexioStatus {
-    let res = catch_unwind(AssertUnwindSafe(|| {
+    catch_ffi_status(|| {
         if doc.is_null() || master_name_utf8.is_null() {
             return VexioStatus::ErrInvalidArg;
         }
@@ -1830,8 +1874,7 @@ pub unsafe extern "C" fn vexio_doc_drop_stencil(
             }
             Err(_) => VexioStatus::ErrInvalidArg,
         }
-    }));
-    res.unwrap_or(VexioStatus::ErrInternalPanic)
+    })
 }
 
 #[no_mangle]
@@ -2115,7 +2158,7 @@ pub unsafe extern "C" fn vexio_doc_import_stencil_bytes(
     bytes: VexioByteSlice,
     out_json: *mut VexioOwnedBuffer,
 ) -> VexioStatus {
-    let res = catch_unwind(AssertUnwindSafe(|| {
+    catch_ffi_status(|| {
         if doc.is_null() || file_name_utf8.is_null() || bytes.ptr.is_null() || out_json.is_null() {
             return VexioStatus::ErrInvalidArg;
         }
@@ -2127,18 +2170,22 @@ pub unsafe extern "C" fn vexio_doc_import_stencil_bytes(
         let raw = unsafe { std::slice::from_raw_parts(bytes.ptr, bytes.len) };
         match d.session.import_stencil_package(fname, raw) {
             Ok((pack_title, previews)) => {
+                set_last_ffi_error("");
                 let payload = serde_json::json!({
                     "packTitle": pack_title,
+                    "masters": previews,
                     "previews": previews,
                 });
                 let json_bytes = serde_json::to_vec(&payload).unwrap_or_else(|_| b"{}".to_vec());
                 unsafe { *out_json = VexioOwnedBuffer::from_vec(json_bytes) };
                 VexioStatus::Ok
             }
-            Err(_) => VexioStatus::ErrIoCorruptFormat,
+            Err(e) => {
+                set_last_ffi_error(e.to_string());
+                VexioStatus::ErrIoCorruptFormat
+            }
         }
-    }));
-    res.unwrap_or(VexioStatus::ErrInternalPanic)
+    })
 }
 
 #[no_mangle]

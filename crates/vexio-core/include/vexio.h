@@ -54,6 +54,7 @@ VexioStatus vexio_doc_open_bytes(VexioEngine* engine, VexioByteSlice bytes, cons
 VexioStatus vexio_doc_save_format(VexioDoc* doc, const char* ext_utf8, VexioOwnedBuffer* out_buf);
 void        vexio_doc_destroy(VexioDoc* doc);
 void        vexio_buffer_free(VexioOwnedBuffer buf);
+VexioStatus vexio_last_error_message(VexioOwnedBuffer* out_utf8);
 
 /* ShapeSheet Cell Inspection & Reactive Formula Mutation */
 VexioStatus vexio_cell_get_formula(const VexioDoc* doc, uint32_t page_id, uint64_t shape_id, const char* cell_name, VexioOwnedBuffer* out_utf8);

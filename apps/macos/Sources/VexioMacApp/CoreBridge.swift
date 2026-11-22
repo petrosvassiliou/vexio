@@ -44,12 +44,21 @@ public enum VexioBridgeError: LocalizedError, Sendable, Equatable {
     case invalidArgument(context: String)
     case cellGuarded(cellName: String)
     case formulaSyntaxError(cellName: String, formula: String)
-    case corruptOrUnsupportedFormat(extensionName: String)
+    case corruptOrUnsupportedFormat(extensionName: String, detail: String = "")
     case gpuSurfaceLost
-    case internalRustPanic
+    case internalRustPanic(detail: String = "")
     case unknownStatus(rawCode: UInt32)
     case emptyDocumentPayload
     case previewBitmapConstructionFailed
+
+    private static func readLastEngineError() -> String {
+        var buf = VexioOwnedBuffer(ptr: nil, len: 0, cap: 0)
+        guard vexio_last_error_message(&buf) == VEXIO_OK else { return "" }
+        defer { vexio_buffer_free(buf) }
+        guard let ptr = buf.ptr, buf.len > 0 else { return "" }
+        let data = Data(bytes: ptr, count: buf.len)
+        return String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
 
     public static func from(
         status: VexioStatus,
@@ -66,11 +75,11 @@ public enum VexioBridgeError: LocalizedError, Sendable, Equatable {
         } else if status == VEXIO_ERR_FORMULA_SYNTAX {
             return .formulaSyntaxError(cellName: cellName, formula: formula)
         } else if status == VEXIO_ERR_IO_CORRUPT_FORMAT {
-            return .corruptOrUnsupportedFormat(extensionName: context)
+            return .corruptOrUnsupportedFormat(extensionName: context, detail: readLastEngineError())
         } else if status == VEXIO_ERR_GPU_SURFACE_LOST {
             return .gpuSurfaceLost
         } else if status == VEXIO_ERR_INTERNAL_PANIC {
-            return .internalRustPanic
+            return .internalRustPanic(detail: readLastEngineError())
         } else {
             return .unknownStatus(rawCode: status.rawValue)
         }
@@ -88,12 +97,16 @@ public enum VexioBridgeError: LocalizedError, Sendable, Equatable {
             return "Cell '\(cellName)' is protected by GUARD(). Enable SETF override in the ShapeSheet editor to replace guarded formulas."
         case .formulaSyntaxError(let cellName, let formula):
             return "ShapeSheet syntax error in '\(cellName)' for expression '\(formula)'."
-        case .corruptOrUnsupportedFormat(let ext):
-            return "Unable to parse '.\(ext)' package: corrupt stream or unsupported schema."
+        case .corruptOrUnsupportedFormat(let ext, let detail):
+            return detail.isEmpty
+                ? "Unable to parse '.\(ext)' package: corrupt stream or unsupported schema."
+                : "Unable to parse '\(ext)': \(detail)"
         case .gpuSurfaceLost:
             return "Metal CAMetalLayer GPU surface was lost and is being re-bound."
-        case .internalRustPanic:
-            return "Vexio Core caught an internal engine panic safely across the C-ABI boundary."
+        case .internalRustPanic(let detail):
+            return detail.isEmpty
+                ? "Vexio Core caught an internal engine panic safely across the C-ABI boundary."
+                : "Vexio Core caught an internal engine error safely across C-ABI (\(detail))."
         case .unknownStatus(let rawCode):
             return "Vexio Core returned status code \(rawCode)."
         case .emptyDocumentPayload:

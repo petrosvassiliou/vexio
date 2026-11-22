@@ -348,6 +348,17 @@ impl<'a> EvalSession<'a> {
         &self,
         id: &GlobalCellId,
     ) -> Option<(SheetKey, crate::sections::Cell)> {
+        self.lookup_cell_with_inheritance_bounded(id, 0)
+    }
+
+    fn lookup_cell_with_inheritance_bounded(
+        &self,
+        id: &GlobalCellId,
+        depth: u8,
+    ) -> Option<(SheetKey, crate::sections::Cell)> {
+        if depth > 16 {
+            return None;
+        }
         match &id.sheet {
             SheetKey::Doc => self
                 .doc
@@ -377,10 +388,13 @@ impl<'a> EvalSession<'a> {
                 );
                 if let Some(parent_id) = parent_opt {
                     if parent_id != *sid {
-                        return self.lookup_cell_with_inheritance(&GlobalCellId {
-                            sheet: SheetKey::Style(parent_id),
-                            cell: id.cell.clone(),
-                        });
+                        return self.lookup_cell_with_inheritance_bounded(
+                            &GlobalCellId {
+                                sheet: SheetKey::Style(parent_id),
+                                cell: id.cell.clone(),
+                            },
+                            depth + 1,
+                        );
                     }
                 }
                 None
@@ -412,10 +426,13 @@ impl<'a> EvalSession<'a> {
                     s.line_style_id,
                     s.text_style_id,
                 ) {
-                    if let Some((_, styled)) = self.lookup_cell_with_inheritance(&GlobalCellId {
-                        sheet: SheetKey::Style(style_id),
-                        cell: id.cell.clone(),
-                    }) {
+                    if let Some((_, styled)) = self.lookup_cell_with_inheritance_bounded(
+                        &GlobalCellId {
+                            sheet: SheetKey::Style(style_id),
+                            cell: id.cell.clone(),
+                        },
+                        depth + 1,
+                    ) {
                         return Some((
                             SheetKey::Master {
                                 master_id: *master_id,
@@ -444,15 +461,16 @@ impl<'a> EvalSession<'a> {
                             .and_then(|m| m.shapes.first().map(|s| s.id))
                     });
                     if let Some(msid) = resolved_msid {
-                        if let Some((_, inherited)) =
-                            self.lookup_cell_with_inheritance(&GlobalCellId {
+                        if let Some((_, inherited)) = self.lookup_cell_with_inheritance_bounded(
+                            &GlobalCellId {
                                 sheet: SheetKey::Master {
                                     master_id: mid,
                                     shape_id: msid,
                                 },
                                 cell: id.cell.clone(),
-                            })
-                        {
+                            },
+                            depth + 1,
+                        ) {
                             // Crucial Visio rule: inherited formulas evaluate against the INSTANCE shape (`Width*0.5` uses instance `Width`!).
                             return Some((id.sheet.clone(), inherited));
                         }
@@ -466,10 +484,13 @@ impl<'a> EvalSession<'a> {
                     shape.text_style_id,
                 )
                 .unwrap_or(0);
-                if let Some((_, styled)) = self.lookup_cell_with_inheritance(&GlobalCellId {
-                    sheet: SheetKey::Style(style_id),
-                    cell: id.cell.clone(),
-                }) {
+                if let Some((_, styled)) = self.lookup_cell_with_inheritance_bounded(
+                    &GlobalCellId {
+                        sheet: SheetKey::Style(style_id),
+                        cell: id.cell.clone(),
+                    },
+                    depth + 1,
+                ) {
                     return Some((id.sheet.clone(), styled));
                 }
                 None
@@ -1785,8 +1806,7 @@ fn eval_binary_op(op: BinaryOp, lv: CellValue, rv: CellValue) -> CellValue {
                     BinaryOp::Lt => ord.is_lt(),
                     BinaryOp::Le => ord.is_le(),
                     BinaryOp::Gt => ord.is_gt(),
-                    BinaryOp::Ge => ord.is_ge(),
-                    _ => unreachable!(),
+                    _ => ord.is_ge(),
                 };
                 return CellValue::Bool(res);
             }
@@ -1801,8 +1821,7 @@ fn eval_binary_op(op: BinaryOp, lv: CellValue, rv: CellValue) -> CellValue {
                 BinaryOp::Lt => !eq && a < b,
                 BinaryOp::Le => eq || a < b,
                 BinaryOp::Gt => !eq && a > b,
-                BinaryOp::Ge => eq || a > b,
-                _ => unreachable!(),
+                _ => eq || a > b,
             };
             CellValue::Bool(res)
         }
@@ -1827,8 +1846,7 @@ fn eval_binary_op(op: BinaryOp, lv: CellValue, rv: CellValue) -> CellValue {
                     }
                     a / b
                 }
-                BinaryOp::Pow => a.powf(b),
-                _ => unreachable!(),
+                _ => a.powf(b),
             };
             if res.is_nan() || res.is_infinite() {
                 CellValue::Err(CellError::Num)

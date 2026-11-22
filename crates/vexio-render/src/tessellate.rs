@@ -301,12 +301,25 @@ pub fn tessellate_shape_full(
     visual: &EvaluatedShapeVisual,
     tolerance_in: f32,
 ) -> TessellatedMesh {
-    let tol = tolerance_in.clamp(0.0002, 0.05);
+    let tol = if tolerance_in.is_finite() {
+        tolerance_in.clamp(0.0002, 0.05)
+    } else {
+        0.0035
+    };
     let mut lyon_buf: VertexBuffers<GpuVertex, u32> = VertexBuffers::new();
     let mut fill_tess = FillTessellator::new();
     let mut stroke_tess = StrokeTessellator::new();
 
-    let stroke_w = (visual.stroke_weight_in.max(1.0 / 144.0)) as f32;
+    let stroke_w = if visual.stroke_weight_in.is_finite() {
+        (visual.stroke_weight_in.clamp(1.0 / 144.0, 2.0)) as f32
+    } else {
+        (1.0 / 72.0) as f32
+    };
+    let rounding = if visual.rounding_in.is_finite() && visual.rounding_in > 0.0 {
+        visual.rounding_in.min(24.0)
+    } else {
+        0.0
+    };
     let fill_rgba = visual.fill_color.map(RgbaColor::to_linear_f32);
     let stroke_rgba = visual.stroke_color.map(RgbaColor::to_linear_f32);
 
@@ -321,11 +334,12 @@ pub fn tessellate_shape_full(
         let g_stroke = geom.stroke_color.map(RgbaColor::to_linear_f32).or(stroke_rgba);
         let g_sw = geom
             .stroke_weight_in
-            .map(|w| w.max(1.0 / 144.0) as f32)
+            .filter(|w| w.is_finite())
+            .map(|w| w.clamp(1.0 / 144.0, 2.0) as f32)
             .unwrap_or(stroke_w);
         tessellate_geometry_section(
             geom,
-            visual.rounding_in,
+            rounding,
             visual.line_pattern,
             g_fill,
             g_stroke,

@@ -607,7 +607,9 @@ fn simplify_collinear(pts: &[[f64; 2]]) -> Vec<[f64; 2]> {
     }
     let mut out = vec![pts[0]];
     for i in 1..pts.len() - 1 {
-        let prev = *out.last().unwrap();
+        let Some(&prev) = out.last() else {
+            break;
+        };
         let cur = pts[i];
         let next = pts[i + 1];
         let same_x = (prev[0] - cur[0]).abs() < 1e-6 && (cur[0] - next[0]).abs() < 1e-6;
@@ -616,7 +618,9 @@ fn simplify_collinear(pts: &[[f64; 2]]) -> Vec<[f64; 2]> {
             out.push(cur);
         }
     }
-    out.push(*pts.last().unwrap());
+    if let Some(&last) = pts.last() {
+        out.push(last);
+    }
     out
 }
 

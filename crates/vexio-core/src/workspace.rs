@@ -81,6 +81,104 @@ fn attach_cardinal_ports_to_shape(sh: &mut VisioShape) {
     sh.sheet.sync_all_sections_to_cells();
 }
 
+fn remap_dropped_shape_subtree(root: &mut VisioShape, alloc_id: &mut u64) -> u64 {
+    fn assign_ids(node: &mut VisioShape, alloc_id: &mut u64, id_map: &mut std::collections::BTreeMap<u64, u64>, depth: u8) {
+        let old_id = node.id;
+        let new_id = *alloc_id;
+        *alloc_id += 1;
+        node.id = new_id;
+        id_map.insert(old_id, new_id);
+        if depth > 32 {
+            node.children.clear();
+            return;
+        }
+        for c in &mut node.children {
+            assign_ids(c, alloc_id, id_map, depth + 1);
+        }
+    }
+    fn rewrite_formula(formula: &str, id_map: &std::collections::BTreeMap<u64, u64>) -> String {
+        if id_map.is_empty() || !formula.to_ascii_lowercase().contains("sheet.") {
+            return formula.to_string();
+        }
+        let bytes = formula.as_bytes();
+        let mut out = String::with_capacity(formula.len() + 8);
+        let mut i = 0usize;
+        while i < bytes.len() {
+            if i + 6 < bytes.len() && bytes[i..i + 6].eq_ignore_ascii_case(b"sheet.") {
+                let prev_is_ident = i > 0
+                    && (bytes[i - 1].is_ascii_alphanumeric() || bytes[i - 1] == b'_' || bytes[i - 1] == b'.');
+                if !prev_is_ident {
+                    let mut j = i + 6;
+                    while j < bytes.len() && bytes[j].is_ascii_digit() {
+                        j += 1;
+                    }
+                    if j > i + 6 && j < bytes.len() && bytes[j] == b'!' {
+                        if let Ok(old_id) = formula[i + 6..j].parse::<u64>() {
+                            if let Some(&new_id) = id_map.get(&old_id) {
+                                out.push_str(&formula[i..i + 6]);
+                                out.push_str(&new_id.to_string());
+                                out.push('!');
+                                i = j + 1;
+                                continue;
+                            }
+                        }
+                    }
+                }
+            }
+            let Some(ch) = formula.get(i..).and_then(|s| s.chars().next()) else {
+                break;
+            };
+            out.push(ch);
+            i += ch.len_utf8();
+        }
+        out
+    }
+    fn apply_rewrite(node: &mut VisioShape, id_map: &std::collections::BTreeMap<u64, u64>) {
+        for cell in node.sheet.cells.values_mut() {
+            let rewritten = rewrite_formula(&cell.formula, id_map);
+            if rewritten != cell.formula {
+                let hint = cell.unit_hint;
+                let cached = cell.vsdx_cached_value.clone();
+                let nm = cell.name.clone();
+                *cell = vexio_shapesheet::Cell::from_formula(nm, rewritten, hint);
+                cell.vsdx_cached_value = cached;
+            }
+        }
+        for geom in &mut node.sheet.geometries {
+            geom.no_fill = rewrite_formula(&geom.no_fill, id_map);
+            geom.no_line = rewrite_formula(&geom.no_line, id_map);
+            geom.no_show = rewrite_formula(&geom.no_show, id_map);
+            for r in &mut geom.rows {
+                r.x = rewrite_formula(&r.x, id_map);
+                r.y = rewrite_formula(&r.y, id_map);
+                if let Some(a) = &mut r.a {
+                    *a = rewrite_formula(a, id_map);
+                }
+                if let Some(b) = &mut r.b {
+                    *b = rewrite_formula(b, id_map);
+                }
+                if let Some(c) = &mut r.c {
+                    *c = rewrite_formula(c, id_map);
+                }
+                if let Some(d) = &mut r.d {
+                    *d = rewrite_formula(d, id_map);
+                }
+            }
+        }
+        node.sheet.sync_all_sections_to_cells();
+        for c in &mut node.children {
+            apply_rewrite(c, id_map);
+        }
+    }
+
+    let mut id_map = std::collections::BTreeMap::new();
+    assign_ids(root, alloc_id, &mut id_map, 0);
+    if !root.children.is_empty() {
+        apply_rewrite(root, &id_map);
+    }
+    root.id
+}
+
 pub struct DocumentSession {
     pub doc: VisioDocument,
     pub journal: CommandJournal,
@@ -232,15 +330,16 @@ impl DocumentSession {
             .map(|p| p.next_shape_id())
             .unwrap_or(1);
 
+        let mut alloc_id = next_id;
         let mut shape = template.unwrap_or_else(|| {
-            let mut fallback = VisioShape::new_rect(next_id, master_name, x_in, y_in, 1.6, 0.9);
+            let mut fallback = VisioShape::new_rect(alloc_id, master_name, x_in, y_in, 1.6, 0.9);
             attach_cardinal_ports_to_shape(&mut fallback);
             fallback
         });
-        shape.id = next_id;
-        shape.name = format!("{master_name}.{next_id}");
+        let assigned_root_id = remap_dropped_shape_subtree(&mut shape, &mut alloc_id);
+        shape.name = format!("{master_name}.{assigned_root_id}");
         shape.name_u = shape.name.clone();
-        if shape.text.is_empty() {
+        if shape.text.is_empty() && shape.children.is_empty() {
             shape.text = master_name.to_string();
         }
         shape.sheet.set_formula(
@@ -256,7 +355,7 @@ impl DocumentSession {
 
         self.journal
             .execute(&mut self.doc, DocCommand::AddShape { page_id, shape })?;
-        Ok(next_id)
+        Ok(assigned_root_id)
     }
 
     /// Interactive 8-Handle Resize + Rotation transaction shared across WASM, C-ABI (WinUI 3 / Swift), and JNI.
@@ -390,11 +489,19 @@ impl DocumentSession {
             stem.replace(['_', '-'], " ")
         };
 
+        let imported_styles = imported_doc.styles.clone();
+        let imported_themes = imported_doc.themes.clone();
         let mut masters = imported_doc.masters;
         if masters.is_empty() {
-            if let Some(first_page) = imported_doc.pages.first() {
+            let source_page = imported_doc
+                .pages
+                .iter()
+                .find(|p| !p.is_background && !p.shapes.is_empty())
+                .or_else(|| imported_doc.pages.iter().find(|p| !p.is_background))
+                .or_else(|| imported_doc.pages.first());
+            if let Some(first_page) = source_page {
                 for (idx, sh) in first_page.shapes.iter().enumerate() {
-                    if sh.kind == ShapeKind::Connector1D {
+                    if sh.kind == ShapeKind::Connector1D || sh.kind == ShapeKind::Guide {
                         continue;
                     }
                     let m_name = if !sh.text.trim().is_empty() {
@@ -415,6 +522,16 @@ impl DocumentSession {
                     });
                 }
             }
+        } else {
+            // Retain non-empty masters; if a drawing `.vsdx` has both 2D/Group masters and pure 1D connector masters,
+            // prefer 2D/Group/Foreign masters when present so Stencil Navigator shows placeable shapes cleanly.
+            masters.retain(|m| !m.shapes.is_empty());
+            if masters
+                .iter()
+                .any(|m| m.shapes.first().is_some_and(|s| s.kind != ShapeKind::Connector1D))
+            {
+                masters.retain(|m| m.shapes.first().is_some_and(|s| s.kind != ShapeKind::Connector1D));
+            }
         }
 
         // Normalize imported masters for smooth center-pinned 8-handle resizing, rotation, and cardinal ports
@@ -433,6 +550,12 @@ impl DocumentSession {
         let preview_w_in = 1.50;
         let preview_h_in = 1.00;
         let mut mini_doc = VisioDocument::new_blank("ImportedStencilPreview");
+        if !imported_styles.is_empty() {
+            mini_doc.styles = imported_styles;
+        }
+        if !imported_themes.is_empty() {
+            mini_doc.themes = imported_themes;
+        }
         if let Some(page) = mini_doc.page_mut(1) {
             page.page_sheet.set_formula("PageWidth", "1.5 in", Some(Unit::Inch));
             page.page_sheet.set_formula("PageHeight", "1 in", Some(Unit::Inch));
@@ -450,10 +573,23 @@ impl DocumentSession {
                 page.shapes.clear();
                 if let Some(tpl) = m.shapes.first() {
                     let mut sh = tpl.clone();
-                    sh.id = 1;
+                    // Keep `sh.id = tpl.id` so Group Master sub-shapes never collide with `sh.id`
+                    // and internal `Sheet.<root_id>!` formulas inside `sh.children` continue to resolve!
                     sh.text.clear();
-                    orig_w = sh.sheet.get_f64("Width").unwrap_or(1.5).max(0.15);
-                    orig_h = sh.sheet.get_f64("Height").unwrap_or(1.0).max(0.15);
+                    orig_w = sh
+                        .sheet
+                        .get_f64("Width")
+                        .filter(|v| v.is_finite() && v.abs() > 0.05)
+                        .map(f64::abs)
+                        .unwrap_or(1.5)
+                        .max(0.15);
+                    orig_h = sh
+                        .sheet
+                        .get_f64("Height")
+                        .filter(|v| v.is_finite() && v.abs() > 0.05)
+                        .map(f64::abs)
+                        .unwrap_or(1.0)
+                        .max(0.15);
                     if let Some(fc) = sh.sheet.get_cell("FillForegnd") {
                         fill_formula = fc.formula.clone();
                     }
@@ -471,10 +607,16 @@ impl DocumentSession {
                         format!("{} in", format_clean_f64((orig_h * scale).max(0.04))),
                         Some(Unit::Inch),
                     );
-                    sh.sheet
-                        .set_formula("PinX", format!("{} in", format_clean_f64(preview_w_in * 0.5)), Some(Unit::Inch));
-                    sh.sheet
-                        .set_formula("PinY", format!("{} in", format_clean_f64(preview_h_in * 0.5)), Some(Unit::Inch));
+                    sh.sheet.set_formula(
+                        "PinX",
+                        format!("{} in", format_clean_f64(preview_w_in * 0.5)),
+                        Some(Unit::Inch),
+                    );
+                    sh.sheet.set_formula(
+                        "PinY",
+                        format!("{} in", format_clean_f64(preview_h_in * 0.5)),
+                        Some(Unit::Inch),
+                    );
                     page.shapes.push(sh);
                 }
             }

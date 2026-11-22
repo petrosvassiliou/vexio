@@ -710,9 +710,25 @@ fn parse_shape(
     archive: &RawOpcArchive,
     tables: &DocParseTables,
 ) -> Result<VisioShape, VsdxError> {
+    parse_shape_bounded(reader, start, part_dir, part_rels, archive, tables, 0)
+}
+
+fn parse_shape_bounded(
+    reader: &mut Reader<&[u8]>,
+    start: &BytesStart<'_>,
+    part_dir: &str,
+    part_rels: &BTreeMap<String, String>,
+    archive: &RawOpcArchive,
+    tables: &DocParseTables,
+    depth: u8,
+) -> Result<VisioShape, VsdxError> {
     let id = attr_str(start, b"ID").and_then(|s| s.parse().ok()).unwrap_or(1);
     let name = attr_str(start, b"Name").unwrap_or_else(|| format!("Sheet.{id}"));
     let name_u = attr_str(start, b"NameU").unwrap_or_else(|| name.clone());
+    if depth > 32 {
+        skip_to_end(reader, b"Shape")?;
+        return Ok(VisioShape::new_rect(id, name, 0.0, 0.0, 1.0, 1.0));
+    }
     let type_str = attr_str(start, b"Type").unwrap_or_else(|| "Shape".into());
     let mut kind = match type_str.as_str() {
         "Group" => ShapeKind::Group,
@@ -750,7 +766,15 @@ fn parse_shape(
                     // Container for group child `<Shape>` elements
                 }
                 b"Shape" => {
-                    children.push(parse_shape(reader, &e, part_dir, part_rels, archive, tables)?);
+                    children.push(parse_shape_bounded(
+                        reader,
+                        &e,
+                        part_dir,
+                        part_rels,
+                        archive,
+                        tables,
+                        depth + 1,
+                    )?);
                 }
                 b"ForeignData" => {
                     let ftype = attr_str(&e, b"ForeignType").unwrap_or_else(|| "Bitmap".into());
@@ -1788,6 +1812,7 @@ fn hydrate_master_instances(doc: &mut VisioDocument) {
                 None,
                 &masters_snapshot,
                 &mut next_id,
+                0,
             );
             finalize_geometry_defaults_recursive(top_shape);
         }
@@ -1799,7 +1824,11 @@ fn hydrate_shape_against_masters(
     enclosing_master_id: Option<u32>,
     masters: &[VisioMaster],
     next_id: &mut u64,
+    depth: u8,
 ) {
+    if depth > 32 {
+        return;
+    }
     let effective_mid = shape.master_id.or(enclosing_master_id);
     if shape.master_id.is_none() && shape.master_shape_id.is_some() {
         shape.master_id = effective_mid;
@@ -1883,6 +1912,7 @@ fn hydrate_shape_against_masters(
                         mchild,
                         effective_mid,
                         next_id,
+                        0,
                     );
                     shape.children.push(cloned);
                 }
@@ -1891,7 +1921,7 @@ fn hydrate_shape_against_masters(
     }
 
     for child in &mut shape.children {
-        hydrate_shape_against_masters(child, effective_mid, masters, next_id);
+        hydrate_shape_against_masters(child, effective_mid, masters, next_id, depth + 1);
     }
 
     // If `shape` is the root of a Master instance (`shape.master_id.is_some()` and `enclosing_master_id.is_none()`),
@@ -1901,7 +1931,7 @@ fn hydrate_shape_against_masters(
         let mut id_map = BTreeMap::new();
         collect_msid_to_instance_id_map(shape, &mut id_map);
         if let Some(ms) = master_shape_opt {
-            apply_master_cell_inheritance_and_remap_recursive(shape, ms, masters, &id_map);
+            apply_master_cell_inheritance_and_remap_recursive(shape, ms, masters, &id_map, 0);
         }
     }
 }
@@ -1910,6 +1940,7 @@ fn clone_master_subtree_with_fresh_ids(
     mshape: &VisioShape,
     master_id: Option<u32>,
     next_id: &mut u64,
+    depth: u8,
 ) -> VisioShape {
     let my_id = *next_id;
     *next_id += 1;
@@ -1917,10 +1948,14 @@ fn clone_master_subtree_with_fresh_ids(
     cloned.id = my_id;
     cloned.master_id = master_id;
     cloned.master_shape_id = Some(mshape.id);
+    if depth > 32 {
+        cloned.children.clear();
+        return cloned;
+    }
     cloned.children = mshape
         .children
         .iter()
-        .map(|c| clone_master_subtree_with_fresh_ids(c, master_id, next_id))
+        .map(|c| clone_master_subtree_with_fresh_ids(c, master_id, next_id, depth + 1))
         .collect();
     cloned
 }
@@ -1939,7 +1974,11 @@ fn apply_master_cell_inheritance_and_remap_recursive(
     mshape: &VisioShape,
     masters: &[VisioMaster],
     id_map: &BTreeMap<u64, u64>,
+    depth: u8,
 ) {
+    if depth > 32 {
+        return;
+    }
     // Copy non-overridden Master cells onto `inst` with `Sheet.<msid>!` rewritten to `Sheet.<inst_id>!`
     for (ck, mcell) in &mshape.sheet.cells {
         if mcell.deleted {
@@ -2003,7 +2042,7 @@ fn apply_master_cell_inheritance_and_remap_recursive(
                 m.shapes.iter().find_map(|s| s.find_shape(msid))
             });
         if let Some(cms) = child_ms {
-            apply_master_cell_inheritance_and_remap_recursive(child, cms, masters, id_map);
+            apply_master_cell_inheritance_and_remap_recursive(child, cms, masters, id_map, depth + 1);
         }
     }
 }
@@ -2037,7 +2076,9 @@ fn rewrite_master_sheet_refs(formula: &str, id_map: &BTreeMap<u64, u64>) -> Stri
                 }
             }
         }
-        let ch = formula[i..].chars().next().unwrap();
+        let Some(ch) = formula.get(i..).and_then(|s| s.chars().next()) else {
+            break;
+        };
         out.push(ch);
         i += ch.len_utf8();
     }
@@ -2130,7 +2171,7 @@ fn read_text_element(reader: &mut Reader<&[u8]>) -> Result<String, VsdxError> {
                 depth += 1;
             }
             Event::End(e) => {
-                depth -= 1;
+                depth = depth.saturating_sub(1);
                 if depth == 0 && e.local_name().as_ref() == b"Text" {
                     break;
                 }
@@ -2170,7 +2211,7 @@ fn read_foreign_data_body(reader: &mut Reader<&[u8]>) -> Result<(Option<String>,
                 }
             }
             Event::End(e) => {
-                depth -= 1;
+                depth = depth.saturating_sub(1);
                 if depth == 0 && e.local_name().as_ref() == b"ForeignData" {
                     break;
                 }
@@ -2211,7 +2252,7 @@ fn capture_raw_element(
                 xml.push_str(&String::from_utf8_lossy(t.as_ref()));
             }
             Event::End(e) => {
-                depth -= 1;
+                depth = depth.saturating_sub(1);
                 xml.push_str("</");
                 xml.push_str(&String::from_utf8_lossy(e.as_ref()));
                 xml.push('>');
@@ -2234,7 +2275,7 @@ fn skip_to_end(reader: &mut Reader<&[u8]>, tag: &[u8]) -> Result<(), VsdxError> 
         match reader.read_event_into(&mut buf)? {
             Event::Start(_) => depth += 1,
             Event::End(e) => {
-                depth -= 1;
+                depth = depth.saturating_sub(1);
                 if depth == 0 && e.local_name().as_ref() == tag {
                     break;
                 }

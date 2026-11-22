@@ -92,7 +92,8 @@ impl RawOpcArchive {
                 continue;
             }
             let normalized = entry.name().trim_start_matches('/').replace('\\', "/");
-            let mut buf = Vec::with_capacity(entry.size() as usize);
+            let prealloc = entry.size().min(32 * 1024 * 1024) as usize;
+            let mut buf = Vec::with_capacity(prealloc);
             entry.read_to_end(&mut buf)?;
             files.insert(normalized, buf);
         }
@@ -117,8 +118,23 @@ impl RawOpcArchive {
 
     pub fn get_str(&self, path: &str) -> Result<Option<String>, VsdxError> {
         let key = path.trim_start_matches('/');
-        match self.files.get(key) {
-            Some(bytes) => Ok(Some(String::from_utf8(bytes.clone())?)),
+        let found = self.files.get(key).or_else(|| {
+            self.files
+                .iter()
+                .find(|(k, _)| k.eq_ignore_ascii_case(key))
+                .map(|(_, v)| v)
+        });
+        match found {
+            Some(bytes) => {
+                let s = match std::str::from_utf8(bytes) {
+                    Ok(valid) => valid.strip_prefix('\u{FEFF}').unwrap_or(valid).to_string(),
+                    Err(_) => {
+                        let lossy = String::from_utf8_lossy(bytes);
+                        lossy.strip_prefix('\u{FEFF}').unwrap_or(&lossy).to_string()
+                    }
+                };
+                Ok(Some(s))
+            }
             None => Ok(None),
         }
     }
