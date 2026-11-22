@@ -14,6 +14,7 @@
 #include <d3d12.h>
 #include <dxgi1_6.h>
 #include <shobjidl_core.h>
+#include <winnls.h>
 
 // Undefine legacy Win32 macros that collide with WinUI 3 / CppWinRT identifiers
 #ifdef GetCurrentTime
@@ -34,6 +35,8 @@
 #include <winrt/Windows.System.h>
 #include <winrt/Windows.UI.h>
 #include <winrt/Windows.UI.Core.h>
+#include <winrt/Windows.Web.Http.h>
+#include <winrt/Windows.Web.Http.Headers.h>
 
 #include <winrt/Microsoft.Windows.AppLifecycle.h>
 #include <winrt/Microsoft.UI.h>

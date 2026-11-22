@@ -176,6 +176,16 @@ struct WasmShapeInfo {
     width: f64,
     height: f64,
     angle_deg: f64,
+    flip_x: bool,
+    flip_y: bool,
+    font_family: String,
+    font_size_pt: f64,
+    char_style: u8,
+    text_color: String,
+    text_bg_color: Option<String>,
+    horiz_align: u8,
+    vert_align: u8,
+    bullet_style: u8,
     begin_x: Option<f64>,
     begin_y: Option<f64>,
     end_x: Option<f64>,
@@ -233,6 +243,7 @@ struct WasmStateJson {
     active_page_id: u32,
     page_width_in: f64,
     page_height_in: f64,
+    display_unit: String,
     pages: Vec<WasmPageInfo>,
     layers: Vec<WasmLayerInfo>,
     comments: Vec<WasmCommentInfo>,
@@ -363,7 +374,10 @@ impl WasmVexioSession {
     }
 
     pub fn list_builtin_stencil_previews_json(&self) -> String {
-        let previews = crate::domains::list_builtin_stencil_previews();
+        let mut previews = crate::domains::list_builtin_stencil_previews();
+        for (cat, list) in &self.inner.imported_stencil_previews {
+            previews.insert(cat.clone(), list.clone());
+        }
         serde_json::to_string(&previews).unwrap_or_else(|_| "{}".into())
     }
 
@@ -1140,6 +1154,60 @@ impl WasmVexioSession {
             .map_err(|e| JsValue::from_str(&e.to_string()))
     }
 
+    pub fn set_document_title(&mut self, title: &str) {
+        self.inner.set_document_title(title);
+    }
+
+    pub fn apply_text_style_json(
+        &mut self,
+        page_id: u32,
+        shape_ids: &[u32],
+        style_json: &str,
+    ) -> usize {
+        let Ok(patch) = serde_json::from_str::<crate::workspace::TextStylePatch>(style_json) else {
+            return 0;
+        };
+        let ids: Vec<u64> = shape_ids.iter().map(|&id| id as u64).collect();
+        self.inner
+            .apply_text_style_patch(page_id, &ids, &patch)
+            .unwrap_or(0)
+    }
+
+    pub fn rotate_flip_shapes(
+        &mut self,
+        page_id: u32,
+        shape_ids: &[u32],
+        delta_angle_deg: f64,
+        toggle_flip_x: bool,
+        toggle_flip_y: bool,
+    ) -> usize {
+        let ids: Vec<u64> = shape_ids.iter().map(|&id| id as u64).collect();
+        self.inner
+            .rotate_or_flip_shapes(page_id, &ids, delta_angle_deg, toggle_flip_x, toggle_flip_y)
+            .unwrap_or(0)
+    }
+
+    pub fn set_page_preset(&mut self, page_id: u32, preset_slug: &str, landscape: bool) -> bool {
+        let Some((w_in, h_in, unit)) =
+            crate::workspace::resolve_page_preset_dimensions_in(preset_slug, landscape)
+        else {
+            return false;
+        };
+        self.inner.set_page_setup(page_id, w_in, h_in, unit).is_ok()
+    }
+
+    pub fn set_page_setup_with_unit(
+        &mut self,
+        page_id: u32,
+        width_in: f64,
+        height_in: f64,
+        unit_slug: &str,
+    ) -> bool {
+        self.inner
+            .set_page_setup(page_id, width_in, height_in, unit_slug)
+            .is_ok()
+    }
+
     pub fn set_page_dimensions(&mut self, page_id: u32, width_in: f64, height_in: f64, jump_style: i32) {
         let _ = self
             .inner
@@ -1757,6 +1825,12 @@ impl WasmVexioSession {
                         let end_arrow = s.sheet.get_f64("EndArrow").unwrap_or(if is_1d { 4.0 } else { 0.0 }).round() as i32;
                         let line_weight_pt = (s.sheet.get_f64("LineWeight").unwrap_or(1.25 / 72.0) * 72.0 * 100.0).round() / 100.0;
                         let line_pattern = s.sheet.get_f64("LinePattern").unwrap_or(1.0).round() as i32;
+                        let bg_trans = s.sheet.get_f64("TextBkgndTrans").unwrap_or(1.0);
+                        let text_bg_color = if bg_trans < 0.99 {
+                            s.sheet.get_color("TextBkgnd").map(|c| c.to_hex_rgb())
+                        } else {
+                            None
+                        };
                         WasmShapeInfo {
                             id: s.id,
                             name: s.name.clone(),
@@ -1767,6 +1841,24 @@ impl WasmVexioSession {
                             width: s.sheet.get_f64("Width").unwrap_or(1.0),
                             height: s.sheet.get_f64("Height").unwrap_or(1.0),
                             angle_deg: s.sheet.get_f64("Angle").unwrap_or(0.0).to_degrees(),
+                            flip_x: s.sheet.get_bool("FlipX").unwrap_or(false),
+                            flip_y: s.sheet.get_bool("FlipY").unwrap_or(false),
+                            font_family: s
+                                .sheet
+                                .get_str("Char.Font")
+                                .filter(|f| !f.is_empty())
+                                .unwrap_or_else(|| "Inter".to_string()),
+                            font_size_pt: (s.sheet.get_f64("Char.Size").unwrap_or(10.0 / 72.0) * 72.0 * 10.0).round() / 10.0,
+                            char_style: s.sheet.get_f64("Char.Style").unwrap_or(0.0).round().clamp(0.0, 15.0) as u8,
+                            text_color: s
+                                .sheet
+                                .get_color("Char.Color")
+                                .unwrap_or(vexio_shapesheet::RgbaColor::BLACK)
+                                .to_hex_rgb(),
+                            text_bg_color,
+                            horiz_align: s.sheet.get_f64("Para.HorzAlign").unwrap_or(1.0).round().clamp(0.0, 3.0) as u8,
+                            vert_align: s.sheet.get_f64("VerticalAlign").unwrap_or(1.0).round().clamp(0.0, 2.0) as u8,
+                            bullet_style: s.sheet.get_f64("Para.Bullet").unwrap_or(0.0).round().clamp(0.0, 4.0) as u8,
                             begin_x,
                             begin_y,
                             end_x,
@@ -1788,11 +1880,17 @@ impl WasmVexioSession {
             })
             .unwrap_or_default();
 
+        let display_unit = active_page
+            .and_then(|p| p.page_sheet.get_str("User.DisplayUnit"))
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| "mm".to_string());
+
         let state = WasmStateJson {
             title: self.inner.doc.properties.title.clone(),
             active_page_id: pid,
             page_width_in,
             page_height_in,
+            display_unit,
             pages,
             layers,
             comments,

@@ -23,7 +23,9 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
@@ -310,6 +312,89 @@ object NativeBridge {
         pageId: Int,
         text: String
     ): Int
+
+    @JvmStatic
+    external fun nativeGetStateJson(
+        docPtr: Long,
+        activePageId: Int
+    ): String
+
+    @JvmStatic
+    external fun nativeSetShapeText(
+        docPtr: Long,
+        pageId: Int,
+        shapeId: Long,
+        text: String
+    ): Boolean
+
+    @JvmStatic
+    external fun nativeGetViewportTool(viewportPtr: Long): Int
+
+    @JvmStatic
+    external fun nativePopCreatedTextShape(viewportPtr: Long): Long
+
+    @JvmStatic
+    external fun nativeHitTestShape(
+        viewportPtr: Long,
+        docPtr: Long,
+        xPx: Double,
+        yPx: Double
+    ): Long
+
+    @JvmStatic
+    external fun nativeGetShapeScreenBoundsJson(
+        viewportPtr: Long,
+        docPtr: Long,
+        shapeId: Long
+    ): String
+
+    @JvmStatic
+    external fun nativeImportStencilBytes(
+        docPtr: Long,
+        fileName: String,
+        bytes: ByteArray
+    ): String?
+
+    @JvmStatic
+    external fun nativeSetShapeTextStyleJson(
+        docPtr: Long,
+        pageId: Int,
+        shapeIds: LongArray,
+        styleJson: String
+    ): Int
+
+    @JvmStatic
+    external fun nativeRotateFlipShapes(
+        docPtr: Long,
+        pageId: Int,
+        shapeIds: LongArray,
+        deltaAngleDeg: Double,
+        toggleFlipX: Boolean,
+        toggleFlipY: Boolean
+    ): Int
+
+    @JvmStatic
+    external fun nativeSetPageSetup(
+        docPtr: Long,
+        pageId: Int,
+        widthIn: Double,
+        heightIn: Double,
+        unitSlug: String
+    ): Boolean
+
+    @JvmStatic
+    external fun nativeSetPagePreset(
+        docPtr: Long,
+        pageId: Int,
+        presetSlug: String,
+        landscape: Boolean
+    ): Boolean
+
+    @JvmStatic
+    external fun nativeSetDocumentTitle(
+        docPtr: Long,
+        title: String
+    ): Boolean
 }
 
 /**
@@ -776,6 +861,134 @@ data class ValidationBadgeSummary(
     val statusMessage: String
 )
 
+enum class VexioAppLanguage(val code: String, val badge: String, val nativeName: String) {
+    EN("en", "EN", "English"),
+    DE("de", "DE", "Deutsch"),
+    IT("it", "IT", "Italiano"),
+    FR("fr", "FR", "Français"),
+    ES("es", "ES", "Español"),
+    GR("el", "GR", "Ελληνικά");
+
+    val fileLabel: String
+        get() = when (this) {
+            EN -> "File"; DE -> "Datei"; IT -> "File"; FR -> "Fichier"; ES -> "Archivo"; GR -> "Αρχείο"
+        }
+    val homeLabel: String
+        get() = when (this) {
+            EN -> "Home"; DE -> "Start"; IT -> "Home"; FR -> "Accueil"; ES -> "Inicio"; GR -> "Κεντρική"
+        }
+    val insertLabel: String
+        get() = when (this) {
+            EN -> "Insert"; DE -> "Einfügen"; IT -> "Inserisci"; FR -> "Insertion"; ES -> "Insertar"; GR -> "Εισαγωγή"
+        }
+    val designLabel: String
+        get() = when (this) {
+            EN -> "Design"; DE -> "Entwurf"; IT -> "Progettazione"; FR -> "Création"; ES -> "Diseño"; GR -> "Σχεδίαση"
+        }
+    val dataLabel: String
+        get() = when (this) {
+            EN -> "Data"; DE -> "Daten"; IT -> "Dati"; FR -> "Données"; ES -> "Datos"; GR -> "Δεδομένα"
+        }
+    val processLabel: String
+        get() = when (this) {
+            EN -> "Process"; DE -> "Prozess"; IT -> "Processo"; FR -> "Processus"; ES -> "Proceso"; GR -> "Διαδικασία"
+        }
+    val reviewLabel: String
+        get() = when (this) {
+            EN -> "Review"; DE -> "Überprüfen"; IT -> "Revisione"; FR -> "Révision"; ES -> "Revisar"; GR -> "Αναθεώρηση"
+        }
+    val viewLabel: String
+        get() = when (this) {
+            EN -> "View"; DE -> "Ansicht"; IT -> "Visualizza"; FR -> "Affichage"; ES -> "Vista"; GR -> "Προβολή"
+        }
+    val developerLabel: String
+        get() = when (this) {
+            EN -> "Developer"; DE -> "Entwickler"; IT -> "Sviluppo"; FR -> "Développeur"; ES -> "Programador"; GR -> "Προγραμματιστής"
+        }
+    val importStencilLabel: String
+        get() = when (this) {
+            EN -> "+ Import Visio Stencil (.vssx / .vss)"
+            DE -> "+ Visio-Schablone importieren (.vssx)"
+            IT -> "+ Importa Stencil Visio (.vssx)"
+            FR -> "+ Importer gabarit Visio (.vssx)"
+            ES -> "+ Importar galería Visio (.vssx)"
+            GR -> "+ Εισαγωγή Stencil Visio (.vssx)"
+        }
+    val startHeroTitle: String
+        get() = when (this) {
+            EN -> "Start or Open a Diagram Inside Vexio"
+            DE -> "Diagramm in Vexio erstellen oder öffnen"
+            IT -> "Crea o apri un diagramma in Vexio"
+            FR -> "Créer ou ouvrir un diagramme dans Vexio"
+            ES -> "Crear o abrir un diagrama en Vexio"
+            GR -> "Δημιουργία ή άνοιγμα διαγράμματος στο Vexio"
+        }
+    val continueCanvasLabel: String
+        get() = when (this) {
+            EN -> "Continue to Canvas"
+            DE -> "Weiter zur Zeichenfläche"
+            IT -> "Vai al foglio di disegno"
+            FR -> "Continuer vers le dessin"
+            ES -> "Continuar al lienzo"
+            GR -> "Συνέχεια στον καμβά"
+        }
+    val checkUpdatesLabel: String
+        get() = when (this) {
+            EN -> "Check for Updates…"
+            DE -> "Nach Updates suchen…"
+            IT -> "Controlla aggiornamenti…"
+            FR -> "Rechercher des mises à jour…"
+            ES -> "Buscar actualizaciones…"
+            GR -> "Έλεγχος για ενημερώσεις…"
+        }
+
+    companion object {
+        fun detectDefault(): VexioAppLanguage {
+            val lang = runCatching { Locale.getDefault().language.lowercase(Locale.US) }.getOrDefault("en")
+            return when (lang) {
+                "de" -> DE
+                "it" -> IT
+                "fr" -> FR
+                "es" -> ES
+                "el", "gr" -> GR
+                else -> EN
+            }
+        }
+    }
+}
+
+fun detectDefaultMetricUnits(): Boolean {
+    val country = runCatching { Locale.getDefault().country.uppercase(Locale.US) }.getOrDefault("")
+    return country !in setOf("US", "LR", "MM")
+}
+
+data class InlineCanvasEditorModel(
+    val shapeId: Long,
+    val text: String,
+    val xPx: Float,
+    val yPx: Float,
+    val widthPx: Float,
+    val heightPx: Float,
+    val isNewlyCreatedText: Boolean = false
+)
+
+enum class VexioPagePresetSpec(
+    val slug: String,
+    val landscape: Boolean,
+    val isMetric: Boolean,
+    val label: String
+) {
+    A4_LANDSCAPE("a4", true, true, "ISO A4 Landscape (297×210 mm)"),
+    A4_PORTRAIT("a4", false, true, "ISO A4 Portrait (210×297 mm)"),
+    A3_LANDSCAPE("a3", true, true, "ISO A3 Landscape (420×297 mm)"),
+    A3_PORTRAIT("a3", false, true, "ISO A3 Portrait (297×420 mm)"),
+    A5_LANDSCAPE("a5", true, true, "ISO A5 Landscape (210×148 mm)"),
+    A2_LANDSCAPE("a2", true, true, "ISO A2 Landscape (594×420 mm)"),
+    LETTER_LANDSCAPE("letter", true, false, "US Letter Landscape (11×8.5 in)"),
+    LETTER_PORTRAIT("letter", false, false, "US Letter Portrait (8.5×11 in)"),
+    LEGAL_LANDSCAPE("legal", true, false, "US Legal Landscape (14×8.5 in)")
+}
+
 data class WorkstationUiState(
     val windowInstanceId: String = "win-${runCatching { SystemClock.uptimeMillis() }.getOrDefault(1L)}",
     val documentTitle: String = "Architecture_Blueprint.vsdx",
@@ -790,9 +1003,9 @@ data class WorkstationUiState(
     val zoomPercent: Int = 100,
     val activePageId: Int = 1,
     val pages: List<DiagramPageTab> = listOf(
-        DiagramPageTab(1, "Page-1", "1 in = 1 in"),
-        DiagramPageTab(2, "BPMN 2.0 Flow", "1 in = 1 in"),
-        DiagramPageTab(3, "CAD Floorplan", "1/4 in = 1 ft")
+        DiagramPageTab(1, "Page-1", if (detectDefaultMetricUnits()) "ISO A4 • mm" else "1 in = 1 in"),
+        DiagramPageTab(2, "BPMN 2.0 Flow", if (detectDefaultMetricUnits()) "ISO A4 • mm" else "1 in = 1 in"),
+        DiagramPageTab(3, "CAD Floorplan", "1:50")
     ),
     val selectedStencilCategory: String = "All",
     val stencilCategories: List<String> = BuiltInStencilCatalog.categories,
@@ -805,7 +1018,34 @@ data class WorkstationUiState(
     val formulaBarInput: String = "GUARD(2.50 in)",
     val forceSetfOverride: Boolean = false,
     val lastFormulaStatus: FormulaCommitStatus = FormulaCommitStatus.OK,
-    val statusBanner: String = "Ready • Light Mode • 17 Stencil Packs Loaded",
+    val statusBanner: String = "Ready • Light Mode • 22 Stencil Packs Loaded",
+    val showStartBackstage: Boolean = true,
+    val activeRibbonTab: String = "Home",
+    val isRibbonCollapsed: Boolean = false,
+    val language: VexioAppLanguage = VexioAppLanguage.detectDefault(),
+    val metricUnits: Boolean = detectDefaultMetricUnits(),
+    val activePagePreset: VexioPagePresetSpec = if (detectDefaultMetricUnits()) {
+        VexioPagePresetSpec.A4_LANDSCAPE
+    } else {
+        VexioPagePresetSpec.LETTER_LANDSCAPE
+    },
+    val textFontFamily: String = "Inter",
+    val textFontSizePt: Int = 11,
+    val textBold: Boolean = false,
+    val textItalic: Boolean = false,
+    val textUnderline: Boolean = false,
+    val textStrikethrough: Boolean = false,
+    val textHorizAlign: Int = 1,
+    val textVertAlign: Int = 1,
+    val textBullets: Boolean = false,
+    val textColorHex: String = "#0F172A",
+    val textBgColorHex: String = "none",
+    val inlineTextEditor: InlineCanvasEditorModel? = null,
+    val autoCheckUpdates: Boolean = true,
+    val updateStatusMessage: String = "Vexio v0.1.0 • Automatic update check enabled",
+    val availableUpdateTag: String? = null,
+    val availableUpdateUrl: String? = null,
+    val showUpdateDialog: Boolean = false,
     val isPlan2RibbonExpanded: Boolean = false,
     val isShapeSheetDrawerExpanded: Boolean = false,
     val isInspectorExpanded: Boolean = true,
@@ -1104,7 +1344,8 @@ class VexioSessionViewModel(
     }
 
     @Synchronized
-    fun initializeEngineAndBlankDocument(title: String) {
+    fun initializeEngineAndBlankDocument(title: String, hideStartBackstage: Boolean = false) {
+        val defaultPreset = _uiState.value.activePagePreset
         if (NativeBridge.ensureLoaded()) {
             if (enginePtr == 0L) {
                 enginePtr = NativeBridge.nativeInitEngine()
@@ -1115,6 +1356,7 @@ class VexioSessionViewModel(
             docPtr = NativeBridge.nativeCreateBlankDocument(title)
             if (docPtr != 0L) {
                 NativeBridge.nativeLoadStarterTemplate(docPtr, "flowchart")
+                NativeBridge.nativeSetPagePreset(docPtr, 1, defaultPreset.slug, defaultPreset.landscape)
                 loadDynamicStencilsFromNative()
             }
         }
@@ -1122,6 +1364,7 @@ class VexioSessionViewModel(
             state.copy(
                 documentTitle = title,
                 isDirty = false,
+                showStartBackstage = if (hideStartBackstage) false else state.showStartBackstage,
                 statusBanner = if (NativeBridge.isNativeAvailable && enginePtr != 0L) {
                     "Vexio Rust Engine Active • ${state.stencilMasters.size} Stencils Ready"
                 } else {
@@ -1195,15 +1438,20 @@ class VexioSessionViewModel(
 
     @Synchronized
     fun loadStarterTemplate(templateId: String) {
+        val preset = _uiState.value.activePagePreset
         if (NativeBridge.isNativeAvailable && docPtr != 0L) {
             NativeBridge.nativeLoadStarterTemplate(docPtr, templateId)
+            NativeBridge.nativeSetPagePreset(docPtr, 1, preset.slug, preset.landscape)
             refreshSelectedShapeFormulas()
             presentViewportOrFallback()
         }
         _uiState.update {
             it.copy(
+                showStartBackstage = false,
                 activePageId = 1,
                 selectedShapeId = 1L,
+                activeTool = VexioTool.POINTER,
+                activeCursor = VexioCursorKind.ARROW,
                 isDirty = true,
                 canUndo = true,
                 statusBanner = "Loaded '${templateId.replaceFirstChar { c -> c.uppercase() }}' starter diagram"
@@ -1224,6 +1472,10 @@ class VexioSessionViewModel(
         predictor: MotionEventPredictor?
     ): Boolean {
         if (event.pointerCount == 0) return false
+
+        if (actionMaskedIsPrimaryDown(event) && _uiState.value.inlineTextEditor != null) {
+            commitInlineTextEdit(_uiState.value.inlineTextEditor?.text.orEmpty())
+        }
 
         val primaryTool = MotionBatchFormat.mapAndroidToolType(event.getToolType(0))
         val actionMasked = event.actionMasked
@@ -1359,6 +1611,7 @@ class VexioSessionViewModel(
             }
         }
 
+        var newlyCreatedTextId = 0L
         val nativeCursorCode = if (NativeBridge.isNativeAvailable && viewportPtr != 0L && docPtr != 0L) {
             val code = NativeBridge.nativePushMotionBatch(
                 viewportPtr = viewportPtr,
@@ -1383,6 +1636,9 @@ class VexioSessionViewModel(
                         refreshSelectedShapeFormulas()
                     }
                 }
+                if (mappedAction == MotionBatchFormat.ACTION_UP) {
+                    newlyCreatedTextId = NativeBridge.nativePopCreatedTextShape(viewportPtr)
+                }
                 if (mappedAction == MotionBatchFormat.ACTION_UP ||
                     (buttonState and MotionEvent.BUTTON_PRIMARY) != 0
                 ) {
@@ -1396,21 +1652,63 @@ class VexioSessionViewModel(
 
         directMotionBatchBuffer.clear()
 
-        val resolvedCursor = VexioCursorKind.fromNativeCode(nativeCursorCode)
+        // Auto-return cursor to Select (Pointer) mode after inserting any shape, connector, or text object!
+        val activeBeforeUp = _uiState.value.activeTool
+        val shouldResetToPointer = mappedAction == MotionBatchFormat.ACTION_UP &&
+            activeBeforeUp !in setOf(
+                VexioTool.POINTER,
+                VexioTool.PAN_HAND,
+                VexioTool.STYLUS_INK,
+                VexioTool.HIGHLIGHTER
+            )
+        if (shouldResetToPointer && NativeBridge.isNativeAvailable && viewportPtr != 0L) {
+            NativeBridge.nativeSetViewportTool(viewportPtr, VexioTool.POINTER.nativeCode)
+        }
+
+        val resolvedCursor = if (shouldResetToPointer) {
+            VexioCursorKind.ARROW
+        } else {
+            VexioCursorKind.fromNativeCode(nativeCursorCode)
+        }
         val stylusActive = primaryTool == MotionBatchFormat.TOOL_STYLUS ||
             primaryTool == MotionBatchFormat.TOOL_ERASER
         val tiltDegrees = Math.toDegrees(currentTilt.toDouble()).toInt().coerceIn(0, 90)
 
         _uiState.update { state ->
             state.copy(
+                activeTool = if (shouldResetToPointer) VexioTool.POINTER else state.activeTool,
                 activeCursor = resolvedCursor,
                 isStylusActive = stylusActive || palmRejector.isStylusProximityActive,
                 lastStylusPressure = if (stylusActive) currentPressure else state.lastStylusPressure,
                 lastStylusTiltDeg = if (stylusActive) tiltDegrees else state.lastStylusTiltDeg
             )
         }
+
+        if (newlyCreatedTextId > 0L) {
+            beginInlineTextEdit(newlyCreatedTextId, isNewTextShape = true)
+        } else if (mappedAction == MotionBatchFormat.ACTION_UP && activeBeforeUp == VexioTool.TEXT_BLOCK) {
+            // Fallback inline editor when running without Vulkan surface
+            val targetId = _uiState.value.selectedShapeId.coerceAtLeast(1L)
+            _uiState.update {
+                it.copy(
+                    inlineTextEditor = InlineCanvasEditorModel(
+                        shapeId = targetId,
+                        text = "",
+                        xPx = event.getX(0),
+                        yPx = event.getY(0),
+                        widthPx = 220f,
+                        heightPx = 56f,
+                        isNewlyCreatedText = true
+                    )
+                )
+            }
+        }
         return true
     }
+
+    private fun actionMaskedIsPrimaryDown(event: MotionEvent): Boolean =
+        event.actionMasked == MotionEvent.ACTION_DOWN &&
+            (event.buttonState and MotionEvent.BUTTON_SECONDARY) == 0
 
     private fun inferFallbackCursorCode(
         tool: VexioTool,
@@ -1747,10 +2045,15 @@ class VexioSessionViewModel(
             }
         }
 
+        if (NativeBridge.isNativeAvailable && viewportPtr != 0L) {
+            NativeBridge.nativeSetViewportTool(viewportPtr, VexioTool.POINTER.nativeCode)
+        }
         _uiState.update { state ->
             val activeFormula = updatedCells.firstOrNull { it.cellName == state.activeCellName }?.formula
                 ?: widthFormula
             state.copy(
+                activeTool = VexioTool.POINTER,
+                activeCursor = VexioCursorKind.ARROW,
                 selectedShapeId = shapeId,
                 selectedShapeIds = listOf(shapeId),
                 selectedShapeName = "Sheet.$shapeId ($title)",
@@ -1785,9 +2088,14 @@ class VexioSessionViewModel(
         } else {
             nextSyntheticShapeId++
         }
+        if (NativeBridge.isNativeAvailable && viewportPtr != 0L) {
+            NativeBridge.nativeSetViewportTool(viewportPtr, VexioTool.POINTER.nativeCode)
+        }
         val resolvedId = if (created > 0L) created else nextSyntheticShapeId++
         _uiState.update {
             it.copy(
+                activeTool = VexioTool.POINTER,
+                activeCursor = VexioCursorKind.ARROW,
                 selectedShapeId = resolvedId,
                 selectedShapeIds = listOf(resolvedId),
                 selectedShapeName = "Sheet.$resolvedId ($kind)",
@@ -1798,6 +2106,9 @@ class VexioSessionViewModel(
         }
         refreshSelectedShapeFormulas()
         presentViewportOrFallback()
+        if (kind.equals("text", ignoreCase = true)) {
+            beginInlineTextEdit(resolvedId, isNewTextShape = true)
+        }
     }
 
     @Synchronized
@@ -2836,8 +3147,13 @@ class VexioSessionViewModel(
         uri: Uri?,
         rawBytes: ByteArray
     ) {
+        val ext = displayName.substringAfterLast('.', "vsdx").lowercase(Locale.US)
+        if (ext in setOf("vssx", "vss", "vssm")) {
+            importVisioStencilBytes(displayName, rawBytes)
+            return
+        }
+
         viewModelScope.launch(ioDispatcher) {
-            val ext = displayName.substringAfterLast('.', "vsdx").lowercase(Locale.US)
             val directBuffer = ByteBuffer.allocateDirect(max(1, rawBytes.size))
                 .order(ByteOrder.nativeOrder())
             directBuffer.put(rawBytes)
@@ -2852,6 +3168,7 @@ class VexioSessionViewModel(
                     openedPtr = NativeBridge.nativeOpenDocument(enginePtr, directBuffer, ext)
                     if (openedPtr != 0L) {
                         docPtr = openedPtr
+                        loadDynamicStencilsFromNative()
                     }
                 }
             }
@@ -2859,6 +3176,7 @@ class VexioSessionViewModel(
             withContext(Dispatchers.Main) {
                 _uiState.update { state ->
                     state.copy(
+                        showStartBackstage = false,
                         documentTitle = displayName,
                         documentUri = uri,
                         documentExtension = ext,
@@ -2872,6 +3190,466 @@ class VexioSessionViewModel(
                 }
                 refreshSelectedShapeFormulas()
                 captureBaselineSnapshot()
+                presentViewportOrFallback()
+            }
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // 14-Point Workstation UX ViewModel Actions (Backstage, Ribbon, Rich Text,
+    // Rotate/Flip, ISO Metric Presets, Stencil Import, Rename, Localization, Updates)
+    // -----------------------------------------------------------------------
+    fun setStartBackstageVisible(visible: Boolean) {
+        _uiState.update { it.copy(showStartBackstage = visible) }
+    }
+
+    fun selectRibbonTab(tab: String) {
+        _uiState.update { it.copy(activeRibbonTab = tab, isRibbonCollapsed = false) }
+    }
+
+    fun toggleRibbonCollapsed() {
+        _uiState.update { it.copy(isRibbonCollapsed = !it.isRibbonCollapsed) }
+    }
+
+    fun setLanguage(language: VexioAppLanguage) {
+        _uiState.update {
+            it.copy(
+                language = language,
+                statusBanner = "Language: ${language.nativeName} (${language.badge})"
+            )
+        }
+    }
+
+    @Synchronized
+    fun createBlankWithPagePreset(title: String, preset: VexioPagePresetSpec) {
+        if (NativeBridge.ensureLoaded()) {
+            if (enginePtr == 0L) {
+                enginePtr = NativeBridge.nativeInitEngine()
+            }
+            if (docPtr != 0L) {
+                NativeBridge.nativeDestroyDocument(docPtr)
+            }
+            docPtr = NativeBridge.nativeCreateBlankDocument(title)
+            if (docPtr != 0L) {
+                NativeBridge.nativeLoadStarterTemplate(docPtr, "blank")
+                NativeBridge.nativeSetPagePreset(docPtr, 1, preset.slug, preset.landscape)
+                loadDynamicStencilsFromNative()
+            }
+            if (viewportPtr != 0L && docPtr != 0L) {
+                NativeBridge.nativeSetViewportPage(viewportPtr, docPtr, 1)
+                NativeBridge.nativeSetViewportTool(viewportPtr, VexioTool.POINTER.nativeCode)
+            }
+        }
+        _uiState.update { state ->
+            state.copy(
+                showStartBackstage = false,
+                documentTitle = title,
+                documentUri = null,
+                documentExtension = "vsdx",
+                activePageId = 1,
+                pages = listOf(DiagramPageTab(1, "Page-1", preset.label)),
+                activePagePreset = preset,
+                metricUnits = preset.isMetric,
+                activeTool = VexioTool.POINTER,
+                activeCursor = VexioCursorKind.ARROW,
+                isDirty = false,
+                statusBanner = "Created $title • ${preset.label}"
+            )
+        }
+        captureBaselineSnapshot()
+        presentViewportOrFallback()
+    }
+
+    @Synchronized
+    fun applyPagePreset(preset: VexioPagePresetSpec) {
+        val pageId = resolveNativePageId(_uiState.value.activePageId)
+        if (NativeBridge.isNativeAvailable && docPtr != 0L) {
+            NativeBridge.nativeSetPagePreset(docPtr, pageId, preset.slug, preset.landscape)
+            presentViewportOrFallback()
+        }
+        _uiState.update { state ->
+            val updatedPages = state.pages.map { p ->
+                if (p.pageId == state.activePageId) p.copy(scaleLabel = preset.label) else p
+            }
+            state.copy(
+                pages = updatedPages,
+                activePagePreset = preset,
+                metricUnits = preset.isMetric,
+                isDirty = true,
+                canUndo = true,
+                statusBanner = "Applied Page Preset: ${preset.label}"
+            )
+        }
+    }
+
+    @Synchronized
+    fun renameDocument(rawTitle: String) {
+        val cleaned = rawTitle.trim()
+        if (cleaned.isEmpty()) return
+        val normalized = if ('.' in cleaned) {
+            cleaned
+        } else {
+            "$cleaned.${_uiState.value.documentExtension}"
+        }
+        if (NativeBridge.isNativeAvailable && docPtr != 0L) {
+            NativeBridge.nativeSetDocumentTitle(docPtr, normalized)
+        }
+        _uiState.update {
+            it.copy(
+                documentTitle = normalized,
+                isDirty = true,
+                statusBanner = "Renamed document to $normalized"
+            )
+        }
+    }
+
+    @Synchronized
+    fun rotateOrFlipSelected(
+        deltaAngleDeg: Double = 0.0,
+        flipX: Boolean = false,
+        flipY: Boolean = false
+    ) {
+        val state = _uiState.value
+        val targets = state.selectedShapeIds.ifEmpty { listOf(state.selectedShapeId) }
+            .filter { it > 0L }
+            .distinct()
+            .toLongArray()
+        if (targets.isEmpty()) return
+
+        if (NativeBridge.isNativeAvailable && docPtr != 0L) {
+            NativeBridge.nativeRotateFlipShapes(
+                docPtr = docPtr,
+                pageId = resolveNativePageId(state.activePageId),
+                shapeIds = targets,
+                deltaAngleDeg = deltaAngleDeg,
+                toggleFlipX = flipX,
+                toggleFlipY = flipY
+            )
+            refreshSelectedShapeFormulas()
+            presentViewportOrFallback()
+        }
+
+        val actionDesc = when {
+            flipX -> "Flipped Horizontally"
+            flipY -> "Flipped Vertically"
+            deltaAngleDeg < 0 -> "Rotated Left 90°"
+            else -> "Rotated Right 90°"
+        }
+        _uiState.update {
+            it.copy(
+                isDirty = true,
+                canUndo = true,
+                statusBanner = "$actionDesc (${targets.size} stencil/shape)"
+            )
+        }
+    }
+
+    @Synchronized
+    fun applyRichTextStyle(
+        fontFamily: String? = null,
+        fontSizePt: Int? = null,
+        bold: Boolean? = null,
+        italic: Boolean? = null,
+        underline: Boolean? = null,
+        strikethrough: Boolean? = null,
+        horizAlign: Int? = null,
+        vertAlign: Int? = null,
+        bullets: Boolean? = null,
+        colorHex: String? = null,
+        bgColorHex: String? = null
+    ) {
+        val cur = _uiState.value
+        val nextFont = fontFamily ?: cur.textFontFamily
+        val nextSize = (fontSizePt ?: cur.textFontSizePt).coerceIn(6, 96)
+        val nextBold = bold ?: cur.textBold
+        val nextItalic = italic ?: cur.textItalic
+        val nextUnder = underline ?: cur.textUnderline
+        val nextStrike = strikethrough ?: cur.textStrikethrough
+        val nextHAlign = (horizAlign ?: cur.textHorizAlign).coerceIn(0, 3)
+        val nextVAlign = (vertAlign ?: cur.textVertAlign).coerceIn(0, 2)
+        val nextBullets = bullets ?: cur.textBullets
+        val nextColor = colorHex ?: cur.textColorHex
+        val nextBg = bgColorHex ?: cur.textBgColorHex
+
+        val patchFields = mutableListOf<String>()
+        if (fontFamily != null) patchFields.add("\"fontFamily\":\"${escapeJson(nextFont)}\"")
+        if (fontSizePt != null) patchFields.add("\"fontSizePt\":$nextSize")
+        if (bold != null || italic != null || underline != null || strikethrough != null) {
+            patchFields.add("\"bold\":$nextBold")
+            patchFields.add("\"italic\":$nextItalic")
+            patchFields.add("\"underline\":$nextUnder")
+            patchFields.add("\"strikethrough\":$nextStrike")
+        }
+        if (horizAlign != null) patchFields.add("\"horizAlign\":$nextHAlign")
+        if (vertAlign != null) patchFields.add("\"vertAlign\":$nextVAlign")
+        if (bullets != null) patchFields.add("\"bullet\":${if (nextBullets) 1 else 0}")
+        if (colorHex != null) patchFields.add("\"colorHex\":\"${escapeJson(nextColor)}\"")
+        if (bgColorHex != null) patchFields.add("\"bgColorHex\":\"${escapeJson(nextBg)}\"")
+
+        val patchJson = "{${patchFields.joinToString(",")}}"
+        val targets = cur.selectedShapeIds.ifEmpty { listOf(cur.selectedShapeId) }
+            .filter { it > 0L }
+            .distinct()
+            .toLongArray()
+
+        if (NativeBridge.isNativeAvailable && docPtr != 0L && targets.isNotEmpty() && patchFields.isNotEmpty()) {
+            NativeBridge.nativeSetShapeTextStyleJson(
+                docPtr = docPtr,
+                pageId = resolveNativePageId(cur.activePageId),
+                shapeIds = targets,
+                styleJson = patchJson
+            )
+            refreshSelectedShapeFormulas()
+            presentViewportOrFallback()
+        }
+
+        _uiState.update {
+            it.copy(
+                textFontFamily = nextFont,
+                textFontSizePt = nextSize,
+                textBold = nextBold,
+                textItalic = nextItalic,
+                textUnderline = nextUnder,
+                textStrikethrough = nextStrike,
+                textHorizAlign = nextHAlign,
+                textVertAlign = nextVAlign,
+                textBullets = nextBullets,
+                textColorHex = nextColor,
+                textBgColorHex = nextBg,
+                isDirty = true,
+                canUndo = true,
+                statusBanner = "Applied text formatting ($nextFont ${nextSize}pt)"
+            )
+        }
+    }
+
+    @Synchronized
+    fun onCanvasDoubleTap(xPx: Float, yPx: Float) {
+        var hitShapeId = 0L
+        if (NativeBridge.isNativeAvailable && viewportPtr != 0L && docPtr != 0L) {
+            hitShapeId = NativeBridge.nativeHitTestShape(viewportPtr, docPtr, xPx.toDouble(), yPx.toDouble())
+            if (hitShapeId <= 0L) {
+                hitShapeId = NativeBridge.nativeGetPrimarySelection(viewportPtr)
+            }
+        }
+        if (hitShapeId <= 0L) {
+            hitShapeId = _uiState.value.selectedShapeId
+        }
+        if (hitShapeId > 0L) {
+            beginInlineTextEdit(hitShapeId, isNewTextShape = false, fallbackXPx = xPx, fallbackYPx = yPx)
+        }
+    }
+
+    @Synchronized
+    fun beginInlineTextEdit(
+        shapeId: Long,
+        isNewTextShape: Boolean = false,
+        fallbackXPx: Float = 160f,
+        fallbackYPx: Float = 140f
+    ) {
+        if (shapeId <= 0L) return
+        var rectX = fallbackXPx
+        var rectY = fallbackYPx
+        var rectW = 200f
+        var rectH = 54f
+        var existingLabel = ""
+
+        if (NativeBridge.isNativeAvailable && docPtr != 0L) {
+            if (viewportPtr != 0L) {
+                val boundsJson = runCatching {
+                    NativeBridge.nativeGetShapeScreenBoundsJson(viewportPtr, docPtr, shapeId)
+                }.getOrDefault("{}")
+                val boundsObj = runCatching { Json.parseToJsonElement(boundsJson).jsonObject }.getOrNull()
+                if (boundsObj != null && boundsObj.containsKey("x")) {
+                    rectX = boundsObj["x"]?.jsonPrimitive?.doubleOrNull?.toFloat() ?: fallbackXPx
+                    rectY = boundsObj["y"]?.jsonPrimitive?.doubleOrNull?.toFloat() ?: fallbackYPx
+                    rectW = (boundsObj["w"]?.jsonPrimitive?.doubleOrNull?.toFloat() ?: 180f).coerceAtLeast(130f)
+                    rectH = (boundsObj["h"]?.jsonPrimitive?.doubleOrNull?.toFloat() ?: 48f).coerceAtLeast(42f)
+                }
+            }
+            val stateJson = runCatching {
+                NativeBridge.nativeGetStateJson(docPtr, resolveNativePageId(_uiState.value.activePageId))
+            }.getOrDefault("{}")
+            val stateObj = runCatching { Json.parseToJsonElement(stateJson).jsonObject }.getOrNull()
+            val shapesArr = stateObj?.get("shapes") as? JsonArray
+            if (shapesArr != null) {
+                for (elem in shapesArr) {
+                    val shObj = elem as? JsonObject ?: continue
+                    val idVal = shObj["id"]?.jsonPrimitive?.longOrNull ?: 0L
+                    if (idVal == shapeId) {
+                        existingLabel = shObj["text"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                        break
+                    }
+                }
+            }
+        }
+        if (isNewTextShape && existingLabel == "Text") {
+            existingLabel = ""
+        }
+
+        _uiState.update {
+            it.copy(
+                selectedShapeId = shapeId,
+                selectedShapeIds = listOf(shapeId),
+                inlineTextEditor = InlineCanvasEditorModel(
+                    shapeId = shapeId,
+                    text = existingLabel,
+                    xPx = rectX,
+                    yPx = rectY,
+                    widthPx = rectW,
+                    heightPx = rectH,
+                    isNewlyCreatedText = isNewTextShape
+                )
+            )
+        }
+    }
+
+    fun updateInlineTextDraft(newDraft: String) {
+        _uiState.update { state ->
+            val current = state.inlineTextEditor ?: return@update state
+            state.copy(inlineTextEditor = current.copy(text = newDraft))
+        }
+    }
+
+    @Synchronized
+    fun commitInlineTextEdit(finalText: String) {
+        val editor = _uiState.value.inlineTextEditor ?: return
+        if (NativeBridge.isNativeAvailable && docPtr != 0L) {
+            NativeBridge.nativeSetShapeText(
+                docPtr = docPtr,
+                pageId = resolveNativePageId(_uiState.value.activePageId),
+                shapeId = editor.shapeId,
+                text = finalText
+            )
+            refreshSelectedShapeFormulas()
+            presentViewportOrFallback()
+        }
+        _uiState.update {
+            it.copy(
+                inlineTextEditor = null,
+                isDirty = true,
+                canUndo = true,
+                statusBanner = "Updated label for Sheet.${editor.shapeId}"
+            )
+        }
+    }
+
+    fun cancelInlineTextEdit() {
+        _uiState.update { it.copy(inlineTextEditor = null) }
+    }
+
+    fun importVisioStencilBytes(fileName: String, rawBytes: ByteArray) {
+        if (rawBytes.isEmpty()) return
+        viewModelScope.launch(ioDispatcher) {
+            var importedPackTitle = fileName.substringBeforeLast('.').ifBlank { "Imported Stencil" }
+            synchronized(this@VexioSessionViewModel) {
+                if (NativeBridge.ensureLoaded() && docPtr != 0L) {
+                    val resJson = NativeBridge.nativeImportStencilBytes(docPtr, fileName, rawBytes).orEmpty()
+                    val obj = runCatching { Json.parseToJsonElement(resJson).jsonObject }.getOrNull()
+                    val parsedPack = obj?.get("packTitle")?.jsonPrimitive?.contentOrNull
+                    if (!parsedPack.isNullOrBlank()) {
+                        importedPackTitle = parsedPack
+                    }
+                    loadDynamicStencilsFromNative()
+                }
+            }
+            withContext(Dispatchers.Main) {
+                _uiState.update { state ->
+                    val updatedCats = if (importedPackTitle in state.stencilCategories) {
+                        state.stencilCategories
+                    } else {
+                        listOf(importedPackTitle) + state.stencilCategories
+                    }
+                    state.copy(
+                        showStartBackstage = false,
+                        isStencilDrawerExpanded = true,
+                        stencilCategories = updatedCats,
+                        selectedStencilCategory = importedPackTitle,
+                        isDirty = true,
+                        statusBanner = "Imported Visio Stencil '$importedPackTitle' ($fileName)"
+                    )
+                }
+            }
+        }
+    }
+
+    fun setAutoCheckUpdates(enabled: Boolean) {
+        _uiState.update { it.copy(autoCheckUpdates = enabled) }
+    }
+
+    fun dismissUpdateDialog() {
+        _uiState.update { it.copy(showUpdateDialog = false) }
+    }
+
+    fun checkForUpdatesAsync(userInitiated: Boolean) {
+        if (!userInitiated && !_uiState.value.autoCheckUpdates) return
+        if (userInitiated) {
+            _uiState.update {
+                it.copy(updateStatusMessage = "Checking GitHub Releases for updates…")
+            }
+        }
+        viewModelScope.launch(ioDispatcher) {
+            val currentVersion = "0.1.0"
+            var latestTag: String? = null
+            var downloadUrl = "https://github.com/petrosvassiliou/vexio/releases"
+            var ok = false
+
+            runCatching {
+                val url = java.net.URL("https://api.github.com/repos/petrosvassiliou/vexio/releases")
+                val conn = (url.openConnection() as java.net.HttpURLConnection).apply {
+                    requestMethod = "GET"
+                    connectTimeout = 4500
+                    readTimeout = 4500
+                    setRequestProperty("User-Agent", "Vexio-Android-Googlebook/0.1.0")
+                    setRequestProperty("Accept", "application/vnd.github+json")
+                }
+                if (conn.responseCode in 200..299) {
+                    val body = conn.inputStream.bufferedReader(StandardCharsets.UTF_8).use { it.readText() }
+                    val arr = Json.parseToJsonElement(body).jsonArray
+                    if (arr.isNotEmpty()) {
+                        val rel = arr[0].jsonObject
+                        latestTag = rel["tag_name"]?.jsonPrimitive?.contentOrNull
+                        downloadUrl = rel["html_url"]?.jsonPrimitive?.contentOrNull ?: downloadUrl
+                        val assets = rel["assets"] as? JsonArray
+                        assets?.forEach { assetElem ->
+                            val aObj = assetElem.jsonObject
+                            val name = aObj["name"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                            if (name.endsWith(".apk", ignoreCase = true) || "android" in name.lowercase(Locale.US)) {
+                                downloadUrl = aObj["browser_download_url"]?.jsonPrimitive?.contentOrNull ?: downloadUrl
+                            }
+                        }
+                        ok = true
+                    }
+                }
+                conn.disconnect()
+            }
+
+            withContext(Dispatchers.Main) {
+                if (!ok) {
+                    _uiState.update {
+                        it.copy(
+                            updateStatusMessage = "Offline mode active • Update check skipped cleanly",
+                            showUpdateDialog = userInitiated,
+                            availableUpdateTag = null,
+                            availableUpdateUrl = null
+                        )
+                    }
+                    return@withContext
+                }
+                val cleanTag = latestTag.orEmpty().removePrefix("v").removePrefix("V")
+                val hasNewer = cleanTag.isNotEmpty() && cleanTag != currentVersion && cleanTag > currentVersion
+                _uiState.update {
+                    it.copy(
+                        availableUpdateTag = if (hasNewer) latestTag else null,
+                        availableUpdateUrl = downloadUrl,
+                        showUpdateDialog = hasNewer || userInitiated,
+                        updateStatusMessage = if (hasNewer) {
+                            "Update available: $latestTag (Installed: v$currentVersion)"
+                        } else {
+                            "Vexio is up to date (${latestTag ?: "v$currentVersion"})"
+                        }
+                    )
+                }
             }
         }
     }

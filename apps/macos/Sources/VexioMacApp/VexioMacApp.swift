@@ -5,6 +5,8 @@ import SwiftUI
 
 @MainActor
 public final class VexioAppDelegate: NSObject, NSApplicationDelegate {
+    public var pendingExternalURL: URL?
+
     public func applicationDidFinishLaunching(_ notification: Notification) {
         NSWindow.allowsAutomaticWindowTabbing = true
         let savedAppearance = UserDefaults.standard.string(forKey: "vexio.appearanceMode") ?? "light"
@@ -18,8 +20,19 @@ public final class VexioAppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    public func applicationShouldOpenUntitledFile(_ sender: NSApplication) -> Bool {
+        // Prevent macOS from popping up an external system NSOpenPanel before our in-app window appears!
+        false
+    }
+
     public func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         false
+    }
+
+    public func application(_ application: NSApplication, open urls: [URL]) {
+        guard let first = urls.first else { return }
+        pendingExternalURL = first
+        NotificationCenter.default.post(name: .vexioOpenExternalURL, object: first)
     }
 
     public func application(
@@ -33,12 +46,33 @@ public final class VexioAppDelegate: NSObject, NSApplicationDelegate {
         if let urlString = userActivity.userInfo?["fileURLString"] as? String,
            let documentURL = URL(string: urlString),
            FileManager.default.fileExists(atPath: documentURL.path) {
-            NSDocumentController.shared.openDocument(
-                withContentsOf: documentURL,
-                display: true
-            ) { _, _, _ in }
+            NotificationCenter.default.post(name: .vexioOpenExternalURL, object: documentURL)
         }
         return true
+    }
+}
+
+private struct VexioMainWindowHostView: View {
+    @StateObject private var session = VexioDocumentSession()
+    @State private var initialURL: URL? = nil
+
+    var body: some View {
+        VexioWorkspaceView(session: session, fileURL: initialURL)
+            .onAppear {
+                if let delegate = NSApp.delegate as? VexioAppDelegate,
+                   let launchURL = delegate.pendingExternalURL {
+                    delegate.pendingExternalURL = nil
+                    session.openLocalFile(from: launchURL)
+                }
+            }
+            .onOpenURL { url in
+                session.openLocalFile(from: url)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .vexioOpenExternalURL)) { note in
+                if let url = note.object as? URL {
+                    session.openLocalFile(from: url)
+                }
+            }
     }
 }
 
@@ -60,12 +94,9 @@ public struct VexioMacApp: App {
     }
 
     public var body: some Scene {
-        DocumentGroup(newDocument: { VexioDocumentSession() }) { configuration in
-            VexioWorkspaceView(
-                session: configuration.document,
-                fileURL: configuration.fileURL
-            )
-            .preferredColorScheme(resolvedColorScheme)
+        WindowGroup("Vexio") {
+            VexioMainWindowHostView()
+                .preferredColorScheme(resolvedColorScheme)
         }
         .windowStyle(.hiddenTitleBar)
         .defaultSize(width: 1440, height: 900)
@@ -85,6 +116,78 @@ public struct VexioGlobalMenuCommands: Commands {
     public init() {}
 
     public var body: some Commands {
+        // App Menu: Check for Updates… (Fixes Remark #8)
+        CommandGroup(after: .appInfo) {
+            Button("Check for Updates…") {
+                Task { @MainActor in
+                    await VexioUpdateManager.shared.checkForUpdates(userInitiated: true)
+                }
+            }
+        }
+
+        // File Menu: In-App New / Open / Import Stencil / Save (Fixes Remarks #1 & #10)
+        CommandGroup(replacing: .newItem) {
+            Button("New / Templates Hub…") {
+                NotificationCenter.default.post(name: .vexioShowFileBackstage, object: nil)
+            }
+            .keyboardShortcut("n", modifiers: [.command])
+
+            Button("Open Diagram or CAD File…") {
+                NotificationCenter.default.post(name: .vexioOpenFileSheet, object: nil)
+            }
+            .keyboardShortcut("o", modifiers: [.command])
+
+            Button("Import Visio Stencil (.vssx / .vss)…") {
+                NotificationCenter.default.post(name: .vexioImportStencilSheet, object: nil)
+            }
+            .keyboardShortcut("i", modifiers: [.command, .shift])
+
+            Divider()
+
+            Button("Save…") {
+                NotificationCenter.default.post(name: .vexioSaveFileSheet, object: nil)
+            }
+            .keyboardShortcut("s", modifiers: [.command])
+        }
+
+        // Format Menu: Rich Text Formatting Shortcuts (Fixes Remark #3)
+        CommandMenu("Format") {
+            Button("Bold") {
+                session?.applyTextStyle(toggleStyleMask: 1, undoManager: NSApp.keyWindow?.undoManager)
+            }
+            .keyboardShortcut("b", modifiers: [.command])
+            .disabled(session == nil)
+
+            Button("Italic") {
+                session?.applyTextStyle(toggleStyleMask: 2, undoManager: NSApp.keyWindow?.undoManager)
+            }
+            .keyboardShortcut("i", modifiers: [.command])
+            .disabled(session == nil)
+
+            Button("Underline") {
+                session?.applyTextStyle(toggleStyleMask: 4, undoManager: NSApp.keyWindow?.undoManager)
+            }
+            .keyboardShortcut("u", modifiers: [.command])
+            .disabled(session == nil)
+
+            Divider()
+
+            Button("Align Left") {
+                session?.applyTextStyle(horizAlign: 0, undoManager: NSApp.keyWindow?.undoManager)
+            }
+            .disabled(session == nil)
+
+            Button("Align Center") {
+                session?.applyTextStyle(horizAlign: 1, undoManager: NSApp.keyWindow?.undoManager)
+            }
+            .disabled(session == nil)
+
+            Button("Align Right") {
+                session?.applyTextStyle(horizAlign: 2, undoManager: NSApp.keyWindow?.undoManager)
+            }
+            .disabled(session == nil)
+        }
+
         // Deterministic Journal Undo / Redo
         CommandGroup(replacing: .undoRedo) {
             Button("Undo") {

@@ -109,6 +109,19 @@ VexioStatus vexio_doc_export_data_visualizer_xlsx(const VexioDoc* doc, uint32_t 
 VexioStatus vexio_doc_import_cloud_discovery(VexioDoc* doc, uint32_t page_id, const char* discovery_json_utf8, uint32_t* out_count);
 VexioStatus vexio_doc_import_entra_or_ldif(VexioDoc* doc, uint32_t page_id, const char* text_utf8, uint32_t* out_count);
 
+/* Viewport Inline Editing, Active Tool Sync & Screen Bounds */
+uint32_t    vexio_viewport_get_active_tool(const VexioViewport* vp);
+uint64_t    vexio_viewport_pop_created_text_shape(VexioViewport* vp);
+uint64_t    vexio_viewport_hit_test_shape(const VexioViewport* vp, const VexioDoc* doc, double x_px, double y_px);
+VexioStatus vexio_viewport_get_shape_screen_bounds(const VexioViewport* vp, const VexioDoc* doc, uint64_t shape_id, double* out_x_px, double* out_y_px, double* out_w_px, double* out_h_px);
+
+/* Rich Text Formatting, Stencil Rotate/Flip, ISO Metric Page Setup & Rename */
+VexioStatus vexio_doc_set_shape_text_style_json(VexioDoc* doc, uint32_t page_id, const uint64_t* shape_ids_ptr, size_t shape_ids_len, const char* style_json_utf8);
+VexioStatus vexio_doc_rotate_flip_shapes(VexioDoc* doc, uint32_t page_id, const uint64_t* shape_ids_ptr, size_t shape_ids_len, double delta_angle_deg, bool toggle_flip_x, bool toggle_flip_y);
+VexioStatus vexio_doc_set_page_setup(VexioDoc* doc, uint32_t page_id, double width_in, double height_in, const char* unit_slug_utf8);
+VexioStatus vexio_doc_set_page_preset(VexioDoc* doc, uint32_t page_id, const char* preset_slug_utf8, bool landscape);
+VexioStatus vexio_doc_set_title(VexioDoc* doc, const char* title_utf8);
+
 #ifdef __cplusplus
 }
 #endif

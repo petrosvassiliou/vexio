@@ -278,6 +278,7 @@ pub struct VexioViewport {
     pub active_tool: NativeCanvasTool,
     pub selected_ids: Vec<u64>,
     pub drag_state: Option<NativeDragState>,
+    pub last_created_text_shape_id: Option<u64>,
     /// Retained Android `ANativeWindow*` released on `Drop` when created via `jni_bridge`.
     pub android_native_window: *mut std::ffi::c_void,
 }
@@ -299,6 +300,7 @@ impl VexioViewport {
             active_tool: NativeCanvasTool::Select,
             selected_ids: Vec::new(),
             drag_state: None,
+            last_created_text_shape_id: None,
             android_native_window: ptr::null_mut(),
         }
     }
@@ -859,6 +861,12 @@ impl VexioViewport {
                             };
                             if let Some(sid) = created {
                                 self.selected_ids = vec![sid];
+                                if tool == NativeCanvasTool::Text {
+                                    self.last_created_text_shape_id = Some(sid);
+                                }
+                                if !is_shift {
+                                    self.active_tool = NativeCanvasTool::Select;
+                                }
                             }
                         }
                         NativeDragState::DrawPath { tool, points } => {
@@ -876,6 +884,9 @@ impl VexioViewport {
                                     );
                                     if let Some(sid) = created_id {
                                         self.selected_ids = vec![sid];
+                                        if !is_shift {
+                                            self.active_tool = NativeCanvasTool::Select;
+                                        }
                                     }
                                 } else {
                                     let stroke_id = session
@@ -987,6 +998,16 @@ struct NativeShapeDto {
     width: f64,
     height: f64,
     angle_deg: f64,
+    flip_x: bool,
+    flip_y: bool,
+    font_family: String,
+    font_size_pt: f64,
+    char_style: u8,
+    text_color: String,
+    text_bg_color: Option<String>,
+    horiz_align: u8,
+    vert_align: u8,
+    bullet_style: u8,
     control_handles_count: usize,
     cells: Vec<NativeCellDto>,
 }
@@ -1019,6 +1040,7 @@ struct NativeStateDto {
     active_page_id: u32,
     page_width_in: f64,
     page_height_in: f64,
+    display_unit: String,
     pages: Vec<NativePageDto>,
     layers: Vec<NativeLayerDto>,
     shapes: Vec<NativeShapeDto>,
@@ -1036,6 +1058,10 @@ pub(crate) fn build_native_state_json(session: &DocumentSession, active_page_id:
     let active_page = session.doc.page(pid);
     let page_width_in = active_page.map(|p| p.width_in()).unwrap_or(11.0);
     let page_height_in = active_page.map(|p| p.height_in()).unwrap_or(8.5);
+    let display_unit = active_page
+        .and_then(|p| p.page_sheet.get_str("User.DisplayUnit"))
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "mm".to_string());
 
     let pages = session
         .doc
@@ -1087,6 +1113,12 @@ pub(crate) fn build_native_state_json(session: &DocumentSession, active_page_id:
                             guarded: c.is_guarded(),
                         })
                         .collect();
+                    let bg_trans = s.sheet.get_f64("TextBkgndTrans").unwrap_or(1.0);
+                    let text_bg_color = if bg_trans < 0.99 {
+                        s.sheet.get_color("TextBkgnd").map(|c| c.to_hex_rgb())
+                    } else {
+                        None
+                    };
                     NativeShapeDto {
                         id: s.id,
                         name: s.name.clone(),
@@ -1097,6 +1129,24 @@ pub(crate) fn build_native_state_json(session: &DocumentSession, active_page_id:
                         width: s.sheet.get_f64("Width").unwrap_or(1.0),
                         height: s.sheet.get_f64("Height").unwrap_or(1.0),
                         angle_deg: s.sheet.get_f64("Angle").unwrap_or(0.0).to_degrees(),
+                        flip_x: s.sheet.get_bool("FlipX").unwrap_or(false),
+                        flip_y: s.sheet.get_bool("FlipY").unwrap_or(false),
+                        font_family: s
+                            .sheet
+                            .get_str("Char.Font")
+                            .filter(|f| !f.is_empty())
+                            .unwrap_or_else(|| "Inter".to_string()),
+                        font_size_pt: (s.sheet.get_f64("Char.Size").unwrap_or(10.0 / 72.0) * 72.0 * 10.0).round() / 10.0,
+                        char_style: s.sheet.get_f64("Char.Style").unwrap_or(0.0).round().clamp(0.0, 15.0) as u8,
+                        text_color: s
+                            .sheet
+                            .get_color("Char.Color")
+                            .unwrap_or(RgbaColor::BLACK)
+                            .to_hex_rgb(),
+                        text_bg_color,
+                        horiz_align: s.sheet.get_f64("Para.HorzAlign").unwrap_or(1.0).round().clamp(0.0, 3.0) as u8,
+                        vert_align: s.sheet.get_f64("VerticalAlign").unwrap_or(1.0).round().clamp(0.0, 2.0) as u8,
+                        bullet_style: s.sheet.get_f64("Para.Bullet").unwrap_or(0.0).round().clamp(0.0, 4.0) as u8,
                         control_handles_count: list_control_handles(&session.doc, pid, s.id).len(),
                         cells,
                     }
@@ -1110,6 +1160,7 @@ pub(crate) fn build_native_state_json(session: &DocumentSession, active_page_id:
         active_page_id: pid,
         page_width_in,
         page_height_in,
+        display_unit,
         pages,
         layers,
         shapes,
@@ -1120,8 +1171,13 @@ pub(crate) fn build_native_state_json(session: &DocumentSession, active_page_id:
     serde_json::to_string(&dto).unwrap_or_else(|_| "{}".into())
 }
 
-pub(crate) fn build_stencils_catalog_json() -> String {
-    let previews = list_builtin_stencil_previews();
+pub(crate) fn build_stencils_catalog_json(session: Option<&DocumentSession>) -> String {
+    let mut previews = list_builtin_stencil_previews();
+    if let Some(sess) = session {
+        for (cat, list) in &sess.imported_stencil_previews {
+            previews.insert(cat.clone(), list.clone());
+        }
+    }
     serde_json::to_string(&previews).unwrap_or_else(|_| "{}".into())
 }
 
@@ -1672,7 +1728,9 @@ pub unsafe extern "C" fn vexio_doc_list_stencils_json(
         if doc.is_null() || out_json.is_null() {
             return VexioStatus::ErrInvalidArg;
         }
-        let json = build_stencils_catalog_json();
+        // SAFETY: `doc` verified non-null.
+        let doc_ref = unsafe { &*doc };
+        let json = build_stencils_catalog_json(Some(&doc_ref.session));
         // SAFETY: `out_json` verified non-null.
         unsafe { *out_json = VexioOwnedBuffer::from_vec(json.into_bytes()) };
         VexioStatus::Ok
@@ -2520,6 +2578,249 @@ pub unsafe extern "C" fn vexio_doc_import_entra_or_ldif(
     res.unwrap_or(VexioStatus::ErrInternalPanic)
 }
 
+#[no_mangle]
+pub unsafe extern "C" fn vexio_viewport_get_active_tool(vp: *const VexioViewport) -> u32 {
+    if vp.is_null() {
+        return 0;
+    }
+    // SAFETY: `vp` verified non-null.
+    let vp_ref = unsafe { &*vp };
+    vp_ref.active_tool as u32
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_viewport_pop_created_text_shape(vp: *mut VexioViewport) -> u64 {
+    if vp.is_null() {
+        return 0;
+    }
+    // SAFETY: `vp` verified non-null.
+    let vp_mut = unsafe { &mut *vp };
+    vp_mut.last_created_text_shape_id.take().unwrap_or(0)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_viewport_hit_test_shape(
+    vp: *const VexioViewport,
+    doc: *const VexioDoc,
+    x_px: f64,
+    y_px: f64,
+) -> u64 {
+    let res = catch_unwind(AssertUnwindSafe(|| {
+        if vp.is_null() || doc.is_null() {
+            return 0u64;
+        }
+        // SAFETY: `vp` and `doc` verified non-null.
+        let vp_ref = unsafe { &*vp };
+        let doc_ref = unsafe { &*doc };
+        let page_pt = vp_ref.camera.screen_to_page_in(x_px, y_px);
+        let visuals = ReactiveEngine::evaluate_page_visuals(&doc_ref.session.doc, vp_ref.page_id);
+        let index = vexio_render::SpatialIndex::build(&visuals);
+        index
+            .hit_test_visuals(&visuals, page_pt[0], page_pt[1], 0.10)
+            .into_iter()
+            .next()
+            .unwrap_or(0)
+    }));
+    res.unwrap_or(0)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_viewport_get_shape_screen_bounds(
+    vp: *const VexioViewport,
+    doc: *const VexioDoc,
+    shape_id: u64,
+    out_x_px: *mut f64,
+    out_y_px: *mut f64,
+    out_w_px: *mut f64,
+    out_h_px: *mut f64,
+) -> VexioStatus {
+    let res = catch_unwind(AssertUnwindSafe(|| {
+        if vp.is_null()
+            || doc.is_null()
+            || out_x_px.is_null()
+            || out_y_px.is_null()
+            || out_w_px.is_null()
+            || out_h_px.is_null()
+        {
+            return VexioStatus::ErrInvalidArg;
+        }
+        // SAFETY: Pointers verified non-null above.
+        let vp_ref = unsafe { &*vp };
+        let doc_ref = unsafe { &*doc };
+        let visuals = ReactiveEngine::evaluate_page_visuals(&doc_ref.session.doc, vp_ref.page_id);
+        let Some(vis) = visuals.iter().find(|v| v.shape_id == shape_id) else {
+            return VexioStatus::ErrInvalidArg;
+        };
+        let tl = vp_ref.camera.page_in_to_screen(vis.aabb_min[0], vis.aabb_max[1]);
+        let br = vp_ref.camera.page_in_to_screen(vis.aabb_max[0], vis.aabb_min[1]);
+        let min_x = tl[0].min(br[0]);
+        let min_y = tl[1].min(br[1]);
+        let w = (br[0] - tl[0]).abs().max(48.0);
+        let h = (br[1] - tl[1]).abs().max(26.0);
+        // SAFETY: Output pointers checked non-null.
+        unsafe {
+            *out_x_px = min_x;
+            *out_y_px = min_y;
+            *out_w_px = w;
+            *out_h_px = h;
+        }
+        VexioStatus::Ok
+    }));
+    res.unwrap_or(VexioStatus::ErrInternalPanic)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_doc_set_shape_text_style_json(
+    doc: *mut VexioDoc,
+    page_id: u32,
+    shape_ids_ptr: *const u64,
+    shape_ids_len: usize,
+    style_json_utf8: *const c_char,
+) -> VexioStatus {
+    let res = catch_unwind(AssertUnwindSafe(|| {
+        if doc.is_null()
+            || style_json_utf8.is_null()
+            || (shape_ids_ptr.is_null() && shape_ids_len > 0)
+        {
+            return VexioStatus::ErrInvalidArg;
+        }
+        // SAFETY: Pointers verified non-null above.
+        let d = unsafe { &mut *doc };
+        let ids = if shape_ids_len == 0 {
+            &[][..]
+        } else {
+            unsafe { std::slice::from_raw_parts(shape_ids_ptr, shape_ids_len) }
+        };
+        let Ok(json_s) = unsafe { CStr::from_ptr(style_json_utf8) }.to_str() else {
+            return VexioStatus::ErrInvalidArg;
+        };
+        let Ok(patch) = serde_json::from_str::<crate::workspace::TextStylePatch>(json_s) else {
+            return VexioStatus::ErrInvalidArg;
+        };
+        match d.session.apply_text_style_patch(page_id, ids, &patch) {
+            Ok(_) => VexioStatus::Ok,
+            Err(CoreError::Journal(JournalError::CellGuarded(_))) => VexioStatus::ErrCellGuarded,
+            Err(_) => VexioStatus::ErrFormulaSyntax,
+        }
+    }));
+    res.unwrap_or(VexioStatus::ErrInternalPanic)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_doc_rotate_flip_shapes(
+    doc: *mut VexioDoc,
+    page_id: u32,
+    shape_ids_ptr: *const u64,
+    shape_ids_len: usize,
+    delta_angle_deg: f64,
+    toggle_flip_x: bool,
+    toggle_flip_y: bool,
+) -> VexioStatus {
+    let res = catch_unwind(AssertUnwindSafe(|| {
+        if doc.is_null() || (shape_ids_ptr.is_null() && shape_ids_len > 0) {
+            return VexioStatus::ErrInvalidArg;
+        }
+        // SAFETY: Pointers verified non-null above.
+        let d = unsafe { &mut *doc };
+        let ids = if shape_ids_len == 0 {
+            &[][..]
+        } else {
+            unsafe { std::slice::from_raw_parts(shape_ids_ptr, shape_ids_len) }
+        };
+        match d.session.rotate_or_flip_shapes(
+            page_id,
+            ids,
+            delta_angle_deg,
+            toggle_flip_x,
+            toggle_flip_y,
+        ) {
+            Ok(_) => VexioStatus::Ok,
+            Err(CoreError::Journal(JournalError::CellGuarded(_))) => VexioStatus::ErrCellGuarded,
+            Err(_) => VexioStatus::ErrFormulaSyntax,
+        }
+    }));
+    res.unwrap_or(VexioStatus::ErrInternalPanic)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_doc_set_page_setup(
+    doc: *mut VexioDoc,
+    page_id: u32,
+    width_in: f64,
+    height_in: f64,
+    unit_slug_utf8: *const c_char,
+) -> VexioStatus {
+    let res = catch_unwind(AssertUnwindSafe(|| {
+        if doc.is_null() || !width_in.is_finite() || !height_in.is_finite() {
+            return VexioStatus::ErrInvalidArg;
+        }
+        // SAFETY: `doc` verified non-null.
+        let d = unsafe { &mut *doc };
+        let unit_s = if unit_slug_utf8.is_null() {
+            "mm"
+        } else {
+            // SAFETY: `unit_slug_utf8` verified non-null.
+            unsafe { CStr::from_ptr(unit_slug_utf8) }
+                .to_str()
+                .unwrap_or("mm")
+        };
+        match d.session.set_page_setup(page_id, width_in, height_in, unit_s) {
+            Ok(()) => VexioStatus::Ok,
+            Err(_) => VexioStatus::ErrInvalidArg,
+        }
+    }));
+    res.unwrap_or(VexioStatus::ErrInternalPanic)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_doc_set_page_preset(
+    doc: *mut VexioDoc,
+    page_id: u32,
+    preset_slug_utf8: *const c_char,
+    landscape: bool,
+) -> VexioStatus {
+    let res = catch_unwind(AssertUnwindSafe(|| {
+        if doc.is_null() || preset_slug_utf8.is_null() {
+            return VexioStatus::ErrInvalidArg;
+        }
+        // SAFETY: `doc` and `preset_slug_utf8` verified non-null.
+        let d = unsafe { &mut *doc };
+        let Ok(slug) = unsafe { CStr::from_ptr(preset_slug_utf8) }.to_str() else {
+            return VexioStatus::ErrInvalidArg;
+        };
+        let Some((w_in, h_in, unit)) =
+            crate::workspace::resolve_page_preset_dimensions_in(slug, landscape)
+        else {
+            return VexioStatus::ErrInvalidArg;
+        };
+        match d.session.set_page_setup(page_id, w_in, h_in, unit) {
+            Ok(()) => VexioStatus::Ok,
+            Err(_) => VexioStatus::ErrInvalidArg,
+        }
+    }));
+    res.unwrap_or(VexioStatus::ErrInternalPanic)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_doc_set_title(
+    doc: *mut VexioDoc,
+    title_utf8: *const c_char,
+) -> VexioStatus {
+    let res = catch_unwind(AssertUnwindSafe(|| {
+        if doc.is_null() || title_utf8.is_null() {
+            return VexioStatus::ErrInvalidArg;
+        }
+        // SAFETY: `doc` and `title_utf8` verified non-null.
+        let d = unsafe { &mut *doc };
+        let Ok(title) = unsafe { CStr::from_ptr(title_utf8) }.to_str() else {
+            return VexioStatus::ErrInvalidArg;
+        };
+        d.session.set_document_title(title);
+        VexioStatus::Ok
+    }));
+    res.unwrap_or(VexioStatus::ErrInternalPanic)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2689,7 +2990,137 @@ mod tests {
             vexio_engine_destroy(eng);
         }
     }
+
+    #[test]
+    fn c_abi_text_formatting_rotate_iso_page_and_tool_autoreset() {
+        let title = CString::new("Untitled Diagram").unwrap();
+        // SAFETY: All FFI pointers are owned and destroyed within this test scope.
+        unsafe {
+            let eng = vexio_engine_create();
+            let doc = vexio_doc_create_blank(title.as_ptr());
+            let mut vp: *mut VexioViewport = ptr::null_mut();
+            assert_eq!(
+                vexio_viewport_create_headless(eng, doc, 1, 800, 600, 1.0, &mut vp),
+                VexioStatus::Ok
+            );
+
+            // 1. ISO A4 Landscape Metric page preset (`297 x 210 mm`)
+            let a4 = CString::new("a4").unwrap();
+            assert_eq!(
+                vexio_doc_set_page_preset(doc, 1, a4.as_ptr(), true),
+                VexioStatus::Ok
+            );
+            let p = (&*doc).session.doc.page(1).unwrap();
+            assert!((p.width_in() - 297.0 / 25.4).abs() < 1e-4);
+            assert!((p.height_in() - 210.0 / 25.4).abs() < 1e-4);
+
+            // 2. Rename document inline
+            let new_title = CString::new("Architecture Overview").unwrap();
+            assert_eq!(
+                vexio_doc_set_title(doc, new_title.as_ptr()),
+                VexioStatus::Ok
+            );
+            assert_eq!((&*doc).session.doc.properties.title, "Architecture Overview");
+
+            // 3. Activate `Text` tool (`3`), single-click canvas -> auto-resets tool to `Select` (`0`)
+            //    and records `last_created_text_shape_id` for immediate inline editing!
+            assert_eq!(vexio_viewport_set_tool(vp, 3), VexioStatus::Ok);
+            assert_eq!(vexio_viewport_get_active_tool(vp), 3);
+            let mut cursor = 0u32;
+            let click_down = VexioPointerEvent {
+                kind: 1,
+                buttons: 1,
+                modifiers: 0,
+                x_px: 380.0,
+                y_px: 280.0,
+                pressure: 0.8,
+                tilt_x_deg: 0.0,
+                tilt_y_deg: 0.0,
+                timestamp_us: 100,
+            };
+            let click_up = VexioPointerEvent {
+                kind: 2,
+                buttons: 0,
+                modifiers: 0,
+                x_px: 382.0,
+                y_px: 282.0,
+                pressure: 0.0,
+                tilt_x_deg: 0.0,
+                tilt_y_deg: 0.0,
+                timestamp_us: 200,
+            };
+            assert_eq!(
+                vexio_viewport_dispatch_pointer(vp, doc, &click_down, &mut cursor),
+                VexioStatus::Ok
+            );
+            assert_eq!(
+                vexio_viewport_dispatch_pointer(vp, doc, &click_up, &mut cursor),
+                VexioStatus::Ok
+            );
+            assert_eq!(vexio_viewport_get_active_tool(vp), 0);
+            let created_txt_id = vexio_viewport_pop_created_text_shape(vp);
+            assert!(created_txt_id > 0);
+            assert_eq!(vexio_viewport_pop_created_text_shape(vp), 0);
+
+            // 4. Hit-test & screen bounds for double-click inline editing
+            let hit = vexio_viewport_hit_test_shape(vp, doc, 381.0, 281.0);
+            assert_eq!(hit, created_txt_id);
+            let (mut bx, mut by, mut bw, mut bh) = (0.0, 0.0, 0.0, 0.0);
+            assert_eq!(
+                vexio_viewport_get_shape_screen_bounds(
+                    vp,
+                    doc,
+                    created_txt_id,
+                    &mut bx,
+                    &mut by,
+                    &mut bw,
+                    &mut bh,
+                ),
+                VexioStatus::Ok
+            );
+            assert!(bw >= 48.0 && bh >= 26.0);
+
+            // 5. Rich text formatting (`Bold + Italic + Underline`, `18 pt`, `#1D4ED8`, Left Align, Top Align, Disc Bullets)
+            let style_json = CString::new(
+                r##"{"fontFamily":"Georgia","fontSizePt":18.0,"charStyle":7,"textColor":"#1D4ED8","textBgColor":"#FEF08A","horizAlign":0,"vertAlign":0,"bulletStyle":1}"##,
+            )
+            .unwrap();
+            let ids = [created_txt_id];
+            assert_eq!(
+                vexio_doc_set_shape_text_style_json(doc, 1, ids.as_ptr(), 1, style_json.as_ptr()),
+                VexioStatus::Ok
+            );
+            let svg = export_page_svg(&(&*doc).session.doc, 1);
+            assert!(svg.contains("font-weight=\"bold\""));
+            assert!(svg.contains("font-style=\"italic\""));
+            assert!(svg.contains("text-decoration=\"underline\""));
+            assert!(svg.contains("text-anchor=\"start\""));
+
+            // 6. Drop a Microsoft stencil and rotate 90° + FlipX
+            let cat = CString::new("Microsoft Servers & Active Directory").unwrap();
+            let master = CString::new("Windows Server").unwrap();
+            let mut srv_id = 0u64;
+            assert_eq!(
+                vexio_doc_drop_stencil(doc, 1, cat.as_ptr(), master.as_ptr(), 4.0, 4.0, &mut srv_id),
+                VexioStatus::Ok
+            );
+            assert!(srv_id > 0);
+            let srv_ids = [srv_id];
+            assert_eq!(
+                vexio_doc_rotate_flip_shapes(doc, 1, srv_ids.as_ptr(), 1, -90.0, true, false),
+                VexioStatus::Ok
+            );
+            let srv_sh = (&*doc).session.doc.page(1).unwrap().find_shape(srv_id).unwrap();
+            assert!((srv_sh.sheet.get_f64("Angle").unwrap().to_degrees() + 90.0).abs() < 1e-4);
+            assert!(srv_sh.sheet.get_bool("FlipX").unwrap());
+
+            vexio_viewport_destroy(vp);
+            vexio_doc_destroy(doc);
+            vexio_engine_destroy(eng);
+        }
+    }
 }
+
 
 
 

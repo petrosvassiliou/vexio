@@ -843,14 +843,50 @@ fn render_rich_svg_text(body: &mut String, vis: &EvaluatedShapeVisual, tx: f64, 
     let line_h = fsize * 1.25;
     let tcol = vis.text_color.to_hex_rgb();
     let lines: Vec<&str> = cleaned_raw.lines().collect();
+    let total_block_h = (lines.len().saturating_sub(1) as f64) * line_h;
     let is_external_caption =
         vis.txt_pos[1] < vis.transform.pin_y - vis.transform.height * 0.48
             || vis.txt_pos[1] > vis.transform.pin_y + vis.transform.height * 0.48;
+
+    let box_w_px = vis.transform.width * 96.0;
+    let box_h_px = vis.transform.height * 96.0;
+    let pad_px = 6.0;
+    let (anchor_x, anchor_attr) = if is_external_caption {
+        (tx, "middle")
+    } else {
+        match vis.horiz_align {
+            0 => (tx - box_w_px * 0.5 + pad_px, "start"),
+            2 => (tx + box_w_px * 0.5 - pad_px, "end"),
+            _ => (tx, "middle"),
+        }
+    };
+
     let start_y = if is_external_caption && vis.txt_pos[1] < vis.transform.pin_y {
         ty
     } else {
-        ty - ((lines.len().saturating_sub(1) as f64) * line_h * 0.5)
+        match vis.vert_align {
+            0 => ty - box_h_px * 0.5 + pad_px + fsize * 0.55,
+            2 => ty + box_h_px * 0.5 - pad_px - total_block_h - fsize * 0.35,
+            _ => ty - total_block_h * 0.5,
+        }
     };
+
+    if let Some(bg) = vis.text_bg_color {
+        let max_chars = lines.iter().map(|l| l.chars().count()).max().unwrap_or(1) as f64;
+        let est_w = (max_chars * fsize * 0.62 + 10.0).min(box_w_px.max(24.0));
+        let est_h = (lines.len().max(1) as f64) * line_h + 4.0;
+        let rx_bg = match anchor_attr {
+            "start" => anchor_x - 4.0,
+            "end" => anchor_x - est_w + 4.0,
+            _ => anchor_x - est_w * 0.5,
+        };
+        let ry_bg = start_y - fsize * 0.65;
+        let _ = writeln!(
+            body,
+            "<rect x=\"{rx_bg:.1}\" y=\"{ry_bg:.1}\" width=\"{est_w:.1}\" height=\"{est_h:.1}\" rx=\"3\" fill=\"{}\" fill-opacity=\"0.92\"/>",
+            bg.to_hex_rgb()
+        );
+    }
 
     let writing_attr = if is_vertical {
         " writing-mode=\"vertical-rl\""
@@ -859,15 +895,38 @@ fn render_rich_svg_text(body: &mut String, vis: &EvaluatedShapeVisual, tx: f64, 
     } else {
         ""
     };
-    let halo_attr = if is_external_caption {
-        " paint-order=\"stroke\" stroke=\"#ffffff\" stroke-width=\"2.6\" stroke-linejoin=\"round\" font-weight=\"500\""
+    let is_bold = (vis.char_style & 1) != 0;
+    let is_italic = (vis.char_style & 2) != 0;
+    let is_underline = (vis.char_style & 4) != 0;
+    let is_strike = (vis.char_style & 8) != 0;
+    let weight_attr = if is_bold {
+        " font-weight=\"bold\""
+    } else if is_external_caption {
+        " font-weight=\"500\""
     } else {
         ""
     };
+    let style_attr = if is_italic { " font-style=\"italic\"" } else { "" };
+    let deco_attr = match (is_underline, is_strike) {
+        (true, true) => " text-decoration=\"underline line-through\"",
+        (true, false) => " text-decoration=\"underline\"",
+        (false, true) => " text-decoration=\"line-through\"",
+        (false, false) => "",
+    };
+    let halo_attr = if is_external_caption {
+        " paint-order=\"stroke\" stroke=\"#ffffff\" stroke-width=\"2.6\" stroke-linejoin=\"round\""
+    } else {
+        ""
+    };
+    let safe_font = vexio_vsdx::opc::xml_escape(if vis.font_family.trim().is_empty() {
+        "Inter, Segoe UI, sans-serif"
+    } else {
+        vis.font_family.trim()
+    });
 
     let _ = write!(
         body,
-        "<text x=\"{tx:.2}\" y=\"{start_y:.2}\" font-family=\"Segoe UI, Roboto, sans-serif\" font-size=\"{fsize:.1}\" fill=\"{tcol}\" text-anchor=\"middle\" dominant-baseline=\"middle\"{writing_attr}{halo_attr}>"
+        "<text x=\"{anchor_x:.2}\" y=\"{start_y:.2}\" font-family=\"{safe_font}, Segoe UI, Roboto, sans-serif\" font-size=\"{fsize:.1}\" fill=\"{tcol}\" text-anchor=\"{anchor_attr}\" dominant-baseline=\"middle\"{weight_attr}{style_attr}{deco_attr}{writing_attr}{halo_attr}>"
     );
 
     for (idx, line) in lines.iter().enumerate() {
@@ -875,10 +934,14 @@ fn render_rich_svg_text(body: &mut String, vis: &EvaluatedShapeVisual, tx: f64, 
         let trimmed = line.trim();
         let bullet_normalized = if let Some(rest) = trimmed.strip_prefix("- ") {
             format!("• {rest}")
+        } else if vis.bullet_style == 1 && !trimmed.starts_with('•') {
+            format!("• {trimmed}")
+        } else if vis.bullet_style == 2 {
+            format!("{}. {trimmed}", idx + 1)
         } else {
             trimmed.to_string()
         };
-        let _ = write!(body, "<tspan x=\"{tx:.2}\" dy=\"{dy:.1}\">");
+        let _ = write!(body, "<tspan x=\"{anchor_x:.2}\" dy=\"{dy:.1}\">");
         emit_inline_styled_tspans(body, &bullet_normalized);
         body.push_str("</tspan>");
     }

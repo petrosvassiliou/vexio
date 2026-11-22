@@ -43,13 +43,19 @@ public extension FocusedValues {
 
 public struct VexioWorkspaceView: View {
     @ObservedObject public var session: VexioDocumentSession
+    @ObservedObject private var i18n: VexioLocalization = .shared
+    @ObservedObject private var updater: VexioUpdateManager = .shared
     public let fileURL: URL?
 
     @Environment(\.undoManager) private var undoManager
+    @AppStorage("vexio.skipStartScreenOnLaunch") private var skipStartScreenOnLaunch: Bool = false
 
     @State private var selectedInspectorTab: VexioInspectorTab = .style
     @State private var stencilSearchQuery: String = ""
     @State private var selectedStencilCategory: String = "All"
+    @State private var isBackstagePresented: Bool = false
+    @State private var didHandleInitialLaunchPresentation: Bool = false
+    @State private var inlineLabelDraft: String = ""
 
     // ShapeSheet Editor State
     @State private var selectedShapeSheetSection: ShapeSheetSectionCategory?
@@ -74,83 +80,142 @@ public struct VexioWorkspaceView: View {
         GeometryReader { windowGeo in
             let isCompactStageManagerWidth = windowGeo.size.width < 1120
 
-            ZStack(alignment: .top) {
-                // Main Horizontal Split: Vibrancy Stencils | Live Metal Canvas + ShapeSheet | Vibrancy Inspector
-                HStack(spacing: 0) {
-                    if session.showStencilNavigator {
-                        VexioStencilNavigatorSidebar(
-                            session: session,
-                            searchQuery: $stencilSearchQuery,
-                            selectedCategory: $selectedStencilCategory
-                        )
-                        .frame(width: isCompactStageManagerWidth ? 236 : 268)
-                        .transition(.move(edge: .leading).combined(with: .opacity))
+            ZStack {
+                VStack(spacing: 0) {
+                    // Clean Top Header + Classic Collapsible Visio Ribbon Strip
+                    VexioHeaderAndRibbonBar(
+                        session: session,
+                        i18n: i18n,
+                        updater: updater,
+                        isBackstagePresented: $isBackstagePresented,
+                        onRequestOpenFile: presentInWindowOpenFileSheet,
+                        onRequestSaveFile: presentInWindowSaveSheet,
+                        onRequestImportStencil: presentInWindowImportStencilSheet,
+                        onRequestExport: triggerExport,
+                        onRequestDataVisualizerExport: triggerDataVisualizerXlsxExport,
+                        onRequestOffscreenPreview: generateAndShowOffscreenPreview
+                    )
+                    .padding(.horizontal, 10)
+                    .padding(.top, 28)
+                    .padding(.bottom, 6)
 
-                        Divider()
-                    }
+                    Divider()
 
-                    // Center Column: Full-bleed Metal Canvas + Floating Liquid Glass Overlays + Collapsible ShapeSheet
-                    VStack(spacing: 0) {
-                        ZStack {
-                            MetalDiagramCanvas(session: session)
-                                .ignoresSafeArea(edges: .top)
-
-                            canvasRefractiveOverlays
-                        }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-                        if session.showShapeSheetDrawer {
-                            Divider()
-                            VexioShapeSheetFormulaDrawer(
+                    // Main Horizontal Split: Vibrancy Stencils | Live Metal Canvas + ShapeSheet | Vibrancy Inspector
+                    HStack(spacing: 0) {
+                        if session.showStencilNavigator {
+                            VexioStencilNavigatorSidebar(
                                 session: session,
-                                selectedSection: $selectedShapeSheetSection,
-                                activeCellName: $activeFormulaCellName,
-                                formulaDraft: $activeFormulaDraft,
-                                writeMode: $formulaWriteMode
+                                searchQuery: $stencilSearchQuery,
+                                selectedCategory: $selectedStencilCategory,
+                                onRequestImportStencil: presentInWindowImportStencilSheet
                             )
-                            .frame(height: min(max(windowGeo.size.height * 0.30, 210), 310))
-                            .transition(.move(edge: .bottom).combined(with: .opacity))
-                        }
-                    }
+                            .frame(width: isCompactStageManagerWidth ? 236 : 268)
+                            .transition(.move(edge: .leading).combined(with: .opacity))
 
-                    if session.showInspectorSidebar {
-                        Divider()
-                        VexioInspectorSidebar(
-                            session: session,
-                            selectedTab: $selectedInspectorTab,
-                            onInspectCellInShapeSheet: { cellName in
-                                focusCellInShapeSheet(cellName, preferSetF: false)
-                            },
-                            onRequestDataVisualizerExport: triggerDataVisualizerXlsxExport
-                        )
-                        .frame(width: isCompactStageManagerWidth ? 268 : 304)
-                        .transition(.move(edge: .trailing).combined(with: .opacity))
+                            Divider()
+                        }
+
+                        // Center Column: Full-bleed Metal Canvas + Floating Liquid Glass Overlays + Collapsible ShapeSheet
+                        VStack(spacing: 0) {
+                            ZStack(alignment: .topLeading) {
+                                MetalDiagramCanvas(session: session)
+
+                                canvasRefractiveOverlays
+
+                                if let inlineEdit = session.activeInlineTextEdit {
+                                    inlineCanvasLabelEditor(for: inlineEdit)
+                                }
+                            }
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                            if session.showShapeSheetDrawer {
+                                Divider()
+                                VexioShapeSheetFormulaDrawer(
+                                    session: session,
+                                    selectedSection: $selectedShapeSheetSection,
+                                    activeCellName: $activeFormulaCellName,
+                                    formulaDraft: $activeFormulaDraft,
+                                    writeMode: $formulaWriteMode
+                                )
+                                .frame(height: min(max(windowGeo.size.height * 0.30, 210), 310))
+                                .transition(.move(edge: .bottom).combined(with: .opacity))
+                            }
+                        }
+
+                        if session.showInspectorSidebar {
+                            Divider()
+                            VexioInspectorSidebar(
+                                session: session,
+                                selectedTab: $selectedInspectorTab,
+                                onInspectCellInShapeSheet: { cellName in
+                                    focusCellInShapeSheet(cellName, preferSetF: false)
+                                },
+                                onRequestDataVisualizerExport: triggerDataVisualizerXlsxExport
+                            )
+                            .frame(width: isCompactStageManagerWidth ? 268 : 304)
+                            .transition(.move(edge: .trailing).combined(with: .opacity))
+                        }
                     }
                 }
 
-                // Dynamic Liquid Glass Top Toolbar floating over workspace
-                VexioLiquidGlassTopToolbar(
-                    session: session,
-                    onRequestExport: triggerExport,
-                    onRequestDataVisualizerExport: triggerDataVisualizerXlsxExport,
-                    onRequestOffscreenPreview: generateAndShowOffscreenPreview
-                )
-                .padding(.horizontal, 14)
-                .padding(.top, 8)
+                // In-App Welcome / File Backstage Hub (Replaces external OS Finder modal on startup)
+                if isBackstagePresented {
+                    VexioBackstageStartView(
+                        session: session,
+                        i18n: i18n,
+                        updater: updater,
+                        isPresented: $isBackstagePresented,
+                        onOpenLocalFileSheet: presentInWindowOpenFileSheet,
+                        onOpenURLDirectly: { url in
+                            session.openLocalFile(from: url)
+                        },
+                        onImportStencilSheet: presentInWindowImportStencilSheet,
+                        onSaveAsSheet: presentInWindowSaveSheet,
+                        onExportFormat: triggerExport
+                    )
+                    .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                }
             }
         }
-        .frame(minWidth: 900, minHeight: 600)
+        .frame(minWidth: 960, minHeight: 620)
         .focusedSceneValue(\.vexioDocumentSession, session)
         .onAppear {
             if let fileURL {
-                session.documentTitle = fileURL.deletingPathExtension().lastPathComponent
+                session.openLocalFile(from: fileURL)
+            } else if !didHandleInitialLaunchPresentation {
+                didHandleInitialLaunchPresentation = true
+                if !skipStartScreenOnLaunch {
+                    isBackstagePresented = true
+                }
             }
             session.ensureStencilsLoadedIfNeeded()
             session.reloadSelectedShapeSheetCells()
+            session.syncSelectedShapeMetadataFromCore()
             syncFormulaBarFromSelection(cellName: activeFormulaCellName)
+            updater.checkOnLaunchIfEnabled()
+        }
+        .onChange(of: session.activeInlineTextEdit) { _, newValue in
+            if let edit = newValue {
+                inlineLabelDraft = edit.initialText
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .vexioShowFileBackstage)) { _ in
+            withAnimation(LiquidGlassPhysics.standardSpring) {
+                isBackstagePresented = true
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .vexioOpenFileSheet)) { _ in
+            presentInWindowOpenFileSheet()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .vexioSaveFileSheet)) { _ in
+            presentInWindowSaveSheet()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .vexioImportStencilSheet)) { _ in
+            presentInWindowImportStencilSheet()
         }
         .userActivity(VexioDocumentSession.continuityEditingActivityType, isActive: true) { activity in
-            session.populateUserActivity(activity, fileURL: fileURL)
+            session.populateUserActivity(activity, fileURL: session.currentFileURL ?? fileURL)
         }
         .onContinueUserActivity(VexioDocumentSession.continuityEditingActivityType) { activity in
             session.restoreFromUserActivity(activity)
@@ -176,6 +241,91 @@ public struct VexioWorkspaceView: View {
                 onClose: { isShowingPreviewSheet = false }
             )
         }
+        .sheet(isPresented: $updater.isShowingUpdateDialog) {
+            VexioUpdateDialogSheet(updater: updater, i18n: i18n)
+        }
+    }
+
+    // MARK: - Inline Canvas Shape / Text Box Label Editor Overlay (Fixes Remarks #2 & #4)
+
+    @ViewBuilder
+    private func inlineCanvasLabelEditor(for edit: InlineShapeTextEditContext) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 4) {
+                Button {
+                    session.applyTextStyle(toggleStyleMask: 1, undoManager: undoManager)
+                } label: {
+                    Text("B").font(.system(size: 11, weight: .bold)).frame(width: 20, height: 20)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.mini)
+
+                Button {
+                    session.applyTextStyle(toggleStyleMask: 2, undoManager: undoManager)
+                } label: {
+                    Text("I").font(.system(size: 11)).italic().frame(width: 20, height: 20)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.mini)
+
+                Button {
+                    session.applyTextStyle(toggleStyleMask: 4, undoManager: undoManager)
+                } label: {
+                    Text("U").font(.system(size: 11)).underline().frame(width: 20, height: 20)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.mini)
+
+                Divider().frame(height: 14)
+
+                Button {
+                    session.rotateOrFlipSelectedShapes(deltaDegrees: 90.0, undoManager: undoManager)
+                } label: {
+                    Image(systemName: "rotate.left").font(.system(size: 10.5))
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.mini)
+                .help(i18n.t("rotateLeft"))
+
+                Button {
+                    session.rotateOrFlipSelectedShapes(deltaDegrees: -90.0, undoManager: undoManager)
+                } label: {
+                    Image(systemName: "rotate.right").font(.system(size: 10.5))
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.mini)
+                .help(i18n.t("rotateRight"))
+
+                Spacer()
+
+                Button(i18n.t("done")) {
+                    session.commitInlineEditing(newText: inlineLabelDraft, undoManager: undoManager)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.mini)
+            }
+
+            SelectAllInlineTextField(
+                text: $inlineLabelDraft,
+                placeholder: i18n.t("editLabelPlaceholder"),
+                fontSize: max(CGFloat(session.selectedFontSizePt), 12.0),
+                fontWeight: (session.selectedCharStyle & 1) != 0 ? .bold : .regular,
+                onCommit: {
+                    session.commitInlineEditing(newText: inlineLabelDraft, undoManager: undoManager)
+                },
+                onCancel: {
+                    session.activeInlineTextEdit = nil
+                }
+            )
+            .frame(width: max(edit.viewRect.width, 190), height: 28)
+        }
+        .padding(8)
+        .liquidGlassSurface(cornerRadius: 10, elevation: .quickPopover)
+        .shadow(color: .black.opacity(0.18), radius: 10, y: 4)
+        .position(
+            x: max(edit.viewRect.midX, 130),
+            y: max(edit.viewRect.midY, 44)
+        )
     }
 
     // MARK: - Refractive Canvas Overlays (Tool Palette, Guard Banner, Compare Pill, Force Touch Popover, Bottom Pills)
@@ -185,7 +335,7 @@ public struct VexioWorkspaceView: View {
             // Left Floating Liquid Glass Tool Palette
             HStack {
                 VStack {
-                    Spacer().frame(height: 68)
+                    Spacer().frame(height: 12)
                     LiquidGlassFloatingPalette(selectedTool: $session.activeTool)
                     Spacer()
                 }
@@ -196,7 +346,7 @@ public struct VexioWorkspaceView: View {
             // Top GUARD / Formula Diagnostic Banner
             if let bannerError = session.lastBannerError {
                 VStack {
-                    Spacer().frame(height: 66)
+                    Spacer().frame(height: 12)
                     HStack(spacing: 10) {
                         Image(systemName: "lock.trianglebadge.exclamationmark.fill")
                             .foregroundStyle(.orange)
@@ -495,236 +645,108 @@ public struct VexioWorkspaceView: View {
             session.statusMessage = error.localizedDescription
         }
     }
-}
 
-// MARK: - Dynamic Liquid Glass Top Toolbar
+    // MARK: - In-Window NSOpenPanel / NSSavePanel Sheets (Attached Inside Active Window)
 
-private struct VexioLiquidGlassTopToolbar: View {
-    @ObservedObject var session: VexioDocumentSession
-    @Environment(\.undoManager) private var undoManager
-    @AppStorage("vexio.appearanceMode") private var appearanceMode: String = "light"
-
-    let onRequestExport: (VexioExportFormat) -> Void
-    let onRequestDataVisualizerExport: () -> Void
-    let onRequestOffscreenPreview: () -> Void
-
-    private var isDarkMode: Bool {
-        appearanceMode == "dark"
+    private func presentInWindowOpenFileSheet() {
+        let panel = NSOpenPanel()
+        panel.title = i18n.t("openFile")
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.allowedContentTypes = [
+            .visioDrawing,
+            .visioMacroDrawing,
+            .visioStencil,
+            .visioTemplate,
+            .visioLegacyDrawing,
+            .autoCADDWG,
+            .autoCADDXF,
+            .data,
+        ]
+        if let window = NSApp.keyWindow ?? NSApp.windows.first {
+            panel.beginSheetModal(for: window) { response in
+                guard response == .OK, let url = panel.url else { return }
+                Task { @MainActor in
+                    isBackstagePresented = false
+                    session.openLocalFile(from: url)
+                }
+            }
+        }
     }
 
-    var body: some View {
-        HStack(spacing: 10) {
-            // Left: Sidebar toggle, Document badge, Undo / Redo
-            HStack(spacing: 6) {
-                LiquidGlassIconButton(
-                    systemImage: "sidebar.left",
-                    title: "Toggle Vibrancy Stencil Navigator (⌥⌘1)",
-                    isActive: session.showStencilNavigator
-                ) {
-                    withAnimation(LiquidGlassPhysics.standardSpring) {
-                        session.showStencilNavigator.toggle()
-                    }
-                }
-
-                Divider().frame(height: 18)
-
-                VStack(alignment: .leading, spacing: 1) {
-                    HStack(spacing: 6) {
-                        Text(session.documentTitle)
-                            .font(.system(size: 12.5, weight: .semibold))
-                            .lineLimit(1)
-                        Text(".\(session.sourceFormatExtension.uppercased())")
-                            .font(.system(size: 9.5, weight: .bold, design: .monospaced))
-                            .padding(.horizontal, 5)
-                            .padding(.vertical, 1.5)
-                            .background(Capsule().fill(Color.accentColor.opacity(0.18)))
-                    }
-                    Text(session.statusMessage)
-                        .font(.system(size: 10))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-                .frame(maxWidth: 230, alignment: .leading)
-
-                Divider().frame(height: 18)
-
-                LiquidGlassIconButton(systemImage: "arrow.uturn.backward", title: "Undo (⌘Z)") {
-                    session.performUndo(undoManager: undoManager)
-                }
-                LiquidGlassIconButton(systemImage: "arrow.uturn.forward", title: "Redo (⇧⌘Z)") {
-                    session.performRedo(undoManager: undoManager)
-                }
-            }
-
-            Spacer(minLength: 6)
-
-            // Center: Starter Templates, Shape Operations, Routing, Auto-Layout, Rotate & Validation
-            HStack(spacing: 8) {
-                Menu {
-                    Button("Flowchart Starter") {
-                        session.loadStarterTemplate("flowchart", undoManager: undoManager)
-                    }
-                    Button("BPMN 2.0 Process") {
-                        session.loadStarterTemplate("bpmn", undoManager: undoManager)
-                    }
-                    Button("Network & Cloud Topology") {
-                        session.loadStarterTemplate("network", undoManager: undoManager)
-                    }
-                    Button("Floor Plan & Architectural") {
-                        session.loadStarterTemplate("floorplan", undoManager: undoManager)
-                    }
-                    Button("Organization Chart") {
-                        session.loadStarterTemplate("orgchart", undoManager: undoManager)
-                    }
-                    Button("UML 2.5 Class Diagram") {
-                        session.loadStarterTemplate("uml", undoManager: undoManager)
-                    }
-                } label: {
-                    Label("Templates", systemImage: "doc.badge.gearshape")
-                        .font(.system(size: 12, weight: .medium))
-                }
-                .menuStyle(.borderlessButton)
-                .fixedSize()
-
-                Menu {
-                    ForEach(VexioBooleanOperation.allCases) { op in
-                        Button {
-                            session.applyBooleanOperation(op, undoManager: undoManager)
-                        } label: {
-                            Label(op.displayName, systemImage: op.symbolName)
-                        }
-                    }
-                } label: {
-                    Label("Shape Ops", systemImage: "square.on.square")
-                        .font(.system(size: 12, weight: .medium))
-                }
-                .menuStyle(.borderlessButton)
-                .fixedSize()
-
-                Menu {
-                    ForEach(ConnectorRoutingStyle.allCases) { style in
-                        Button {
-                            session.setConnectorRoutingStyle(style, undoManager: undoManager)
-                        } label: {
-                            Label(
-                                style.rawValue,
-                                systemImage: session.connectorRouting == style ? "checkmark" : "arrow.triangle.branch"
-                            )
-                        }
-                    }
-                } label: {
-                    Label("Routing", systemImage: "point.topleft.down.curvedto.point.bottomright.up")
-                        .font(.system(size: 12, weight: .medium))
-                }
-                .menuStyle(.borderlessButton)
-                .fixedSize()
-
-                Menu {
-                    ForEach(AutoLayoutPreset.allCases) { preset in
-                        Button(preset.rawValue) {
-                            session.applyAutoLayout(preset, undoManager: undoManager)
-                        }
-                    }
-                } label: {
-                    Label("Auto-Layout", systemImage: "rectangle.3.group")
-                        .font(.system(size: 12, weight: .medium))
-                }
-                .menuStyle(.borderlessButton)
-                .fixedSize()
-
-                LiquidGlassIconButton(systemImage: "rotate.right", title: "Rotate Selected Shape 90° (⌘R)") {
-                    session.rotateSelectedShape(byDegrees: 90.0, undoManager: undoManager)
-                }
-
-                Menu {
-                    ForEach(ValidationStandardKind.allCases) { std in
-                        Button("Validate \(std.rawValue)") {
-                            session.runDiagramValidation(standard: std)
-                        }
-                    }
-                } label: {
-                    Label("Validate", systemImage: "checkmark.shield")
-                        .font(.system(size: 12, weight: .medium))
-                }
-                .menuStyle(.borderlessButton)
-                .fixedSize()
-            }
-
-            Spacer(minLength: 6)
-
-            // Right: Appearance toggle (Light default), Preview, Export, ShapeSheet toggle, Inspector toggle
-            HStack(spacing: 6) {
-                LiquidGlassIconButton(
-                    systemImage: isDarkMode ? "sun.max.fill" : "moon.stars",
-                    title: isDarkMode ? "Switch to Light Mode (Default)" : "Switch to Dark Mode",
-                    isActive: !isDarkMode
-                ) {
-                    let next = isDarkMode ? "light" : "dark"
-                    appearanceMode = next
-                    NSApp.appearance = NSAppearance(named: next == "dark" ? .darkAqua : .aqua)
-                }
-
-                LiquidGlassIconButton(
-                    systemImage: "eye",
-                    title: "Render Offline Quick Look RGBA Preview"
-                ) {
-                    onRequestOffscreenPreview()
-                }
-
-                Menu {
-                    ForEach(VexioExportFormat.allCases) { format in
-                        Button("Export \(format.displayName)…") {
-                            onRequestExport(format)
-                        }
-                    }
-                    Divider()
-                    Button("Export Data Visualizer Workbook (.xlsx)…") {
-                        onRequestDataVisualizerExport()
-                    }
-                } label: {
-                    Label("Export", systemImage: "square.and.arrow.up")
-                        .font(.system(size: 12, weight: .medium))
-                }
-                .menuStyle(.borderlessButton)
-                .fixedSize()
-
-                Divider().frame(height: 18)
-
-                LiquidGlassIconButton(
-                    systemImage: "function",
-                    title: "Toggle ShapeSheet Formula Editor (⌥⌘S)",
-                    isActive: session.showShapeSheetDrawer
-                ) {
-                    withAnimation(LiquidGlassPhysics.panelExpansionSpring) {
-                        session.showShapeSheetDrawer.toggle()
-                    }
-                }
-
-                LiquidGlassIconButton(
-                    systemImage: "sidebar.right",
-                    title: "Toggle Inspector Sidebar (⌥⌘2)",
-                    isActive: session.showInspectorSidebar
-                ) {
-                    withAnimation(LiquidGlassPhysics.standardSpring) {
-                        session.showInspectorSidebar.toggle()
+    private func presentInWindowImportStencilSheet() {
+        let panel = NSOpenPanel()
+        panel.title = i18n.t("importStencil")
+        panel.allowsMultipleSelection = true
+        panel.canChooseDirectories = false
+        panel.allowedContentTypes = [
+            .visioStencil,
+            .visioDrawing,
+            .visioTemplate,
+            .visioLegacyDrawing,
+            .xml,
+            .data,
+        ]
+        if let window = NSApp.keyWindow ?? NSApp.windows.first {
+            panel.beginSheetModal(for: window) { response in
+                guard response == .OK else { return }
+                let urls = panel.urls
+                Task { @MainActor in
+                    isBackstagePresented = false
+                    for url in urls {
+                        session.importVisioStencilFile(from: url)
                     }
                 }
             }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
-        .liquidGlassSurface(cornerRadius: 16, elevation: .toolbarBar)
+    }
+
+    private func presentInWindowSaveSheet() {
+        if let existing = session.currentFileURL {
+            do {
+                try session.saveToURL(existing)
+                return
+            } catch {
+                session.statusMessage = error.localizedDescription
+            }
+        }
+        let panel = NSSavePanel()
+        panel.title = i18n.t("saveFile")
+        panel.nameFieldStringValue = "\(session.documentTitle).vsdx"
+        panel.canCreateDirectories = true
+        panel.allowedContentTypes = [.visioDrawing]
+        if let window = NSApp.keyWindow ?? NSApp.windows.first {
+            panel.beginSheetModal(for: window) { response in
+                guard response == .OK, let url = panel.url else { return }
+                Task { @MainActor in
+                    try? session.saveToURL(url)
+                }
+            }
+        }
     }
 }
 
-// MARK: - Left-Hand Vibrancy Stencil Navigator (All 17 Visio Categories, Crisp Vector Previews & Context Menus)
+// MARK: - Notification Names for Global macOS Menu Bar Actions
+
+public extension Notification.Name {
+    static let vexioShowFileBackstage = Notification.Name("app.vexio.showFileBackstage")
+    static let vexioOpenFileSheet = Notification.Name("app.vexio.openFileSheet")
+    static let vexioSaveFileSheet = Notification.Name("app.vexio.saveFileSheet")
+    static let vexioImportStencilSheet = Notification.Name("app.vexio.importStencilSheet")
+    static let vexioOpenExternalURL = Notification.Name("app.vexio.openExternalURL")
+}
+
+// MARK: - Left-Hand Vibrancy Stencil Navigator (All Visio Categories + Import Visio Stencil .vssx/.vss)
 
 private struct VexioStencilNavigatorSidebar: View {
     @ObservedObject var session: VexioDocumentSession
+    @ObservedObject private var i18n: VexioLocalization = .shared
     @Binding var searchQuery: String
     @Binding var selectedCategory: String
+    let onRequestImportStencil: () -> Void
     @Environment(\.undoManager) private var undoManager
 
+    @State private var isStencilDropTargeted: Bool = false
     @State private var expandedCategories: Set<String> = [
         "Microsoft 365 & Office",
         "Servers (Standard Roles)",
@@ -753,14 +775,25 @@ private struct VexioStencilNavigatorSidebar: View {
     var body: some View {
         VibrancySidebarContainer(material: .sidebar, blendingMode: .behindWindow) {
             VStack(alignment: .leading, spacing: 8) {
-                Spacer().frame(height: 54)
+                Spacer().frame(height: 8)
 
-                HStack {
-                    Text("STENCILS (\(session.stencilCategories.count) PACKS)")
+                HStack(spacing: 6) {
+                    Text("\(i18n.t("stencils").uppercased()) (\(session.stencilCategories.count))")
                         .font(.system(size: 10.5, weight: .bold))
                         .foregroundStyle(.secondary)
+                        .lineLimit(1)
                     Spacer()
-                    Button(expandedCategories.count >= session.stencilCategories.count ? "Collapse" : "Expand All") {
+                    Button {
+                        onRequestImportStencil()
+                    } label: {
+                        Label("Import", systemImage: "plus.rectangle.on.folder")
+                            .font(.system(size: 10.5, weight: .semibold))
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.mini)
+                    .help(i18n.t("importStencil"))
+
+                    Button(expandedCategories.count >= session.stencilCategories.count ? "Collapse" : "Expand") {
                         withAnimation(LiquidGlassPhysics.standardSpring) {
                             if expandedCategories.count >= session.stencilCategories.count {
                                 expandedCategories = ["Basic Shapes", "Basic Flowchart"]
@@ -899,6 +932,21 @@ private struct VexioStencilNavigatorSidebar: View {
                 }
             }
         }
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .strokeBorder(isStencilDropTargeted ? Color.accentColor : Color.clear, lineWidth: 2)
+        )
+        .onDrop(of: [.fileURL], isTargeted: $isStencilDropTargeted) { providers in
+            for provider in providers {
+                _ = provider.loadObject(ofClass: URL.self) { droppedURL, _ in
+                    guard let droppedURL else { return }
+                    Task { @MainActor in
+                        session.importVisioStencilFile(from: droppedURL)
+                    }
+                }
+            }
+            return !providers.isEmpty
+        }
     }
 
     @ViewBuilder
@@ -994,7 +1042,7 @@ private struct VexioInspectorSidebar: View {
     var body: some View {
         VibrancySidebarContainer(material: .sidebar, blendingMode: .behindWindow) {
             VStack(alignment: .leading, spacing: 10) {
-                Spacer().frame(height: 54)
+                Spacer().frame(height: 8)
 
                 // Active Sheet Header
                 HStack {

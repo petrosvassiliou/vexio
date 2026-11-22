@@ -47,8 +47,10 @@ pub struct RichTextBlock {
     pub runs: Vec<RichTextRun>,
     pub direction: TextDirection,
     pub bullet: BulletStyle,
-    /// `0` = Left, `1` = Center, `2` = Right.
+    /// `0` = Left, `1` = Center, `2` = Right, `3` = Justify.
     pub horiz_align: u8,
+    /// `0` = Top, `1` = Middle, `2` = Bottom.
+    pub vert_align: u8,
     pub line_spacing: f64,
 }
 
@@ -120,8 +122,47 @@ pub fn parse_inline_rich_text(
         direction,
         bullet: detected_bullet,
         horiz_align,
+        vert_align: 1,
         line_spacing: 1.35,
     }
+}
+
+/// Parse inline rich text and merge ShapeSheet character/paragraph formatting (`Char.Style`,
+/// `Para.HorzAlign`, `VerticalAlign`, `Para.Bullet`).
+pub fn parse_inline_rich_text_styled(
+    raw: &str,
+    default_size_pt: f64,
+    default_color: RgbaColor,
+    char_style: u8,
+    horiz_align: u8,
+    vert_align: u8,
+    bullet_style: u8,
+) -> RichTextBlock {
+    let mut block = parse_inline_rich_text(raw, default_size_pt, default_color);
+    let base_bold = (char_style & 1) != 0;
+    let base_italic = (char_style & 2) != 0;
+    let base_underline = (char_style & 4) != 0;
+    let base_strike = (char_style & 8) != 0;
+    for run in &mut block.runs {
+        run.bold |= base_bold;
+        run.italic |= base_italic;
+        run.underline |= base_underline;
+        run.strikethrough |= base_strike;
+    }
+    if block.bullet == BulletStyle::None {
+        block.bullet = match bullet_style {
+            1 => BulletStyle::Disc,
+            2 => BulletStyle::Numbered,
+            3 => BulletStyle::Circle,
+            4 => BulletStyle::Square,
+            _ => BulletStyle::None,
+        };
+    }
+    if block.direction != TextDirection::RightToLeft || horiz_align != 1 {
+        block.horiz_align = horiz_align.min(3);
+    }
+    block.vert_align = vert_align.min(2);
+    block
 }
 
 fn strip_line_bullet_prefix(line: &str) -> (BulletStyle, &str) {
@@ -617,11 +658,12 @@ fn layout_horizontal_lines(
     block: &RichTextBlock,
     paragraphs: &[Vec<StyledCharCell>],
     box_w_in: f64,
-    _box_h_in: f64,
+    box_h_in: f64,
     line_spacing: f64,
     commands: &mut Vec<StrokeCommand>,
 ) {
     let pad_x = (box_w_in * 0.04).min(0.08);
+    let pad_y = (box_h_in * 0.06).min(0.08);
     let default_cap_h = paragraphs
         .iter()
         .flatten()
@@ -681,7 +723,12 @@ fn layout_horizontal_lines(
         })
         .sum();
 
-    let mut cursor_top_y = total_h * 0.5;
+    let half_h = box_h_in * 0.5;
+    let mut cursor_top_y = match block.vert_align {
+        0 => (half_h - pad_y).max(total_h * 0.5),
+        2 => (-half_h + pad_y + total_h).min(total_h * 0.5),
+        _ => total_h * 0.5,
+    };
     let half_w = box_w_in * 0.5;
 
     for line in &wrapped_lines {

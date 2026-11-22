@@ -22,7 +22,7 @@ pub use tessellate::{
 };
 pub use typography::{
     BulletStyle, RichTextBlock, RichTextRun, TextDirection, parse_inline_rich_text,
-    reorder_bidi_visual_line, tessellate_rich_text_in_box,
+    parse_inline_rich_text_styled, reorder_bidi_visual_line, tessellate_rich_text_in_box,
 };
 pub use vexio_shapesheet::VisioDocument;
 
@@ -84,6 +84,12 @@ mod tests {
             txt_pos: [x_in + w_in * 0.5, y_in + h_in * 0.5],
             font_size_pt: 10.0,
             text_color: RgbaColor::BLACK,
+            font_family: "Inter".into(),
+            char_style: 0,
+            horiz_align: 1,
+            vert_align: 1,
+            bullet_style: 0,
+            text_bg_color: None,
         }
     }
 
@@ -264,6 +270,12 @@ mod tests {
             txt_pos: [4.0, 4.0],
             font_size_pt: 12.0,
             text_color: RgbaColor::BLACK,
+            font_family: "Inter".into(),
+            char_style: 1,
+            horiz_align: 1,
+            vert_align: 1,
+            bullet_style: 0,
+            text_bg_color: None,
         };
 
         let mesh = tessellate_shape(&complex_visual, 96.0);

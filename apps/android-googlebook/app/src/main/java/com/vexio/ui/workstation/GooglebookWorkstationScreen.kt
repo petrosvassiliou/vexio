@@ -7,6 +7,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.view.DragEvent
+import android.view.GestureDetector
 import android.view.MotionEvent
 import android.view.SurfaceHolder
 import android.view.SurfaceView
@@ -37,6 +38,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -93,6 +95,7 @@ import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material.icons.filled.ViewSidebar
 import androidx.compose.material.icons.filled.ZoomIn
 import androidx.compose.material.icons.filled.ZoomOut
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
@@ -106,9 +109,11 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
@@ -146,13 +151,18 @@ import androidx.compose.ui.input.key.isShiftPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
@@ -164,8 +174,10 @@ import com.vexio.core.FormulaCommitStatus
 import com.vexio.core.Plan2SamplePayloads
 import com.vexio.core.ShapeSheetCellEntry
 import com.vexio.core.StencilMasterItem
+import com.vexio.core.VexioAppLanguage
 import com.vexio.core.VexioBooleanOp
 import com.vexio.core.VexioCursorKind
+import com.vexio.core.VexioPagePresetSpec
 import com.vexio.core.VexioSessionViewModel
 import com.vexio.core.VexioThemePreset
 import com.vexio.core.VexioTool
@@ -184,7 +196,7 @@ const val EXTRA_DOCUMENT_TEMPLATE = "vexio.template"
 const val VEXIO_MASTER_CLIP_MIME = "application/vnd.vexio.master+json"
 
 private val SUPPORTED_DIAGRAM_EXTENSIONS = setOf(
-    "vsdx", "vsdm", "vssx", "vstx", "vsd", "vdx", "dwg", "dxf"
+    "vsdx", "vsdm", "vssx", "vssm", "vstx", "vstm", "vsd", "vss", "vst", "vdx", "vdw", "dwg", "dxf"
 )
 
 /**
@@ -270,6 +282,7 @@ fun GooglebookWorkstationScreen(
     onSaveDocumentRequested: () -> Unit,
     onSaveAsDocumentRequested: () -> Unit,
     onExternalUriDropped: (Uri) -> Unit,
+    onImportStencilRequested: () -> Unit = {},
     onExportJpgRequested: () -> Unit = { viewModel.exportPlan2Artifact("jpg") },
     onPrintRequested: () -> Unit = { }
 ) {
@@ -312,8 +325,12 @@ fun GooglebookWorkstationScreen(
                     }
                     // Delete / ForwardDelete -> Delete selected shape
                     !ctrlOrMeta && (keyEvent.key == Key.Delete || keyEvent.key == Key.Backspace && alt) -> {
-                        viewModel.deleteSelectedShape()
-                        true
+                        if (uiState.inlineTextEditor == null) {
+                            viewModel.deleteSelectedShape()
+                            true
+                        } else {
+                            false
+                        }
                     }
                     // Ctrl + Z / Ctrl + Shift + Z -> Undo / Redo
                     ctrlOrMeta && !shift && keyEvent.key == Key.Z -> {
@@ -353,9 +370,13 @@ fun GooglebookWorkstationScreen(
                         viewModel.duplicateSelectedShapes()
                         true
                     }
-                    // Escape -> Return to Select Tool
+                    // Escape -> Cancel Inline Edit / Close Backstage / Return to Select Tool
                     !ctrlOrMeta && keyEvent.key == Key.Escape -> {
-                        viewModel.selectTool(VexioTool.POINTER)
+                        when {
+                            uiState.inlineTextEditor != null -> viewModel.cancelInlineTextEdit()
+                            uiState.showStartBackstage -> viewModel.setStartBackstageVisible(false)
+                            else -> viewModel.selectTool(VexioTool.POINTER)
+                        }
                         true
                     }
                     // Ctrl + 1..9 -> Visio Authoring Tool Parity
@@ -415,28 +436,41 @@ fun GooglebookWorkstationScreen(
         }
 
         Column(modifier = Modifier.fillMaxSize()) {
-            // 1. Top Workstation Header & Window Actions Bar
+            // 1. Clean Top Workstation Header Bar (Double-Click Title Rename, Sibling Hover Menus, Language & Updates)
             WorkstationHeaderBar(
                 uiState = uiState,
                 posture = posture,
+                onToggleBackstage = { viewModel.setStartBackstageVisible(!uiState.showStartBackstage) },
+                onRenameDocument = viewModel::renameDocument,
+                onSelectLanguage = viewModel::setLanguage,
+                onCheckUpdates = { viewModel.checkForUpdatesAsync(userInitiated = true) },
+                onImportStencilClick = onImportStencilRequested,
                 onNewWindowClick = { launchNewDocumentWindow(context, template = "blank") },
-                onLoadTemplate = viewModel::loadStarterTemplate,
                 onOpenClick = onOpenDocumentRequested,
                 onSaveClick = onSaveDocumentRequested,
                 onExportJpgClick = onExportJpgRequested,
+                onExportFormat = { fmt -> viewModel.exportPlan2Artifact(fmt) },
                 onPrintClick = onPrintRequested,
                 onUndoClick = viewModel::performUndo,
                 onRedoClick = viewModel::performRedo,
                 onToggleTheme = viewModel::toggleDarkTheme,
-                onTogglePlan2Ribbon = {
+                onToggleStencilDrawer = viewModel::toggleStencilDrawer,
+                onToggleShapeSheet = viewModel::toggleShapeSheetDrawer,
+                onToggleInspector = viewModel::toggleInspectorPane
+            )
+
+            // 1b. Classic Collapsible Multi-Tab Visio Ribbon (Home Rich Text + Rotate/Flip, Insert, Design ISO A4/A3, Data, Process, Review, View, Developer)
+            ClassicVisioM3Ribbon(
+                uiState = uiState,
+                viewModel = viewModel,
+                onOpenBackstage = { viewModel.setStartBackstageVisible(true) },
+                onImportStencilClick = onImportStencilRequested,
+                onTogglePlan2Strip = {
                     viewModel.togglePlan2Ribbon()
                     if (navBackStack.lastOrNull() != WorkstationNavKey.Plan2Operations) {
                         navBackStack.add(WorkstationNavKey.Plan2Operations)
                     }
-                },
-                onToggleStencilDrawer = viewModel::toggleStencilDrawer,
-                onToggleShapeSheet = viewModel::toggleShapeSheetDrawer,
-                onToggleInspector = viewModel::toggleInspectorPane
+                }
             )
 
             // 2. Developer ShapeSheet Formula Bar (Hidden by default until user toggles ShapeSheet / Shift+F5)
@@ -509,7 +543,7 @@ fun GooglebookWorkstationScreen(
                     .fillMaxWidth()
                     .animateContentSize(VexioExpressiveMotion.sizeReflowSpring)
             ) {
-                // Supporting Pane A: All 17 Visio Stencil Categories Navigator (Never gated off when toggled open)
+                // Supporting Pane A: All 22+ Visio Stencil Categories + Custom .vssx/.vss Import Navigator
                 if (uiState.isStencilDrawerExpanded) {
                     StencilMasterDrawerPane(
                         uiState = uiState,
@@ -529,6 +563,7 @@ fun GooglebookWorkstationScreen(
                                 category = master.category
                             )
                         },
+                        onImportStencilRequested = onImportStencilRequested,
                         onOpenNewWindowRequested = {
                             launchNewDocumentWindow(context, template = "blank")
                         }
@@ -688,6 +723,80 @@ fun GooglebookWorkstationScreen(
                 onZoomReset = { viewModel.setZoomPercent(100) }
             )
         }
+
+        // In-App Welcome / Start & File Backstage Hub (No external OS launch file dialog)
+        if (uiState.showStartBackstage) {
+            InAppStartBackstageOverlay(
+                uiState = uiState,
+                onClose = { viewModel.setStartBackstageVisible(false) },
+                onCreateBlankPreset = { title, preset ->
+                    viewModel.createBlankWithPagePreset(title, preset)
+                },
+                onLoadTemplate = viewModel::loadStarterTemplate,
+                onOpenFile = {
+                    viewModel.setStartBackstageVisible(false)
+                    onOpenDocumentRequested()
+                },
+                onImportStencil = onImportStencilRequested,
+                onSaveFile = {
+                    viewModel.setStartBackstageVisible(false)
+                    onSaveDocumentRequested()
+                },
+                onSaveAsFile = {
+                    viewModel.setStartBackstageVisible(false)
+                    onSaveAsDocumentRequested()
+                },
+                onPrint = {
+                    viewModel.setStartBackstageVisible(false)
+                    onPrintRequested()
+                },
+                onSelectLanguage = viewModel::setLanguage,
+                onToggleAutoUpdates = viewModel::setAutoCheckUpdates,
+                onCheckUpdates = { viewModel.checkForUpdatesAsync(userInitiated = true) }
+            )
+        }
+
+        // Automatic & Manual Update Check Dialog
+        if (uiState.showUpdateDialog) {
+            AlertDialog(
+                onDismissRequest = viewModel::dismissUpdateDialog,
+                title = {
+                    Text(
+                        if (uiState.availableUpdateTag != null) {
+                            "Update Available (${uiState.availableUpdateTag})"
+                        } else {
+                            uiState.language.checkUpdatesLabel
+                        }
+                    )
+                },
+                text = { Text(uiState.updateStatusMessage) },
+                confirmButton = {
+                    if (uiState.availableUpdateUrl != null) {
+                        FilledTonalButton(
+                            onClick = {
+                                val targetUrl = uiState.availableUpdateUrl
+                                viewModel.dismissUpdateDialog()
+                                if (!targetUrl.isNullOrBlank()) {
+                                    runCatching {
+                                        context.startActivity(
+                                            Intent(Intent.ACTION_VIEW, Uri.parse(targetUrl))
+                                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                        )
+                                    }
+                                }
+                            }
+                        ) {
+                            Text(if (uiState.availableUpdateTag != null) "Download APK Update" else "Release Notes")
+                        }
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = viewModel::dismissUpdateDialog) {
+                        Text("Close")
+                    }
+                }
+            )
+        }
     }
 }
 
@@ -695,21 +804,61 @@ fun GooglebookWorkstationScreen(
 private fun WorkstationHeaderBar(
     uiState: WorkstationUiState,
     posture: AdaptiveWorkstationPosture,
+    onToggleBackstage: () -> Unit,
+    onRenameDocument: (String) -> Unit,
+    onSelectLanguage: (VexioAppLanguage) -> Unit,
+    onCheckUpdates: () -> Unit,
+    onImportStencilClick: () -> Unit,
     onNewWindowClick: () -> Unit,
-    onLoadTemplate: (String) -> Unit,
     onOpenClick: () -> Unit,
     onSaveClick: () -> Unit,
     onExportJpgClick: () -> Unit = {},
+    onExportFormat: (String) -> Unit = {},
     onPrintClick: () -> Unit,
     onUndoClick: () -> Unit,
     onRedoClick: () -> Unit,
     onToggleTheme: () -> Unit,
-    onTogglePlan2Ribbon: () -> Unit,
     onToggleStencilDrawer: () -> Unit,
     onToggleShapeSheet: () -> Unit,
     onToggleInspector: () -> Unit
 ) {
-    var templatesMenuExpanded by remember { mutableStateOf(false) }
+    // Shared Chrome-style hover-switching state across sibling top menus ("export", "lang", "help")
+    var openSiblingMenuId by remember { mutableStateOf<String?>(null) }
+    var isEditingTitle by remember { mutableStateOf(false) }
+    var titleFieldValue by remember(uiState.documentTitle) {
+        mutableStateOf(
+            TextFieldValue(
+                text = uiState.documentTitle,
+                selection = TextRange(0, uiState.documentTitle.length)
+            )
+        )
+    }
+    val titleFocusRequester = remember { FocusRequester() }
+
+    LaunchedEffect(isEditingTitle) {
+        if (isEditingTitle) {
+            titleFieldValue = TextFieldValue(
+                text = uiState.documentTitle,
+                selection = TextRange(0, uiState.documentTitle.length)
+            )
+            runCatching { titleFocusRequester.requestFocus() }
+        }
+    }
+
+    fun Modifier.hoverSwitchSiblingMenu(menuId: String): Modifier =
+        this.pointerInput(menuId) {
+            awaitPointerEventScope {
+                while (true) {
+                    val ev = awaitPointerEvent()
+                    if (ev.type == PointerEventType.Enter &&
+                        openSiblingMenuId != null &&
+                        openSiblingMenuId != menuId
+                    ) {
+                        openSiblingMenuId = menuId
+                    }
+                }
+            }
+        }
 
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainerLow,
@@ -722,10 +871,13 @@ private fun WorkstationHeaderBar(
                 .fillMaxWidth()
                 .padding(horizontal = 12.dp, vertical = 6.dp)
         ) {
-            // App Badge + Document Title + Dirty Indicator
+            // App Badge (toggles In-App Start/File Backstage) + Double-Click Editable Document Title
             Surface(
                 shape = RoundedCornerShape(10.dp),
-                color = MaterialTheme.colorScheme.primaryContainer
+                color = MaterialTheme.colorScheme.primaryContainer,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(10.dp))
+                    .clickable(onClick = onToggleBackstage)
             ) {
                 Text(
                     text = "VEXIO",
@@ -737,22 +889,74 @@ private fun WorkstationHeaderBar(
             Spacer(Modifier.width(10.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = buildString {
-                            append(uiState.documentTitle)
-                            if (uiState.isDirty) append(" • Edited")
-                        },
-                        style = MaterialTheme.typography.titleMedium,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
+                    if (isEditingTitle) {
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(MaterialTheme.colorScheme.surfaceContainerLowest)
+                                .border(1.5.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(6.dp))
+                                .padding(horizontal = 8.dp, vertical = 3.dp)
+                        ) {
+                            BasicTextField(
+                                value = titleFieldValue,
+                                onValueChange = { titleFieldValue = it },
+                                singleLine = true,
+                                textStyle = MaterialTheme.typography.titleMedium.copy(
+                                    color = MaterialTheme.colorScheme.onSurface
+                                ),
+                                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                                modifier = Modifier
+                                    .width(220.dp)
+                                    .focusRequester(titleFocusRequester)
+                                    .onPreviewKeyEvent { ev ->
+                                        if (ev.type == KeyEventType.KeyDown && ev.key == Key.Enter) {
+                                            onRenameDocument(titleFieldValue.text)
+                                            isEditingTitle = false
+                                            true
+                                        } else if (ev.type == KeyEventType.KeyDown && ev.key == Key.Escape) {
+                                            isEditingTitle = false
+                                            true
+                                        } else {
+                                            false
+                                        }
+                                    }
+                            )
+                        }
+                        IconButton(
+                            onClick = {
+                                onRenameDocument(titleFieldValue.text)
+                                isEditingTitle = false
+                            },
+                            modifier = Modifier.size(26.dp)
+                        ) {
+                            Icon(Icons.Default.Check, contentDescription = "Apply Filename", modifier = Modifier.size(16.dp))
+                        }
+                    } else {
+                        Text(
+                            text = buildString {
+                                append(uiState.documentTitle)
+                                if (uiState.isDirty) append(" • Edited")
+                            },
+                            style = MaterialTheme.typography.titleMedium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .combinedClickable(
+                                    onClick = {},
+                                    onDoubleClick = { isEditingTitle = true },
+                                    onLongClick = { isEditingTitle = true }
+                                )
+                                .padding(horizontal = 4.dp, vertical = 2.dp)
+                        )
+                    }
                     Spacer(Modifier.width(8.dp))
                     Badge(
                         containerColor = MaterialTheme.colorScheme.secondaryContainer,
                         contentColor = MaterialTheme.colorScheme.onSecondaryContainer
                     ) {
                         Text(
-                            text = uiState.documentExtension.uppercase(),
+                            text = "${uiState.documentExtension.uppercase()} • ${if (uiState.metricUnits) "MM" else "IN"}",
                             modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
                         )
                     }
@@ -768,32 +972,84 @@ private fun WorkstationHeaderBar(
                 }
             }
 
-            // Starter Templates Menu
-            Box {
+            // Undo / Redo / Open / Save / Print Quick Access
+            IconButton(onClick = onUndoClick, enabled = uiState.canUndo) {
+                Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = "Undo (Ctrl+Z)")
+            }
+            IconButton(onClick = onRedoClick, enabled = uiState.canRedo) {
+                Icon(Icons.AutoMirrored.Filled.Redo, contentDescription = "Redo (Ctrl+Y)")
+            }
+            IconButton(onClick = onOpenClick) {
+                Icon(Icons.Default.FolderOpen, contentDescription = "Open Diagram (Ctrl+O)")
+            }
+            IconButton(onClick = onSaveClick) {
+                Icon(Icons.Default.Save, contentDescription = "Save Diagram (Ctrl+S)")
+            }
+            IconButton(onClick = onPrintClick) {
+                Icon(Icons.Default.Print, contentDescription = "Print Vector PDF (Ctrl+P)")
+            }
+
+            // Sibling Hover-to-Switch Menus (Chrome-style: hovering switches open menu seamlessly)
+            Box(modifier = Modifier.hoverSwitchSiblingMenu("export")) {
                 FilledTonalButton(
-                    onClick = { templatesMenuExpanded = true },
-                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 5.dp),
-                    shape = RoundedCornerShape(12.dp)
+                    onClick = {
+                        openSiblingMenuId = if (openSiblingMenuId == "export") null else "export"
+                    },
+                    contentPadding = PaddingValues(horizontal = 9.dp, vertical = 5.dp),
+                    shape = RoundedCornerShape(10.dp)
                 ) {
-                    Text("Templates ▾", style = MaterialTheme.typography.labelMedium)
+                    Text("Export ▾", style = MaterialTheme.typography.labelMedium)
                 }
                 DropdownMenu(
-                    expanded = templatesMenuExpanded,
-                    onDismissRequest = { templatesMenuExpanded = false }
+                    expanded = openSiblingMenuId == "export",
+                    onDismissRequest = { if (openSiblingMenuId == "export") openSiblingMenuId = null }
                 ) {
-                    listOf(
-                        "Flowchart Starter" to "flowchart",
-                        "BPMN 2.0 Process" to "bpmn",
-                        "Network & Cloud" to "network",
-                        "Floor Plan & CAD" to "floorplan",
-                        "Organization Chart" to "orgchart",
-                        "UML 2.5 Class Diagram" to "uml"
-                    ).forEach { (label, slug) ->
+                    DropdownMenuItem(
+                        text = { Text("Export High-DPI JPEG (.jpg)") },
+                        onClick = { openSiblingMenuId = null; onExportJpgClick() }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Export Archival PDF/A (.pdf)") },
+                        onClick = { openSiblingMenuId = null; onExportFormat("pdf") }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Export Vector SVG (.svg)") },
+                        onClick = { openSiblingMenuId = null; onExportFormat("svg") }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Export AutoCAD DXF (.dxf)") },
+                        onClick = { openSiblingMenuId = null; onExportFormat("dxf") }
+                    )
+                }
+            }
+
+            Spacer(Modifier.width(4.dp))
+
+            Box(modifier = Modifier.hoverSwitchSiblingMenu("lang")) {
+                FilledTonalButton(
+                    onClick = {
+                        openSiblingMenuId = if (openSiblingMenuId == "lang") null else "lang"
+                    },
+                    contentPadding = PaddingValues(horizontal = 9.dp, vertical = 5.dp),
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Text("${uiState.language.badge} ▾", style = MaterialTheme.typography.labelMedium)
+                }
+                DropdownMenu(
+                    expanded = openSiblingMenuId == "lang",
+                    onDismissRequest = { if (openSiblingMenuId == "lang") openSiblingMenuId = null }
+                ) {
+                    VexioAppLanguage.entries.forEach { lang ->
                         DropdownMenuItem(
-                            text = { Text(label) },
+                            text = { Text("${lang.badge} — ${lang.nativeName}") },
+                            leadingIcon = {
+                                if (uiState.language == lang) {
+                                    Icon(Icons.Default.Check, contentDescription = null)
+                                }
+                            },
                             onClick = {
-                                templatesMenuExpanded = false
-                                onLoadTemplate(slug)
+                                openSiblingMenuId = null
+                                onSelectLanguage(lang)
                             }
                         )
                     }
@@ -802,79 +1058,649 @@ private fun WorkstationHeaderBar(
 
             Spacer(Modifier.width(4.dp))
 
-            // Undo / Redo
-            IconButton(onClick = onUndoClick, enabled = uiState.canUndo) {
-                Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = "Undo (Ctrl+Z)")
-            }
-            IconButton(onClick = onRedoClick, enabled = uiState.canRedo) {
-                Icon(Icons.AutoMirrored.Filled.Redo, contentDescription = "Redo (Ctrl+Y)")
+            Box(modifier = Modifier.hoverSwitchSiblingMenu("help")) {
+                FilledTonalButton(
+                    onClick = {
+                        openSiblingMenuId = if (openSiblingMenuId == "help") null else "help"
+                    },
+                    contentPadding = PaddingValues(horizontal = 9.dp, vertical = 5.dp),
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Text("Updates ▾", style = MaterialTheme.typography.labelMedium)
+                }
+                DropdownMenu(
+                    expanded = openSiblingMenuId == "help",
+                    onDismissRequest = { if (openSiblingMenuId == "help") openSiblingMenuId = null }
+                ) {
+                    DropdownMenuItem(
+                        text = { Text(uiState.language.checkUpdatesLabel) },
+                        onClick = { openSiblingMenuId = null; onCheckUpdates() }
+                    )
+                    DropdownMenuItem(
+                        text = { Text(uiState.language.importStencilLabel) },
+                        onClick = { openSiblingMenuId = null; onImportStencilClick() }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Welcome / Start Hub") },
+                        onClick = { openSiblingMenuId = null; onToggleBackstage() }
+                    )
+                }
             }
 
-            // SAF Open / Save / JPG Export / Native OS Print
-            IconButton(onClick = onOpenClick) {
-                Icon(Icons.Default.FolderOpen, contentDescription = "Open Diagram (Ctrl+O)")
-            }
-            IconButton(onClick = onSaveClick) {
-                Icon(Icons.Default.Save, contentDescription = "Save Diagram (Ctrl+S)")
-            }
-            FilledTonalButton(
-                onClick = onExportJpgClick,
-                contentPadding = PaddingValues(horizontal = 9.dp, vertical = 5.dp),
-                shape = RoundedCornerShape(10.dp)
-            ) {
-                Text("JPG", style = MaterialTheme.typography.labelMedium)
-            }
-            IconButton(onClick = onPrintClick) {
-                Icon(Icons.Default.Print, contentDescription = "Print Vector PDF (Ctrl+P)")
-            }
-
-            // Light Mode (Default) / Dark Mode Switch
             IconButton(onClick = onToggleTheme) {
                 Icon(
                     imageVector = if (uiState.isDarkTheme) Icons.Default.LightMode else Icons.Default.DarkMode,
-                    contentDescription = if (uiState.isDarkTheme) "Switch to Light Mode (Default)" else "Switch to Dark Mode"
+                    contentDescription = if (uiState.isDarkTheme) "Switch to Light Mode" else "Switch to Dark Mode"
                 )
+            }
+
+            if (posture != AdaptiveWorkstationPosture.COMPACT_CONVERTIBLE) {
+                FilledTonalButton(
+                    onClick = onNewWindowClick,
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                    shape = RoundedCornerShape(14.dp)
+                ) {
+                    Icon(Icons.Default.OpenInNew, contentDescription = null, modifier = Modifier.size(15.dp))
+                    Spacer(Modifier.width(5.dp))
+                    Text("New Window", style = MaterialTheme.typography.labelLarge)
+                }
             }
 
             Spacer(Modifier.width(4.dp))
 
-            // Multi-Instance Side-by-Side Window Launcher Button
-            FilledTonalButton(
-                onClick = onNewWindowClick,
-                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
-                shape = RoundedCornerShape(14.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.OpenInNew,
-                    contentDescription = null,
-                    modifier = Modifier.size(15.dp)
-                )
-                Spacer(Modifier.width(5.dp))
-                Text(
-                    text = if (posture == AdaptiveWorkstationPosture.COMPACT_CONVERTIBLE) {
-                        "Window"
-                    } else {
-                        "New Window"
-                    },
-                    style = MaterialTheme.typography.labelLarge
-                )
-            }
-
-            Spacer(Modifier.width(6.dp))
-
-            // Pane Toggles (Stencils, Plan 2 Ribbon, ShapeSheet Shift+F5, Inspector)
             FilledTonalIconButton(onClick = onToggleStencilDrawer) {
-                Icon(Icons.Default.Schema, contentDescription = "Toggle 22-Pack Stencil Navigator")
-            }
-            FilledTonalIconButton(onClick = onTogglePlan2Ribbon) {
-                Icon(Icons.Default.Architecture, contentDescription = "Toggle Advanced Operations Ribbon")
+                Icon(Icons.Default.Schema, contentDescription = "Toggle Stencil Navigator")
             }
             FilledTonalIconButton(onClick = onToggleShapeSheet) {
-                Icon(Icons.Default.TableChart, contentDescription = "Toggle ShapeSheet Formula Studio (Shift+F5)")
+                Icon(Icons.Default.TableChart, contentDescription = "Toggle ShapeSheet Studio (Shift+F5)")
             }
             if (posture != AdaptiveWorkstationPosture.COMPACT_CONVERTIBLE) {
                 FilledTonalIconButton(onClick = onToggleInspector) {
                     Icon(Icons.Default.ViewSidebar, contentDescription = "Toggle Inspector Pane")
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Classic Collapsible Multi-Tab Visio Ribbon adapted to Material 3 Expressive:
+ * File | Home | Insert | Design | Data | Process | Review | View | Developer
+ */
+@Composable
+private fun ClassicVisioM3Ribbon(
+    uiState: WorkstationUiState,
+    viewModel: VexioSessionViewModel,
+    onOpenBackstage: () -> Unit,
+    onImportStencilClick: () -> Unit,
+    onTogglePlan2Strip: () -> Unit
+) {
+    val lang = uiState.language
+    var fontMenuOpen by remember { mutableStateOf(false) }
+    var colorMenuOpen by remember { mutableStateOf(false) }
+    var pageSizeMenuOpen by remember { mutableStateOf(false) }
+
+    val tabs = listOf(
+        "Home" to lang.homeLabel,
+        "Insert" to lang.insertLabel,
+        "Design" to lang.designLabel,
+        "Data" to lang.dataLabel,
+        "Process" to lang.processLabel,
+        "Review" to lang.reviewLabel,
+        "View" to lang.viewLabel,
+        "Developer" to lang.developerLabel
+    )
+
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            // Ribbon Tab Header Row
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+                    .padding(horizontal = 10.dp, vertical = 4.dp)
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable(onClick = onOpenBackstage)
+                ) {
+                    Text(
+                        text = lang.fileLabel,
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onPrimary,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp)
+                    )
+                }
+
+                tabs.forEach { (tabId, label) ->
+                    val selected = uiState.activeRibbonTab == tabId && !uiState.isRibbonCollapsed
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = if (selected) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable { viewModel.selectRibbonTab(tabId) }
+                    ) {
+                        Text(
+                            text = label,
+                            style = MaterialTheme.typography.labelLarge,
+                            color = if (selected) {
+                                MaterialTheme.colorScheme.onSecondaryContainer
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                        )
+                    }
+                }
+
+                Spacer(Modifier.width(8.dp))
+                IconButton(
+                    onClick = viewModel::toggleRibbonCollapsed,
+                    modifier = Modifier.size(28.dp)
+                ) {
+                    Icon(
+                        imageVector = if (uiState.isRibbonCollapsed) Icons.Default.ExpandMore else Icons.Default.ExpandLess,
+                        contentDescription = "Collapse / Expand Ribbon"
+                    )
+                }
+            }
+
+            // Collapsible Active Ribbon Tab Body
+            androidx.compose.animation.AnimatedVisibility(
+                visible = !uiState.isRibbonCollapsed,
+                enter = expandVertically(VexioExpressiveMotion.spatialSpring()) + fadeIn(),
+                exit = shrinkVertically(VexioExpressiveMotion.spatialSpring()) + fadeOut()
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
+                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                ) {
+                    when (uiState.activeRibbonTab) {
+                        "Home" -> {
+                            // Font Family + Size
+                            Box {
+                                ExpressivePlan2ActionPill(
+                                    label = "${uiState.textFontFamily} ▾",
+                                    selected = false,
+                                    onClick = { fontMenuOpen = true }
+                                )
+                                DropdownMenu(expanded = fontMenuOpen, onDismissRequest = { fontMenuOpen = false }) {
+                                    listOf("Inter", "Roboto", "Arial", "Calibri", "Georgia", "Monospace").forEach { f ->
+                                        DropdownMenuItem(
+                                            text = { Text(f) },
+                                            onClick = { fontMenuOpen = false; viewModel.applyRichTextStyle(fontFamily = f) }
+                                        )
+                                    }
+                                }
+                            }
+                            ExpressivePlan2ActionPill(
+                                label = "${uiState.textFontSizePt} pt",
+                                selected = false,
+                                onClick = { viewModel.applyRichTextStyle(fontSizePt = uiState.textFontSizePt + 2) }
+                            )
+                            ExpressivePlan2ActionPill(
+                                label = "A▲",
+                                selected = false,
+                                onClick = { viewModel.applyRichTextStyle(fontSizePt = uiState.textFontSizePt + 2) }
+                            )
+                            ExpressivePlan2ActionPill(
+                                label = "A▼",
+                                selected = false,
+                                onClick = { viewModel.applyRichTextStyle(fontSizePt = (uiState.textFontSizePt - 2).coerceAtLeast(6)) }
+                            )
+                            ExpressivePlan2ActionPill(
+                                label = "B",
+                                selected = uiState.textBold,
+                                onClick = { viewModel.applyRichTextStyle(bold = !uiState.textBold) }
+                            )
+                            ExpressivePlan2ActionPill(
+                                label = "I",
+                                selected = uiState.textItalic,
+                                onClick = { viewModel.applyRichTextStyle(italic = !uiState.textItalic) }
+                            )
+                            ExpressivePlan2ActionPill(
+                                label = "U̲",
+                                selected = uiState.textUnderline,
+                                onClick = { viewModel.applyRichTextStyle(underline = !uiState.textUnderline) }
+                            )
+                            ExpressivePlan2ActionPill(
+                                label = "S̶",
+                                selected = uiState.textStrikethrough,
+                                onClick = { viewModel.applyRichTextStyle(strikethrough = !uiState.textStrikethrough) }
+                            )
+                            Box {
+                                ExpressivePlan2ActionPill(
+                                    label = "Text Color ▾",
+                                    selected = false,
+                                    onClick = { colorMenuOpen = true }
+                                )
+                                DropdownMenu(expanded = colorMenuOpen, onDismissRequest = { colorMenuOpen = false }) {
+                                    listOf(
+                                        "Slate (#0F172A)" to "#0F172A",
+                                        "Blue (#1D4ED8)" to "#1D4ED8",
+                                        "Red (#DC2626)" to "#DC2626",
+                                        "Green (#15803D)" to "#15803D",
+                                        "Amber (#B45309)" to "#B45309",
+                                        "Purple (#7C3AED)" to "#7C3AED"
+                                    ).forEach { (lbl, hex) ->
+                                        DropdownMenuItem(
+                                            text = { Text(lbl) },
+                                            onClick = { colorMenuOpen = false; viewModel.applyRichTextStyle(colorHex = hex) }
+                                        )
+                                    }
+                                    HorizontalDivider()
+                                    DropdownMenuItem(
+                                        text = { Text("Highlight: Yellow") },
+                                        onClick = { colorMenuOpen = false; viewModel.applyRichTextStyle(bgColorHex = "#FEF08A") }
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Highlight: Clear") },
+                                        onClick = { colorMenuOpen = false; viewModel.applyRichTextStyle(bgColorHex = "none") }
+                                    )
+                                }
+                            }
+                            ExpressivePlan2ActionPill(
+                                label = "⇤ L",
+                                selected = uiState.textHorizAlign == 0,
+                                onClick = { viewModel.applyRichTextStyle(horizAlign = 0) }
+                            )
+                            ExpressivePlan2ActionPill(
+                                label = "⇔ C",
+                                selected = uiState.textHorizAlign == 1,
+                                onClick = { viewModel.applyRichTextStyle(horizAlign = 1) }
+                            )
+                            ExpressivePlan2ActionPill(
+                                label = "⇥ R",
+                                selected = uiState.textHorizAlign == 2,
+                                onClick = { viewModel.applyRichTextStyle(horizAlign = 2) }
+                            )
+                            ExpressivePlan2ActionPill(
+                                label = "• List",
+                                selected = uiState.textBullets,
+                                onClick = { viewModel.applyRichTextStyle(bullets = !uiState.textBullets) }
+                            )
+
+                            VerticalDivider(modifier = Modifier.height(20.dp), color = MaterialTheme.colorScheme.outlineVariant)
+
+                            // Rotate 90° & Flip for All Stencils
+                            ExpressivePlan2ActionPill(
+                                label = "↺ 90°",
+                                selected = false,
+                                onClick = { viewModel.rotateOrFlipSelected(deltaAngleDeg = -90.0) }
+                            )
+                            ExpressivePlan2ActionPill(
+                                label = "↻ 90°",
+                                selected = false,
+                                onClick = { viewModel.rotateOrFlipSelected(deltaAngleDeg = 90.0) }
+                            )
+                            ExpressivePlan2ActionPill(
+                                label = "⇆ Flip H",
+                                selected = false,
+                                onClick = { viewModel.rotateOrFlipSelected(flipX = true) }
+                            )
+                            ExpressivePlan2ActionPill(
+                                label = "⇅ Flip V",
+                                selected = false,
+                                onClick = { viewModel.rotateOrFlipSelected(flipY = true) }
+                            )
+                        }
+
+                        "Insert" -> {
+                            ExpressivePlan2ActionPill(
+                                label = "+ New Page",
+                                selected = false,
+                                onClick = viewModel::addNewPage
+                            )
+                            ExpressivePlan2ActionPill(
+                                label = lang.importStencilLabel,
+                                selected = true,
+                                onClick = onImportStencilClick
+                            )
+                            ExpressivePlan2ActionPill(
+                                label = "Text Box (Ctrl+2)",
+                                selected = uiState.activeTool == VexioTool.TEXT_BLOCK,
+                                onClick = { viewModel.selectTool(VexioTool.TEXT_BLOCK) }
+                            )
+                            ExpressivePlan2ActionPill(
+                                label = "Subprocess (+)",
+                                selected = false,
+                                onClick = { viewModel.createOrLinkSubprocess() }
+                            )
+                        }
+
+                        "Design" -> {
+                            Box {
+                                ExpressivePlan2ActionPill(
+                                    label = "Page Size: ${uiState.activePagePreset.label} ▾",
+                                    selected = true,
+                                    onClick = { pageSizeMenuOpen = true }
+                                )
+                                DropdownMenu(expanded = pageSizeMenuOpen, onDismissRequest = { pageSizeMenuOpen = false }) {
+                                    VexioPagePresetSpec.entries.forEach { preset ->
+                                        DropdownMenuItem(
+                                            text = { Text(preset.label) },
+                                            leadingIcon = {
+                                                if (uiState.activePagePreset == preset) {
+                                                    Icon(Icons.Default.Check, contentDescription = null)
+                                                }
+                                            },
+                                            onClick = {
+                                                pageSizeMenuOpen = false
+                                                viewModel.applyPagePreset(preset)
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                            VexioThemePreset.entries.forEach { preset ->
+                                ExpressivePlan2ActionPill(
+                                    label = preset.displayName,
+                                    selected = uiState.activeThemeSlug == preset.slug,
+                                    onClick = { viewModel.applyDocumentTheme(preset.slug, uiState.activeThemeVariant) }
+                                )
+                            }
+                            ExpressivePlan2ActionPill(
+                                label = "Auto-Layout",
+                                selected = false,
+                                onClick = { viewModel.autoLayoutActivePage() }
+                            )
+                        }
+
+                        "Data" -> {
+                            ExpressivePlan2ActionPill(
+                                label = "Data Visualizer (.csv/.xlsx)",
+                                selected = uiState.lastDataVisualizerShapeCount > 0,
+                                onClick = {
+                                    viewModel.importDataVisualizer(
+                                        Plan2SamplePayloads.dataVisualizerCsv.toByteArray(Charsets.UTF_8)
+                                    )
+                                }
+                            )
+                            ExpressivePlan2ActionPill(
+                                label = "Cloud Discovery",
+                                selected = uiState.lastCloudDiscoveryShapeCount > 0,
+                                onClick = { viewModel.importCloudDiscovery(Plan2SamplePayloads.cloudDiscoveryJson) }
+                            )
+                            ExpressivePlan2ActionPill(
+                                label = "Entra / LDIF Org Chart",
+                                selected = uiState.lastOrgChartShapeCount > 0,
+                                onClick = { viewModel.importEntraOrLdifOrgChart(Plan2SamplePayloads.entraOrgChartLdif) }
+                            )
+                        }
+
+                        "Process" -> {
+                            ExpressivePlan2ActionPill(
+                                label = "Validate BPMN 2.0 / UML 2.5 ✓",
+                                selected = true,
+                                onClick = { viewModel.createOrLinkSubprocess() }
+                            )
+                            ExpressivePlan2ActionPill(
+                                label = "Create Subprocess Drill-Down",
+                                selected = false,
+                                onClick = { viewModel.createOrLinkSubprocess() }
+                            )
+                        }
+
+                        "Review" -> {
+                            ExpressivePlan2ActionPill(
+                                label = "Markup Pen",
+                                selected = uiState.activeTool == VexioTool.STYLUS_INK,
+                                onClick = { viewModel.selectTool(VexioTool.STYLUS_INK) }
+                            )
+                            ExpressivePlan2ActionPill(
+                                label = "Highlighter",
+                                selected = uiState.activeTool == VexioTool.HIGHLIGHTER,
+                                onClick = { viewModel.selectTool(VexioTool.HIGHLIGHTER) }
+                            )
+                            ExpressivePlan2ActionPill(
+                                label = "Diagram Compare (Visual Diff)",
+                                selected = uiState.lastCompareSummary != null,
+                                onClick = { viewModel.compareWithBaseline() }
+                            )
+                        }
+
+                        "View" -> {
+                            ExpressivePlan2ActionPill(
+                                label = "Stencils Navigator",
+                                selected = uiState.isStencilDrawerExpanded,
+                                onClick = viewModel::toggleStencilDrawer
+                            )
+                            ExpressivePlan2ActionPill(
+                                label = "Inspector Pane",
+                                selected = uiState.isInspectorExpanded,
+                                onClick = viewModel::toggleInspectorPane
+                            )
+                            ExpressivePlan2ActionPill(
+                                label = "ShapeSheet (Shift+F5)",
+                                selected = uiState.isShapeSheetDrawerExpanded,
+                                onClick = viewModel::toggleShapeSheetDrawer
+                            )
+                            ExpressivePlan2ActionPill(
+                                label = "100% Zoom",
+                                selected = uiState.zoomPercent == 100,
+                                onClick = { viewModel.setZoomPercent(100) }
+                            )
+                        }
+
+                        "Developer" -> {
+                            ExpressivePlan2ActionPill(
+                                label = "ShapeSheet Studio",
+                                selected = uiState.isShapeSheetDrawerExpanded,
+                                onClick = viewModel::toggleShapeSheetDrawer
+                            )
+                            ExpressivePlan2ActionPill(
+                                label = "Plan 2 Strip",
+                                selected = uiState.isPlan2RibbonExpanded,
+                                onClick = onTogglePlan2Strip
+                            )
+                            VexioBooleanOp.entries.forEach { op ->
+                                ExpressivePlan2ActionPill(
+                                    label = op.displayName,
+                                    selected = uiState.lastBooleanOp == op.slug,
+                                    onClick = { viewModel.performBooleanOp(op) }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun InAppStartBackstageOverlay(
+    uiState: WorkstationUiState,
+    onClose: () -> Unit,
+    onCreateBlankPreset: (String, VexioPagePresetSpec) -> Unit,
+    onLoadTemplate: (String) -> Unit,
+    onOpenFile: () -> Unit,
+    onImportStencil: () -> Unit,
+    onSaveFile: () -> Unit,
+    onSaveAsFile: () -> Unit,
+    onPrint: () -> Unit,
+    onSelectLanguage: (VexioAppLanguage) -> Unit,
+    onToggleAutoUpdates: (Boolean) -> Unit,
+    onCheckUpdates: () -> Unit
+) {
+    val lang = uiState.language
+
+    Surface(
+        color = MaterialTheme.colorScheme.background,
+        modifier = Modifier.fillMaxSize()
+    ) {
+        Row(modifier = Modifier.fillMaxSize()) {
+            // Left Backstage Rail
+            Surface(
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                modifier = Modifier
+                    .width(248.dp)
+                    .fillMaxHeight()
+            ) {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .verticalScroll(rememberScrollState())
+                        .padding(16.dp)
+                ) {
+                    FilledTonalButton(
+                        onClick = onClose,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("← ${lang.continueCanvasLabel}")
+                    }
+                    Spacer(Modifier.height(6.dp))
+                    Text("VEXIO PROFESSIONAL", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
+                    Text("1:1 Visio & Offline CAD Suite", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    HorizontalDivider()
+                    FilledTonalButton(
+                        onClick = { onCreateBlankPreset("Drawing_A4.vsdx", VexioPagePresetSpec.A4_LANDSCAPE) },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("+ Blank ISO A4 (mm)")
+                    }
+                    FilledTonalButton(onClick = onOpenFile, modifier = Modifier.fillMaxWidth()) {
+                        Text("Open File (.vsdx/.vsd/.dwg)…")
+                    }
+                    FilledTonalButton(onClick = onImportStencil, modifier = Modifier.fillMaxWidth()) {
+                        Text(lang.importStencilLabel)
+                    }
+                    HorizontalDivider()
+                    TextButton(onClick = onSaveFile, modifier = Modifier.fillMaxWidth()) { Text("Save (Ctrl+S)") }
+                    TextButton(onClick = onSaveAsFile, modifier = Modifier.fillMaxWidth()) { Text("Save As…") }
+                    TextButton(onClick = onPrint, modifier = Modifier.fillMaxWidth()) { Text("Print / PDF (Ctrl+P)") }
+                    HorizontalDivider()
+                    FilledTonalButton(onClick = onCheckUpdates, modifier = Modifier.fillMaxWidth()) {
+                        Text(lang.checkUpdatesLabel)
+                    }
+                }
+            }
+
+            // Main Start / Templates / Preferences Content
+            Column(
+                verticalArrangement = Arrangement.spacedBy(18.dp),
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+                    .verticalScroll(rememberScrollState())
+                    .padding(24.dp)
+            ) {
+                Text(lang.startHeroTitle, style = MaterialTheme.typography.headlineSmall)
+                Text(
+                    "Create a blank ISO Metric (A4 / A3) or US Letter page, start from a 1:1 Visio template, or open/import Visio (.vsdx, .vsd, .vssx, .vss) and CAD (.dwg, .dxf) files directly inside the app.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                Text("Blank Page Presets (Metric Default / OS Standard)", style = MaterialTheme.typography.titleMedium)
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier.horizontalScroll(rememberScrollState())
+                ) {
+                    listOf(
+                        Triple("Blank ISO A4 Landscape", "297 × 210 mm • Metric", VexioPagePresetSpec.A4_LANDSCAPE),
+                        Triple("Blank ISO A3 Landscape", "420 × 297 mm • Metric", VexioPagePresetSpec.A3_LANDSCAPE),
+                        Triple("Blank ISO A4 Portrait", "210 × 297 mm • Metric", VexioPagePresetSpec.A4_PORTRAIT),
+                        Triple("Blank US Letter", "11 × 8.5 in • Imperial", VexioPagePresetSpec.LETTER_LANDSCAPE)
+                    ).forEach { (cardTitle, subtitle, preset) ->
+                        Surface(
+                            shape = RoundedCornerShape(16.dp),
+                            color = MaterialTheme.colorScheme.surfaceContainerLow,
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                            modifier = Modifier
+                                .width(210.dp)
+                                .clip(RoundedCornerShape(16.dp))
+                                .clickable { onCreateBlankPreset("${preset.slug.uppercase()}_Diagram.vsdx", preset) }
+                        ) {
+                            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text(cardTitle, style = MaterialTheme.typography.titleSmall)
+                                Text(subtitle, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    }
+                }
+
+                Text("Starter Diagram Templates", style = MaterialTheme.typography.titleMedium)
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier.horizontalScroll(rememberScrollState())
+                ) {
+                    listOf(
+                        "Flowchart Starter" to "flowchart",
+                        "BPMN 2.0 Process" to "bpmn",
+                        "Network & Rack Topology" to "network",
+                        "CAD Floor Plan" to "floorplan",
+                        "Organization Chart" to "orgchart",
+                        "UML 2.5 Architecture" to "uml"
+                    ).forEach { (title, slug) ->
+                        Surface(
+                            shape = RoundedCornerShape(14.dp),
+                            color = MaterialTheme.colorScheme.surfaceContainer,
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(14.dp))
+                                .clickable { onLoadTemplate(slug) }
+                        ) {
+                            Text(
+                                text = title,
+                                style = MaterialTheme.typography.labelLarge,
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
+                            )
+                        }
+                    }
+                }
+
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainerLow,
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier.padding(16.dp)
+                    ) {
+                        Text("Language (EN, DE, IT, FR, ES, GR) & Updates", style = MaterialTheme.typography.titleSmall)
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            modifier = Modifier.horizontalScroll(rememberScrollState())
+                        ) {
+                            VexioAppLanguage.entries.forEach { l ->
+                                ExpressivePlan2ActionPill(
+                                    label = "${l.badge} • ${l.nativeName}",
+                                    selected = uiState.language == l,
+                                    onClick = { onSelectLanguage(l) }
+                                )
+                            }
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Checkbox(
+                                checked = uiState.autoCheckUpdates,
+                                onCheckedChange = onToggleAutoUpdates
+                            )
+                            Text("Automatically check for updates on startup", style = MaterialTheme.typography.bodySmall)
+                            Spacer(Modifier.width(12.dp))
+                            Text(
+                                text = uiState.updateStatusMessage,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -1428,6 +2254,7 @@ private fun StencilMasterDrawerPane(
     posture: AdaptiveWorkstationPosture,
     onSelectCategory: (String) -> Unit,
     onMasterClicked: (StencilMasterItem) -> Unit,
+    onImportStencilRequested: () -> Unit = {},
     onOpenNewWindowRequested: () -> Unit
 ) {
     var searchQuery by remember { mutableStateOf("") }
@@ -1490,6 +2317,34 @@ private fun StencilMasterDrawerPane(
                         .padding(horizontal = 6.dp, vertical = 3.dp)
                 )
             }
+
+            // + Import Visio Stencil (.vssx / .vss / .vssm / .vsdx / .vdx) Button
+            FilledTonalButton(
+                onClick = onImportStencilRequested,
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                shape = RoundedCornerShape(10.dp),
+                colors = ButtonDefaults.filledTonalButtonColors(
+                    containerColor = MaterialTheme.colorScheme.secondaryContainer
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 10.dp, vertical = 2.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.FolderOpen,
+                    contentDescription = null,
+                    modifier = Modifier.size(15.dp)
+                )
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    text = uiState.language.importStencilLabel,
+                    style = MaterialTheme.typography.labelSmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+
+            Spacer(Modifier.height(6.dp))
 
             // Search Field
             Row(
@@ -2221,6 +3076,15 @@ private fun VulkanCanvasDropZone(
                     isFocusable = false
                     isFocusableInTouchMode = false
                     val predictor = MotionEventPredictor.newInstance(this)
+                    val doubleTapDetector = GestureDetector(
+                        ctx,
+                        object : GestureDetector.SimpleOnGestureListener() {
+                            override fun onDoubleTap(e: MotionEvent): Boolean {
+                                viewModel.onCanvasDoubleTap(e.x, e.y)
+                                return true
+                            }
+                        }
+                    )
 
                     holder.addCallback(object : SurfaceHolder.Callback {
                         override fun surfaceCreated(surfaceHolder: SurfaceHolder) {
@@ -2277,6 +3141,9 @@ private fun VulkanCanvasDropZone(
                                 return@setOnTouchListener true
                             }
                         }
+                        if (doubleTapDetector.onTouchEvent(motionEvent)) {
+                            return@setOnTouchListener true
+                        }
                         val handled = viewModel.dispatchMotionEvent(motionEvent, predictor)
                         view.pointerIcon = resolveHardwarePointerIcon(
                             ctx,
@@ -2318,6 +3185,106 @@ private fun VulkanCanvasDropZone(
             )
         }
 
+        // Inline Stencil & Text-Box Label Editor Overlay (double-click any placed stencil/shape or place a Text block)
+        val inlineEd = uiState.inlineTextEditor
+        if (inlineEd != null) {
+            val safeDensity = density.coerceAtLeast(1f)
+            val offsetXDp = (inlineEd.xPx / safeDensity).coerceAtLeast(8f).dp
+            val offsetYDp = (inlineEd.yPx / safeDensity).coerceAtLeast(8f).dp
+            val boxWidthDp = (inlineEd.widthPx / safeDensity).coerceIn(140f, 520f).dp
+            val inlineFocusRequester = remember(inlineEd.shapeId) { FocusRequester() }
+            var inlineFieldValue by remember(inlineEd.shapeId) {
+                mutableStateOf(
+                    TextFieldValue(
+                        text = inlineEd.text,
+                        selection = TextRange(0, inlineEd.text.length)
+                    )
+                )
+            }
+            LaunchedEffect(inlineEd.shapeId) {
+                runCatching { inlineFocusRequester.requestFocus() }
+            }
+
+            Surface(
+                shape = RoundedCornerShape(10.dp),
+                color = MaterialTheme.colorScheme.surfaceContainerLowest,
+                shadowElevation = 8.dp,
+                border = BorderStroke(2.dp, MaterialTheme.colorScheme.primary),
+                modifier = Modifier
+                    .offset(x = offsetXDp, y = offsetYDp)
+                    .width(boxWidthDp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
+                ) {
+                    Box(modifier = Modifier.weight(1f)) {
+                        if (inlineFieldValue.text.isEmpty()) {
+                            Text(
+                                text = "Type shape / text label…",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        BasicTextField(
+                            value = inlineFieldValue,
+                            onValueChange = { next ->
+                                inlineFieldValue = next
+                                viewModel.updateInlineTextDraft(next.text)
+                            },
+                            textStyle = MaterialTheme.typography.bodyMedium.copy(
+                                color = MaterialTheme.colorScheme.onSurface,
+                                fontWeight = if (uiState.textBold) FontWeight.Bold else FontWeight.Normal,
+                                fontStyle = if (uiState.textItalic) FontStyle.Italic else FontStyle.Normal
+                            ),
+                            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .focusRequester(inlineFocusRequester)
+                                .onPreviewKeyEvent { keyEv ->
+                                    if (keyEv.type == KeyEventType.KeyDown &&
+                                        keyEv.key == Key.Enter &&
+                                        !keyEv.isShiftPressed
+                                    ) {
+                                        viewModel.commitInlineTextEdit(inlineFieldValue.text)
+                                        true
+                                    } else if (keyEv.type == KeyEventType.KeyDown &&
+                                        keyEv.key == Key.Escape
+                                    ) {
+                                        viewModel.cancelInlineTextEdit()
+                                        true
+                                    } else {
+                                        false
+                                    }
+                                }
+                        )
+                    }
+                    IconButton(
+                        onClick = { viewModel.commitInlineTextEdit(inlineFieldValue.text) },
+                        modifier = Modifier.size(26.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Check,
+                            contentDescription = "Commit Label",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                    IconButton(
+                        onClick = { viewModel.cancelInlineTextEdit() },
+                        modifier = Modifier.size(26.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Cancel",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                }
+            }
+        }
+
         // Cross-window Drag & Drop active highlight overlay
         if (isDragHovering) {
             Box(
@@ -2341,7 +3308,7 @@ private fun VulkanCanvasDropZone(
                     shadowElevation = 6.dp
                 ) {
                     Text(
-                        text = "Drop Stencil Master or .vsdx / .vsd / .dwg / .dxf Diagram Here",
+                        text = "Drop Stencil Master or .vsdx / .vssx / .vsd / .dwg / .dxf Here",
                         style = MaterialTheme.typography.titleSmall,
                         color = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp)
@@ -2356,6 +3323,43 @@ private fun VulkanCanvasDropZone(
             onDismissRequest = { contextMenuVisible = false },
             offset = contextMenuOffsetDp
         ) {
+            DropdownMenuItem(
+                text = { Text("Edit Shape Label (Double-Click)") },
+                leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) },
+                onClick = {
+                    contextMenuVisible = false
+                    viewModel.beginInlineTextEdit(uiState.selectedShapeId)
+                }
+            )
+            DropdownMenuItem(
+                text = { Text("Rotate Left 90° (↺)") },
+                onClick = {
+                    contextMenuVisible = false
+                    viewModel.rotateOrFlipSelected(deltaAngleDeg = -90.0)
+                }
+            )
+            DropdownMenuItem(
+                text = { Text("Rotate Right 90° (↻)") },
+                onClick = {
+                    contextMenuVisible = false
+                    viewModel.rotateOrFlipSelected(deltaAngleDeg = 90.0)
+                }
+            )
+            DropdownMenuItem(
+                text = { Text("Flip Horizontal (⇆)") },
+                onClick = {
+                    contextMenuVisible = false
+                    viewModel.rotateOrFlipSelected(flipX = true)
+                }
+            )
+            DropdownMenuItem(
+                text = { Text("Flip Vertical (⇅)") },
+                onClick = {
+                    contextMenuVisible = false
+                    viewModel.rotateOrFlipSelected(flipY = true)
+                }
+            )
+            HorizontalDivider()
             DropdownMenuItem(
                 text = { Text("Duplicate Selection (Ctrl+D)") },
                 leadingIcon = { Icon(Icons.Default.ContentCopy, contentDescription = null) },

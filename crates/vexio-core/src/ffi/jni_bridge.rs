@@ -625,7 +625,9 @@ pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeListStencil
         if doc_ptr == 0 {
             return env.new_string("{}").unwrap().into_raw();
         }
-        let json = build_stencils_catalog_json();
+        // SAFETY: `doc_ptr` verified non-zero handle.
+        let doc = unsafe { &*(doc_ptr as *const VexioDoc) };
+        let json = build_stencils_catalog_json(Some(&doc.session));
         env.new_string(json).unwrap().into_raw()
     }))
     .unwrap_or_else(|_| std::ptr::null_mut())
@@ -1333,4 +1335,300 @@ pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeImportEntra
     }));
     res.unwrap_or(0)
 }
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeGetViewportTool(
+    _env: JNIEnv<'_>,
+    _class: JClass<'_>,
+    viewport_ptr: jlong,
+) -> jint {
+    if viewport_ptr == 0 {
+        return 0;
+    }
+    // SAFETY: `viewport_ptr` created by `nativeAttachVulkanSurface`.
+    let vp = unsafe { &*(viewport_ptr as *const VexioViewport) };
+    vp.active_tool as jint
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativePopCreatedTextShape(
+    _env: JNIEnv<'_>,
+    _class: JClass<'_>,
+    viewport_ptr: jlong,
+) -> jlong {
+    if viewport_ptr == 0 {
+        return 0;
+    }
+    // SAFETY: `viewport_ptr` created by `nativeAttachVulkanSurface`.
+    let vp = unsafe { &mut *(viewport_ptr as *mut VexioViewport) };
+    vp.last_created_text_shape_id.take().unwrap_or(0) as jlong
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeHitTestShape(
+    _env: JNIEnv<'_>,
+    _class: JClass<'_>,
+    viewport_ptr: jlong,
+    doc_ptr: jlong,
+    x_px: jdouble,
+    y_px: jdouble,
+) -> jlong {
+    catch_unwind(AssertUnwindSafe(|| {
+        if viewport_ptr == 0 || doc_ptr == 0 {
+            return 0i64;
+        }
+        // SAFETY: Valid `VexioViewport` and `VexioDoc` pointers.
+        let vp = unsafe { &*(viewport_ptr as *const VexioViewport) };
+        let doc = unsafe { &*(doc_ptr as *const VexioDoc) };
+        let page_pt = vp.camera.screen_to_page_in(x_px, y_px);
+        let visuals =
+            vexio_shapesheet::ReactiveEngine::evaluate_page_visuals(&doc.session.doc, vp.page_id);
+        let index = vexio_render::SpatialIndex::build(&visuals);
+        index
+            .hit_test_visuals(&visuals, page_pt[0], page_pt[1], 0.10)
+            .into_iter()
+            .next()
+            .unwrap_or(0) as jlong
+    }))
+    .unwrap_or(0)
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeGetShapeScreenBoundsJson<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    viewport_ptr: jlong,
+    doc_ptr: jlong,
+    shape_id: jlong,
+) -> jstring {
+    catch_unwind(AssertUnwindSafe(|| {
+        if viewport_ptr == 0 || doc_ptr == 0 || shape_id <= 0 {
+            return env
+                .new_string("{}")
+                .map(|s| s.into_raw())
+                .unwrap_or(std::ptr::null_mut());
+        }
+        // SAFETY: Valid `VexioViewport` and `VexioDoc` pointers.
+        let vp = unsafe { &*(viewport_ptr as *const VexioViewport) };
+        let doc = unsafe { &*(doc_ptr as *const VexioDoc) };
+        let visuals =
+            vexio_shapesheet::ReactiveEngine::evaluate_page_visuals(&doc.session.doc, vp.page_id);
+        let json = if let Some(vis) = visuals.iter().find(|v| v.shape_id == shape_id as u64) {
+            let tl = vp.camera.page_in_to_screen(vis.aabb_min[0], vis.aabb_max[1]);
+            let br = vp.camera.page_in_to_screen(vis.aabb_max[0], vis.aabb_min[1]);
+            let x = tl[0].min(br[0]);
+            let y = tl[1].min(br[1]);
+            let w = (br[0] - tl[0]).abs().max(48.0);
+            let h = (br[1] - tl[1]).abs().max(26.0);
+            format!("{{\"x\":{x:.2},\"y\":{y:.2},\"w\":{w:.2},\"h\":{h:.2}}}")
+        } else {
+            "{}".to_string()
+        };
+        env.new_string(json)
+            .map(|s| s.into_raw())
+            .unwrap_or(std::ptr::null_mut())
+    }))
+    .unwrap_or(std::ptr::null_mut())
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeImportStencilBytes<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    doc_ptr: jlong,
+    file_name: JString<'local>,
+    bytes: JByteArray<'local>,
+) -> jstring {
+    catch_unwind(AssertUnwindSafe(|| {
+        if doc_ptr == 0 {
+            return std::ptr::null_mut();
+        }
+        let Ok(fname) = env.get_string(&file_name).map(String::from) else {
+            return std::ptr::null_mut();
+        };
+        let Ok(raw) = env.convert_byte_array(&bytes) else {
+            return std::ptr::null_mut();
+        };
+        // SAFETY: `doc_ptr` verified non-zero handle.
+        let doc = unsafe { &mut *(doc_ptr as *mut VexioDoc) };
+        let json = match doc.session.import_stencil_package(&fname, &raw) {
+            Ok((pack_title, masters)) => serde_json::json!({
+                "packTitle": pack_title,
+                "masters": masters,
+            })
+            .to_string(),
+            Err(_) => "{}".to_string(),
+        };
+        env.new_string(json)
+            .map(|s| s.into_raw())
+            .unwrap_or(std::ptr::null_mut())
+    }))
+    .unwrap_or(std::ptr::null_mut())
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeSetShapeTextStyleJson<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    doc_ptr: jlong,
+    page_id: jint,
+    shape_ids: JLongArray<'local>,
+    style_json: JString<'local>,
+) -> jint {
+    catch_unwind(AssertUnwindSafe(|| {
+        if doc_ptr == 0 {
+            return 0;
+        }
+        let Ok(len) = env.get_array_length(&shape_ids) else {
+            return 0;
+        };
+        let mut raw_ids = vec![0i64; len.max(0) as usize];
+        if env.get_long_array_region(&shape_ids, 0, &mut raw_ids).is_err() {
+            return 0;
+        }
+        let Ok(json_s) = env.get_string(&style_json).map(String::from) else {
+            return 0;
+        };
+        let Ok(patch) = serde_json::from_str::<crate::workspace::TextStylePatch>(&json_s) else {
+            return 0;
+        };
+        let ids: Vec<u64> = raw_ids.into_iter().filter(|&x| x > 0).map(|x| x as u64).collect();
+        // SAFETY: `doc_ptr` verified non-zero handle.
+        let doc = unsafe { &mut *(doc_ptr as *mut VexioDoc) };
+        doc.session
+            .apply_text_style_patch(page_id.max(1) as u32, &ids, &patch)
+            .unwrap_or(0) as jint
+    }))
+    .unwrap_or(0)
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeRotateFlipShapes<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    doc_ptr: jlong,
+    page_id: jint,
+    shape_ids: JLongArray<'local>,
+    delta_angle_deg: jdouble,
+    toggle_flip_x: jboolean,
+    toggle_flip_y: jboolean,
+) -> jint {
+    catch_unwind(AssertUnwindSafe(|| {
+        if doc_ptr == 0 {
+            return 0;
+        }
+        let Ok(len) = env.get_array_length(&shape_ids) else {
+            return 0;
+        };
+        let mut raw_ids = vec![0i64; len.max(0) as usize];
+        if env.get_long_array_region(&shape_ids, 0, &mut raw_ids).is_err() {
+            return 0;
+        }
+        let ids: Vec<u64> = raw_ids.into_iter().filter(|&x| x > 0).map(|x| x as u64).collect();
+        // SAFETY: `doc_ptr` verified non-zero handle.
+        let doc = unsafe { &mut *(doc_ptr as *mut VexioDoc) };
+        doc.session
+            .rotate_or_flip_shapes(
+                page_id.max(1) as u32,
+                &ids,
+                delta_angle_deg,
+                toggle_flip_x == JNI_TRUE,
+                toggle_flip_y == JNI_TRUE,
+            )
+            .unwrap_or(0) as jint
+    }))
+    .unwrap_or(0)
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeSetPageSetup<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    doc_ptr: jlong,
+    page_id: jint,
+    width_in: jdouble,
+    height_in: jdouble,
+    unit_slug: JString<'local>,
+) -> jboolean {
+    catch_unwind(AssertUnwindSafe(|| {
+        if doc_ptr == 0 {
+            return JNI_FALSE;
+        }
+        let unit_s = env
+            .get_string(&unit_slug)
+            .map(String::from)
+            .unwrap_or_else(|_| "mm".into());
+        // SAFETY: `doc_ptr` verified non-zero handle.
+        let doc = unsafe { &mut *(doc_ptr as *mut VexioDoc) };
+        if doc
+            .session
+            .set_page_setup(page_id.max(1) as u32, width_in, height_in, &unit_s)
+            .is_ok()
+        {
+            JNI_TRUE
+        } else {
+            JNI_FALSE
+        }
+    }))
+    .unwrap_or(JNI_FALSE)
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeSetPagePreset<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    doc_ptr: jlong,
+    page_id: jint,
+    preset_slug: JString<'local>,
+    landscape: jboolean,
+) -> jboolean {
+    catch_unwind(AssertUnwindSafe(|| {
+        if doc_ptr == 0 {
+            return JNI_FALSE;
+        }
+        let Ok(slug) = env.get_string(&preset_slug).map(String::from) else {
+            return JNI_FALSE;
+        };
+        let Some((w_in, h_in, unit)) =
+            crate::workspace::resolve_page_preset_dimensions_in(&slug, landscape == JNI_TRUE)
+        else {
+            return JNI_FALSE;
+        };
+        // SAFETY: `doc_ptr` verified non-zero handle.
+        let doc = unsafe { &mut *(doc_ptr as *mut VexioDoc) };
+        if doc
+            .session
+            .set_page_setup(page_id.max(1) as u32, w_in, h_in, unit)
+            .is_ok()
+        {
+            JNI_TRUE
+        } else {
+            JNI_FALSE
+        }
+    }))
+    .unwrap_or(JNI_FALSE)
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeSetDocumentTitle<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    doc_ptr: jlong,
+    title: JString<'local>,
+) -> jboolean {
+    catch_unwind(AssertUnwindSafe(|| {
+        if doc_ptr == 0 {
+            return JNI_FALSE;
+        }
+        let Ok(t) = env.get_string(&title).map(String::from) else {
+            return JNI_FALSE;
+        };
+        // SAFETY: `doc_ptr` verified non-zero handle.
+        let doc = unsafe { &mut *(doc_ptr as *mut VexioDoc) };
+        doc.session.set_document_title(&t);
+        JNI_TRUE
+    }))
+    .unwrap_or(JNI_FALSE)
+}
+
 

@@ -373,7 +373,53 @@ async function main() {
   assert.equal(stateA.text, 'Converged CRDT Node');
   assert.equal(stateB.text, 'Converged CRDT Node');
   assert(Math.abs(stateA.pinX - 6.5) < 1e-4 && Math.abs(stateB.pinX - 6.5) < 1e-4, 'Both peers must converge on PinX=6.5 without clobbering Text!');
-  console.log('  ✓ Phase 7 Boolean Ops, Freeform, Control/Vertex Grips, 6×4 Themes, Subprocess, Diff, DataViz, Cloud, LDIF & HLC CRDT verified.');
+
+  // Workstation UX Overhaul WASM APIs: ISO A4/A3 Metric presets, Rich Text Style Patch, Rotate/Flip, Inline Rename & Stencil Import
+  peerA.set_document_title('Enterprise Network Blueprint');
+  assert.equal(peerA.set_page_preset(1, 'a4', true), true, 'set_page_preset(a4, landscape) must succeed in WASM');
+  const a4State = JSON.parse(peerA.get_state_json(1));
+  assert.equal(a4State.title, 'Enterprise Network Blueprint');
+  assert(Math.abs(a4State.pageWidthIn - 297.0 / 25.4) < 0.02, `Expected A4 landscape width ~11.69in, got ${a4State.pageWidthIn}`);
+  assert(Math.abs(a4State.pageHeightIn - 210.0 / 25.4) < 0.02, `Expected A4 landscape height ~8.27in, got ${a4State.pageHeightIn}`);
+
+  assert.equal(
+    peerA.apply_text_style_json(
+      1,
+      new Uint32Array([sharedCard]),
+      JSON.stringify({
+        font_family: 'Inter',
+        font_size_pt: 14,
+        bold: true,
+        italic: true,
+        underline: true,
+        horiz_align: 0,
+        vert_align: 0,
+        bullet_style: 1,
+        text_color_hex: '#1d4ed8',
+        text_bg_hex: '#fef08a',
+      })
+    ),
+    1
+  );
+  assert.equal(peerA.rotate_flip_shapes(1, new Uint32Array([sharedCard]), -90.0, false, false), 1);
+  assert.equal(peerA.rotate_flip_shapes(1, new Uint32Array([sharedCard]), 0.0, true, false), 1);
+  const styledCard = JSON.parse(peerA.get_state_json(1)).shapes.find((s) => s.id === sharedCard);
+  assert.equal(styledCard.fontFamily, 'Inter');
+  assert.equal(styledCard.charStyle & 7, 7, 'Bold + Italic + Underline bitmask must be active');
+  assert.equal(styledCard.bulletStyle, 1);
+  assert.equal(styledCard.flipX, true);
+
+  const vssxBytes = readFileSync(resolve(DIST_DIR, 'stencils/network_rack_equipment.vssx'));
+  const importedRes = JSON.parse(peerA.import_stencil_bytes('CustomImportedNetwork.vssx', vssxBytes));
+  assert(
+    Array.isArray(importedRes.masterNames) && importedRes.masterNames.length >= 18,
+    `import_stencil_bytes(.vssx) must import >= 18 masters, got ${importedRes.masterNames?.length}`
+  );
+  const mergedStencils = JSON.parse(peerA.list_builtin_stencils_json());
+  assert(Array.isArray(mergedStencils[importedRes.packTitle]), 'Imported stencil pack must appear in stencil catalog');
+
+  console.log('  ✓ Phase 7 + Workstation UX Overhaul (ISO A4 Metric, Rich Text, Rotate/Flip, Rename, Stencil Import & CRDT) verified.');
+
 
   console.log('=== [6/6] Verifying Firebase Auth, Version History & Collab CRDT Security Rules ===');
   const unauthRes = await fetch(

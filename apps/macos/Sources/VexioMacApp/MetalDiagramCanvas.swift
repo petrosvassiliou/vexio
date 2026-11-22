@@ -277,6 +277,20 @@ public final class VexioMetalNSView: NSView {
     }
 
     override public func mouseDown(with event: NSEvent) {
+        let scale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2.0
+        if let activeEdit = session?.activeInlineTextEdit {
+            session?.commitInlineEditing(newText: activeEdit.initialText, undoManager: activeUndoManager)
+        }
+        if event.clickCount == 2, let session {
+            let localPoint = convert(event.locationInWindow, from: nil)
+            if session.handleCanvasDoubleClick(
+                xPx: Double(localPoint.x * scale),
+                yPx: Double(localPoint.y * scale),
+                backingScale: scale
+            ) {
+                return
+            }
+        }
         window?.makeFirstResponder(self)
         forceTouchLatchedInCurrentPress = false
         if session?.forceTouchQuickInspect != nil {
@@ -290,9 +304,16 @@ public final class VexioMetalNSView: NSView {
     }
 
     override public func mouseUp(with event: NSEvent) {
+        let scale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2.0
         forceTouchLatchedInCurrentPress = false
         forwardPointer(event: event, kind: 2)
         session?.reloadSelectedShapeSheetCells()
+        session?.syncToolAndInlineTextAfterPointerUp(backingScale: scale)
+        if session?.activeTool == .pointer {
+            activeCursor = .arrow
+            window?.invalidateCursorRects(for: self)
+            activeCursor.set()
+        }
     }
 
     private var lastContextCanvasPoint: CGPoint = CGPoint(x: 4.5, y: 4.25)
@@ -318,6 +339,21 @@ public final class VexioMetalNSView: NSView {
         lastContextCanvasPoint = canvasInchesPoint(from: event)
 
         let menu = NSMenu(title: "Canvas Context Menu")
+
+        let editLabelItem = NSMenuItem(title: "Edit Text Label…", action: #selector(ctxEditSelectedLabel(_:)), keyEquivalent: "\r")
+        editLabelItem.keyEquivalentModifierMask = []
+        editLabelItem.target = self
+        menu.addItem(editLabelItem)
+
+        let rotLeftItem = NSMenuItem(title: "Rotate 90° Left (↺)", action: #selector(ctxRotateLeft90(_:)), keyEquivalent: "l")
+        rotLeftItem.target = self
+        menu.addItem(rotLeftItem)
+
+        let rotRightItem = NSMenuItem(title: "Rotate 90° Right (↻)", action: #selector(ctxRotateRight90(_:)), keyEquivalent: "r")
+        rotRightItem.target = self
+        menu.addItem(rotRightItem)
+
+        menu.addItem(.separator())
 
         let dupItem = NSMenuItem(title: "Duplicate Selection", action: #selector(ctxDuplicateSelection(_:)), keyEquivalent: "d")
         dupItem.target = self
@@ -411,6 +447,20 @@ public final class VexioMetalNSView: NSView {
         menu.addItem(inspectItem)
 
         return menu
+    }
+
+    @objc private func ctxEditSelectedLabel(_ sender: NSMenuItem) {
+        guard let session, session.selectedShapeId != 0 else { return }
+        let scale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2.0
+        session.beginInlineEditing(shapeId: session.selectedShapeId, backingScale: scale)
+    }
+
+    @objc private func ctxRotateLeft90(_ sender: NSMenuItem) {
+        session?.rotateOrFlipSelectedShapes(deltaDegrees: 90.0, undoManager: activeUndoManager)
+    }
+
+    @objc private func ctxRotateRight90(_ sender: NSMenuItem) {
+        session?.rotateOrFlipSelectedShapes(deltaDegrees: -90.0, undoManager: activeUndoManager)
     }
 
     @objc private func ctxDuplicateSelection(_ sender: NSMenuItem) {

@@ -856,8 +856,105 @@ public:
         return VexioResult<winrt::hstring>{VEXIO_OK, jsonBuf.ToWinRtString()};
     }
 
+    [[nodiscard]] VexioResult<winrt::hstring> GetStateJson(uint32_t activePageId) const {
+        if (m_ptr == nullptr) {
+            return VexioResult<winrt::hstring>{VEXIO_ERR_INVALID_ARG, std::nullopt};
+        }
+        OwnedBufferGuard jsonBuf;
+        const VexioStatus status = vexio_doc_get_state_json(m_ptr, activePageId, jsonBuf.OutPtr());
+        if (status != VEXIO_OK) {
+            return VexioResult<winrt::hstring>{status, std::nullopt};
+        }
+        return VexioResult<winrt::hstring>{VEXIO_OK, jsonBuf.ToWinRtString()};
+    }
+
+    [[nodiscard]] VexioResult<winrt::hstring> ImportStencilBytes(
+        std::string_view fileNameUtf8,
+        std::span<const uint8_t> stencilBytes)
+    {
+        if (m_ptr == nullptr || stencilBytes.empty()) {
+            return VexioResult<winrt::hstring>{VEXIO_ERR_INVALID_ARG, std::nullopt};
+        }
+        const std::string fname{fileNameUtf8.empty() ? "ImportedStencil.vssx" : fileNameUtf8};
+        const VexioByteSlice slice{stencilBytes.data(), stencilBytes.size()};
+        OwnedBufferGuard jsonBuf;
+        const VexioStatus status = vexio_doc_import_stencil_bytes(
+            m_ptr, fname.c_str(), slice, jsonBuf.OutPtr());
+        if (status != VEXIO_OK) {
+            return VexioResult<winrt::hstring>{status, std::nullopt};
+        }
+        return VexioResult<winrt::hstring>{VEXIO_OK, jsonBuf.ToWinRtString()};
+    }
+
+    [[nodiscard]] VexioStatus SetShapeTextStyleJson(
+        uint32_t pageId,
+        std::span<const uint64_t> shapeIds,
+        std::string_view styleJsonUtf8)
+    {
+        if (m_ptr == nullptr || shapeIds.empty() || styleJsonUtf8.empty()) {
+            return VEXIO_ERR_INVALID_ARG;
+        }
+        const std::string styleJson{styleJsonUtf8};
+        return vexio_doc_set_shape_text_style_json(
+            m_ptr, pageId, shapeIds.data(), shapeIds.size(), styleJson.c_str());
+    }
+
+    [[nodiscard]] VexioStatus RotateFlipShapes(
+        uint32_t pageId,
+        std::span<const uint64_t> shapeIds,
+        double deltaAngleDeg,
+        bool toggleFlipX,
+        bool toggleFlipY)
+    {
+        if (m_ptr == nullptr || shapeIds.empty()) {
+            return VEXIO_ERR_INVALID_ARG;
+        }
+        return vexio_doc_rotate_flip_shapes(
+            m_ptr, pageId, shapeIds.data(), shapeIds.size(), deltaAngleDeg, toggleFlipX, toggleFlipY);
+    }
+
+    [[nodiscard]] VexioStatus SetPageSetup(
+        uint32_t pageId,
+        double widthIn,
+        double heightIn,
+        std::string_view unitSlugUtf8)
+    {
+        if (m_ptr == nullptr) {
+            return VEXIO_ERR_INVALID_ARG;
+        }
+        const std::string unitSlug{unitSlugUtf8.empty() ? "mm" : unitSlugUtf8};
+        return vexio_doc_set_page_setup(m_ptr, pageId, widthIn, heightIn, unitSlug.c_str());
+    }
+
+    [[nodiscard]] VexioStatus SetPagePreset(
+        uint32_t pageId,
+        std::string_view presetSlugUtf8,
+        bool landscape)
+    {
+        if (m_ptr == nullptr || presetSlugUtf8.empty()) {
+            return VEXIO_ERR_INVALID_ARG;
+        }
+        const std::string preset{presetSlugUtf8};
+        return vexio_doc_set_page_preset(m_ptr, pageId, preset.c_str(), landscape);
+    }
+
+    [[nodiscard]] VexioStatus SetTitle(std::string_view titleUtf8) {
+        if (m_ptr == nullptr || titleUtf8.empty()) {
+            return VEXIO_ERR_INVALID_ARG;
+        }
+        const std::string title{titleUtf8};
+        return vexio_doc_set_title(m_ptr, title.c_str());
+    }
+
 private:
     VexioDoc* m_ptr{nullptr};
+};
+
+struct ScreenRectPx {
+    double xPx{0.0};
+    double yPx{0.0};
+    double widthPx{120.0};
+    double heightPx{36.0};
 };
 
 // ---------------------------------------------------------------------------
@@ -1017,6 +1114,34 @@ public:
     [[nodiscard]] uint64_t GetPrimarySelection() const noexcept {
         if (m_ptr == nullptr) return 0;
         return vexio_viewport_get_primary_selection(m_ptr);
+    }
+
+    [[nodiscard]] uint32_t GetActiveTool() const noexcept {
+        if (m_ptr == nullptr) return 0;
+        return vexio_viewport_get_active_tool(m_ptr);
+    }
+
+    [[nodiscard]] uint64_t PopCreatedTextShape() noexcept {
+        if (m_ptr == nullptr) return 0;
+        return vexio_viewport_pop_created_text_shape(m_ptr);
+    }
+
+    [[nodiscard]] uint64_t HitTestShape(const DocHandle& doc, double xPx, double yPx) const noexcept {
+        if (m_ptr == nullptr || !doc) return 0;
+        return vexio_viewport_hit_test_shape(m_ptr, doc.Get(), xPx, yPx);
+    }
+
+    [[nodiscard]] VexioResult<ScreenRectPx> GetShapeScreenBounds(const DocHandle& doc, uint64_t shapeId) const noexcept {
+        if (m_ptr == nullptr || !doc || shapeId == 0) {
+            return VexioResult<ScreenRectPx>{VEXIO_ERR_INVALID_ARG, std::nullopt};
+        }
+        ScreenRectPx rect{};
+        const VexioStatus status = vexio_viewport_get_shape_screen_bounds(
+            m_ptr, doc.Get(), shapeId, &rect.xPx, &rect.yPx, &rect.widthPx, &rect.heightPx);
+        if (status != VEXIO_OK) {
+            return VexioResult<ScreenRectPx>{status, std::nullopt};
+        }
+        return VexioResult<ScreenRectPx>{VEXIO_OK, rect};
     }
 
     [[nodiscard]] VexioResult<uint32_t> DispatchPointer(

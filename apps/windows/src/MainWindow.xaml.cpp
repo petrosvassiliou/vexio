@@ -105,8 +105,16 @@ MainWindow::MainWindow()
 {
     InitializeComponent();
     ConfigureCustomTitleBar();
+    DetectOsLocaleAndUnits();
 
     (void)m_doc.LoadStarterTemplate("bpmn_fulfillment");
+    if (m_metricUnits) {
+        (void)m_doc.SetPagePreset(1u, "a4", true);
+        PageOrientationCombo().SelectedIndex(0);
+    } else {
+        (void)m_doc.SetPagePreset(1u, "letter", true);
+        PageOrientationCombo().SelectedIndex(6);
+    }
 
     m_pages = {
         PageTabModel{1u, L"Page-1", false, 7u}
@@ -118,12 +126,22 @@ MainWindow::MainWindow()
 
     m_isInitialized = true;
 
+    ApplyLanguageStrings();
+    RulerUnitOriginText().Text(m_metricUnits ? L"mm" : L"in");
+    PageScaleSummaryText().Text(m_metricUnits
+        ? L"Scale: 1:1 • Units: Millimeters (ISO A4)"
+        : L"Scale: 1:1 • Units: Inches (US Letter)");
+
     RefreshStencilList();
     RefreshExternalDataList();
     RefreshLayersList();
     RebuildPageTabsStrip();
     SyncInspectorFromShapeSheet();
     RefreshShapeSheetSectionRows();
+
+    if (m_autoCheckUpdates) {
+        CheckForUpdatesAsync(false);
+    }
 }
 
 HWND MainWindow::GetNativeWindowHandle() const noexcept {
@@ -351,6 +369,9 @@ void MainWindow::DispatchCanvasPointerEvent(uint32_t kindOverride, PointerRouted
 }
 
 void MainWindow::OnCanvasPointerPressed(IInspectable const&, PointerRoutedEventArgs const& e) {
+    if (InlineCanvasEditorBorder().Visibility() == Visibility::Visible) {
+        CommitInlineCanvasShapeTextEdit(true);
+    }
     const auto props = e.GetCurrentPoint(DiagramSwapChainPanel()).Properties();
     if (props.IsRightButtonPressed()) {
         return;
@@ -371,16 +392,32 @@ void MainWindow::OnCanvasPointerMoved(IInspectable const&, PointerRoutedEventArg
 void MainWindow::OnCanvasPointerReleased(IInspectable const&, PointerRoutedEventArgs const& e) {
     DispatchCanvasPointerEvent(static_cast<uint32_t>(vexio::win::PointerEventKind::Up), e);
     DiagramSwapChainPanel().ReleasePointerCapture(e.Pointer());
+
+    const uint64_t createdTextId = m_viewport ? m_viewport.PopCreatedTextShape() : 0;
+
     if (m_activeTool != ActiveCanvasTool::Pointer &&
         m_activeTool != ActiveCanvasTool::Pan &&
         m_activeTool != ActiveCanvasTool::InkPen &&
         m_activeTool != ActiveCanvasTool::InkHighlighter)
     {
         SetActiveTool(ActiveCanvasTool::Pointer);
+    } else if (m_viewport) {
+        const uint32_t coreTool = m_viewport.GetActiveTool();
+        if (coreTool == 0 && m_activeTool != ActiveCanvasTool::Pointer) {
+            SetActiveTool(ActiveCanvasTool::Pointer);
+        }
     }
+
     PresentViewportFrame();
     SyncInspectorFromShapeSheet();
     RefreshShapeSheetSectionRows();
+
+    if (createdTextId > 0) {
+        m_previousSelectedShapeId = m_selectedShapeId;
+        m_selectedShapeId = createdTextId;
+        MarkDocumentDirty(true);
+        BeginInlineCanvasShapeTextEdit(createdTextId, true);
+    }
     e.Handled(true);
 }
 
@@ -410,6 +447,26 @@ void MainWindow::OnCanvasRightTapped(IInspectable const&, RightTappedRoutedEvent
         item.Click(handler);
         menu.Items().Append(item);
     };
+
+    addItem(L"Edit Stencil / Shape Text Label (Double-Click)", [this](IInspectable const&, RoutedEventArgs const&) {
+        if (m_selectedShapeId > 0) {
+            BeginInlineCanvasShapeTextEdit(m_selectedShapeId, false);
+        }
+    });
+    addItem(L"Rotate Left 90° (↺)", [this](IInspectable const&, RoutedEventArgs const&) {
+        OnRotateLeft90Click(nullptr, nullptr);
+    });
+    addItem(L"Rotate Right 90° (↻)", [this](IInspectable const&, RoutedEventArgs const&) {
+        OnRotateRight90Click(nullptr, nullptr);
+    });
+    addItem(L"Flip Horizontal (⇆)", [this](IInspectable const&, RoutedEventArgs const&) {
+        OnFlipHorizontalClick(nullptr, nullptr);
+    });
+    addItem(L"Flip Vertical (⇅)", [this](IInspectable const&, RoutedEventArgs const&) {
+        OnFlipVerticalClick(nullptr, nullptr);
+    });
+
+    menu.Items().Append(MenuFlyoutSeparator{});
 
     addItem(L"Duplicate Selected Shape (Ctrl+D)", [this](IInspectable const&, RoutedEventArgs const&) {
         OnDuplicateShapeClick(nullptr, nullptr);
@@ -665,6 +722,20 @@ void MainWindow::InitializeStencilCatalog() {
 
                 for (const auto cat : kCanonicalPackOrder) {
                     appendCategory(cat);
+                }
+                // Also include any custom imported Visio stencil packs (.vssx / .vss / .vsdx)
+                for (auto const& kv : rootObj) {
+                    const std::string keyUtf8 = vexio::win::ToUtf8(kv.Key());
+                    bool alreadyAdded = false;
+                    for (const auto canonical : kCanonicalPackOrder) {
+                        if (canonical == keyUtf8) {
+                            alreadyAdded = true;
+                            break;
+                        }
+                    }
+                    if (!alreadyAdded && kv.Value().ValueType() == Windows::Data::Json::JsonValueType::Array) {
+                        appendCategory(keyUtf8);
+                    }
                 }
             }
         }
@@ -948,6 +1019,9 @@ void MainWindow::InstantiateMasterOnCanvas(StencilMasterDescriptor const& master
         }
     }
 
+    if (m_activeTool != ActiveCanvasTool::Pointer) {
+        SetActiveTool(ActiveCanvasTool::Pointer);
+    }
     MarkDocumentDirty(true);
     PresentViewportFrame();
     SyncInspectorFromShapeSheet();
@@ -1988,19 +2062,53 @@ void MainWindow::OnPageSetupClick(IInspectable const&, RoutedEventArgs const&) {
 void MainWindow::OnPageOrientationChanged(IInspectable const&, SelectionChangedEventArgs const&) {
     if (!m_isInitialized || !m_doc) return;
     const int32_t idx = PageOrientationCombo().SelectedIndex();
-    if (idx == 0) {
-        (void)m_doc.SetCellFormula(m_activePageId, 0, "PageWidth", "11 in", true);
-        (void)m_doc.SetCellFormula(m_activePageId, 0, "PageHeight", "8.5 in", true);
-    } else if (idx == 1) {
-        (void)m_doc.SetCellFormula(m_activePageId, 0, "PageWidth", "8.5 in", true);
-        (void)m_doc.SetCellFormula(m_activePageId, 0, "PageHeight", "11 in", true);
-    } else if (idx == 2) {
-        (void)m_doc.SetCellFormula(m_activePageId, 0, "PageWidth", "420 mm", true);
-        (void)m_doc.SetCellFormula(m_activePageId, 0, "PageHeight", "297 mm", true);
-    } else {
-        (void)m_doc.SetCellFormula(m_activePageId, 0, "PageWidth", "36 in", true);
-        (void)m_doc.SetCellFormula(m_activePageId, 0, "PageHeight", "24 in", true);
+    switch (idx) {
+        case 0: // ISO A4 Landscape (297x210 mm)
+            (void)m_doc.SetPagePreset(m_activePageId, "a4", true);
+            m_metricUnits = true;
+            break;
+        case 1: // ISO A4 Portrait (210x297 mm)
+            (void)m_doc.SetPagePreset(m_activePageId, "a4", false);
+            m_metricUnits = true;
+            break;
+        case 2: // ISO A3 Landscape (420x297 mm)
+            (void)m_doc.SetPagePreset(m_activePageId, "a3", true);
+            m_metricUnits = true;
+            break;
+        case 3: // ISO A3 Portrait (297x420 mm)
+            (void)m_doc.SetPagePreset(m_activePageId, "a3", false);
+            m_metricUnits = true;
+            break;
+        case 4: // ISO A5 Landscape (210x148 mm)
+            (void)m_doc.SetPagePreset(m_activePageId, "a5", true);
+            m_metricUnits = true;
+            break;
+        case 5: // ISO A2 Landscape (594x420 mm)
+            (void)m_doc.SetPagePreset(m_activePageId, "a2", true);
+            m_metricUnits = true;
+            break;
+        case 6: // US Letter Landscape (11x8.5 in)
+            (void)m_doc.SetPagePreset(m_activePageId, "letter", true);
+            m_metricUnits = false;
+            break;
+        case 7: // US Letter Portrait (8.5x11 in)
+            (void)m_doc.SetPagePreset(m_activePageId, "letter", false);
+            m_metricUnits = false;
+            break;
+        case 8: // US Legal Landscape (14x8.5 in)
+            (void)m_doc.SetPagePreset(m_activePageId, "legal", true);
+            m_metricUnits = false;
+            break;
+        default: // ANSI D Architectural (36x24 in)
+            (void)m_doc.SetPageSetup(m_activePageId, 36.0, 24.0, "in");
+            m_metricUnits = false;
+            break;
     }
+    RulerUnitOriginText().Text(m_metricUnits ? L"mm" : L"in");
+    PageScaleSummaryText().Text(m_metricUnits
+        ? L"Scale: 1:1 • Units: Millimeters"
+        : L"Scale: 1:1 • Units: Inches");
+    RebuildRulerTicks();
     MarkDocumentDirty(true);
     PresentViewportFrame();
 }
@@ -2302,12 +2410,12 @@ void MainWindow::OnCompareDiagramClick(IInspectable const&, RoutedEventArgs cons
 }
 
 void MainWindow::OnExportPptxClick(IInspectable const&, RoutedEventArgs const&) {
-    FileBackstageFlyout().Hide();
+    CloseBackstageOverlay();
     SaveDocumentAsync(true, "pptx");
 }
 
 void MainWindow::OnExportDocxClick(IInspectable const&, RoutedEventArgs const&) {
-    FileBackstageFlyout().Hide();
+    CloseBackstageOverlay();
     SaveDocumentAsync(true, "docx");
 }
 
@@ -2402,28 +2510,20 @@ void MainWindow::RefreshBaselineSnapshot() {
 // File Backstage: New Templates, Open Picker, Save / Save As, Exports & Print
 // ===========================================================================
 void MainWindow::OnNewBlankDocClick(IInspectable const&, RoutedEventArgs const&) {
-    FileBackstageFlyout().Hide();
-    m_doc = vexio::win::DocHandle::CreateBlank("Drawing1.vsdx");
-    (void)m_doc.LoadStarterTemplate("blank");
-    m_currentStorageFile = nullptr;
-    m_documentDisplayName = L"Drawing1.vsdx";
-    m_activeFormatExt = "vsdx";
-    m_activePageId = 1;
-    m_selectedShapeId = 1;
-    m_previousSelectedShapeId = 1;
-    RefreshBaselineSnapshot();
-    MarkDocumentDirty(false);
-    AttachOrResizeDx12SwapChain();
-    SyncInspectorFromShapeSheet();
-    RefreshShapeSheetSectionRows();
+    CreateNewBlankWithPreset("letter", true, false, L"Drawing_Letter.vsdx");
 }
 
 void MainWindow::OnNewBpmnTemplateClick(IInspectable const&, RoutedEventArgs const&) {
-    FileBackstageFlyout().Hide();
+    CloseBackstageOverlay();
     m_doc = vexio::win::DocHandle::CreateBlank("Order_Fulfillment_BPMN2.vsdx");
     (void)m_doc.LoadStarterTemplate("bpmn_fulfillment");
+    if (m_metricUnits) {
+        (void)m_doc.SetPagePreset(1u, "a4", true);
+    }
     m_documentDisplayName = L"Order_Fulfillment_BPMN2.vsdx";
     ValidationRuleSetCombo().SelectedIndex(0);
+    InitializeStencilCatalog();
+    RefreshStencilList();
     RefreshBaselineSnapshot();
     MarkDocumentDirty(false);
     AttachOrResizeDx12SwapChain();
@@ -2431,11 +2531,16 @@ void MainWindow::OnNewBpmnTemplateClick(IInspectable const&, RoutedEventArgs con
 }
 
 void MainWindow::OnNewUmlTemplateClick(IInspectable const&, RoutedEventArgs const&) {
-    FileBackstageFlyout().Hide();
+    CloseBackstageOverlay();
     m_doc = vexio::win::DocHandle::CreateBlank("Service_Domain_UML25.vsdx");
     (void)m_doc.LoadStarterTemplate("cloud_microservices");
+    if (m_metricUnits) {
+        (void)m_doc.SetPagePreset(1u, "a4", true);
+    }
     m_documentDisplayName = L"Service_Domain_UML25.vsdx";
     ValidationRuleSetCombo().SelectedIndex(1);
+    InitializeStencilCatalog();
+    RefreshStencilList();
     RefreshBaselineSnapshot();
     MarkDocumentDirty(false);
     AttachOrResizeDx12SwapChain();
@@ -2443,11 +2548,16 @@ void MainWindow::OnNewUmlTemplateClick(IInspectable const&, RoutedEventArgs cons
 }
 
 void MainWindow::OnNewCadFloorPlanClick(IInspectable const&, RoutedEventArgs const&) {
-    FileBackstageFlyout().Hide();
+    CloseBackstageOverlay();
     m_doc = vexio::win::DocHandle::CreateBlank("FloorPlan_Level1.vsdx");
     (void)m_doc.LoadStarterTemplate("datacenter_floorplan");
+    if (m_metricUnits) {
+        (void)m_doc.SetPagePreset(1u, "a3", true);
+    }
     m_documentDisplayName = L"FloorPlan_Level1.vsdx";
     DrawingScaleCombo().SelectedIndex(1);
+    InitializeStencilCatalog();
+    RefreshStencilList();
     RefreshBaselineSnapshot();
     MarkDocumentDirty(false);
     AttachOrResizeDx12SwapChain();
@@ -2455,47 +2565,46 @@ void MainWindow::OnNewCadFloorPlanClick(IInspectable const&, RoutedEventArgs con
 }
 
 void MainWindow::OnOpenClick(IInspectable const&, RoutedEventArgs const&) {
-    FileBackstageFlyout().Hide();
     PromptOpenFilePickerAsync();
 }
 
 void MainWindow::OnSaveClick(IInspectable const&, RoutedEventArgs const&) {
-    FileBackstageFlyout().Hide();
+    CloseBackstageOverlay();
     SaveDocumentAsync(false);
 }
 
 void MainWindow::OnSaveAsClick(IInspectable const&, RoutedEventArgs const&) {
-    FileBackstageFlyout().Hide();
+    CloseBackstageOverlay();
     SaveDocumentAsync(true);
 }
 
 void MainWindow::OnExportJpgClick(IInspectable const&, RoutedEventArgs const&) {
-    FileBackstageFlyout().Hide();
+    CloseBackstageOverlay();
     SaveDocumentAsync(true, "jpg");
 }
 
 void MainWindow::OnExportPngClick(IInspectable const&, RoutedEventArgs const&) {
-    FileBackstageFlyout().Hide();
+    CloseBackstageOverlay();
     SaveDocumentAsync(true, "png");
 }
 
 void MainWindow::OnExportPdfClick(IInspectable const&, RoutedEventArgs const&) {
-    FileBackstageFlyout().Hide();
+    CloseBackstageOverlay();
     SaveDocumentAsync(true, "pdf");
 }
 
 void MainWindow::OnExportSvgClick(IInspectable const&, RoutedEventArgs const&) {
-    FileBackstageFlyout().Hide();
+    CloseBackstageOverlay();
     SaveDocumentAsync(true, "svg");
 }
 
 void MainWindow::OnExportDxfClick(IInspectable const&, RoutedEventArgs const&) {
-    FileBackstageFlyout().Hide();
+    CloseBackstageOverlay();
     SaveDocumentAsync(true, "dxf");
 }
 
 void MainWindow::OnTiledPrintClick(IInspectable const&, RoutedEventArgs const&) {
-    FileBackstageFlyout().Hide();
+    CloseBackstageOverlay();
     ShowTiledPrintDialogAsync();
 }
 
@@ -2525,13 +2634,23 @@ fire_and_forget MainWindow::OpenStorageFileAsync(StorageFile file) {
         const std::span<const uint8_t> rawBytes{buffer.data(), buffer.Length()};
         const std::string ext = NormalizeExtensionWithoutDot(file.FileType());
 
+        // If user opened a pure Visio Stencil (.vssx / .vss / .vssm), import its masters directly into the Stencil Dock!
+        if (ext == "vssx" || ext == "vss" || ext == "vssm") {
+            self->CloseBackstageOverlay();
+            self->ImportStencilStorageFileAsync(file);
+            co_return;
+        }
+
         auto openRes = vexio::win::DocHandle::OpenBytes(self->m_engine, rawBytes, ext);
         if (!openRes.ok()) {
             self->ShowBanner(InfoBarSeverity::Error, L"Document Open Failed", openRes.message());
             co_return;
         }
 
+        self->CloseBackstageOverlay();
         self->m_doc = std::move(*openRes.value);
+        self->InitializeStencilCatalog();
+        self->RefreshStencilList();
         self->RefreshBaselineSnapshot();
         self->m_currentStorageFile = file;
         self->m_documentDisplayName = file.Name().c_str();
@@ -3266,6 +3385,792 @@ void MainWindow::MarkDocumentDirty(bool dirty) {
     const std::wstring suffix = dirty ? L" *" : L"";
     DocumentTitleText().Text(hstring{m_documentDisplayName + suffix});
     Title(hstring{L"Vexio Professional — " + m_documentDisplayName + suffix});
+}
+
+// ===========================================================================
+// 14-Point Workstation UX: OS Locale/Metric, 6-Language Store, In-App Start,
+// Hover-Switch Menus, Inline Stencil Label Edit, Rich Text, Rotate/Flip,
+// Stencil Import & Automatic/Manual GitHub Releases Updater
+// ===========================================================================
+void MainWindow::DetectOsLocaleAndUnits() {
+    // 1. OS Measurement System (Metric default unless OS explicitly reports US Imperial "1")
+    wchar_t measureBuf[8] = {};
+    bool metricDefault = true;
+    if (::GetLocaleInfoEx(LOCALE_NAME_USER_DEFAULT, LOCALE_IMEASURE, measureBuf, 8) > 0) {
+        metricDefault = (measureBuf[0] != L'1');
+    }
+    m_metricUnits = metricDefault;
+
+    // 2. OS ISO-639 Language Detection (EN, DE, IT, FR, ES, EL/GR)
+    wchar_t langBuf[16] = {};
+    if (::GetLocaleInfoEx(LOCALE_NAME_USER_DEFAULT, LOCALE_SISO639LANGNAME, langBuf, 16) > 0) {
+        std::wstring iso{langBuf};
+        std::transform(iso.begin(), iso.end(), iso.begin(), [](wchar_t ch) {
+            return static_cast<wchar_t>(::towlower(ch));
+        });
+        if (iso == L"de") { m_languageCode = "de"; AppLanguageCombo().SelectedIndex(1); }
+        else if (iso == L"it") { m_languageCode = "it"; AppLanguageCombo().SelectedIndex(2); }
+        else if (iso == L"fr") { m_languageCode = "fr"; AppLanguageCombo().SelectedIndex(3); }
+        else if (iso == L"es") { m_languageCode = "es"; AppLanguageCombo().SelectedIndex(4); }
+        else if (iso == L"el" || iso == L"gr") { m_languageCode = "el"; AppLanguageCombo().SelectedIndex(5); }
+        else { m_languageCode = "en"; AppLanguageCombo().SelectedIndex(0); }
+    }
+}
+
+void MainWindow::ApplyLanguageStrings() {
+    struct UiLangPack {
+        const wchar_t* file;
+        const wchar_t* home;
+        const wchar_t* insert;
+        const wchar_t* design;
+        const wchar_t* data;
+        const wchar_t* process;
+        const wchar_t* review;
+        const wchar_t* view;
+        const wchar_t* developer;
+        const wchar_t* exportMenu;
+        const wchar_t* helpMenu;
+        const wchar_t* updates;
+        const wchar_t* importStencil;
+        const wchar_t* continueCanvas;
+        const wchar_t* startHero;
+        const wchar_t* searchHint;
+    };
+
+    static constexpr UiLangPack kEn{
+        L"File", L"Home", L"Insert", L"Design", L"Data", L"Process", L"Review", L"View", L"Developer",
+        L"Export ▾", L"Help & Updates ▾", L"Updates", L"+ Import Visio Stencil (.vssx / .vss)",
+        L"← Continue to Canvas", L"Start or Open a Diagram Inside Vexio", L"Search 520+ shapes in 22 packs..."
+    };
+    static constexpr UiLangPack kDe{
+        L"Datei", L"Start", L"Einfügen", L"Entwurf", L"Daten", L"Prozess", L"Überprüfen", L"Ansicht", L"Entwickler",
+        L"Exportieren ▾", L"Hilfe & Updates ▾", L"Updates", L"+ Visio-Schablone importieren (.vssx)",
+        L"← Weiter zur Zeichenfläche", L"Diagramm in Vexio erstellen oder öffnen", L"520+ Formen durchsuchen..."
+    };
+    static constexpr UiLangPack kIt{
+        L"File", L"Home", L"Inserisci", L"Progettazione", L"Dati", L"Processo", L"Revisione", L"Visualizza", L"Sviluppo",
+        L"Esporta ▾", L"Aiuto e Aggiornamenti ▾", L"Aggiorna", L"+ Importa Stencil Visio (.vssx)",
+        L"← Vai al foglio di disegno", L"Crea o apri un diagramma in Vexio", L"Cerca oltre 520 forme..."
+    };
+    static constexpr UiLangPack kFr{
+        L"Fichier", L"Accueil", L"Insertion", L"Création", L"Données", L"Processus", L"Révision", L"Affichage", L"Développeur",
+        L"Exporter ▾", L"Aide & Mises à jour ▾", L"Mises à jour", L"+ Importer gabarit Visio (.vssx)",
+        L"← Continuer vers le dessin", L"Créer ou ouvrir un diagramme dans Vexio", L"Rechercher 520+ formes..."
+    };
+    static constexpr UiLangPack kEs{
+        L"Archivo", L"Inicio", L"Insertar", L"Diseño", L"Datos", L"Proceso", L"Revisar", L"Vista", L"Programador",
+        L"Exportar ▾", L"Ayuda y Actualizaciones ▾", L"Actualizar", L"+ Importar galería Visio (.vssx)",
+        L"← Continuar al lienzo", L"Crear o abrir un diagrama en Vexio", L"Buscar más de 520 formas..."
+    };
+    static constexpr UiLangPack kEl{
+        L"Αρχείο", L"Κεντρική", L"Εισαγωγή", L"Σχεδίαση", L"Δεδομένα", L"Διαδικασία", L"Αναθεώρηση", L"Προβολή", L"Προγραμματιστής",
+        L"Εξαγωγή ▾", L"Βοήθεια & Ενημερώσεις ▾", L"Ενημερώσεις", L"+ Εισαγωγή Stencil Visio (.vssx)",
+        L"← Συνέχεια στον καμβά", L"Δημιουργία ή άνοιγμα διαγράμματος στο Vexio", L"Αναζήτηση 520+ σχημάτων..."
+    };
+
+    const UiLangPack* pack = &kEn;
+    if (m_languageCode == "de") pack = &kDe;
+    else if (m_languageCode == "it") pack = &kIt;
+    else if (m_languageCode == "fr") pack = &kFr;
+    else if (m_languageCode == "es") pack = &kEs;
+    else if (m_languageCode == "el" || m_languageCode == "gr") pack = &kEl;
+
+    FileTabLabelText().Text(pack->file);
+    RibbonTabHome().Content(box_value(pack->home));
+    RibbonTabInsert().Content(box_value(pack->insert));
+    RibbonTabDesign().Content(box_value(pack->design));
+    RibbonTabData().Content(box_value(pack->data));
+    RibbonTabProcess().Content(box_value(pack->process));
+    RibbonTabReview().Content(box_value(pack->review));
+    RibbonTabView().Content(box_value(pack->view));
+    RibbonTabDeveloper().Content(box_value(pack->developer));
+    TopExportMenuLabel().Text(pack->exportMenu);
+    TopHelpMenuLabel().Text(pack->helpMenu);
+    CheckUpdatesTitleLabel().Text(pack->updates);
+    ImportStencilDockLabel().Text(pack->importStencil);
+    BackstageReturnLabel().Text(pack->continueCanvas);
+    BackstageHeroHeading().Text(pack->startHero);
+    StencilSearchBox().PlaceholderText(pack->searchHint);
+}
+
+void MainWindow::OnAppLanguageChanged(IInspectable const&, SelectionChangedEventArgs const&) {
+    if (!m_isInitialized) return;
+    switch (AppLanguageCombo().SelectedIndex()) {
+        case 1: m_languageCode = "de"; break;
+        case 2: m_languageCode = "it"; break;
+        case 3: m_languageCode = "fr"; break;
+        case 4: m_languageCode = "es"; break;
+        case 5: m_languageCode = "el"; break;
+        default: m_languageCode = "en"; break;
+    }
+    ApplyLanguageStrings();
+}
+
+void MainWindow::CloseBackstageOverlay() {
+    InAppBackstageOverlay().Visibility(Visibility::Collapsed);
+    if (m_openTopMenuTag == L"FileMenu") {
+        m_openTopMenuTag.clear();
+    }
+}
+
+void MainWindow::OnFileBackstageToggleClick(IInspectable const&, RoutedEventArgs const&) {
+    const bool currentlyOpen = (InAppBackstageOverlay().Visibility() == Visibility::Visible);
+    InAppBackstageOverlay().Visibility(currentlyOpen ? Visibility::Collapsed : Visibility::Visible);
+    m_openTopMenuTag = currentlyOpen ? L"" : L"FileMenu";
+}
+
+void MainWindow::OnCloseBackstageClick(IInspectable const&, RoutedEventArgs const&) {
+    CloseBackstageOverlay();
+    AttachOrResizeDx12SwapChain();
+}
+
+void MainWindow::CreateNewBlankWithPreset(
+    std::string_view presetSlugUtf8,
+    bool landscape,
+    bool metricDisplay,
+    std::wstring_view docNameWide)
+{
+    CloseBackstageOverlay();
+    const std::string titleUtf8 = vexio::win::ToUtf8(docNameWide);
+    m_doc = vexio::win::DocHandle::CreateBlank(titleUtf8);
+    (void)m_doc.LoadStarterTemplate("blank");
+    (void)m_doc.SetPagePreset(1u, presetSlugUtf8, landscape);
+
+    m_metricUnits = metricDisplay;
+    m_currentStorageFile = nullptr;
+    m_documentDisplayName = std::wstring{docNameWide};
+    m_activeFormatExt = "vsdx";
+    m_activePageId = 1u;
+    m_selectedShapeId = 1u;
+    m_previousSelectedShapeId = 1u;
+    m_pages = { PageTabModel{1u, L"Page-1", false, 0u} };
+
+    RulerUnitOriginText().Text(m_metricUnits ? L"mm" : L"in");
+    PageScaleSummaryText().Text(m_metricUnits
+        ? L"Scale: 1:1 • Units: Millimeters"
+        : L"Scale: 1:1 • Units: Inches");
+
+    InitializeStencilCatalog();
+    RefreshStencilList();
+    RefreshBaselineSnapshot();
+    RebuildPageTabsStrip();
+    RebuildRulerTicks();
+    MarkDocumentDirty(false);
+    AttachOrResizeDx12SwapChain();
+    SyncInspectorFromShapeSheet();
+    RefreshShapeSheetSectionRows();
+}
+
+void MainWindow::OnNewBlankA4MetricClick(IInspectable const&, RoutedEventArgs const&) {
+    PageOrientationCombo().SelectedIndex(0);
+    CreateNewBlankWithPreset("a4", true, true, L"Drawing_A4.vsdx");
+}
+
+void MainWindow::OnNewBlankA3MetricClick(IInspectable const&, RoutedEventArgs const&) {
+    PageOrientationCombo().SelectedIndex(2);
+    CreateNewBlankWithPreset("a3", true, true, L"Drawing_A3.vsdx");
+}
+
+void MainWindow::OnNewBlankA4PortraitClick(IInspectable const&, RoutedEventArgs const&) {
+    PageOrientationCombo().SelectedIndex(1);
+    CreateNewBlankWithPreset("a4", false, true, L"Drawing_A4_Portrait.vsdx");
+}
+
+void MainWindow::OnBackstageDragOver(IInspectable const&, DragEventArgs const& e) {
+    if (e.DataView().Contains(StandardDataFormats::StorageItems())) {
+        e.AcceptedOperation(DataPackageOperation::Copy);
+    }
+}
+
+void MainWindow::OnBackstageDrop(IInspectable const&, DragEventArgs const& e) {
+    if (!e.DataView().Contains(StandardDataFormats::StorageItems())) {
+        return;
+    }
+    [this, dataView = e.DataView()]() -> fire_and_forget {
+        const auto weakSelf = get_weak();
+        const auto items = co_await dataView.GetStorageItemsAsync();
+        if (items.Size() > 0) {
+            if (auto file = items.GetAt(0).try_as<StorageFile>()) {
+                if (auto self = weakSelf.get()) {
+                    self->OpenStorageFileAsync(file);
+                }
+            }
+        }
+    }();
+}
+
+// ===========================================================================
+// Double-Click Document Title -> Select All & Rename Inline
+// ===========================================================================
+void MainWindow::OnDocumentTitleDoubleTapped(IInspectable const&, DoubleTappedRoutedEventArgs const& e) {
+    m_committingTitleEdit = false;
+    DocumentTitleButton().Visibility(Visibility::Collapsed);
+    DocumentTitleEditBox().Text(hstring{m_documentDisplayName});
+    DocumentTitleEditBox().Visibility(Visibility::Visible);
+    DocumentTitleEditBox().Focus(FocusState::Programmatic);
+    DocumentTitleEditBox().SelectAll();
+    e.Handled(true);
+}
+
+void MainWindow::CommitDocumentTitleEdit(bool apply) {
+    if (m_committingTitleEdit) return;
+    m_committingTitleEdit = true;
+
+    if (apply) {
+        std::wstring raw{DocumentTitleEditBox().Text().c_str()};
+        while (!raw.empty() && (raw.front() == L' ' || raw.front() == L'\t')) raw.erase(raw.begin());
+        while (!raw.empty() && (raw.back() == L' ' || raw.back() == L'\t')) raw.pop_back();
+        if (!raw.empty()) {
+            if (raw.find(L'.') == std::wstring::npos) {
+                raw += L"." + std::wstring{vexio::win::ToHString(m_activeFormatExt).c_str()};
+            }
+            m_documentDisplayName = raw;
+            if (m_doc) {
+                (void)m_doc.SetTitle(vexio::win::ToUtf8(m_documentDisplayName));
+            }
+            MarkDocumentDirty(true);
+        }
+    }
+
+    DocumentTitleEditBox().Visibility(Visibility::Collapsed);
+    DocumentTitleButton().Visibility(Visibility::Visible);
+    m_committingTitleEdit = false;
+}
+
+void MainWindow::OnDocumentTitleEditKeyDown(IInspectable const&, KeyRoutedEventArgs const& e) {
+    if (e.Key() == VirtualKey::Enter) {
+        CommitDocumentTitleEdit(true);
+        e.Handled(true);
+    } else if (e.Key() == VirtualKey::Escape) {
+        CommitDocumentTitleEdit(false);
+        e.Handled(true);
+    }
+}
+
+void MainWindow::OnDocumentTitleEditLostFocus(IInspectable const&, RoutedEventArgs const&) {
+    if (DocumentTitleEditBox().Visibility() == Visibility::Visible) {
+        CommitDocumentTitleEdit(true);
+    }
+}
+
+// ===========================================================================
+// Chrome-Style Hover-to-Switch Open Top Menus & Collapsible Visio Ribbon
+// ===========================================================================
+void MainWindow::OnTopFlyoutOpened(IInspectable const& sender, IInspectable const&) {
+    if (sender == TopExportMenuFlyout()) {
+        m_openTopMenuTag = L"ExportMenu";
+    } else if (sender == TopHelpMenuFlyout()) {
+        m_openTopMenuTag = L"HelpMenu";
+    }
+}
+
+void MainWindow::OnTopFlyoutClosed(IInspectable const& sender, IInspectable const&) {
+    if (sender == TopExportMenuFlyout() && m_openTopMenuTag == L"ExportMenu") {
+        m_openTopMenuTag.clear();
+    } else if (sender == TopHelpMenuFlyout() && m_openTopMenuTag == L"HelpMenu") {
+        m_openTopMenuTag.clear();
+    }
+}
+
+void MainWindow::OnTopMenuPointerEntered(IInspectable const& sender, PointerRoutedEventArgs const&) {
+    if (m_openTopMenuTag.empty()) {
+        return;
+    }
+    auto btn = sender.try_as<Button>();
+    if (!btn) return;
+    const hstring hoveredTag = unbox_value_or<hstring>(btn.Tag(), L"");
+    if (hoveredTag.empty() || hoveredTag == m_openTopMenuTag) {
+        return;
+    }
+
+    // Close currently open sibling menu/backstage and open hovered target immediately
+    TopExportMenuFlyout().Hide();
+    TopHelpMenuFlyout().Hide();
+    if (hoveredTag == L"FileMenu") {
+        InAppBackstageOverlay().Visibility(Visibility::Visible);
+        m_openTopMenuTag = L"FileMenu";
+    } else {
+        InAppBackstageOverlay().Visibility(Visibility::Collapsed);
+        if (hoveredTag == L"ExportMenu") {
+            m_openTopMenuTag = L"ExportMenu";
+            TopExportMenuFlyout().ShowAt(TopExportMenuButton());
+        } else if (hoveredTag == L"HelpMenu") {
+            m_openTopMenuTag = L"HelpMenu";
+            TopHelpMenuFlyout().ShowAt(TopHelpMenuButton());
+        }
+    }
+}
+
+void MainWindow::OnToggleRibbonCollapseClick(IInspectable const&, RoutedEventArgs const&) {
+    m_ribbonCollapsed = !m_ribbonCollapsed;
+    RibbonBodyRow().Height(GridLength{m_ribbonCollapsed ? 0.0 : (m_touchMode ? 104.0 : 88.0)});
+    RibbonBodyScrollViewer().Visibility(m_ribbonCollapsed ? Visibility::Collapsed : Visibility::Visible);
+    RibbonCollapseGlyphText().Text(m_ribbonCollapsed ? L"⌄" : L"⌃");
+    AttachOrResizeDx12SwapChain();
+}
+
+// ===========================================================================
+// Rich Text Formatting (Font Family, Size, B/I/U/S, Color, Highlight, Align, Bullets)
+// ===========================================================================
+void MainWindow::ApplyRichTextPatchJson(std::string_view patchJsonUtf8) {
+    if (!m_doc || m_selectedShapeId == 0 || m_syncingTextControls) {
+        return;
+    }
+    const std::array<uint64_t, 1> ids{m_selectedShapeId};
+    if (m_doc.SetShapeTextStyleJson(m_activePageId, ids, patchJsonUtf8) == VEXIO_OK) {
+        MarkDocumentDirty(true);
+        PresentViewportFrame();
+        SyncInspectorFromShapeSheet();
+        RefreshShapeSheetSectionRows();
+    }
+}
+
+void MainWindow::OnFontFormattingComboChanged(IInspectable const& sender, SelectionChangedEventArgs const&) {
+    if (!m_isInitialized || m_syncingTextControls || !m_doc) return;
+
+    if (sender == FontFamilyCombo()) {
+        if (auto fontStr = FontFamilyCombo().SelectedItem().try_as<hstring>()) {
+            ApplyRichTextPatchJson(std::format("{{\"fontFamily\":\"{}\"}}", vexio::win::ToUtf8(*fontStr)));
+        }
+    } else if (sender == FontSizeCombo()) {
+        if (auto sizeStr = FontSizeCombo().SelectedItem().try_as<hstring>()) {
+            const double pt = std::max(4.0, std::wcstod(sizeStr->c_str(), nullptr));
+            ApplyRichTextPatchJson(std::format("{{\"fontSizePt\":{:.1f}}}", pt));
+        }
+    } else if (sender == FontColorCombo()) {
+        static constexpr std::array<const char*, 7> kHexColors{
+            "#0F172A", "#1D4ED8", "#DC2626", "#15803D", "#B45309", "#7C3AED", "#FFFFFF"
+        };
+        const int32_t idx = std::clamp(FontColorCombo().SelectedIndex(), 0, 6);
+        ApplyRichTextPatchJson(std::format("{{\"colorHex\":\"{}\"}}", kHexColors[static_cast<size_t>(idx)]));
+    } else if (sender == TextHighlightCombo()) {
+        static constexpr std::array<const char*, 5> kBgHex{
+            "none", "#FEF08A", "#A5F3FC", "#BBF7D0", "#FECDD3"
+        };
+        const int32_t idx = std::clamp(TextHighlightCombo().SelectedIndex(), 0, 4);
+        ApplyRichTextPatchJson(std::format("{{\"bgColorHex\":\"{}\"}}", kBgHex[static_cast<size_t>(idx)]));
+    }
+}
+
+void MainWindow::OnGrowFontSizeClick(IInspectable const&, RoutedEventArgs const&) {
+    const int32_t count = static_cast<int32_t>(FontSizeCombo().Items().Size());
+    const int32_t nextIdx = std::min(count - 1, FontSizeCombo().SelectedIndex() + 1);
+    FontSizeCombo().SelectedIndex(nextIdx);
+}
+
+void MainWindow::OnShrinkFontSizeClick(IInspectable const&, RoutedEventArgs const&) {
+    const int32_t prevIdx = std::max(0, FontSizeCombo().SelectedIndex() - 1);
+    FontSizeCombo().SelectedIndex(prevIdx);
+}
+
+void MainWindow::OnTextStyleToggleClick(IInspectable const&, RoutedEventArgs const&) {
+    const bool bold   = BoldTextToggle().IsChecked().GetBoolean();
+    const bool italic = ItalicTextToggle().IsChecked().GetBoolean();
+    const bool under  = UnderlineTextToggle().IsChecked().GetBoolean();
+    const bool strike = StrikeTextToggle().IsChecked().GetBoolean();
+    ApplyRichTextPatchJson(std::format(
+        "{{\"bold\":{},\"italic\":{},\"underline\":{},\"strikethrough\":{}}}",
+        bold ? "true" : "false",
+        italic ? "true" : "false",
+        under ? "true" : "false",
+        strike ? "true" : "false"));
+}
+
+void MainWindow::OnTextAlignLeftClick(IInspectable const&, RoutedEventArgs const&)   { ApplyRichTextPatchJson("{\"horizAlign\":0}"); }
+void MainWindow::OnTextAlignCenterClick(IInspectable const&, RoutedEventArgs const&) { ApplyRichTextPatchJson("{\"horizAlign\":1}"); }
+void MainWindow::OnTextAlignRightClick(IInspectable const&, RoutedEventArgs const&)  { ApplyRichTextPatchJson("{\"horizAlign\":2}"); }
+void MainWindow::OnTextVAlignTopClick(IInspectable const&, RoutedEventArgs const&)    { ApplyRichTextPatchJson("{\"vertAlign\":0}"); }
+void MainWindow::OnTextVAlignMiddleClick(IInspectable const&, RoutedEventArgs const&) { ApplyRichTextPatchJson("{\"vertAlign\":1}"); }
+void MainWindow::OnTextVAlignBottomClick(IInspectable const&, RoutedEventArgs const&) { ApplyRichTextPatchJson("{\"vertAlign\":2}"); }
+
+void MainWindow::OnBulletListToggleClick(IInspectable const&, RoutedEventArgs const&) {
+    const bool bulleted = BulletListToggle().IsChecked().GetBoolean();
+    ApplyRichTextPatchJson(bulleted ? "{\"bullet\":1}" : "{\"bullet\":0}");
+}
+
+// ===========================================================================
+// Rotate 90° Left / Right & Flip Horizontal / Vertical for All Stencils
+// ===========================================================================
+void MainWindow::OnRotateLeft90Click(IInspectable const&, RoutedEventArgs const&) {
+    if (!m_doc || m_selectedShapeId == 0) return;
+    const std::array<uint64_t, 1> ids{m_selectedShapeId};
+    if (m_doc.RotateFlipShapes(m_activePageId, ids, -90.0, false, false) == VEXIO_OK) {
+        MarkDocumentDirty(true);
+        PresentViewportFrame();
+        SyncInspectorFromShapeSheet();
+        RefreshShapeSheetSectionRows();
+    }
+}
+
+void MainWindow::OnRotateRight90Click(IInspectable const&, RoutedEventArgs const&) {
+    if (!m_doc || m_selectedShapeId == 0) return;
+    const std::array<uint64_t, 1> ids{m_selectedShapeId};
+    if (m_doc.RotateFlipShapes(m_activePageId, ids, 90.0, false, false) == VEXIO_OK) {
+        MarkDocumentDirty(true);
+        PresentViewportFrame();
+        SyncInspectorFromShapeSheet();
+        RefreshShapeSheetSectionRows();
+    }
+}
+
+void MainWindow::OnFlipHorizontalClick(IInspectable const&, RoutedEventArgs const&) {
+    if (!m_doc || m_selectedShapeId == 0) return;
+    const std::array<uint64_t, 1> ids{m_selectedShapeId};
+    if (m_doc.RotateFlipShapes(m_activePageId, ids, 0.0, true, false) == VEXIO_OK) {
+        MarkDocumentDirty(true);
+        PresentViewportFrame();
+        SyncInspectorFromShapeSheet();
+        RefreshShapeSheetSectionRows();
+    }
+}
+
+void MainWindow::OnFlipVerticalClick(IInspectable const&, RoutedEventArgs const&) {
+    if (!m_doc || m_selectedShapeId == 0) return;
+    const std::array<uint64_t, 1> ids{m_selectedShapeId};
+    if (m_doc.RotateFlipShapes(m_activePageId, ids, 0.0, false, true) == VEXIO_OK) {
+        MarkDocumentDirty(true);
+        PresentViewportFrame();
+        SyncInspectorFromShapeSheet();
+        RefreshShapeSheetSectionRows();
+    }
+}
+
+// ===========================================================================
+// Import Visio Stencils (.vssx, .vss, .vssm, .vsdx, .vstx, .vdx)
+// ===========================================================================
+void MainWindow::OnImportStencilClick(IInspectable const&, RoutedEventArgs const&) {
+    CloseBackstageOverlay();
+    ImportVisioStencilPickerAsync();
+}
+
+void MainWindow::OnStencilDockDragOver(IInspectable const&, DragEventArgs const& e) {
+    if (e.DataView().Contains(StandardDataFormats::StorageItems())) {
+        e.AcceptedOperation(DataPackageOperation::Copy);
+        if (e.DragUIOverride()) {
+            e.DragUIOverride().Caption(L"Import Visio Stencil (.vssx / .vss)");
+            e.DragUIOverride().IsCaptionVisible(true);
+        }
+    }
+}
+
+void MainWindow::OnStencilDockDrop(IInspectable const&, DragEventArgs const& e) {
+    if (!e.DataView().Contains(StandardDataFormats::StorageItems())) {
+        return;
+    }
+    [this, dataView = e.DataView()]() -> fire_and_forget {
+        const auto weakSelf = get_weak();
+        const auto items = co_await dataView.GetStorageItemsAsync();
+        for (uint32_t i = 0; i < items.Size(); ++i) {
+            if (auto file = items.GetAt(i).try_as<StorageFile>()) {
+                if (auto self = weakSelf.get()) {
+                    self->ImportStencilStorageFileAsync(file);
+                }
+            }
+        }
+    }();
+}
+
+fire_and_forget MainWindow::ImportVisioStencilPickerAsync() {
+    const HWND hwnd = GetNativeWindowHandle();
+    if (hwnd == nullptr || !m_doc) co_return;
+
+    FileOpenPicker picker{};
+    if (auto initWithWin = picker.try_as<::IInitializeWithWindow>()) {
+        (void)initWithWin->Initialize(hwnd);
+    }
+    picker.ViewMode(PickerViewMode::List);
+    picker.SuggestedStartLocation(PickerLocationId::DocumentsLibrary);
+    for (wchar_t const* ext : {L".vssx", L".vss", L".vssm", L".vsdx", L".vstx", L".vsd", L".vdx"}) {
+        picker.FileTypeFilter().Append(ext);
+    }
+
+    const auto weakSelf = get_weak();
+    StorageFile picked = co_await picker.PickSingleFileAsync();
+    if (picked) {
+        if (auto self = weakSelf.get()) {
+            self->ImportStencilStorageFileAsync(picked);
+        }
+    }
+}
+
+fire_and_forget MainWindow::ImportStencilStorageFileAsync(StorageFile file) {
+    if (!file || !m_doc) co_return;
+    const auto weakSelf = get_weak();
+
+    try {
+        const IBuffer buf = co_await FileIO::ReadBufferAsync(file);
+        auto self = weakSelf.get();
+        if (!self || !self->m_doc) co_return;
+
+        const std::span<const uint8_t> bytes{buf.data(), buf.Length()};
+        const std::string fileNameUtf8 = vexio::win::ToUtf8(file.Name());
+        const auto res = self->m_doc.ImportStencilBytes(fileNameUtf8, bytes);
+        if (!res.ok()) {
+            self->ShowBanner(InfoBarSeverity::Error, L"Stencil Import Failed", res.message());
+            co_return;
+        }
+
+        self->InitializeStencilCatalog();
+        if (!self->m_stencilPackNames.empty()) {
+            self->StencilPackCombo().SelectedIndex(static_cast<int32_t>(self->m_stencilPackNames.size()));
+        }
+        self->RefreshStencilList();
+        self->MarkDocumentDirty(true);
+        self->ShowBanner(
+            InfoBarSeverity::Success,
+            L"Visio Stencil Imported",
+            std::format(L"Imported masters from {} into the Stencil Navigator.", file.Name().c_str()));
+    } catch (...) {
+        if (auto self = weakSelf.get()) {
+            self->ShowBanner(InfoBarSeverity::Error, L"Stencil I/O Error", L"Unable to read selected Visio stencil file.");
+        }
+    }
+}
+
+// ===========================================================================
+// Double-Click Placed Stencil / Shape -> Inline Canvas Label Editor
+// ===========================================================================
+void MainWindow::OnCanvasDoubleTapped(IInspectable const&, DoubleTappedRoutedEventArgs const& e) {
+    if (!m_viewport || !m_doc) return;
+
+    auto panel = DiagramSwapChainPanel();
+    const Point pt = e.GetPosition(panel);
+    const float scaleX = std::clamp(panel.CompositionScaleX(), 0.5f, 8.0f);
+    const float scaleY = std::clamp(panel.CompositionScaleY(), 0.5f, 8.0f);
+
+    uint64_t hitId = m_viewport.HitTestShape(
+        m_doc,
+        static_cast<double>(pt.X) * static_cast<double>(scaleX),
+        static_cast<double>(pt.Y) * static_cast<double>(scaleY));
+
+    if (hitId == 0) {
+        hitId = m_viewport.GetPrimarySelection();
+    }
+    if (hitId > 0) {
+        m_previousSelectedShapeId = m_selectedShapeId;
+        m_selectedShapeId = hitId;
+        BeginInlineCanvasShapeTextEdit(hitId, false);
+        e.Handled(true);
+    }
+}
+
+void MainWindow::BeginInlineCanvasShapeTextEdit(uint64_t shapeId, bool isNewlyPlacedTextShape) {
+    if (!m_doc || !m_viewport || shapeId == 0) return;
+
+    auto panel = DiagramSwapChainPanel();
+    const float scaleX = std::clamp(panel.CompositionScaleX(), 0.5f, 8.0f);
+    const float scaleY = std::clamp(panel.CompositionScaleY(), 0.5f, 8.0f);
+
+    double dipX = 120.0;
+    double dipY = 120.0;
+    double dipW = 160.0;
+    double dipH = 44.0;
+
+    const auto boundsRes = m_viewport.GetShapeScreenBounds(m_doc, shapeId);
+    if (boundsRes.ok()) {
+        dipX = boundsRes.value->xPx / static_cast<double>(scaleX);
+        dipY = boundsRes.value->yPx / static_cast<double>(scaleY);
+        dipW = std::max(120.0, boundsRes.value->widthPx / static_cast<double>(scaleX));
+        dipH = std::max(36.0, boundsRes.value->heightPx / static_cast<double>(scaleY));
+    }
+
+    const double maxW = std::max(200.0, panel.ActualWidth() - 20.0);
+    const double maxH = std::max(120.0, panel.ActualHeight() - 20.0);
+    dipX = std::clamp(dipX - 4.0, 6.0, std::max(6.0, maxW - dipW));
+    dipY = std::clamp(dipY - 4.0, 6.0, std::max(6.0, maxH - dipH));
+
+    // Read existing text of shapeId from Vexio state JSON
+    std::wstring existingLabel{};
+    const auto stateRes = m_doc.GetStateJson(m_activePageId);
+    if (stateRes.ok() && !stateRes.value->empty()) {
+        Windows::Data::Json::JsonObject stateObj{nullptr};
+        if (Windows::Data::Json::JsonObject::TryParse(*stateRes.value, stateObj) && stateObj.HasKey(L"shapes")) {
+            const auto shapesArr = stateObj.GetNamedArray(L"shapes");
+            for (uint32_t i = 0; i < shapesArr.Size(); ++i) {
+                const auto shObj = shapesArr.GetObjectAt(i);
+                const uint64_t sid = static_cast<uint64_t>(shObj.GetNamedNumber(L"id", 0.0));
+                if (sid == shapeId) {
+                    existingLabel = shObj.GetNamedString(L"text", L"").c_str();
+                    break;
+                }
+            }
+        }
+    }
+    if (isNewlyPlacedTextShape && existingLabel == L"Text") {
+        existingLabel.clear();
+    }
+
+    m_inlineEditingShapeId = shapeId;
+    m_committingInlineEdit = false;
+
+    Canvas::SetLeft(InlineCanvasEditorBorder(), dipX);
+    Canvas::SetTop(InlineCanvasEditorBorder(), dipY);
+    InlineCanvasEditorBorder().Width(dipW + 8.0);
+    InlineCanvasEditorBorder().MinHeight(dipH + 4.0);
+    InlineCanvasTextBox().Text(hstring{existingLabel});
+    InlineCanvasEditorBorder().Visibility(Visibility::Visible);
+    InlineCanvasTextBox().Focus(FocusState::Programmatic);
+    InlineCanvasTextBox().SelectAll();
+}
+
+void MainWindow::CommitInlineCanvasShapeTextEdit(bool apply) {
+    if (m_committingInlineEdit || m_inlineEditingShapeId == 0) {
+        return;
+    }
+    m_committingInlineEdit = true;
+
+    const uint64_t targetId = m_inlineEditingShapeId;
+    m_inlineEditingShapeId = 0;
+    InlineCanvasEditorBorder().Visibility(Visibility::Collapsed);
+
+    if (apply && m_doc) {
+        const std::string updatedUtf8 = vexio::win::ToUtf8(InlineCanvasTextBox().Text());
+        if (m_doc.SetShapeText(m_activePageId, targetId, updatedUtf8) == VEXIO_OK) {
+            MarkDocumentDirty(true);
+            PresentViewportFrame();
+            SyncInspectorFromShapeSheet();
+            RefreshShapeSheetSectionRows();
+        }
+    }
+
+    m_committingInlineEdit = false;
+}
+
+void MainWindow::OnInlineCanvasTextKeyDown(IInspectable const&, KeyRoutedEventArgs const& e) {
+    if (e.Key() == VirtualKey::Escape) {
+        CommitInlineCanvasShapeTextEdit(false);
+        e.Handled(true);
+    } else if (e.Key() == VirtualKey::Enter) {
+        const auto shiftState = InputKeyboardSource::GetKeyStateForCurrentThread(VirtualKey::Shift);
+        const bool shiftHeld = (shiftState & Windows::UI::Core::CoreVirtualKeyStates::Down) == Windows::UI::Core::CoreVirtualKeyStates::Down;
+        if (!shiftHeld) {
+            CommitInlineCanvasShapeTextEdit(true);
+            e.Handled(true);
+        }
+    }
+}
+
+void MainWindow::OnInlineCanvasTextLostFocus(IInspectable const&, RoutedEventArgs const&) {
+    if (InlineCanvasEditorBorder().Visibility() == Visibility::Visible) {
+        CommitInlineCanvasShapeTextEdit(true);
+    }
+}
+
+// ===========================================================================
+// Automatic & Manual Update Checker (GitHub Releases: petrosvassiliou/vexio)
+// ===========================================================================
+void MainWindow::OnAutoUpdatePrefChanged(IInspectable const&, RoutedEventArgs const&) {
+    if (!m_isInitialized) return;
+    m_autoCheckUpdates = AutoCheckUpdatesToggle().IsChecked().GetBoolean();
+}
+
+void MainWindow::OnCheckUpdatesClick(IInspectable const&, RoutedEventArgs const&) {
+    CheckForUpdatesAsync(true);
+}
+
+fire_and_forget MainWindow::CheckForUpdatesAsync(bool userInitiated) {
+    constexpr std::wstring_view kCurrentVersion = L"0.1.0";
+    const auto weakSelf = get_weak();
+
+    if (userInitiated) {
+        BackstageUpdateStatusText().Text(L"Checking GitHub Releases for updates...");
+    }
+
+    std::wstring latestTag{};
+    std::wstring releaseUrl{L"https://github.com/petrosvassiliou/vexio/releases"};
+    std::wstring assetDownloadUrl{};
+    bool checkSucceeded = false;
+
+    try {
+        Windows::Web::Http::HttpClient client{};
+        client.DefaultRequestHeaders().UserAgent().TryParseAdd(L"Vexio-Windows/0.1.0");
+        client.DefaultRequestHeaders().Accept().TryParseAdd(L"application/vnd.github+json");
+
+        const Uri apiUri{L"https://api.github.com/repos/petrosvassiliou/vexio/releases"};
+        const hstring body = co_await client.GetStringAsync(apiUri);
+
+        Windows::Data::Json::JsonArray releasesArr{nullptr};
+        if (Windows::Data::Json::JsonArray::TryParse(body, releasesArr) && releasesArr.Size() > 0) {
+            const auto relObj = releasesArr.GetObjectAt(0);
+            latestTag = relObj.GetNamedString(L"tag_name", L"v0.1.0").c_str();
+            releaseUrl = relObj.GetNamedString(L"html_url", releaseUrl).c_str();
+            if (relObj.HasKey(L"assets")) {
+                const auto assets = relObj.GetNamedArray(L"assets");
+                for (uint32_t i = 0; i < assets.Size(); ++i) {
+                    const auto aObj = assets.GetObjectAt(i);
+                    const std::wstring name{aObj.GetNamedString(L"name", L"").c_str()};
+                    if (name.find(L"windows") != std::wstring::npos ||
+                        name.find(L"Windows") != std::wstring::npos ||
+                        name.find(L".msix") != std::wstring::npos ||
+                        name.find(L".zip") != std::wstring::npos)
+                    {
+                        assetDownloadUrl = aObj.GetNamedString(L"browser_download_url", L"").c_str();
+                        break;
+                    }
+                }
+            }
+            checkSucceeded = true;
+        }
+    } catch (...) {
+        checkSucceeded = false;
+    }
+
+    auto self = weakSelf.get();
+    if (!self) co_return;
+
+    if (!checkSucceeded) {
+        self->BackstageUpdateStatusText().Text(L"Offline mode active • Update check skipped cleanly.");
+        if (userInitiated) {
+            self->ShowBanner(
+                InfoBarSeverity::Informational,
+                L"Offline — Unable to Reach Update Server",
+                L"Vexio runs 100% offline. Connect to the internet to check GitHub Releases for updates.");
+        }
+        co_return;
+    }
+
+    std::wstring cleanLatest = latestTag;
+    if (!cleanLatest.empty() && (cleanLatest.front() == L'v' || cleanLatest.front() == L'V')) {
+        cleanLatest.erase(cleanLatest.begin());
+    }
+    const bool hasNewer = !cleanLatest.empty() && cleanLatest != kCurrentVersion && cleanLatest > kCurrentVersion;
+
+    if (hasNewer) {
+        self->BackstageUpdateStatusText().Text(hstring{
+            std::format(L"Update available: {} (Current: v{})", latestTag, kCurrentVersion)
+        });
+        ContentDialog dlg{};
+        dlg.XamlRoot(self->RootWorkstationGrid().XamlRoot());
+        dlg.Title(box_value(hstring{std::format(L"Vexio Update Available ({})", latestTag)}));
+        dlg.Content(box_value(hstring{std::format(
+            L"A newer release ({}) is available on GitHub (installed: v{}). Would you like to download the Windows installer now?",
+            latestTag, kCurrentVersion)}));
+        dlg.PrimaryButtonText(L"Download Update");
+        dlg.CloseButtonText(L"Later");
+        dlg.DefaultButton(ContentDialogButton::Primary);
+        if (co_await dlg.ShowAsync() == ContentDialogResult::Primary) {
+            const Uri targetUri{hstring{assetDownloadUrl.empty() ? releaseUrl : assetDownloadUrl}};
+            (void)co_await Launcher::LaunchUriAsync(targetUri);
+        }
+    } else {
+        self->BackstageUpdateStatusText().Text(hstring{
+            std::format(L"Vexio is up to date ({}).", latestTag.empty() ? L"v0.1.0" : latestTag)
+        });
+        if (userInitiated) {
+            ContentDialog dlg{};
+            dlg.XamlRoot(self->RootWorkstationGrid().XamlRoot());
+            dlg.Title(box_value(L"Vexio is Up to Date"));
+            dlg.Content(box_value(hstring{std::format(
+                L"You are running the latest version of Vexio Professional ({}).",
+                latestTag.empty() ? L"v0.1.0" : latestTag)}));
+            dlg.PrimaryButtonText(L"View Release Notes");
+            dlg.CloseButtonText(L"OK");
+            dlg.DefaultButton(ContentDialogButton::Close);
+            if (co_await dlg.ShowAsync() == ContentDialogResult::Primary) {
+                (void)co_await Launcher::LaunchUriAsync(Uri{hstring{releaseUrl}});
+            }
+        }
+    }
 }
 
 } // namespace winrt::VexioWindows::implementation

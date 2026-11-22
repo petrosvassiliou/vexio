@@ -234,6 +234,18 @@ class NativeBridgePacketTest {
         verifyNative("nativeImportDataVisualizer", intT, longT, intT, ByteArray::class.java)
         verifyNative("nativeImportCloudDiscovery", intT, longT, intT, String::class.java)
         verifyNative("nativeImportEntraOrLdif", intT, longT, intT, String::class.java)
+        verifyNative("nativeGetStateJson", String::class.java, longT, intT)
+        verifyNative("nativeSetShapeText", boolT, longT, intT, longT, String::class.java)
+        verifyNative("nativeGetViewportTool", intT, longT)
+        verifyNative("nativePopCreatedTextShape", longT, longT)
+        verifyNative("nativeHitTestShape", longT, longT, longT, doubleT, doubleT)
+        verifyNative("nativeGetShapeScreenBoundsJson", String::class.java, longT, longT, longT)
+        verifyNative("nativeImportStencilBytes", String::class.java, longT, String::class.java, ByteArray::class.java)
+        verifyNative("nativeSetShapeTextStyleJson", intT, longT, intT, LongArray::class.java, String::class.java)
+        verifyNative("nativeRotateFlipShapes", intT, longT, intT, LongArray::class.java, doubleT, boolT, boolT)
+        verifyNative("nativeSetPageSetup", boolT, longT, intT, doubleT, doubleT, String::class.java)
+        verifyNative("nativeSetPagePreset", boolT, longT, intT, String::class.java, boolT)
+        verifyNative("nativeSetDocumentTitle", boolT, longT, String::class.java)
     }
 
     @Test
@@ -466,4 +478,103 @@ class NativeBridgePacketTest {
         assertTrue(pbiJson.contains("vexioPlan2Visual"))
         assertTrue(pbiJson.contains("\"shapeBindings\""))
     }
+
+    @Test
+    fun workstationOverhaulRibbonLanguagesMetricPresetsAndInlineEditWorkDeterministically() {
+        val vm = VexioSessionViewModel()
+
+        // 1. In-app Start Backstage is active on launch inside the window (no external file picker)
+        assertTrue(vm.uiState.value.showStartBackstage)
+        vm.createBlankWithPagePreset("ISO_Architecture.vsdx", VexioPagePresetSpec.A4_LANDSCAPE)
+        assertFalse(vm.uiState.value.showStartBackstage)
+        assertTrue(vm.uiState.value.metricUnits)
+        assertEquals(VexioPagePresetSpec.A4_LANDSCAPE, vm.uiState.value.activePagePreset)
+
+        // 2. ISO A3 & US Letter page presets switch deterministically
+        vm.applyPagePreset(VexioPagePresetSpec.A3_LANDSCAPE)
+        assertEquals(VexioPagePresetSpec.A3_LANDSCAPE, vm.uiState.value.activePagePreset)
+        assertTrue(vm.uiState.value.metricUnits)
+        vm.applyPagePreset(VexioPagePresetSpec.LETTER_LANDSCAPE)
+        assertEquals(VexioPagePresetSpec.LETTER_LANDSCAPE, vm.uiState.value.activePagePreset)
+        assertFalse(vm.uiState.value.metricUnits)
+
+        // 3. All 6 languages (EN, DE, IT, FR, ES, GR) localize UI strings live
+        assertEquals(6, VexioAppLanguage.entries.size)
+        for (lang in VexioAppLanguage.entries) {
+            vm.setLanguage(lang)
+            assertEquals(lang, vm.uiState.value.language)
+            assertTrue(lang.fileLabel.isNotBlank())
+            assertTrue(lang.homeLabel.isNotBlank())
+            assertTrue(lang.importStencilLabel.isNotBlank())
+        }
+
+        // 4. Classic collapsible Visio Ribbon tab switching & collapse toggle
+        vm.selectRibbonTab("Design")
+        assertEquals("Design", vm.uiState.value.activeRibbonTab)
+        assertFalse(vm.uiState.value.isRibbonCollapsed)
+        vm.toggleRibbonCollapsed()
+        assertTrue(vm.uiState.value.isRibbonCollapsed)
+
+        // 5. Double-click top-left document title inline rename
+        vm.renameDocument("Enterprise_Firewall_Map")
+        assertEquals("Enterprise_Firewall_Map.vsdx", vm.uiState.value.documentTitle)
+
+        // 6. Standard Rich Text formatting options
+        vm.applyRichTextStyle(
+            fontFamily = "Roboto",
+            fontSizePt = 16,
+            bold = true,
+            italic = true,
+            underline = true,
+            strikethrough = true,
+            horizAlign = 0,
+            vertAlign = 0,
+            bullets = true,
+            colorHex = "#1D4ED8",
+            bgColorHex = "#FEF08A"
+        )
+        val styled = vm.uiState.value
+        assertEquals("Roboto", styled.textFontFamily)
+        assertEquals(16, styled.textFontSizePt)
+        assertTrue(styled.textBold)
+        assertTrue(styled.textItalic)
+        assertTrue(styled.textUnderline)
+        assertTrue(styled.textStrikethrough)
+        assertEquals(0, styled.textHorizAlign)
+        assertEquals(0, styled.textVertAlign)
+        assertTrue(styled.textBullets)
+        assertEquals("#1D4ED8", styled.textColorHex)
+        assertEquals("#FEF08A", styled.textBgColorHex)
+
+        // 7. Rotate & Flip stencils + post-insert auto-return to Pointer cursor + inline label edit
+        vm.selectTool(VexioTool.RECTANGLE)
+        assertEquals(VexioTool.RECTANGLE, vm.uiState.value.activeTool)
+        vm.instantiateMasterDrop(
+            title = "Next-Gen Firewall (NGFW)",
+            widthFormula = "1.90 in",
+            heightFormula = "0.85 in",
+            fillFormula = "RGB(254,242,242)",
+            pinXInches = 4.0f,
+            pinYInches = 4.0f,
+            category = "Network & Rack Equipment"
+        )
+        assertEquals(VexioTool.POINTER, vm.uiState.value.activeTool)
+        assertEquals(VexioCursorKind.ARROW, vm.uiState.value.activeCursor)
+
+        vm.rotateOrFlipSelected(deltaAngleDeg = 90.0)
+        assertTrue(vm.uiState.value.statusBanner.contains("Rotated Right 90°"))
+        vm.rotateOrFlipSelected(flipX = true)
+        assertTrue(vm.uiState.value.statusBanner.contains("Flipped Horizontally"))
+
+        // 8. Inserting Text object immediately returns to Pointer and opens inline text editor
+        vm.selectTool(VexioTool.TEXT_BLOCK)
+        vm.drawQuickPrimitive("text", 3.0, 3.0)
+        assertEquals(VexioTool.POINTER, vm.uiState.value.activeTool)
+        assertNotNull(vm.uiState.value.inlineTextEditor)
+        assertTrue(vm.uiState.value.inlineTextEditor!!.isNewlyCreatedText)
+        vm.updateInlineTextDraft("Core Switch Rack A1")
+        vm.commitInlineTextEdit("Core Switch Rack A1")
+        assertEquals(null, vm.uiState.value.inlineTextEditor)
+    }
 }
+

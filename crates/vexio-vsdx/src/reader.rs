@@ -1091,6 +1091,29 @@ fn parse_section_elem(
                         if let Some(st) = cells.get("Style") {
                             sheet.set_formula("Char.Style", st.clone(), Some(Unit::Number));
                         }
+                        if let Some(fnt) = cells.get("Font") {
+                            sheet.set_formula("Char.Font", fnt.clone(), Some(Unit::String));
+                        }
+                    }
+                    Event::End(e) if e.local_name().as_ref() == b"Section" => break,
+                    Event::Eof => break,
+                    _ => {}
+                }
+                buf.clear();
+            }
+        }
+        "Paragraph" => {
+            let mut buf = Vec::new();
+            loop {
+                match reader.read_event_into(&mut buf)? {
+                    Event::Start(e) if e.local_name().as_ref() == b"Row" => {
+                        let cells = read_row_cells(reader)?;
+                        if let Some(ha) = cells.get("HorzAlign") {
+                            sheet.set_formula("Para.HorzAlign", ha.clone(), Some(Unit::Number));
+                        }
+                        if let Some(bul) = cells.get("Bullet") {
+                            sheet.set_formula("Para.Bullet", bul.clone(), Some(Unit::Number));
+                        }
                     }
                     Event::End(e) if e.local_name().as_ref() == b"Section" => break,
                     Event::Eof => break,

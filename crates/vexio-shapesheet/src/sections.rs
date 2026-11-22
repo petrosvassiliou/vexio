@@ -513,6 +513,13 @@ impl ShapeSheet {
         }
     }
 
+    pub fn get_str(&self, name: &str) -> Option<String> {
+        match &self.get_cell(name)?.value {
+            CellValue::Str(s) => Some(s.trim_matches('"').to_string()),
+            _ => None,
+        }
+    }
+
     pub fn add_geometry(&mut self, sec: GeometrySection) {
         self.sync_geometry_to_cells(&sec);
         if let Some(existing) = self.geometries.iter_mut().find(|g| g.index == sec.index) {
@@ -683,8 +690,12 @@ pub fn default_unit_for_cell(canonical_key: &str) -> Option<Unit> {
         "flipx" | "flipy" | "lockwidth" | "lockheight" | "lockaspect" | "lockmovex"
         | "lockmovey" | "lockrotate" | "lockdelete" | "lockselect" | "lockformat"
         | "locktextedit" => Some(Unit::Boolean),
-        "fillforegnd" | "fillbkgnd" | "linecolor" | "char.color" | "shdwforegnd" => {
+        "fillforegnd" | "fillbkgnd" | "linecolor" | "char.color" | "shdwforegnd" | "textbkgnd" => {
             Some(Unit::Color)
+        }
+        "char.font" => Some(Unit::String),
+        "char.style" | "para.horzalign" | "verticalalign" | "para.bullet" | "textbkgndtrans" => {
+            Some(Unit::Number)
         }
         k if k.ends_with(".fillforegnd") || k.ends_with(".linecolor") => Some(Unit::Color),
         k if k.ends_with(".lineweight") => Some(Unit::Point),

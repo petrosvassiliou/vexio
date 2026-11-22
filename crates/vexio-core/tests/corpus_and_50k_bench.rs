@@ -74,6 +74,12 @@ fn make_bench_visual(id: u64, x_in: f64, y_in: f64) -> EvaluatedShapeVisual {
         txt_pos: [x_in + w_in * 0.5, y_in + h_in * 0.5],
         font_size_pt: 10.0,
         text_color: RgbaColor::BLACK,
+        font_family: "Inter".into(),
+        char_style: 0,
+        horiz_align: 1,
+        vert_align: 1,
+        bullet_style: 0,
+        text_bg_color: None,
     }
 }
 

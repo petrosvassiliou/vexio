@@ -607,12 +607,29 @@ public struct VexioExportFileDocument: FileDocument, Sendable {
     }
 }
 
+public struct InlineShapeTextEditContext: Equatable, Sendable {
+    public let shapeId: UInt64
+    public let viewRect: CGRect
+    public var initialText: String
+
+    public init(shapeId: UInt64, viewRect: CGRect, initialText: String) {
+        self.shapeId = shapeId
+        self.viewRect = viewRect
+        self.initialText = initialText
+    }
+}
+
+public struct ImportedStencilPackPayload: Decodable, Sendable {
+    public let packTitle: String
+    public let masters: [NativeStencilMasterPayload]
+}
+
 // MARK: - Thread-Safe C-ABI Lifecycle Handle (VexioEngine*, VexioDoc*, VexioViewport*)
 
 private final class NativeDocumentCore: @unchecked Sendable {
     private let lock = NSLock()
     private let engine: OpaquePointer
-    private let doc: OpaquePointer
+    private var doc: OpaquePointer
     private var viewport: OpaquePointer?
 
     init(blankTitle: String) throws {
@@ -1331,6 +1348,201 @@ private final class NativeDocumentCore: @unchecked Sendable {
         }
         return importedCount
     }
+
+    func replaceWithBlankDocument(title: String) throws {
+        lock.lock()
+        defer { lock.unlock() }
+
+        guard let createdDoc = title.withCString({ vexio_doc_create_blank($0) }) else {
+            throw VexioBridgeError.blankDocumentCreationFailed
+        }
+        let oldDoc = doc
+        doc = createdDoc
+        vexio_doc_destroy(oldDoc)
+        if let activeViewport = viewport {
+            _ = vexio_viewport_set_page(activeViewport, doc, 1)
+            _ = vexio_viewport_render_frame(activeViewport, doc)
+        }
+    }
+
+    func replaceWithFileData(_ fileData: Data, formatExtension: String) throws {
+        guard !fileData.isEmpty else {
+            throw VexioBridgeError.emptyDocumentPayload
+        }
+        lock.lock()
+        defer { lock.unlock() }
+
+        var openedDoc: OpaquePointer?
+        let status: VexioStatus = fileData.withUnsafeBytes { rawBuffer in
+            let basePtr = rawBuffer.bindMemory(to: UInt8.self).baseAddress
+            let slice = VexioByteSlice(ptr: basePtr, len: rawBuffer.count)
+            return formatExtension.withCString { extCStr in
+                vexio_doc_open_bytes(engine, slice, extCStr, &openedDoc)
+            }
+        }
+        if let err = VexioBridgeError.from(status: status, context: formatExtension) {
+            if let partial = openedDoc { vexio_doc_destroy(partial) }
+            throw err
+        }
+        guard let validDoc = openedDoc else {
+            throw VexioBridgeError.corruptOrUnsupportedFormat(extensionName: formatExtension)
+        }
+        let oldDoc = doc
+        doc = validDoc
+        vexio_doc_destroy(oldDoc)
+        if let activeViewport = viewport {
+            _ = vexio_viewport_set_page(activeViewport, doc, 1)
+            _ = vexio_viewport_render_frame(activeViewport, doc)
+        }
+    }
+
+    func viewportActiveToolCode() -> UInt32 {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let activeViewport = viewport else { return 0 }
+        return vexio_viewport_get_active_tool(activeViewport)
+    }
+
+    func popCreatedTextShapeId() -> UInt64 {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let activeViewport = viewport else { return 0 }
+        return vexio_viewport_pop_created_text_shape(activeViewport)
+    }
+
+    func hitTestShape(xPx: Double, yPx: Double) -> UInt64 {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let activeViewport = viewport else { return 0 }
+        return vexio_viewport_hit_test_shape(activeViewport, doc, xPx, yPx)
+    }
+
+    func shapeScreenBoundsPx(shapeId: UInt64) -> CGRect? {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let activeViewport = viewport else { return nil }
+        var x = 0.0
+        var y = 0.0
+        var w = 0.0
+        var h = 0.0
+        let status = vexio_viewport_get_shape_screen_bounds(activeViewport, doc, shapeId, &x, &y, &w, &h)
+        guard status == VEXIO_OK else { return nil }
+        return CGRect(x: x, y: y, width: w, height: h)
+    }
+
+    func getStateJSON(activePageId: UInt32) -> String {
+        lock.lock()
+        defer { lock.unlock() }
+        var outJSON = VexioOwnedBuffer(ptr: nil, len: 0, cap: 0)
+        let status = vexio_doc_get_state_json(doc, activePageId, &outJSON)
+        guard status == VEXIO_OK else {
+            vexio_buffer_free(outJSON)
+            return "{}"
+        }
+        return Self.consumeOwnedBufferAsUTF8(outJSON)
+    }
+
+    func setShapeText(pageId: UInt32, shapeId: UInt64, text: String) throws {
+        lock.lock()
+        defer { lock.unlock() }
+        let status = text.withCString { txtCStr in
+            vexio_doc_set_shape_text(doc, pageId, shapeId, txtCStr)
+        }
+        if let err = VexioBridgeError.from(status: status, context: "set_shape_text") {
+            throw err
+        }
+    }
+
+    func setShapeTextStyleJSON(pageId: UInt32, shapeIds: [UInt64], styleJSON: String) throws {
+        guard !shapeIds.isEmpty else { return }
+        lock.lock()
+        defer { lock.unlock() }
+        let status = shapeIds.withUnsafeBufferPointer { idsBuf in
+            styleJSON.withCString { jsonCStr in
+                vexio_doc_set_shape_text_style_json(doc, pageId, idsBuf.baseAddress, idsBuf.count, jsonCStr)
+            }
+        }
+        if let err = VexioBridgeError.from(status: status, context: "set_shape_text_style_json") {
+            throw err
+        }
+    }
+
+    func rotateFlipShapes(
+        pageId: UInt32,
+        shapeIds: [UInt64],
+        deltaAngleDeg: Double,
+        toggleFlipX: Bool,
+        toggleFlipY: Bool
+    ) throws {
+        guard !shapeIds.isEmpty else { return }
+        lock.lock()
+        defer { lock.unlock() }
+        let status = shapeIds.withUnsafeBufferPointer { idsBuf in
+            vexio_doc_rotate_flip_shapes(
+                doc,
+                pageId,
+                idsBuf.baseAddress,
+                idsBuf.count,
+                deltaAngleDeg,
+                toggleFlipX,
+                toggleFlipY
+            )
+        }
+        if let err = VexioBridgeError.from(status: status, context: "rotate_flip_shapes") {
+            throw err
+        }
+    }
+
+    func setPagePreset(pageId: UInt32, presetSlug: String, landscape: Bool) throws {
+        lock.lock()
+        defer { lock.unlock() }
+        let status = presetSlug.withCString { slugCStr in
+            vexio_doc_set_page_preset(doc, pageId, slugCStr, landscape)
+        }
+        if let err = VexioBridgeError.from(status: status, context: "set_page_preset(\(presetSlug))") {
+            throw err
+        }
+    }
+
+    func setPageSetup(pageId: UInt32, widthIn: Double, heightIn: Double, unitSlug: String) throws {
+        lock.lock()
+        defer { lock.unlock() }
+        let status = unitSlug.withCString { unitCStr in
+            vexio_doc_set_page_setup(doc, pageId, widthIn, heightIn, unitCStr)
+        }
+        if let err = VexioBridgeError.from(status: status, context: "set_page_setup") {
+            throw err
+        }
+    }
+
+    func setDocumentTitle(_ title: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        _ = title.withCString { titleCStr in
+            vexio_doc_set_title(doc, titleCStr)
+        }
+    }
+
+    func importStencilBytes(fileName: String, bytes: Data) throws -> String {
+        guard !bytes.isEmpty else {
+            throw VexioBridgeError.emptyDocumentPayload
+        }
+        lock.lock()
+        defer { lock.unlock() }
+        var outJSON = VexioOwnedBuffer(ptr: nil, len: 0, cap: 0)
+        let status: VexioStatus = bytes.withUnsafeBytes { rawBuf in
+            let ptr = rawBuf.bindMemory(to: UInt8.self).baseAddress
+            let slice = VexioByteSlice(ptr: ptr, len: rawBuf.count)
+            return fileName.withCString { nameCStr in
+                vexio_doc_import_stencil_bytes(doc, nameCStr, slice, &outJSON)
+            }
+        }
+        if let err = VexioBridgeError.from(status: status, context: "import_stencil(\(fileName))") {
+            vexio_buffer_free(outJSON)
+            throw err
+        }
+        return Self.consumeOwnedBufferAsUTF8(outJSON)
+    }
 }
 
 // MARK: - @MainActor Swift 6 Document Session (ReferenceFileDocument)
@@ -1367,7 +1579,8 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
     ]
 
     nonisolated private let core: NativeDocumentCore
-    nonisolated public let sourceFormatExtension: String
+    @Published public var sourceFormatExtension: String
+    @Published public var currentFileURL: URL? = nil
 
     // Published Workstation UI State
     @Published public var documentTitle: String = "Untitled Diagram"
@@ -1384,8 +1597,20 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
         }
     }
     @Published public var selectedShapeId: UInt64 = 1
-    @Published public var selectedShapeIds: [UInt64] = [1, 2]
+    @Published public var selectedShapeIds: [UInt64] = []
     @Published public var nextAllocatedShapeId: UInt64 = 10
+
+    // Inline Canvas Label Editor & Rich Text Ribbon State
+    @Published public var activeInlineTextEdit: InlineShapeTextEditContext? = nil
+    @Published public var selectedFontFamily: String = "Inter"
+    @Published public var selectedFontSizePt: Double = 10.0
+    @Published public var selectedCharStyle: UInt8 = 0
+    @Published public var selectedHorizAlign: UInt8 = 1
+    @Published public var selectedVertAlign: UInt8 = 1
+    @Published public var selectedBulletStyle: UInt8 = 0
+    @Published public var pageWidthInches: Double = 297.0 / 25.4
+    @Published public var pageHeightInches: Double = 210.0 / 25.4
+    public var isPageLandscape: Bool { pageWidthInches >= pageHeightInches }
 
     @Published public var zoomScale: CGFloat = 1.0 {
         didSet {
@@ -1422,8 +1647,7 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
     private var localCrdtLogicalClock: UInt32 = 10
 
     @Published public var pages: [VexioPageSummary] = [
-        VexioPageSummary(id: 1, title: "Page-1", architecturalScale: "1:1 (Metric / US Units)"),
-        VexioPageSummary(id: 2, title: "Architecture Backdrop", architecturalScale: "1/4\" = 1'-0\"", isBackgroundPage: true),
+        VexioPageSummary(id: 1, title: "Page-1", architecturalScale: "1:1 (Metric / OS Standard)"),
     ]
 
     @Published public var shapeSheetCells: [ShapeSheetCellEntry] = []
@@ -1522,13 +1746,16 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
     ]
 
     nonisolated public init(blankTitle: String = "Untitled Diagram") {
+        let localCore: NativeDocumentCore
         do {
-            self.core = try NativeDocumentCore(blankTitle: blankTitle)
+            localCore = try NativeDocumentCore(blankTitle: blankTitle)
         } catch {
             preconditionFailure("Unable to create native Vexio engine/document: \(error.localizedDescription)")
         }
-        self.sourceFormatExtension = "vsdx"
-        _ = try? self.core.loadStarterTemplate(templateId: "flowchart")
+        let defaultPreset = (Locale.current.measurementSystem == .us) ? "letter" : "a4"
+        try? localCore.setPagePreset(pageId: 1, presetSlug: defaultPreset, landscape: true)
+        self.core = localCore
+        self._sourceFormatExtension = Published(initialValue: "vsdx")
     }
 
     nonisolated public required init(configuration: ReadConfiguration) throws {
@@ -1543,7 +1770,7 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
             ext = configuration.contentType.vexioCanonicalExtension
         }
         self.core = try NativeDocumentCore(fileData: bytes, formatExtension: ext)
-        self.sourceFormatExtension = ext
+        self._sourceFormatExtension = Published(initialValue: ext)
     }
 
     public func ensureStencilsLoadedIfNeeded() {
@@ -1977,10 +2204,12 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
         ), createdId != 0 {
             selectedShapeId = createdId
             selectedShapeIds = [createdId]
+            activeTool = .pointer
             registerJournalUndoStep(actionName: "Drop \(master.name)", undoManager: undoManager)
             reloadSelectedShapeSheetCells()
+            syncSelectedShapeMetadataFromCore()
             core.renderViewportFrame()
-            statusMessage = String(format: "Dropped '%@' as Sheet.%llu at (%.2f in, %.2f in)", master.name, createdId, safeX, safeY)
+            statusMessage = String(format: "Dropped '%@' as Sheet.%llu", master.name, createdId)
             return
         }
 
@@ -1988,6 +2217,7 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
         nextAllocatedShapeId += 1
         selectedShapeId = shapeId
         selectedShapeIds = [shapeId]
+        activeTool = .pointer
         upsertShapeInCore(pageId: activePageId, shapeId: shapeId, name: "\(master.name).\(shapeId)")
         try? core.setCellFormula(pageId: activePageId, shapeId: shapeId, cellName: "PinX", formula: String(format: "%.3f in", safeX), forceSetF: true)
         try? core.setCellFormula(pageId: activePageId, shapeId: shapeId, cellName: "PinY", formula: String(format: "%.3f in", safeY), forceSetF: true)
@@ -1996,6 +2226,7 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
         try? core.setCellFormula(pageId: activePageId, shapeId: shapeId, cellName: "FillForegnd", formula: master.defaultFillFormula, forceSetF: true)
         registerJournalUndoStep(actionName: "Drop \(master.name)", undoManager: undoManager)
         reloadSelectedShapeSheetCells()
+        syncSelectedShapeMetadataFromCore()
         core.renderViewportFrame()
         statusMessage = "Dropped '\(master.name)' as Sheet.\(shapeId)"
     }
@@ -2005,6 +2236,10 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
         atCanvasInches point: CGPoint,
         undoManager: UndoManager?
     ) {
+        if kind == "text" {
+            insertTextBoxAndBeginEditing(atCanvasInches: point, undoManager: undoManager)
+            return
+        }
         let cx = min(max(Double(point.x), 1.0), 10.0)
         let cy = min(max(Double(point.y), 1.0), 7.5)
         let x1 = cx - 0.75
@@ -2020,12 +2255,14 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
                 x2In: x2,
                 y2In: y2
             )
+            activeTool = .pointer
             if sid != 0 {
                 selectedShapeId = sid
                 selectedShapeIds = [sid]
             }
             registerJournalUndoStep(actionName: "Insert \(kind.capitalized)", undoManager: undoManager)
             reloadSelectedShapeSheetCells()
+            syncSelectedShapeMetadataFromCore()
             core.renderViewportFrame()
             statusMessage = "Inserted \(kind) (Sheet.\(selectedShapeId))"
         } catch {
@@ -2131,19 +2368,7 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
     }
 
     public func rotateSelectedShape(byDegrees deltaDegrees: Double, undoManager: UndoManager?) {
-        let currentRaw = readCellFormula(cellName: "Angle")
-            .replacingOccurrences(of: "deg", with: "")
-            .replacingOccurrences(of: "rad", with: "")
-            .trimmingCharacters(in: .whitespaces)
-        let baseDegrees = Double(currentRaw) ?? 0.0
-        let updated = (baseDegrees + deltaDegrees).truncatingRemainder(dividingBy: 360.0)
-        let formatted = String(format: "%.2f deg", updated)
-        try? setCellFormula(
-            cellName: "Angle",
-            formula: formatted,
-            mode: .respectGuard,
-            undoManager: undoManager
-        )
+        rotateOrFlipSelectedShapes(deltaDegrees: -deltaDegrees, undoManager: undoManager)
     }
 
     public func setConnectorRoutingStyle(_ style: ConnectorRoutingStyle, undoManager: UndoManager?) {
@@ -2749,4 +2974,409 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
         reloadSelectedShapeSheetCells()
         statusMessage = "Restored Continuity session on Page-\(activePageId)"
     }
+
+    // MARK: - Rich Text, Inline Label Editing, Rotate/Flip, ISO Page Presets, Stencil Import & In-App File I/O
+
+    public func syncSelectedShapeMetadataFromCore() {
+        let jsonStr = core.getStateJSON(activePageId: activePageId)
+        guard let data = jsonStr.data(using: .utf8),
+              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return }
+
+        if let pw = root["pageWidthIn"] as? Double, pw > 0 {
+            pageWidthInches = pw
+        }
+        if let ph = root["pageHeightIn"] as? Double, ph > 0 {
+            pageHeightInches = ph
+        }
+        if let rawPages = root["pages"] as? [[String: Any]], !rawPages.isEmpty {
+            pages = rawPages.compactMap { p in
+                guard let pid = p["id"] as? Int else { return nil }
+                let name = (p["name"] as? String) ?? "Page-\(pid)"
+                let bg = (p["isBackground"] as? Bool) ?? false
+                return VexioPageSummary(id: UInt32(pid), title: name, isBackgroundPage: bg)
+            }
+        }
+        guard let shapes = root["shapes"] as? [[String: Any]],
+              let matched = shapes.first(where: { ($0["id"] as? UInt64) == selectedShapeId || ($0["id"] as? Int) == Int(selectedShapeId) })
+        else { return }
+
+        if let ff = matched["fontFamily"] as? String, !ff.isEmpty {
+            selectedFontFamily = ff
+        }
+        if let fsz = matched["fontSizePt"] as? Double, fsz > 0 {
+            selectedFontSizePt = fsz
+        }
+        if let cs = matched["charStyle"] as? Int {
+            selectedCharStyle = UInt8(clamping: cs)
+        }
+        if let ha = matched["horizAlign"] as? Int {
+            selectedHorizAlign = UInt8(clamping: ha)
+        }
+        if let va = matched["vertAlign"] as? Int {
+            selectedVertAlign = UInt8(clamping: va)
+        }
+        if let bul = matched["bulletStyle"] as? Int {
+            selectedBulletStyle = UInt8(clamping: bul)
+        }
+    }
+
+    public func currentShapeLabelText(shapeId: UInt64) -> String {
+        let jsonStr = core.getStateJSON(activePageId: activePageId)
+        guard let data = jsonStr.data(using: .utf8),
+              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let shapes = root["shapes"] as? [[String: Any]],
+              let matched = shapes.first(where: { ($0["id"] as? UInt64) == shapeId || ($0["id"] as? Int) == Int(shapeId) })
+        else { return "" }
+        return (matched["text"] as? String) ?? ""
+    }
+
+    public func syncToolAndInlineTextAfterPointerUp(backingScale: CGFloat) {
+        let engineCode = core.viewportActiveToolCode()
+        if engineCode == 0 && activeTool != .pointer {
+            activeTool = .pointer
+        }
+        let createdTextShape = core.popCreatedTextShapeId()
+        if createdTextShape != 0 {
+            selectedShapeId = createdTextShape
+            selectedShapeIds = [createdTextShape]
+            beginInlineEditing(shapeId: createdTextShape, backingScale: backingScale)
+        }
+        syncSelectedShapeMetadataFromCore()
+    }
+
+    public func handleCanvasDoubleClick(xPx: Double, yPx: Double, backingScale: CGFloat) -> Bool {
+        let hitId = core.hitTestShape(xPx: xPx, yPx: yPx)
+        guard hitId != 0 else { return false }
+        selectedShapeId = hitId
+        selectedShapeIds = [hitId]
+        activeTool = .pointer
+        beginInlineEditing(shapeId: hitId, backingScale: backingScale)
+        return true
+    }
+
+    public func beginInlineEditing(shapeId: UInt64, backingScale: CGFloat) {
+        let scale = max(backingScale, 1.0)
+        let boundsPx = core.shapeScreenBoundsPx(shapeId: shapeId) ?? CGRect(x: 320, y: 240, width: 180, height: 42)
+        let viewRect = CGRect(
+            x: boundsPx.origin.x / scale,
+            y: boundsPx.origin.y / scale,
+            width: max(boundsPx.size.width / scale, 120),
+            height: max(boundsPx.size.height / scale, 32)
+        )
+        let initial = currentShapeLabelText(shapeId: shapeId)
+        activeInlineTextEdit = InlineShapeTextEditContext(
+            shapeId: shapeId,
+            viewRect: viewRect,
+            initialText: initial
+        )
+    }
+
+    public func commitInlineEditing(newText: String, undoManager: UndoManager?) {
+        guard let edit = activeInlineTextEdit else { return }
+        activeInlineTextEdit = nil
+        do {
+            try core.setShapeText(pageId: activePageId, shapeId: edit.shapeId, text: newText)
+            registerJournalUndoStep(actionName: "Edit Shape Text", undoManager: undoManager)
+            reloadSelectedShapeSheetCells()
+            syncSelectedShapeMetadataFromCore()
+            core.renderViewportFrame()
+            statusMessage = "Updated label on Sheet.\(edit.shapeId)"
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    public func insertTextBoxAndBeginEditing(atCanvasInches point: CGPoint, undoManager: UndoManager?) {
+        let cx = min(max(Double(point.x), 1.0), max(pageWidthInches - 1.0, 2.0))
+        let cy = min(max(Double(point.y), 0.8), max(pageHeightInches - 0.8, 1.5))
+        do {
+            let sid = try core.drawPrimitive(
+                pageId: activePageId,
+                kind: "text",
+                x1In: cx - 1.0,
+                y1In: cy - 0.25,
+                x2In: cx + 1.0,
+                y2In: cy + 0.25
+            )
+            activeTool = .pointer
+            if sid != 0 {
+                selectedShapeId = sid
+                selectedShapeIds = [sid]
+                registerJournalUndoStep(actionName: "Insert Text Box", undoManager: undoManager)
+                reloadSelectedShapeSheetCells()
+                core.renderViewportFrame()
+                let scale = NSScreen.main?.backingScaleFactor ?? 2.0
+                beginInlineEditing(shapeId: sid, backingScale: scale)
+            }
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    public func applyTextStyle(
+        fontFamily: String? = nil,
+        fontSizePt: Double? = nil,
+        sizeDeltaPt: Double? = nil,
+        toggleStyleMask: UInt8? = nil,
+        textColorHex: String? = nil,
+        textBgColorHex: String? = nil,
+        horizAlign: UInt8? = nil,
+        vertAlign: UInt8? = nil,
+        bulletStyle: UInt8? = nil,
+        undoManager: UndoManager?
+    ) {
+        let targets = selectedShapeIds.isEmpty ? (selectedShapeId != 0 ? [selectedShapeId] : []) : selectedShapeIds
+        guard !targets.isEmpty else { return }
+
+        var payload: [String: Any] = [:]
+        if let fontFamily { payload["fontFamily"] = fontFamily }
+        if let fontSizePt { payload["fontSizePt"] = fontSizePt }
+        if let sizeDeltaPt { payload["sizeDeltaPt"] = sizeDeltaPt }
+        if let toggleStyleMask { payload["toggleStyleMask"] = Int(toggleStyleMask) }
+        if let textColorHex { payload["textColor"] = textColorHex }
+        if let textBgColorHex { payload["textBgColor"] = textBgColorHex }
+        if let horizAlign { payload["horizAlign"] = Int(horizAlign) }
+        if let vertAlign { payload["vertAlign"] = Int(vertAlign) }
+        if let bulletStyle { payload["bulletStyle"] = Int(bulletStyle) }
+
+        guard let jsonData = try? JSONSerialization.data(withJSONObject: payload),
+              let jsonStr = String(data: jsonData, encoding: .utf8)
+        else { return }
+
+        do {
+            try core.setShapeTextStyleJSON(pageId: activePageId, shapeIds: targets, styleJSON: jsonStr)
+            registerJournalUndoStep(actionName: "Format Text", undoManager: undoManager)
+            reloadSelectedShapeSheetCells()
+            syncSelectedShapeMetadataFromCore()
+            core.renderViewportFrame()
+            statusMessage = "Applied text formatting to \(targets.count) shape(s)"
+        } catch let bridgeErr as VexioBridgeError {
+            lastBannerError = bridgeErr
+            statusMessage = bridgeErr.localizedDescription
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    public func rotateOrFlipSelectedShapes(
+        deltaDegrees: Double = 0.0,
+        toggleFlipX: Bool = false,
+        toggleFlipY: Bool = false,
+        undoManager: UndoManager?
+    ) {
+        let targets = selectedShapeIds.isEmpty ? (selectedShapeId != 0 ? [selectedShapeId] : []) : selectedShapeIds
+        guard !targets.isEmpty else { return }
+        do {
+            try core.rotateFlipShapes(
+                pageId: activePageId,
+                shapeIds: targets,
+                deltaAngleDeg: deltaDegrees,
+                toggleFlipX: toggleFlipX,
+                toggleFlipY: toggleFlipY
+            )
+            registerJournalUndoStep(actionName: "Rotate / Flip Shape", undoManager: undoManager)
+            reloadSelectedShapeSheetCells()
+            syncSelectedShapeMetadataFromCore()
+            core.renderViewportFrame()
+            statusMessage = "Transformed \(targets.count) stencil/shape(s)"
+        } catch let bridgeErr as VexioBridgeError {
+            lastBannerError = bridgeErr
+            statusMessage = bridgeErr.localizedDescription
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    public func applyPagePreset(_ preset: VexioPagePreset, landscape: Bool, undoManager: UndoManager?) {
+        do {
+            try core.setPagePreset(pageId: activePageId, presetSlug: preset.rawValue, landscape: landscape)
+            core.setViewportPage(pageId: activePageId)
+            registerJournalUndoStep(actionName: "Page Size \(preset.shortCode)", undoManager: undoManager)
+            syncSelectedShapeMetadataFromCore()
+            core.renderViewportFrame()
+            statusMessage = "Page set to \(preset.displayLabel) (\(landscape ? "Landscape" : "Portrait"))"
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    public func setPageOrientation(landscape: Bool, undoManager: UndoManager?) {
+        let w = max(pageWidthInches, pageHeightInches)
+        let h = min(pageWidthInches, pageHeightInches)
+        let targetW = landscape ? w : h
+        let targetH = landscape ? h : w
+        let unitSlug = VexioLocalization.shared.unitPreference.resolvedEngineSlug
+        do {
+            try core.setPageSetup(pageId: activePageId, widthIn: targetW, heightIn: targetH, unitSlug: unitSlug)
+            core.setViewportPage(pageId: activePageId)
+            registerJournalUndoStep(actionName: "Page Orientation", undoManager: undoManager)
+            syncSelectedShapeMetadataFromCore()
+            core.renderViewportFrame()
+            statusMessage = landscape ? "Switched page to Landscape" : "Switched page to Portrait"
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    public func applyMeasurementUnit(_ unitSlug: String, undoManager: UndoManager?) {
+        do {
+            try core.setPageSetup(
+                pageId: activePageId,
+                widthIn: pageWidthInches,
+                heightIn: pageHeightInches,
+                unitSlug: unitSlug
+            )
+            registerJournalUndoStep(actionName: "Units \(unitSlug)", undoManager: undoManager)
+            syncSelectedShapeMetadataFromCore()
+            core.renderViewportFrame()
+            statusMessage = "Measurement units set to \(unitSlug)"
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    public func resetToBlankSheet(preset: VexioPagePreset, landscape: Bool, unitSlug: String) {
+        do {
+            try core.replaceWithBlankDocument(title: "Untitled Diagram")
+            try core.setPagePreset(pageId: 1, presetSlug: preset.rawValue, landscape: landscape)
+            documentTitle = "Untitled Diagram"
+            currentFileURL = nil
+            sourceFormatExtension = "vsdx"
+            activePageId = 1
+            selectedShapeIds = []
+            activeInlineTextEdit = nil
+            activeTool = .pointer
+            syncSelectedShapeMetadataFromCore()
+            core.setViewportPage(pageId: 1)
+            core.renderViewportFrame()
+            statusMessage = "Created blank \(preset.shortCode) (\(unitSlug)) drawing"
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    public func openLocalFile(from url: URL) {
+        let ext = url.pathExtension.lowercased()
+        if ["vssx", "vss", "vssm"].contains(ext) {
+            importVisioStencilFile(from: url)
+            return
+        }
+        let accessed = url.startAccessingSecurityScopedResource()
+        defer { if accessed { url.stopAccessingSecurityScopedResource() } }
+        do {
+            let bytes = try Data(contentsOf: url)
+            let resolvedExt = ext.isEmpty ? "vsdx" : ext
+            try core.replaceWithFileData(bytes, formatExtension: resolvedExt)
+            currentFileURL = url
+            sourceFormatExtension = resolvedExt
+            documentTitle = url.deletingPathExtension().lastPathComponent
+            core.setDocumentTitle(documentTitle)
+            NSDocumentController.shared.noteNewRecentDocumentURL(url)
+            activePageId = 1
+            activeInlineTextEdit = nil
+            activeTool = .pointer
+            reloadSelectedShapeSheetCells()
+            syncSelectedShapeMetadataFromCore()
+            core.setViewportPage(pageId: 1)
+            core.renderViewportFrame()
+            statusMessage = "Opened \(url.lastPathComponent)"
+        } catch let bridgeErr as VexioBridgeError {
+            lastBannerError = bridgeErr
+            statusMessage = bridgeErr.localizedDescription
+        } catch {
+            statusMessage = "Failed to open \(url.lastPathComponent): \(error.localizedDescription)"
+        }
+    }
+
+    public func saveToURL(_ url: URL) throws {
+        let ext = url.pathExtension.isEmpty ? "vsdx" : url.pathExtension.lowercased()
+        let snap = try core.saveFormat(ext)
+        try snap.data.write(to: url, options: .atomic)
+        currentFileURL = url
+        sourceFormatExtension = ext
+        documentTitle = url.deletingPathExtension().lastPathComponent
+        core.setDocumentTitle(documentTitle)
+        NSDocumentController.shared.noteNewRecentDocumentURL(url)
+        statusMessage = "Saved \(url.lastPathComponent)"
+    }
+
+    public func renameDocument(to rawNewName: String) {
+        let trimmed = rawNewName
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "/", with: "-")
+        guard !trimmed.isEmpty else { return }
+        let stem: String
+        if trimmed.lowercased().hasSuffix(".\(sourceFormatExtension.lowercased())") {
+            stem = String(trimmed.dropLast(sourceFormatExtension.count + 1))
+        } else {
+            stem = trimmed
+        }
+        guard !stem.isEmpty else { return }
+        documentTitle = stem
+        core.setDocumentTitle(stem)
+
+        if let existingURL = currentFileURL {
+            let newURL = existingURL
+                .deletingLastPathComponent()
+                .appendingPathComponent("\(stem).\(existingURL.pathExtension.isEmpty ? sourceFormatExtension : existingURL.pathExtension)")
+            if newURL != existingURL, !FileManager.default.fileExists(atPath: newURL.path) {
+                if (try? FileManager.default.moveItem(at: existingURL, to: newURL)) != nil {
+                    currentFileURL = newURL
+                    NSDocumentController.shared.noteNewRecentDocumentURL(newURL)
+                }
+            }
+        }
+        statusMessage = "Renamed diagram to '\(stem)'"
+    }
+
+    public func importVisioStencilFile(from url: URL) {
+        ensureStencilsLoadedIfNeeded()
+        let accessed = url.startAccessingSecurityScopedResource()
+        defer { if accessed { url.stopAccessingSecurityScopedResource() } }
+        do {
+            let bytes = try Data(contentsOf: url)
+            let jsonStr = try core.importStencilBytes(fileName: url.lastPathComponent, bytes: bytes)
+            guard let jsonData = jsonStr.data(using: .utf8),
+                  let imported = try? JSONDecoder().decode(ImportedStencilPackPayload.self, from: jsonData),
+                  !imported.masters.isEmpty
+            else {
+                statusMessage = "No stencil masters found in \(url.lastPathComponent)"
+                return
+            }
+
+            let pack = imported.packTitle
+            let mappedMasters: [VexioStencilMaster] = imported.masters.map { item in
+                let fillClean = item.fillFormula.hasPrefix("=")
+                    ? String(item.fillFormula.dropFirst())
+                    : item.fillFormula
+                return VexioStencilMaster(
+                    id: "\(pack)::\(item.name)",
+                    category: pack,
+                    name: item.name,
+                    prompt: item.prompt,
+                    symbolName: Self.symbolName(forCategory: pack, masterName: item.name),
+                    defaultWidthFormula: String(format: "%.3f in", item.widthIn),
+                    defaultHeightFormula: String(format: "%.3f in", item.heightIn),
+                    defaultFillFormula: fillClean,
+                    isGuardedAspect: false,
+                    svgPreview: item.svg
+                )
+            }
+
+            stencilCatalog.removeAll { $0.category.caseInsensitiveCompare(pack) == .orderedSame }
+            stencilCatalog.insert(contentsOf: mappedMasters, at: 0)
+            if !stencilCategories.contains(where: { $0.caseInsensitiveCompare(pack) == .orderedSame }) {
+                stencilCategories.insert(pack, at: 0)
+            }
+            showStencilNavigator = true
+            statusMessage = "Imported \(mappedMasters.count) Visio stencil(s) into '\(pack)'"
+        } catch let bridgeErr as VexioBridgeError {
+            lastBannerError = bridgeErr
+            statusMessage = bridgeErr.localizedDescription
+        } catch {
+            statusMessage = "Stencil import failed: \(error.localizedDescription)"
+        }
+    }
 }
+

@@ -73,12 +73,24 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /**
+     * SAF OpenDocument contract for importing Visio Stencils (`.vssx`, `.vss`, `.vssm`, `.vsdx`, `.vstx`, `.vdx`).
+     */
+    private val importStencilLauncher = registerForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            loadVisioStencilFromSafUri(uri)
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
 
         if (savedInstanceState == null) {
             handleIncomingLaunchIntent(intent)
+            sessionViewModel.checkForUpdatesAsync(userInitiated = false)
         }
 
         setContent {
@@ -110,6 +122,7 @@ class MainActivity : ComponentActivity() {
                     onOpenDocumentRequested = ::triggerOpenSafPicker,
                     onSaveDocumentRequested = ::triggerSaveInPlaceOrPicker,
                     onSaveAsDocumentRequested = ::triggerSaveAsSafPicker,
+                    onImportStencilRequested = ::triggerImportStencilSafPicker,
                     onExportJpgRequested = ::triggerExportJpgSafPicker,
                     onExternalUriDropped = ::loadDiagramFromSafUri,
                     onPrintRequested = {
@@ -143,7 +156,38 @@ class MainActivity : ComponentActivity() {
                     "cad_floorplan" -> "Architectural_Floorplan.vsdx"
                     else -> "Untitled_Diagram.vsdx"
                 }
-                sessionViewModel.initializeEngineAndBlankDocument(initialTitle)
+                sessionViewModel.initializeEngineAndBlankDocument(initialTitle, hideStartBackstage = true)
+            }
+        }
+    }
+
+    private fun triggerImportStencilSafPicker() {
+        importStencilLauncher.launch(
+            arrayOf(
+                "application/vnd.ms-visio.stencil.main+xml",
+                "application/vnd.ms-visio.stencil.macroEnabled.main+xml",
+                "application/vnd.ms-visio.drawing.main+xml",
+                "application/vnd.visio",
+                "application/octet-stream",
+                "*/*"
+            )
+        )
+    }
+
+    private fun loadVisioStencilFromSafUri(uri: Uri) {
+        lifecycleScope.launch(Dispatchers.IO) {
+            val resolvedName = queryDisplayName(uri)
+                ?: uri.lastPathSegment?.substringAfterLast('/')
+                ?: "Imported_Stencil.vssx"
+            val bytes = runCatching {
+                contentResolver.openInputStream(uri)?.use { it.readBytes() }
+            }.getOrNull() ?: return@launch
+
+            withContext(Dispatchers.Main) {
+                sessionViewModel.importVisioStencilBytes(
+                    fileName = resolvedName,
+                    rawBytes = bytes
+                )
             }
         }
     }

@@ -416,25 +416,41 @@ pub fn tessellate_shape_full(
     };
     let trimmed_txt = visual.text.trim();
     if !trimmed_txt.is_empty() {
+        if let Some(bg) = visual.text_bg_color {
+            let bg_rgba = bg.to_linear_f32();
+            let hw = (visual.transform.width.max(0.4) * 0.46) as f32;
+            let hh = ((visual.font_size_pt / 72.0) * 0.85 * (trimmed_txt.lines().count().max(1) as f64)).min(visual.transform.height.max(0.35) * 0.48) as f32;
+            let cx = visual.txt_pos[0] as f32;
+            let cy = visual.txt_pos[1] as f32;
+            out_mesh.push_quad([cx - hw, cy - hh], [cx + hw, cy + hh], bg_rgba, [PRIM_FLAG_SHAPE, 0.0]);
+        }
         let needs_rich = !trimmed_txt.is_ascii()
             || trimmed_txt.contains('\n')
             || trimmed_txt.contains('*')
             || trimmed_txt.contains("__")
             || trimmed_txt.contains("~~")
             || trimmed_txt.contains('[')
-            || trimmed_txt.starts_with("- ");
+            || trimmed_txt.starts_with("- ")
+            || visual.char_style != 0
+            || visual.horiz_align != 1
+            || visual.vert_align != 1
+            || visual.bullet_style != 0;
         if needs_rich {
-            let block = crate::typography::parse_inline_rich_text(
+            let block = crate::typography::parse_inline_rich_text_styled(
                 trimmed_txt,
                 visual.font_size_pt,
                 visual.text_color,
+                visual.char_style,
+                visual.horiz_align,
+                visual.vert_align,
+                visual.bullet_style,
             );
             let rich_mesh = crate::typography::tessellate_rich_text_in_box(
                 &block,
                 visual.txt_pos[0],
                 visual.txt_pos[1],
-                visual.transform.width.max(1.2),
-                visual.transform.height.max(0.5),
+                visual.transform.width.max(0.8),
+                visual.transform.height.max(0.4),
                 visual.transform.angle_rad,
             );
             out_mesh.append(&rich_mesh);
@@ -1861,6 +1877,20 @@ pub fn compute_visual_content_hash(v: &EvaluatedShapeVisual) -> u64 {
     hash_f64(&mut h, v.txt_pos[0]);
     hash_f64(&mut h, v.txt_pos[1]);
     hash_rgba(&mut h, Some(v.text_color));
+    hash_rgba(&mut h, v.text_bg_color);
+    hash_u64(
+        &mut h,
+        (v.char_style as u64)
+            | ((v.horiz_align as u64) << 8)
+            | ((v.vert_align as u64) << 16)
+            | ((v.bullet_style as u64) << 24)
+            | ((v.transform.flip_x as u64) << 32)
+            | ((v.transform.flip_y as u64) << 33),
+    );
+    for b in v.font_family.as_bytes() {
+        h ^= *b as u64;
+        h = h.wrapping_mul(0x0100_0000_01b3);
+    }
     for b in v.text.as_bytes() {
         h ^= *b as u64;
         h = h.wrapping_mul(0x0100_0000_01b3);

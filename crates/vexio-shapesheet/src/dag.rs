@@ -151,6 +151,16 @@ pub struct EvaluatedShapeVisual {
     pub txt_pos: [f64; 2],
     pub font_size_pt: f64,
     pub text_color: RgbaColor,
+    pub font_family: String,
+    /// Bitmask (`1 = Bold`, `2 = Italic`, `4 = Underline`, `8 = Strikethrough`).
+    pub char_style: u8,
+    /// `0 = Left`, `1 = Center`, `2 = Right`, `3 = Justify`.
+    pub horiz_align: u8,
+    /// `0 = Top`, `1 = Middle`, `2 = Bottom`.
+    pub vert_align: u8,
+    /// `0 = None`, `1 = Disc`, `2 = Numbered`.
+    pub bullet_style: u8,
+    pub text_bg_color: Option<RgbaColor>,
 }
 
 pub struct ReactiveEngine;
@@ -2069,6 +2079,13 @@ fn collect_shape_visuals(
     let txt_ly = ss.get_f64("TxtPinY").unwrap_or(h * 0.5);
     let (txt_px, txt_py) = world_tf.local_to_parent(txt_lx, txt_ly);
 
+    let txt_bg_trans = ss.get_f64("TextBkgndTrans").unwrap_or(1.0);
+    let text_bg_color = if txt_bg_trans < 0.99 {
+        ss.get_color("TextBkgnd")
+    } else {
+        None
+    };
+
     out.push(EvaluatedShapeVisual {
         shape_id: shape.id,
         kind: shape.kind,
@@ -2089,6 +2106,27 @@ fn collect_shape_visuals(
             .map(|inches| inches * 72.0)
             .unwrap_or(10.0),
         text_color: ss.get_color("Char.Color").unwrap_or(RgbaColor::BLACK),
+        font_family: ss
+            .get_str("Char.Font")
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| "Inter".to_string()),
+        char_style: ss.get_f64("Char.Style").unwrap_or(0.0).round().clamp(0.0, 15.0) as u8,
+        horiz_align: ss
+            .get_f64("Para.HorzAlign")
+            .unwrap_or(1.0)
+            .round()
+            .clamp(0.0, 3.0) as u8,
+        vert_align: ss
+            .get_f64("VerticalAlign")
+            .unwrap_or(1.0)
+            .round()
+            .clamp(0.0, 2.0) as u8,
+        bullet_style: ss
+            .get_f64("Para.Bullet")
+            .unwrap_or(0.0)
+            .round()
+            .clamp(0.0, 4.0) as u8,
+        text_bg_color,
     });
 
     for child in &shape.children {

@@ -202,6 +202,22 @@ interface WasmSessionInstance {
     force_setf: boolean
   ): boolean;
   set_shape_text(page_id: number, shape_id: number, text: string): void;
+  set_document_title(title: string): void;
+  apply_text_style_json(page_id: number, shape_ids: Uint32Array, style_json: string): number;
+  rotate_flip_shapes(
+    page_id: number,
+    shape_ids: Uint32Array,
+    delta_angle_deg: number,
+    toggle_flip_x: boolean,
+    toggle_flip_y: boolean
+  ): number;
+  set_page_preset(page_id: number, preset_slug: string, landscape: boolean): boolean;
+  set_page_setup_with_unit(
+    page_id: number,
+    width_in: number,
+    height_in: number,
+    unit_slug: string
+  ): boolean;
   set_page_dimensions(page_id: number, width_in: number, height_in: number, jump_style: number): void;
   insert_container(page_id: number, title: string, member_ids: Uint32Array): number;
   insert_callout(page_id: number, target_shape_id: number, text: string): number;
@@ -345,6 +361,9 @@ self.onmessage = async (ev: MessageEvent) => {
         }
         if (payload?.replicaId) {
           session.set_replica_id(String(payload.replicaId));
+        }
+        if (payload?.defaultPresetSlug && typeof session.set_page_preset === 'function') {
+          session.set_page_preset(1, String(payload.defaultPresetSlug), payload.landscape !== false);
         }
         if (payload?.seedDemo) {
           const s1 = session.drop_builtin_shape_on_page(1, 'BPMN 2.0', 'Start Event', 1.4, 5.4);
@@ -849,6 +868,71 @@ self.onmessage = async (ev: MessageEvent) => {
         session.set_shape_text(activePageId, payload.shapeId, payload.text);
         const wal = session.export_wal();
         self.postMessage({ id, ok: true, wal, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'setDocumentTitle': {
+        if (typeof session.set_document_title === 'function') {
+          session.set_document_title(String(payload.title ?? 'Untitled.vsdx'));
+        }
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, wal, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'applyTextStyle': {
+        const ids = new Uint32Array((payload.shapeIds ?? []).map(Number));
+        const styleJson =
+          typeof payload.styleJson === 'string'
+            ? payload.styleJson
+            : JSON.stringify(payload.patch ?? {});
+        const updated =
+          typeof session.apply_text_style_json === 'function'
+            ? session.apply_text_style_json(activePageId, ids, styleJson)
+            : 0;
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, updated, wal, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'rotateFlipShapes': {
+        const ids = new Uint32Array((payload.shapeIds ?? []).map(Number));
+        const updated =
+          typeof session.rotate_flip_shapes === 'function'
+            ? session.rotate_flip_shapes(
+                activePageId,
+                ids,
+                Number(payload.deltaAngleDeg ?? 0),
+                Boolean(payload.toggleFlipX),
+                Boolean(payload.toggleFlipY)
+              )
+            : 0;
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, updated, wal, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'setPagePreset': {
+        const applied =
+          typeof session.set_page_preset === 'function'
+            ? session.set_page_preset(
+                activePageId,
+                String(payload.presetSlug ?? 'a4'),
+                payload.landscape !== false
+              )
+            : false;
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, applied, wal, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'setPageSetupWithUnit': {
+        const applied =
+          typeof session.set_page_setup_with_unit === 'function'
+            ? session.set_page_setup_with_unit(
+                activePageId,
+                Number(payload.widthIn ?? 11.6929),
+                Number(payload.heightIn ?? 8.2677),
+                String(payload.unitSlug ?? 'mm')
+              )
+            : false;
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, applied, wal, snapshot: buildSnapshot(session) });
         break;
       }
       case 'setPageDimensions': {

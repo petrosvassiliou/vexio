@@ -100,16 +100,35 @@
                 </Button>
             </StackPanel>
 
-            <!-- Document Title & Format Badge -->
-            <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="8">
-                <TextBlock x:Name="DocumentTitleText" Text="Drawing1.vsdx" Foreground="White" FontSize="12.5" FontWeight="SemiBold" VerticalAlignment="Center" />
+            <!-- Document Title (Double-Click to Select All & Rename Inline) & Format Badge -->
+            <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Center" Spacing="8" Margin="14,0,0,0">
+                <Button x:Name="DocumentTitleButton" Background="Transparent" BorderBrush="Transparent" Padding="6,2"
+                        IsDoubleTapEnabled="True" DoubleTapped="OnDocumentTitleDoubleTapped"
+                        ToolTipService.ToolTip="Double-click to rename document">
+                    <TextBlock x:Name="DocumentTitleText" Text="Drawing1.vsdx" Foreground="White" FontSize="12.5" FontWeight="SemiBold" VerticalAlignment="Center" />
+                </Button>
+                <TextBox x:Name="DocumentTitleEditBox" Visibility="Collapsed" Width="220" FontSize="12.5" Padding="6,2"
+                         KeyDown="OnDocumentTitleEditKeyDown" LostFocus="OnDocumentTitleEditLostFocus" />
                 <Border Background="#33FFFFFF" CornerRadius="3" Padding="6,1" VerticalAlignment="Center">
                     <TextBlock x:Name="DocumentFormatBadgeText" Text="OpenXML VSDX • Lossless" Foreground="#FFE2E8F0" FontSize="10.5" />
                 </Border>
             </StackPanel>
 
-            <!-- Quick Command Search & GPU Indicator -->
-            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+            <!-- Language Switcher (EN/DE/IT/FR/ES/GR), Updates & GPU Indicator -->
+            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                <ComboBox x:Name="AppLanguageCombo" Width="76" SelectedIndex="0" FontSize="11" Padding="6,2"
+                          SelectionChanged="OnAppLanguageChanged" ToolTipService.ToolTip="Application Language (EN, DE, IT, FR, ES, GR)">
+                    <x:String>EN</x:String>
+                    <x:String>DE</x:String>
+                    <x:String>IT</x:String>
+                    <x:String>FR</x:String>
+                    <x:String>ES</x:String>
+                    <x:String>GR</x:String>
+                </ComboBox>
+                <Button x:Name="CheckUpdatesTitleButton" Style="{StaticResource VexioQatButtonStyle}" Click="OnCheckUpdatesClick"
+                        ToolTipService.ToolTip="Check for Updates...">
+                    <TextBlock x:Name="CheckUpdatesTitleLabel" Text="Updates" FontSize="11" VerticalAlignment="Center" />
+                </Button>
                 <Border Background="#26FFFFFF" CornerRadius="4" Padding="8,2" VerticalAlignment="Center">
                     <TextBlock x:Name="GpuSwapChainBadgeText" Text="DX12 SwapChain • Ready" Foreground="#FFBAE6FD" FontSize="11" />
                 </Border>
@@ -126,68 +145,77 @@
                     <RowDefinition x:Name="RibbonBodyRow" Height="88" />
                 </Grid.RowDefinitions>
 
-                <!-- Ribbon Tab Header Strip (File Backstage + 8 Core Visio Tabs) -->
-                <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="2" Padding="8,2,8,0">
-                    <!-- FILE BACKSTAGE FLYOUT BUTTON -->
-                    <Button x:Name="FileBackstageButton" Background="{StaticResource VexioBrandPrimaryBrush}" Foreground="White"
-                            FontWeight="SemiBold" Padding="14,4" CornerRadius="4" VerticalAlignment="Center"
-                            AutomationProperties.Name="File Backstage Menu">
-                        <Button.Content>
-                            <TextBlock Text="File" FontSize="12.5" />
-                        </Button.Content>
-                        <Button.Flyout>
-                            <Flyout x:Name="FileBackstageFlyout" Placement="BottomEdgeAlignedLeft">
-                                <StackPanel Width="340" Spacing="8" Padding="4">
-                                    <TextBlock Text="Vexio Backstage" FontSize="16" FontWeight="Bold" />
-                                    <TextBlock Text="Lossless OpenXML (.vsdx/.vsdm/.vssx/.vstx), Legacy (.vsd/.vdx/.emf/.wmf), Directory (.ldif) &amp; Offline CAD (.dwg/.dxf)"
-                                               FontSize="11.5" Opacity="0.75" TextWrapping="Wrap" />
-                                    <MenuFlyoutSeparator />
-                                    <Button HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Click="OnNewBlankDocClick" Content="New Blank Drawing (.vsdx)" />
-                                    <Button HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Click="OnNewBpmnTemplateClick" Content="New BPMN 2.0 Process Diagram" />
-                                    <Button HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Click="OnNewUmlTemplateClick" Content="New UML 2.5 System Architecture" />
-                                    <Button HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Click="OnNewCadFloorPlanClick" Content="New Architectural CAD Floor Plan (1/4&quot; = 1'0&quot;)" />
-                                    <MenuFlyoutSeparator />
-                                    <Button HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Click="OnOpenClick" Content="Open Diagram or CAD File... (Ctrl+O)" />
-                                    <Button HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Click="OnSaveClick" Content="Save Active Document (Ctrl+S)" />
-                                    <Button HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Click="OnSaveAsClick" Content="Save As (.vsdx, .vsdm, .vssx, .vstx, .vsd, .vdx)..." />
-                                    <MenuFlyoutSeparator />
-                                    <TextBlock Text="Vector, Image, Office &amp; Print Exports" FontSize="12" FontWeight="SemiBold" />
-                                    <StackPanel Orientation="Horizontal" Spacing="6">
-                                        <Button Click="OnExportJpgClick" Content="Export JPG (.jpg)" />
-                                        <Button Click="OnExportPngClick" Content="Export PNG (.png)" />
-                                        <Button Click="OnExportPdfClick" Content="Export PDF/A" />
-                                    </StackPanel>
-                                    <StackPanel Orientation="Horizontal" Spacing="6">
-                                        <Button Click="OnExportSvgClick" Content="Export SVG" />
-                                        <Button Click="OnExportDxfClick" Content="Export CAD DXF" />
-                                    </StackPanel>
-                                    <StackPanel Orientation="Horizontal" Spacing="6">
-                                        <Button Click="OnExportPptxClick" Content="PowerPoint (.pptx)" />
-                                        <Button Click="OnExportDocxClick" Content="Word Spec (.docx)" />
-                                    </StackPanel>
-                                    <Button HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Click="OnTiledPrintClick"
-                                            Content="Multi-Page Tiled Print with Registration Marks (Ctrl+P)" />
-                                </StackPanel>
-                            </Flyout>
-                        </Button.Flyout>
-                    </Button>
+                <!-- Ribbon Tab Header Strip (File In-App Hub + 8 Core Visio Tabs + Sibling Hover Menus + Collapse Toggle) -->
+                <Grid Grid.Row="0" Padding="8,2,8,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
 
-                    <!-- Ribbon Tabs -->
-                    <RadioButton x:Name="RibbonTabHome" Content="Home" GroupName="RibbonTabs" IsChecked="True" Checked="OnRibbonTabChanged" Tag="Home" MinWidth="62" Padding="8,4" />
-                    <RadioButton x:Name="RibbonTabInsert" Content="Insert" GroupName="RibbonTabs" Checked="OnRibbonTabChanged" Tag="Insert" MinWidth="62" Padding="8,4" />
-                    <RadioButton x:Name="RibbonTabDesign" Content="Design" GroupName="RibbonTabs" Checked="OnRibbonTabChanged" Tag="Design" MinWidth="64" Padding="8,4" />
-                    <RadioButton x:Name="RibbonTabData" Content="Data" GroupName="RibbonTabs" Checked="OnRibbonTabChanged" Tag="Data" MinWidth="58" Padding="8,4" />
-                    <RadioButton x:Name="RibbonTabProcess" Content="Process" GroupName="RibbonTabs" Checked="OnRibbonTabChanged" Tag="Process" MinWidth="70" Padding="8,4" />
-                    <RadioButton x:Name="RibbonTabReview" Content="Review" GroupName="RibbonTabs" Checked="OnRibbonTabChanged" Tag="Review" MinWidth="66" Padding="8,4" />
-                    <RadioButton x:Name="RibbonTabView" Content="View" GroupName="RibbonTabs" Checked="OnRibbonTabChanged" Tag="View" MinWidth="58" Padding="8,4" />
-                    <RadioButton x:Name="RibbonTabDeveloper" Content="Developer" GroupName="RibbonTabs" Checked="OnRibbonTabChanged" Tag="Developer" MinWidth="84" Padding="8,4" />
-                </StackPanel>
+                    <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="2">
+                        <!-- FILE IN-APP BACKSTAGE BUTTON -->
+                        <Button x:Name="FileBackstageButton" Background="{StaticResource VexioBrandPrimaryBrush}" Foreground="White"
+                                FontWeight="SemiBold" Padding="14,4" CornerRadius="4" VerticalAlignment="Center"
+                                Click="OnFileBackstageToggleClick" PointerEntered="OnTopMenuPointerEntered" Tag="FileMenu"
+                                AutomationProperties.Name="File Backstage Menu">
+                            <TextBlock x:Name="FileTabLabelText" Text="File" FontSize="12.5" />
+                        </Button>
+
+                        <!-- Classic 8 Visio Ribbon Tabs -->
+                        <RadioButton x:Name="RibbonTabHome" Content="Home" GroupName="RibbonTabs" IsChecked="True" Checked="OnRibbonTabChanged" Tag="Home" MinWidth="62" Padding="8,4" />
+                        <RadioButton x:Name="RibbonTabInsert" Content="Insert" GroupName="RibbonTabs" Checked="OnRibbonTabChanged" Tag="Insert" MinWidth="62" Padding="8,4" />
+                        <RadioButton x:Name="RibbonTabDesign" Content="Design" GroupName="RibbonTabs" Checked="OnRibbonTabChanged" Tag="Design" MinWidth="64" Padding="8,4" />
+                        <RadioButton x:Name="RibbonTabData" Content="Data" GroupName="RibbonTabs" Checked="OnRibbonTabChanged" Tag="Data" MinWidth="58" Padding="8,4" />
+                        <RadioButton x:Name="RibbonTabProcess" Content="Process" GroupName="RibbonTabs" Checked="OnRibbonTabChanged" Tag="Process" MinWidth="70" Padding="8,4" />
+                        <RadioButton x:Name="RibbonTabReview" Content="Review" GroupName="RibbonTabs" Checked="OnRibbonTabChanged" Tag="Review" MinWidth="66" Padding="8,4" />
+                        <RadioButton x:Name="RibbonTabView" Content="View" GroupName="RibbonTabs" Checked="OnRibbonTabChanged" Tag="View" MinWidth="58" Padding="8,4" />
+                        <RadioButton x:Name="RibbonTabDeveloper" Content="Developer" GroupName="RibbonTabs" Checked="OnRibbonTabChanged" Tag="Developer" MinWidth="84" Padding="8,4" />
+                    </StackPanel>
+
+                    <!-- Hover-Switch Quick Menus & Collapse Ribbon Button -->
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                        <Button x:Name="TopExportMenuButton" Padding="8,3" Background="Transparent" BorderBrush="Transparent"
+                                PointerEntered="OnTopMenuPointerEntered" Tag="ExportMenu">
+                            <TextBlock x:Name="TopExportMenuLabel" Text="Export ▾" FontSize="11.5" />
+                            <Button.Flyout>
+                                <MenuFlyout x:Name="TopExportMenuFlyout" Opened="OnTopFlyoutOpened" Closed="OnTopFlyoutClosed">
+                                    <MenuFlyoutItem Text="Export Archival PDF/A (.pdf)" Click="OnExportPdfClick" />
+                                    <MenuFlyoutItem Text="Export Vector SVG (.svg)" Click="OnExportSvgClick" />
+                                    <MenuFlyoutItem Text="Export High-DPI PNG (.png)" Click="OnExportPngClick" />
+                                    <MenuFlyoutItem Text="Export JPEG (.jpg)" Click="OnExportJpgClick" />
+                                    <MenuFlyoutItem Text="Export AutoCAD DXF (.dxf)" Click="OnExportDxfClick" />
+                                    <MenuFlyoutSeparator />
+                                    <MenuFlyoutItem Text="PowerPoint Deck (.pptx)" Click="OnExportPptxClick" />
+                                    <MenuFlyoutItem Text="Word Process Spec (.docx)" Click="OnExportDocxClick" />
+                                </MenuFlyout>
+                            </Button.Flyout>
+                        </Button>
+
+                        <Button x:Name="TopHelpMenuButton" Padding="8,3" Background="Transparent" BorderBrush="Transparent"
+                                PointerEntered="OnTopMenuPointerEntered" Tag="HelpMenu">
+                            <TextBlock x:Name="TopHelpMenuLabel" Text="Help &amp; Updates ▾" FontSize="11.5" />
+                            <Button.Flyout>
+                                <MenuFlyout x:Name="TopHelpMenuFlyout" Opened="OnTopFlyoutOpened" Closed="OnTopFlyoutClosed">
+                                    <MenuFlyoutItem Text="Check for Updates..." Click="OnCheckUpdatesClick" />
+                                    <MenuFlyoutItem Text="Import Visio Stencil (.vssx / .vss)..." Click="OnImportStencilClick" />
+                                    <MenuFlyoutSeparator />
+                                    <MenuFlyoutItem Text="Open Welcome / Start Screen" Click="OnFileBackstageToggleClick" />
+                                </MenuFlyout>
+                            </Button.Flyout>
+                        </Button>
+
+                        <Button x:Name="RibbonCollapseToggleButton" Padding="8,3" Background="Transparent" BorderBrush="Transparent"
+                                Click="OnToggleRibbonCollapseClick" ToolTipService.ToolTip="Collapse / Pin Classic Visio Ribbon">
+                            <TextBlock x:Name="RibbonCollapseGlyphText" Text="⌃" FontSize="12" FontWeight="Bold" />
+                        </Button>
+                    </StackPanel>
+                </Grid>
 
                 <!-- RIBBON BODY PANELS -->
-                <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled" Padding="10,4">
+                <ScrollViewer x:Name="RibbonBodyScrollViewer" Grid.Row="1" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled" Padding="10,4">
                     <Grid>
                         <!-- 1. HOME RIBBON PANEL -->
-                        <StackPanel x:Name="RibbonPanelHome" Orientation="Horizontal" Spacing="12" Visibility="Visible">
+                        <StackPanel x:Name="RibbonPanelHome" Orientation="Horizontal" Spacing="10" Visibility="Visible">
                             <!-- Clipboard Group -->
                             <StackPanel>
                                 <StackPanel Orientation="Horizontal" Spacing="4" Height="56">
@@ -207,6 +235,77 @@
                                     </StackPanel>
                                 </StackPanel>
                                 <TextBlock Text="Clipboard" Style="{StaticResource VexioRibbonGroupLabelStyle}" />
+                            </StackPanel>
+                            <AppBarSeparator />
+
+                            <!-- Font & Paragraph Rich Text Group (1:1 Classic Visio Home Ribbon) -->
+                            <StackPanel>
+                                <StackPanel Spacing="3" Height="56" VerticalAlignment="Center">
+                                    <StackPanel Orientation="Horizontal" Spacing="4">
+                                        <ComboBox x:Name="FontFamilyCombo" Width="126" SelectedIndex="0" FontSize="11.5" Padding="6,2"
+                                                  SelectionChanged="OnFontFormattingComboChanged" ToolTipService.ToolTip="Font Family">
+                                            <x:String>Segoe UI</x:String>
+                                            <x:String>Inter</x:String>
+                                            <x:String>Calibri</x:String>
+                                            <x:String>Arial</x:String>
+                                            <x:String>Consolas</x:String>
+                                            <x:String>Georgia</x:String>
+                                            <x:String>Times New Roman</x:String>
+                                        </ComboBox>
+                                        <ComboBox x:Name="FontSizeCombo" Width="64" SelectedIndex="3" FontSize="11.5" Padding="6,2"
+                                                  SelectionChanged="OnFontFormattingComboChanged" ToolTipService.ToolTip="Font Size (pt)">
+                                            <x:String>8</x:String>
+                                            <x:String>9</x:String>
+                                            <x:String>10</x:String>
+                                            <x:String>11</x:String>
+                                            <x:String>12</x:String>
+                                            <x:String>14</x:String>
+                                            <x:String>16</x:String>
+                                            <x:String>18</x:String>
+                                            <x:String>24</x:String>
+                                            <x:String>36</x:String>
+                                            <x:String>48</x:String>
+                                        </ComboBox>
+                                        <Button Padding="5,2" Click="OnGrowFontSizeClick" Content="A▲" FontSize="10.5" ToolTipService.ToolTip="Increase Font Size" />
+                                        <Button Padding="5,2" Click="OnShrinkFontSizeClick" Content="A▼" FontSize="10.5" ToolTipService.ToolTip="Decrease Font Size" />
+                                        <ComboBox x:Name="FontColorCombo" Width="92" SelectedIndex="0" FontSize="11" Padding="6,2"
+                                                  SelectionChanged="OnFontFormattingComboChanged" ToolTipService.ToolTip="Text Color">
+                                            <x:String>Slate</x:String>
+                                            <x:String>Blue</x:String>
+                                            <x:String>Red</x:String>
+                                            <x:String>Green</x:String>
+                                            <x:String>Amber</x:String>
+                                            <x:String>Purple</x:String>
+                                            <x:String>White</x:String>
+                                        </ComboBox>
+                                        <ComboBox x:Name="TextHighlightCombo" Width="92" SelectedIndex="0" FontSize="11" Padding="6,2"
+                                                  SelectionChanged="OnFontFormattingComboChanged" ToolTipService.ToolTip="Text Highlight Background">
+                                            <x:String>No Highlight</x:String>
+                                            <x:String>Yellow</x:String>
+                                            <x:String>Cyan</x:String>
+                                            <x:String>Mint</x:String>
+                                            <x:String>Rose</x:String>
+                                        </ComboBox>
+                                    </StackPanel>
+
+                                    <StackPanel Orientation="Horizontal" Spacing="3">
+                                        <ToggleButton x:Name="BoldTextToggle" Padding="7,1" FontWeight="Bold" Content="B" Click="OnTextStyleToggleClick" ToolTipService.ToolTip="Bold" />
+                                        <ToggleButton x:Name="ItalicTextToggle" Padding="7,1" FontStyle="Italic" Content="I" Click="OnTextStyleToggleClick" ToolTipService.ToolTip="Italic" />
+                                        <ToggleButton x:Name="UnderlineTextToggle" Padding="7,1" Content="U̲" Click="OnTextStyleToggleClick" ToolTipService.ToolTip="Underline" />
+                                        <ToggleButton x:Name="StrikeTextToggle" Padding="7,1" Content="S̶" Click="OnTextStyleToggleClick" ToolTipService.ToolTip="Strikethrough" />
+                                        <Border Width="1" Background="{StaticResource VexioRibbonGroupBorderBrush}" Margin="3,2" />
+                                        <Button Padding="6,1" Click="OnTextAlignLeftClick" Content="⇤" FontSize="11" ToolTipService.ToolTip="Align Text Left" />
+                                        <Button Padding="6,1" Click="OnTextAlignCenterClick" Content="⇔" FontSize="11" ToolTipService.ToolTip="Center Text" />
+                                        <Button Padding="6,1" Click="OnTextAlignRightClick" Content="⇥" FontSize="11" ToolTipService.ToolTip="Align Text Right" />
+                                        <Border Width="1" Background="{StaticResource VexioRibbonGroupBorderBrush}" Margin="3,2" />
+                                        <Button Padding="6,1" Click="OnTextVAlignTopClick" Content="⤒" FontSize="11" ToolTipService.ToolTip="Top Vertical Align" />
+                                        <Button Padding="6,1" Click="OnTextVAlignMiddleClick" Content="↕" FontSize="11" ToolTipService.ToolTip="Middle Vertical Align" />
+                                        <Button Padding="6,1" Click="OnTextVAlignBottomClick" Content="⤓" FontSize="11" ToolTipService.ToolTip="Bottom Vertical Align" />
+                                        <Border Width="1" Background="{StaticResource VexioRibbonGroupBorderBrush}" Margin="3,2" />
+                                        <ToggleButton x:Name="BulletListToggle" Padding="7,1" Content="• List" FontSize="11" Click="OnBulletListToggleClick" ToolTipService.ToolTip="Bulleted List" />
+                                    </StackPanel>
+                                </StackPanel>
+                                <TextBlock Text="Font &amp; Paragraph" Style="{StaticResource VexioRibbonGroupLabelStyle}" />
                             </StackPanel>
                             <AppBarSeparator />
 
@@ -262,15 +361,18 @@
                             </StackPanel>
                             <AppBarSeparator />
 
-                            <!-- Arrange & Z-Order Group -->
+                            <!-- Arrange, Rotate & Flip Group (Works on ALL Built-in & Imported Stencils) -->
                             <StackPanel>
                                 <StackPanel Orientation="Horizontal" Spacing="4" Height="56">
+                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnRotateLeft90Click" Content="↺ 90°" ToolTipService.ToolTip="Rotate Selected Stencil / Shape Left 90°" />
+                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnRotateRight90Click" Content="↻ 90°" ToolTipService.ToolTip="Rotate Selected Stencil / Shape Right 90°" />
+                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnFlipHorizontalClick" Content="⇆ Flip H" ToolTipService.ToolTip="Flip Selected Stencil Horizontally" />
+                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnFlipVerticalClick" Content="⇅ Flip V" ToolTipService.ToolTip="Flip Selected Stencil Vertically" />
                                     <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnBringFrontClick" Content="Bring Front" />
                                     <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnSendBackClick" Content="Send Back" />
-                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnAlignCenterClick" Content="Align Center" />
                                     <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnAutoLayoutQuickClick" Content="Auto-Layout" />
                                 </StackPanel>
-                                <TextBlock Text="Arrange &amp; Order" Style="{StaticResource VexioRibbonGroupLabelStyle}" />
+                                <TextBlock Text="Rotate, Flip &amp; Arrange" Style="{StaticResource VexioRibbonGroupLabelStyle}" />
                             </StackPanel>
                         </StackPanel>
 
@@ -280,8 +382,10 @@
                                 <StackPanel Orientation="Horizontal" Spacing="4" Height="56">
                                     <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnInsertBlankPageClick" Content="New Page" />
                                     <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnInsertBackgroundPageClick" Content="Background Page" />
+                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnImportStencilClick" FontWeight="SemiBold"
+                                            Content="+ Import Visio Stencil (.vssx / .vss)" ToolTipService.ToolTip="Import Visio .vssx, .vss, .vssm, .vsdx, .vstx, or .vdx Stencils" />
                                 </StackPanel>
-                                <TextBlock Text="Pages" Style="{StaticResource VexioRibbonGroupLabelStyle}" />
+                                <TextBlock Text="Pages &amp; Stencils" Style="{StaticResource VexioRibbonGroupLabelStyle}" />
                             </StackPanel>
                             <AppBarSeparator />
                             <StackPanel>
@@ -310,20 +414,27 @@
                             <StackPanel>
                                 <StackPanel Orientation="Horizontal" Spacing="6" Height="56" VerticalAlignment="Center">
                                     <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnPageSetupClick" Content="Page Setup (Shift+F4)" />
-                                    <ComboBox x:Name="PageOrientationCombo" SelectedIndex="0" Width="120" VerticalAlignment="Center" SelectionChanged="OnPageOrientationChanged">
-                                        <x:String>Landscape (11x8.5 in)</x:String>
-                                        <x:String>Portrait (8.5x11 in)</x:String>
-                                        <x:String>ISO A3 Metric</x:String>
-                                        <x:String>ANSI D Architectural</x:String>
+                                    <ComboBox x:Name="PageOrientationCombo" SelectedIndex="0" Width="212" VerticalAlignment="Center" SelectionChanged="OnPageOrientationChanged"
+                                              ToolTipService.ToolTip="ISO Metric (A4, A3, A5, A2) &amp; US ANSI Page Sizes">
+                                        <x:String>ISO A4 Landscape (297×210 mm)</x:String>
+                                        <x:String>ISO A4 Portrait (210×297 mm)</x:String>
+                                        <x:String>ISO A3 Landscape (420×297 mm)</x:String>
+                                        <x:String>ISO A3 Portrait (297×420 mm)</x:String>
+                                        <x:String>ISO A5 Landscape (210×148 mm)</x:String>
+                                        <x:String>ISO A2 Landscape (594×420 mm)</x:String>
+                                        <x:String>US Letter Landscape (11×8.5 in)</x:String>
+                                        <x:String>US Letter Portrait (8.5×11 in)</x:String>
+                                        <x:String>US Legal Landscape (14×8.5 in)</x:String>
+                                        <x:String>ANSI D Architectural (36×24 in)</x:String>
                                     </ComboBox>
                                     <ComboBox x:Name="DrawingScaleCombo" SelectedIndex="0" Width="136" VerticalAlignment="Center" SelectionChanged="OnDrawingScaleChanged">
                                         <x:String>No Scale (1:1)</x:String>
-                                        <x:String>1/4&quot; = 1'0&quot; (1:48)</x:String>
                                         <x:String>Metric 1:50</x:String>
                                         <x:String>Metric 1:100</x:String>
+                                        <x:String>1/4&quot; = 1'0&quot; (1:48)</x:String>
                                     </ComboBox>
                                 </StackPanel>
-                                <TextBlock Text="Page Setup &amp; Architectural Scale" Style="{StaticResource VexioRibbonGroupLabelStyle}" />
+                                <TextBlock Text="ISO Metric &amp; Architectural Page Setup" Style="{StaticResource VexioRibbonGroupLabelStyle}" />
                             </StackPanel>
                             <AppBarSeparator />
                             <StackPanel>
@@ -584,13 +695,15 @@
             <!-- COL 0: COLLAPSIBLE LEFT SHAPES / STENCILS DOCK                  -->
             <!-- =============================================================== -->
             <Border x:Name="LeftStencilDockBorder" Grid.Column="0" Background="{ThemeResource LayerFillColorDefaultBrush}"
-                    BorderBrush="{StaticResource VexioRibbonGroupBorderBrush}" BorderThickness="0,0,1,0" Padding="8">
+                    BorderBrush="{StaticResource VexioRibbonGroupBorderBrush}" BorderThickness="0,0,1,0" Padding="8"
+                    AllowDrop="True" DragOver="OnStencilDockDragOver" Drop="OnStencilDockDrop">
                 <Grid RowSpacing="8">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
 
@@ -619,8 +732,15 @@
                               DragItemsStarting="OnStencilMasterDragStarting"
                               ItemClick="OnStencilMasterItemClick" />
 
+                    <!-- Import Visio Stencil (.vssx / .vss / .vsdx) -->
+                    <Button x:Name="ImportStencilDockButton" Grid.Row="4" HorizontalAlignment="Stretch" Padding="8,5"
+                            Click="OnImportStencilClick" FontWeight="SemiBold"
+                            ToolTipService.ToolTip="Import Visio Stencil (.vssx, .vss, .vssm, .vsdx, .vstx, .vdx) or drop files here">
+                        <TextBlock x:Name="ImportStencilDockLabel" Text="+ Import Visio Stencil (.vssx / .vss)" FontSize="11.5" />
+                    </Button>
+
                     <!-- Quick Drop Hint -->
-                    <TextBlock Grid.Row="4" Text="Click, drag onto canvas, or right-click any stencil."
+                    <TextBlock Grid.Row="5" Text="Click, drag onto canvas, or drop .vssx/.vss files here."
                                FontSize="11" Opacity="0.7" TextWrapping="Wrap" />
                 </Grid>
             </Border>
@@ -748,7 +868,7 @@
                 <Button x:Name="RulerUnitOriginButton" Grid.Row="1" Grid.Column="0" Padding="0" CornerRadius="0"
                         Background="{StaticResource VexioRulerSurfaceBrush}" BorderBrush="{StaticResource VexioRibbonGroupBorderBrush}" BorderThickness="0,0,1,1"
                         Click="OnToggleRulerUnitClick" ToolTipService.ToolTip="Switch Ruler Display Units (in / mm)">
-                    <TextBlock x:Name="RulerUnitOriginText" Text="in" FontSize="9.5" FontWeight="SemiBold" Foreground="#FF334155" />
+                    <TextBlock x:Name="RulerUnitOriginText" Text="mm" FontSize="9.5" FontWeight="SemiBold" Foreground="#FF334155" />
                 </Button>
 
                 <!-- Horizontal Ruler Overlay -->
@@ -767,12 +887,13 @@
                     </Canvas>
                 </Border>
 
-                <!-- 120 FPS DirectX 12 wgpu SwapChainPanel + Right-Click Context Menu -->
+                <!-- 120 FPS DirectX 12 wgpu SwapChainPanel + Double-Click Inline Label Editor + Right-Click Menu -->
                 <SwapChainPanel x:Name="DiagramSwapChainPanel"
                                 Grid.Row="2"
                                 Grid.Column="1"
                                 AllowDrop="True"
                                 IsTapEnabled="True"
+                                IsDoubleTapEnabled="True"
                                 IsRightTapEnabled="True"
                                 Loaded="OnSwapChainPanelLoaded"
                                 SizeChanged="OnSwapChainPanelSizeChanged"
@@ -781,6 +902,7 @@
                                 PointerMoved="OnCanvasPointerMoved"
                                 PointerReleased="OnCanvasPointerReleased"
                                 PointerWheelChanged="OnCanvasPointerWheelChanged"
+                                DoubleTapped="OnCanvasDoubleTapped"
                                 RightTapped="OnCanvasRightTapped"
                                 DragOver="OnCanvasDragOver"
                                 Drop="OnCanvasDrop"
@@ -791,9 +913,20 @@
                         <Button x:Name="RestoreStencilsPillButton" Visibility="Collapsed" Content="Show Shapes" FontSize="11.5" Padding="8,4"
                                 Click="OnToggleLeftStencilDockClick" />
                         <Border Background="#CC0F172A" CornerRadius="4" Padding="8,3" IsHitTestVisible="False">
-                            <TextBlock x:Name="CanvasOverlayHudText" Text="Select Tool • Right-Click for Context Menu" Foreground="White" FontSize="11" />
+                            <TextBlock x:Name="CanvasOverlayHudText" Text="Select Tool • Double-Click Stencil to Edit Text" Foreground="White" FontSize="11" />
                         </Border>
                     </StackPanel>
+
+                    <!-- Inline Canvas Text Label Editor (Opened on Double-Click Stencil or Text Tool Placement) -->
+                    <Canvas x:Name="InlineEditorOverlayCanvas" IsHitTestVisible="True">
+                        <Border x:Name="InlineCanvasEditorBorder" Visibility="Collapsed"
+                                Background="#F8FFFFFF" BorderBrush="#FF2563EB" BorderThickness="2" CornerRadius="4" Padding="2">
+                            <TextBox x:Name="InlineCanvasTextBox" AcceptsReturn="True" TextWrapping="Wrap"
+                                     MinWidth="120" MinHeight="32" FontSize="12.5" BorderThickness="0" Background="Transparent"
+                                     PlaceholderText="Type label text (Enter to apply, Shift+Enter newline, Esc cancel)..."
+                                     KeyDown="OnInlineCanvasTextKeyDown" LostFocus="OnInlineCanvasTextLostFocus" />
+                        </Border>
+                    </Canvas>
                 </SwapChainPanel>
             </Grid>
 
@@ -1097,5 +1230,157 @@
                 </Button>
             </StackPanel>
         </Grid>
+
+        <!-- =================================================================== -->
+        <!-- IN-APP WELCOME / FILE BACKSTAGE HUB (NO EXTERNAL LAUNCH DIALOG)     -->
+        <!-- =================================================================== -->
+        <Border x:Name="InAppBackstageOverlay" Grid.Row="1" Grid.RowSpan="7" Visibility="Visible"
+                Background="{ThemeResource ApplicationPageBackgroundThemeBrush}" AllowDrop="True"
+                DragOver="OnBackstageDragOver" Drop="OnBackstageDrop">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="260" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+
+                <!-- Left Visio Backstage Rail -->
+                <Border Grid.Column="0" Background="{StaticResource VexioBrandDarkHeaderBrush}" Padding="16,20">
+                    <StackPanel Spacing="8">
+                        <Button HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="10,7"
+                                Background="#33FFFFFF" Foreground="White" BorderBrush="Transparent"
+                                Click="OnCloseBackstageClick">
+                            <TextBlock x:Name="BackstageReturnLabel" Text="← Continue to Canvas" FontWeight="SemiBold" />
+                        </Button>
+
+                        <MenuFlyoutSeparator />
+
+                        <TextBlock x:Name="BackstageTitleLabel" Text="Vexio Professional" Foreground="White" FontSize="17" FontWeight="Bold" Margin="4,4,0,2" />
+                        <TextBlock Text="1:1 Visio &amp; Offline CAD Suite" Foreground="#FFBAE6FD" FontSize="11.5" Margin="4,0,0,8" />
+
+                        <Button HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="10,8"
+                                Background="#FF2563EB" Foreground="White" BorderBrush="Transparent"
+                                Click="OnNewBlankA4MetricClick" Content="+ New ISO A4 Metric Drawing" FontWeight="SemiBold" />
+
+                        <Button HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="10,8"
+                                Background="#1FFFFFFF" Foreground="White" BorderBrush="Transparent"
+                                Click="OnOpenClick" Content="Open Diagram or CAD File... (Ctrl+O)" />
+
+                        <Button HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="10,8"
+                                Background="#1FFFFFFF" Foreground="White" BorderBrush="Transparent"
+                                Click="OnImportStencilClick" Content="Import Visio Stencil (.vssx / .vss)..." />
+
+                        <MenuFlyoutSeparator />
+
+                        <Button HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="10,7"
+                                Background="Transparent" Foreground="White" BorderBrush="Transparent"
+                                Click="OnSaveClick" Content="Save Document (Ctrl+S)" />
+                        <Button HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="10,7"
+                                Background="Transparent" Foreground="White" BorderBrush="Transparent"
+                                Click="OnSaveAsClick" Content="Save As (.vsdx, .vsd, .vdx)..." />
+                        <Button HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="10,7"
+                                Background="Transparent" Foreground="White" BorderBrush="Transparent"
+                                Click="OnExportPdfClick" Content="Export PDF/A (.pdf)" />
+                        <Button HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="10,7"
+                                Background="Transparent" Foreground="White" BorderBrush="Transparent"
+                                Click="OnExportSvgClick" Content="Export Vector SVG (.svg)" />
+                        <Button HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="10,7"
+                                Background="Transparent" Foreground="White" BorderBrush="Transparent"
+                                Click="OnTiledPrintClick" Content="Multi-Page Tiled Print (Ctrl+P)" />
+
+                        <MenuFlyoutSeparator />
+
+                        <Button HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="10,7"
+                                Background="#26FFFFFF" Foreground="#FFBAE6FD" BorderBrush="Transparent"
+                                Click="OnCheckUpdatesClick" Content="Check for Updates..." />
+                    </StackPanel>
+                </Border>
+
+                <!-- Center Welcome Cards: New Blank ISO/US Drawings, Starter Templates, Dropzone & Preferences -->
+                <ScrollViewer Grid.Column="1" Padding="32,26">
+                    <StackPanel Spacing="22" MaxWidth="980" HorizontalAlignment="Left">
+                        <StackPanel Spacing="4">
+                            <TextBlock x:Name="BackstageHeroHeading" Text="Start or Open a Diagram Inside Vexio" FontSize="22" FontWeight="Bold" />
+                            <TextBlock Text="Create a blank ISO Metric (A4 / A3) or US ANSI page, start from a 1:1 Visio template, import custom .vssx/.vss stencils, or drop any .vsdx, .vsd, .vdx, .dwg, or .dxf file directly into this window."
+                                       FontSize="12.5" Opacity="0.78" TextWrapping="Wrap" />
+                        </StackPanel>
+
+                        <!-- Blank Page Presets -->
+                        <StackPanel Spacing="10">
+                            <TextBlock Text="Blank Page Presets (Metric Default / OS Standard)" FontSize="14" FontWeight="SemiBold" />
+                            <StackPanel Orientation="Horizontal" Spacing="12">
+                                <Button Width="220" Padding="14,12" HorizontalContentAlignment="Left" Click="OnNewBlankA4MetricClick">
+                                    <StackPanel Spacing="4">
+                                        <TextBlock Text="Blank ISO A4 (Landscape)" FontWeight="Bold" FontSize="13" />
+                                        <TextBlock Text="297 × 210 mm • Metric (mm)" FontSize="11.5" Opacity="0.75" />
+                                    </StackPanel>
+                                </Button>
+                                <Button Width="220" Padding="14,12" HorizontalContentAlignment="Left" Click="OnNewBlankA3MetricClick">
+                                    <StackPanel Spacing="4">
+                                        <TextBlock Text="Blank ISO A3 (Landscape)" FontWeight="Bold" FontSize="13" />
+                                        <TextBlock Text="420 × 297 mm • Metric (mm)" FontSize="11.5" Opacity="0.75" />
+                                    </StackPanel>
+                                </Button>
+                                <Button Width="220" Padding="14,12" HorizontalContentAlignment="Left" Click="OnNewBlankA4PortraitClick">
+                                    <StackPanel Spacing="4">
+                                        <TextBlock Text="Blank ISO A4 (Portrait)" FontWeight="Bold" FontSize="13" />
+                                        <TextBlock Text="210 × 297 mm • Metric (mm)" FontSize="11.5" Opacity="0.75" />
+                                    </StackPanel>
+                                </Button>
+                                <Button Width="220" Padding="14,12" HorizontalContentAlignment="Left" Click="OnNewBlankDocClick">
+                                    <StackPanel Spacing="4">
+                                        <TextBlock Text="Blank US Letter" FontWeight="Bold" FontSize="13" />
+                                        <TextBlock Text="11 × 8.5 in • US Imperial (in)" FontSize="11.5" Opacity="0.75" />
+                                    </StackPanel>
+                                </Button>
+                            </StackPanel>
+                        </StackPanel>
+
+                        <!-- Starter Templates -->
+                        <StackPanel Spacing="10">
+                            <TextBlock Text="1:1 Visio Professional Starter Templates" FontSize="14" FontWeight="SemiBold" />
+                            <StackPanel Orientation="Horizontal" Spacing="12">
+                                <Button Width="220" Padding="14,12" HorizontalContentAlignment="Left" Click="OnNewBpmnTemplateClick">
+                                    <StackPanel Spacing="4">
+                                        <TextBlock Text="BPMN 2.0 Process" FontWeight="SemiBold" FontSize="13" />
+                                        <TextBlock Text="Validated Swimlanes &amp; Gateways" FontSize="11" Opacity="0.75" />
+                                    </StackPanel>
+                                </Button>
+                                <Button Width="220" Padding="14,12" HorizontalContentAlignment="Left" Click="OnNewUmlTemplateClick">
+                                    <StackPanel Spacing="4">
+                                        <TextBlock Text="Cloud &amp; Network Topology" FontWeight="SemiBold" FontSize="13" />
+                                        <TextBlock Text="Firewalls, Switches, Servers &amp; VPCs" FontSize="11" Opacity="0.75" />
+                                    </StackPanel>
+                                </Button>
+                                <Button Width="220" Padding="14,12" HorizontalContentAlignment="Left" Click="OnNewCadFloorPlanClick">
+                                    <StackPanel Spacing="4">
+                                        <TextBlock Text="CAD Architectural Floor Plan" FontWeight="SemiBold" FontSize="13" />
+                                        <TextBlock Text="Scale-Locked Rooms, Racks &amp; Walls" FontSize="11" Opacity="0.75" />
+                                    </StackPanel>
+                                </Button>
+                            </StackPanel>
+                        </StackPanel>
+
+                        <!-- Preferences: Language, Default Units, Startup & Automatic Updates -->
+                        <Border Padding="16,14" CornerRadius="8" Background="{StaticResource VexioRibbonSurfaceBrush}"
+                                BorderBrush="{StaticResource VexioRibbonGroupBorderBrush}" BorderThickness="1">
+                            <StackPanel Spacing="12">
+                                <TextBlock Text="Workstation Preferences, Units, Language &amp; Updates" FontSize="13.5" FontWeight="SemiBold" />
+                                <StackPanel Orientation="Horizontal" Spacing="18">
+                                    <CheckBox x:Name="AutoCheckUpdatesToggle" Content="Automatically check for updates on startup"
+                                              IsChecked="True" Checked="OnAutoUpdatePrefChanged" Unchecked="OnAutoUpdatePrefChanged" />
+                                    <CheckBox x:Name="SkipStartScreenCheck" Content="Skip start screen on launch (open blank page directly)"
+                                              IsChecked="False" />
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                                    <Button Click="OnCheckUpdatesClick" Content="Check for Updates Now" />
+                                    <TextBlock x:Name="BackstageUpdateStatusText" Text="Vexio v0.1.0 • Automatic background update check enabled."
+                                               FontSize="12" Opacity="0.8" VerticalAlignment="Center" />
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </ScrollViewer>
+            </Grid>
+        </Border>
     </Grid>
 </Window>

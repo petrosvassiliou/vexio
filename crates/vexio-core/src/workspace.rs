@@ -85,6 +85,7 @@ pub struct DocumentSession {
     pub doc: VisioDocument,
     pub journal: CommandJournal,
     pub builtin_stencils: Vec<StencilPack>,
+    pub imported_stencil_previews: std::collections::BTreeMap<String, Vec<crate::domains::StencilMasterPreview>>,
 }
 
 impl DocumentSession {
@@ -95,6 +96,7 @@ impl DocumentSession {
             doc,
             journal: CommandJournal::new(),
             builtin_stencils: build_all_builtin_stencils(),
+            imported_stencil_previews: std::collections::BTreeMap::new(),
         }
     }
 
@@ -415,7 +417,7 @@ impl DocumentSession {
             }
         }
 
-        // Normalize imported masters for smooth center-pinned 8-handle resizing and cardinal ports
+        // Normalize imported masters for smooth center-pinned 8-handle resizing, rotation, and cardinal ports
         for m in &mut masters {
             for s in &mut m.shapes {
                 s.sheet.set_formula("LocPinX", "=Width*0.5", Some(Unit::Inch));
@@ -423,6 +425,7 @@ impl DocumentSession {
                 s.sheet.set_formula("LockWidth", "FALSE", Some(Unit::Boolean));
                 s.sheet.set_formula("LockHeight", "FALSE", Some(Unit::Boolean));
                 s.sheet.set_formula("LockAspect", "FALSE", Some(Unit::Boolean));
+                s.sheet.set_formula("LockRotate", "FALSE", Some(Unit::Boolean));
                 attach_cardinal_ports_to_shape(s);
             }
         }
@@ -503,6 +506,9 @@ impl DocumentSession {
         } else {
             self.builtin_stencils.insert(0, new_pack);
         }
+
+        self.imported_stencil_previews
+            .insert(pack_title.clone(), previews.clone());
 
         Ok((pack_title, previews))
     }
@@ -1273,5 +1279,405 @@ impl DocumentSession {
             return Err(CoreError::Automation(e));
         }
         Ok(report.unwrap())
+    }
+
+    /// Rename the active document title cleanly.
+    pub fn set_document_title(&mut self, title: &str) {
+        let trimmed = title.trim();
+        if !trimmed.is_empty() {
+            self.doc.properties.title = trimmed.to_string();
+        }
+    }
+
+    /// Apply standard character & paragraph formatting (`Font`, `Size`, `B/I/U/S`, `Color`,
+    /// `Highlight`, `HorzAlign`, `VerticalAlign`, `Bullet`) across one or more shapes as a single Undo/Redo batch.
+    pub fn apply_text_style_patch(
+        &mut self,
+        page_id: u32,
+        shape_ids: &[u64],
+        patch: &TextStylePatch,
+    ) -> Result<usize, CoreError> {
+        let Some(page) = self.doc.page(page_id) else {
+            return Ok(0);
+        };
+        let mut cmds: Vec<DocCommand> = Vec::new();
+        let mut touched = 0usize;
+
+        for &sid in shape_ids {
+            let Some(sh) = page.find_shape(sid) else {
+                continue;
+            };
+            let before_len = cmds.len();
+            let push_cell = |cmds: &mut Vec<DocCommand>, cname: &str, new_f: String| {
+                let existing = sh.sheet.get_cell(cname);
+                if existing.is_some_and(|c| c.formula == new_f) {
+                    return;
+                }
+                let old_f = existing
+                    .map(|c| c.formula.clone())
+                    .unwrap_or_else(|| "0".into());
+                cmds.push(DocCommand::SetCellFormula {
+                    page_id,
+                    shape_id: sid,
+                    cell_name: cname.to_string(),
+                    old_formula: old_f,
+                    new_formula: new_f,
+                    force_setf: false,
+                });
+            };
+
+            if let Some(font) = &patch.font_family {
+                let clean = font.trim().replace('"', "");
+                if !clean.is_empty() {
+                    push_cell(&mut cmds, "Char.Font", format!("\"{clean}\""));
+                }
+            }
+            if let Some(sz) = patch.font_size_pt {
+                let clamped = sz.clamp(6.0, 144.0);
+                push_cell(&mut cmds, "Char.Size", format!("{} pt", format_clean_f64(clamped)));
+            } else if let Some(delta) = patch.size_delta_pt {
+                let cur_pt = sh
+                    .sheet
+                    .get_f64("Char.Size")
+                    .map(|inches| inches * 72.0)
+                    .unwrap_or(10.0);
+                let next_pt = (cur_pt + delta).clamp(6.0, 144.0);
+                push_cell(&mut cmds, "Char.Size", format!("{} pt", format_clean_f64(next_pt)));
+            }
+            if let Some(explicit_style) = patch.char_style {
+                push_cell(&mut cmds, "Char.Style", (explicit_style & 0x0F).to_string());
+            } else if let Some(mask) = patch.toggle_style_mask {
+                let cur = sh.sheet.get_f64("Char.Style").unwrap_or(0.0).round() as u8;
+                let next = (cur ^ mask) & 0x0F;
+                push_cell(&mut cmds, "Char.Style", next.to_string());
+            } else if patch.bold.is_some()
+                || patch.italic.is_some()
+                || patch.underline.is_some()
+                || patch.strikethrough.is_some()
+            {
+                let mut next = (sh.sheet.get_f64("Char.Style").unwrap_or(0.0).round() as u8) & 0x0F;
+                if let Some(b) = patch.bold {
+                    if b { next |= 1; } else { next &= !1; }
+                }
+                if let Some(i) = patch.italic {
+                    if i { next |= 2; } else { next &= !2; }
+                }
+                if let Some(u) = patch.underline {
+                    if u { next |= 4; } else { next &= !4; }
+                }
+                if let Some(s) = patch.strikethrough {
+                    if s { next |= 8; } else { next &= !8; }
+                }
+                push_cell(&mut cmds, "Char.Style", next.to_string());
+            }
+            if let Some(col_str) = &patch.text_color {
+                if let Some(c) = vexio_shapesheet::RgbaColor::from_hex(col_str) {
+                    push_cell(
+                        &mut cmds,
+                        "Char.Color",
+                        format!("=RGB({},{},{})", c.r, c.g, c.b),
+                    );
+                } else if col_str.trim().starts_with("=RGB(") || col_str.trim().starts_with("RGB(") {
+                    let f = if col_str.trim().starts_with('=') {
+                        col_str.trim().to_string()
+                    } else {
+                        format!("={}", col_str.trim())
+                    };
+                    push_cell(&mut cmds, "Char.Color", f);
+                }
+            }
+            if let Some(bg_str) = &patch.text_bg_color {
+                let bgt = bg_str.trim();
+                if bgt.is_empty() || bgt.eq_ignore_ascii_case("none") || bgt.eq_ignore_ascii_case("transparent") {
+                    push_cell(&mut cmds, "TextBkgndTrans", "1".to_string());
+                } else if let Some(c) = vexio_shapesheet::RgbaColor::from_hex(bgt) {
+                    push_cell(
+                        &mut cmds,
+                        "TextBkgnd",
+                        format!("=RGB({},{},{})", c.r, c.g, c.b),
+                    );
+                    push_cell(&mut cmds, "TextBkgndTrans", "0".to_string());
+                }
+            }
+            if let Some(ha) = patch.horiz_align {
+                push_cell(&mut cmds, "Para.HorzAlign", ha.min(3).to_string());
+            }
+            if let Some(va) = patch.vert_align {
+                push_cell(&mut cmds, "VerticalAlign", va.min(2).to_string());
+            }
+            if let Some(bul) = patch.bullet_style {
+                push_cell(&mut cmds, "Para.Bullet", bul.min(4).to_string());
+            }
+            if cmds.len() > before_len {
+                touched += 1;
+            }
+        }
+
+        if !cmds.is_empty() {
+            self.journal.execute(
+                &mut self.doc,
+                DocCommand::Batch {
+                    label: "Format Text".into(),
+                    commands: cmds,
+                },
+            )?;
+        }
+        Ok(touched)
+    }
+
+    /// Rotate (`delta_angle_deg`, e.g. `+90` left / `-90` right in Visio's CCW angle convention)
+    /// and/or flip (`FlipX`, `FlipY`) all selected stencils and shapes as a single undoable operation.
+    pub fn rotate_or_flip_shapes(
+        &mut self,
+        page_id: u32,
+        shape_ids: &[u64],
+        delta_angle_deg: f64,
+        toggle_flip_x: bool,
+        toggle_flip_y: bool,
+    ) -> Result<usize, CoreError> {
+        let Some(page) = self.doc.page(page_id) else {
+            return Ok(0);
+        };
+        let mut cmds: Vec<DocCommand> = Vec::new();
+        let mut touched = 0usize;
+
+        for &sid in shape_ids {
+            let Some(sh) = page.find_shape(sid) else {
+                continue;
+            };
+            let before_len = cmds.len();
+            if sh.kind == ShapeKind::Connector1D {
+                if delta_angle_deg.abs() > 1e-6 {
+                    let bx = sh.sheet.get_f64("BeginX").unwrap_or(0.0);
+                    let by = sh.sheet.get_f64("BeginY").unwrap_or(0.0);
+                    let ex = sh.sheet.get_f64("EndX").unwrap_or(1.0);
+                    let ey = sh.sheet.get_f64("EndY").unwrap_or(0.0);
+                    let mx = (bx + ex) * 0.5;
+                    let my = (by + ey) * 0.5;
+                    let (s, c) = delta_angle_deg.to_radians().sin_cos();
+                    let nbx = mx + (bx - mx) * c - (by - my) * s;
+                    let nby = my + (bx - mx) * s + (by - my) * c;
+                    let nex = mx + (ex - mx) * c - (ey - my) * s;
+                    let ney = my + (ex - mx) * s + (ey - my) * c;
+                    for (cname, val) in [("BeginX", nbx), ("BeginY", nby), ("EndX", nex), ("EndY", ney)] {
+                        let old_f = sh
+                            .sheet
+                            .get_cell(cname)
+                            .map(|cl| cl.formula.clone())
+                            .unwrap_or_else(|| "0 in".into());
+                        cmds.push(DocCommand::SetCellFormula {
+                            page_id,
+                            shape_id: sid,
+                            cell_name: cname.into(),
+                            old_formula: old_f,
+                            new_formula: format!("{} in", format_clean_f64(val)),
+                            force_setf: false,
+                        });
+                    }
+                }
+            } else {
+                if delta_angle_deg.abs() > 1e-6 && !sh.sheet.get_bool("LockRotate").unwrap_or(false) {
+                    let cur_deg = sh.sheet.get_f64("Angle").unwrap_or(0.0).to_degrees();
+                    let mut next_deg = (cur_deg + delta_angle_deg) % 360.0;
+                    if next_deg > 180.0 {
+                        next_deg -= 360.0;
+                    } else if next_deg <= -180.0 {
+                        next_deg += 360.0;
+                    }
+                    let old_a = sh
+                        .sheet
+                        .get_cell("Angle")
+                        .map(|c| c.formula.clone())
+                        .unwrap_or_else(|| "0 deg".into());
+                    cmds.push(DocCommand::SetCellFormula {
+                        page_id,
+                        shape_id: sid,
+                        cell_name: "Angle".into(),
+                        old_formula: old_a,
+                        new_formula: format!("{} deg", format_clean_f64(next_deg)),
+                        force_setf: false,
+                    });
+                }
+                if toggle_flip_x {
+                    let cur = sh.sheet.get_bool("FlipX").unwrap_or(false);
+                    let old_f = sh
+                        .sheet
+                        .get_cell("FlipX")
+                        .map(|c| c.formula.clone())
+                        .unwrap_or_else(|| "FALSE".into());
+                    cmds.push(DocCommand::SetCellFormula {
+                        page_id,
+                        shape_id: sid,
+                        cell_name: "FlipX".into(),
+                        old_formula: old_f,
+                        new_formula: if cur { "FALSE".into() } else { "TRUE".into() },
+                        force_setf: false,
+                    });
+                }
+                if toggle_flip_y {
+                    let cur = sh.sheet.get_bool("FlipY").unwrap_or(false);
+                    let old_f = sh
+                        .sheet
+                        .get_cell("FlipY")
+                        .map(|c| c.formula.clone())
+                        .unwrap_or_else(|| "FALSE".into());
+                    cmds.push(DocCommand::SetCellFormula {
+                        page_id,
+                        shape_id: sid,
+                        cell_name: "FlipY".into(),
+                        old_formula: old_f,
+                        new_formula: if cur { "FALSE".into() } else { "TRUE".into() },
+                        force_setf: false,
+                    });
+                }
+            }
+            if cmds.len() > before_len {
+                touched += 1;
+            }
+        }
+
+        if !cmds.is_empty() {
+            self.journal.execute(
+                &mut self.doc,
+                DocCommand::Batch {
+                    label: "Rotate / Flip Shapes".into(),
+                    commands: cmds,
+                },
+            )?;
+            route_page_connectors(&mut self.doc, page_id);
+        }
+        Ok(touched)
+    }
+
+    /// Update page dimensions (`A0`–`A5`, `Letter`, `Legal`, `Tabloid`, or custom `width_in × height_in`)
+    /// and page display unit (`mm`, `cm`, `m`, `in`, `ft`, `pt`) with Metric-aligned grid spacing.
+    pub fn set_page_setup(
+        &mut self,
+        page_id: u32,
+        width_in: f64,
+        height_in: f64,
+        unit_slug: &str,
+    ) -> Result<(), CoreError> {
+        let w = width_in.clamp(1.0, 200.0);
+        let h = height_in.clamp(1.0, 200.0);
+        let u = normalize_display_unit_slug(unit_slug);
+        let is_metric = matches!(u, "mm" | "cm" | "m");
+
+        self.journal
+            .record_mutation(&mut self.doc, "Page Setup", |doc| {
+                if let Some(page) = doc.page_mut(page_id) {
+                    if is_metric {
+                        let w_mm = w * 25.4;
+                        let h_mm = h * 25.4;
+                        page.page_sheet.set_formula(
+                            "PageWidth",
+                            format!("{} mm", format_clean_f64(w_mm)),
+                            Some(Unit::Millimeter),
+                        );
+                        page.page_sheet.set_formula(
+                            "PageHeight",
+                            format!("{} mm", format_clean_f64(h_mm)),
+                            Some(Unit::Millimeter),
+                        );
+                        page.page_sheet
+                            .set_formula("PageScale", "1 mm", Some(Unit::Millimeter));
+                        page.page_sheet
+                            .set_formula("DrawingScale", "1 mm", Some(Unit::Millimeter));
+                        page.page_sheet
+                            .set_formula("XGridSpacing", "5 mm", Some(Unit::Millimeter));
+                        page.page_sheet
+                            .set_formula("YGridSpacing", "5 mm", Some(Unit::Millimeter));
+                    } else {
+                        page.page_sheet.set_formula(
+                            "PageWidth",
+                            format!("{} in", format_clean_f64(w)),
+                            Some(Unit::Inch),
+                        );
+                        page.page_sheet.set_formula(
+                            "PageHeight",
+                            format!("{} in", format_clean_f64(h)),
+                            Some(Unit::Inch),
+                        );
+                        page.page_sheet
+                            .set_formula("PageScale", "1 in", Some(Unit::Inch));
+                        page.page_sheet
+                            .set_formula("DrawingScale", "1 in", Some(Unit::Inch));
+                        page.page_sheet
+                            .set_formula("XGridSpacing", "0.25 in", Some(Unit::Inch));
+                        page.page_sheet
+                            .set_formula("YGridSpacing", "0.25 in", Some(Unit::Inch));
+                    }
+                    page.page_sheet
+                        .set_user_cell("DisplayUnit", format!("\"{u}\""), "Preferred Ruler & Inspector Unit");
+                }
+                route_page_connectors(doc, page_id);
+            });
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TextStylePatch {
+    #[serde(alias = "font_family")]
+    pub font_family: Option<String>,
+    #[serde(alias = "font_size_pt")]
+    pub font_size_pt: Option<f64>,
+    #[serde(alias = "size_delta_pt")]
+    pub size_delta_pt: Option<f64>,
+    #[serde(alias = "char_style")]
+    pub char_style: Option<u8>,
+    #[serde(alias = "toggle_style_mask")]
+    pub toggle_style_mask: Option<u8>,
+    pub bold: Option<bool>,
+    pub italic: Option<bool>,
+    pub underline: Option<bool>,
+    #[serde(alias = "strike")]
+    pub strikethrough: Option<bool>,
+    #[serde(alias = "colorHex", alias = "text_color", alias = "text_color_hex")]
+    pub text_color: Option<String>,
+    #[serde(alias = "bgColorHex", alias = "text_bg_color", alias = "text_bg_hex")]
+    pub text_bg_color: Option<String>,
+    #[serde(alias = "horiz_align")]
+    pub horiz_align: Option<u8>,
+    #[serde(alias = "vert_align")]
+    pub vert_align: Option<u8>,
+    #[serde(alias = "bullet", alias = "bullet_style")]
+    pub bullet_style: Option<u8>,
+}
+
+pub fn normalize_display_unit_slug(raw: &str) -> &'static str {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "cm" | "centimeter" | "centimeters" => "cm",
+        "m" | "meter" | "meters" => "m",
+        "in" | "inch" | "inches" | "imperial" | "us" => "in",
+        "ft" | "foot" | "feet" => "ft",
+        "pt" | "point" | "points" => "pt",
+        _ => "mm",
+    }
+}
+
+/// Resolve ISO 216 Metric (`A0`–`A5`) and ANSI Imperial (`Letter`, `Legal`, `Tabloid`) page presets
+/// into canonical `(width_in, height_in, recommended_unit_slug)`.
+pub fn resolve_page_preset_dimensions_in(
+    preset_slug: &str,
+    landscape: bool,
+) -> Option<(f64, f64, &'static str)> {
+    let (short_in, long_in, unit) = match preset_slug.trim().to_ascii_lowercase().as_str() {
+        "a0" => (841.0 / 25.4, 1189.0 / 25.4, "mm"),
+        "a1" => (594.0 / 25.4, 841.0 / 25.4, "mm"),
+        "a2" => (420.0 / 25.4, 594.0 / 25.4, "mm"),
+        "a3" => (297.0 / 25.4, 420.0 / 25.4, "mm"),
+        "a4" => (210.0 / 25.4, 297.0 / 25.4, "mm"),
+        "a5" => (148.0 / 25.4, 210.0 / 25.4, "mm"),
+        "letter" | "us_letter" => (8.5, 11.0, "in"),
+        "legal" | "us_legal" => (8.5, 14.0, "in"),
+        "tabloid" | "ledger" | "ansi_b" => (11.0, 17.0, "in"),
+        _ => return None,
+    };
+    if landscape {
+        Some((long_in, short_in, unit))
+    } else {
+        Some((short_in, long_in, unit))
     }
 }

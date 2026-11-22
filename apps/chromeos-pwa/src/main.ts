@@ -10,6 +10,14 @@ import {
   saveLocalDiagramInPlace,
 } from './platform/chromeosIntegration';
 import { VexioCollabSession, type PeerPresence } from './platform/collabAndVersions';
+import {
+  detectDefaultLanguage,
+  detectDefaultMetricUnits,
+  PAGE_PRESET_OPTIONS,
+  VEXIO_TRANSLATIONS,
+  type VexioLangCode,
+  type VexioStrings,
+} from './platform/localization';
 import type { EditableVertexDto, EngineSnapshot, SmartGuideLine } from './workers/engine.worker';
 import type { OpfsVersionMeta, OpfsWorkspaceMeta } from './workers/opfs-journal.worker';
 
@@ -31,7 +39,18 @@ type ActiveTool =
   | 'pen'
   | 'highlighter';
 type InspectorTab = 'props' | 'layers' | 'comments' | 'validate';
-type ActiveModal = null | 'backstage' | 'vba' | 'sql' | 'data' | 'org' | 'dataviz' | 'cloud' | 'compare' | 'link';
+type ActiveModal =
+  | null
+  | 'backstage'
+  | 'updates'
+  | 'vba'
+  | 'sql'
+  | 'data'
+  | 'org'
+  | 'dataviz'
+  | 'cloud'
+  | 'compare'
+  | 'link';
 type ResizeHandleDir = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w';
 
 interface StarterTemplateCard {
@@ -48,8 +67,8 @@ const STARTER_TEMPLATES: StarterTemplateCard[] = [
   { id: 'executive_org_chart', title: 'Executive Organization Chart', category: 'Org Chart', desc: 'Role-styled reporting hierarchy built from roster CSV' },
   { id: 'release_gantt', title: 'Product Launch Gantt Schedule', category: 'Project Schedule', desc: 'Proportional task bars, completion % fills & FS dependencies' },
   { id: 'project_timeline', title: 'Annual Architecture Roadmap', category: 'Timeline', desc: 'Executive spine with major/minor diamond milestones' },
-  { id: 'datacenter_floorplan', title: 'Data Center Floor Plan & Rack', category: 'Facilities & Network', desc: '1/4"=1\'0" scaled rooms with live SqFt + 42U spine rack' },
-  { id: 'blank', title: 'Blank Visio Drawing', category: 'General', desc: 'Clean 11 × 8.5 in landscape sheet with default layers' },
+  { id: 'datacenter_floorplan', title: 'Data Center Floor Plan & Rack', category: 'Facilities & Network', desc: 'Architectural scaled rooms + 42U spine rack' },
+  { id: 'blank', title: 'Blank Visio Drawing', category: 'ISO Metric / Standard', desc: 'Clean ISO A4 (297×210 mm) or US Letter sheet with default layers' },
 ];
 
 const FALLBACK_STENCILS: Record<string, string[]> = {
@@ -713,11 +732,44 @@ class VexioChromeOsApp {
   private syncDebounceTimer: number | null = null;
 
   private uiTheme: 'light' | 'dark' = 'light';
+  private lang: VexioLangCode = detectDefaultLanguage();
+  private metricUnits: boolean = detectDefaultMetricUnits();
+  private activePagePresetId: string = this.metricUnits ? 'a4_l' : 'letter_l';
+  private isRibbonCollapsed = false;
+  private openHeaderMenu: null | 'file' | 'edit' | 'export' | 'help' = null;
+  private isRenamingDocTitle = false;
+  private renameDocDraft = '';
+  private launchedWithExternalFile = false;
+
+  private textFontFamily = 'Inter';
+  private textFontSizePt = 11;
+  private textBold = false;
+  private textItalic = false;
+  private textUnderline = false;
+  private textStrikethrough = false;
+  private textHorizAlign = 1;
+  private textVertAlign = 1;
+  private textBullets = false;
+  private textColorHex = '#0F172A';
+  private textBgColorHex = 'none';
+
+  private autoCheckUpdates: boolean = (() => {
+    try {
+      return localStorage.getItem('vexio.autoUpdate') !== 'false';
+    } catch {
+      return true;
+    }
+  })();
+  private updateStatusText = 'Vexio v0.1.0-alpha • Automatic updates enabled';
+  private latestReleaseTag: string | null = null;
+  private latestReleaseUrl = 'https://github.com/petrosvassiliou/vexio/releases';
+
   private activeRibbonTab = 'Home';
   private activeTool: ActiveTool = 'pointer';
   private spaceKeyDown = false;
   private activeInspectorTab: InspectorTab = 'props';
-  private activeModal: ActiveModal = null;
+  // Open the in-app Start / File Backstage hub inside Vexio on startup (never forcing an external OS file picker)
+  private activeModal: ActiveModal = 'backstage';
   private modalOutputMessage = '';
   private vbaDraft = DEFAULT_VBA_SCRIPT;
   private sqlDraft = DEFAULT_SQL_DDL;
@@ -761,6 +813,206 @@ class VexioChromeOsApp {
   private smartGuideReqInFlight = false;
   private latestSmartGuides: SmartGuideLine[] = [];
   private latestSnappedPin: [number, number] | null = null;
+
+  private get i18n(): VexioStrings {
+    return VEXIO_TRANSLATIONS[this.lang];
+  }
+
+  private formatLengthFromIn(inches: number): string {
+    if (this.metricUnits) {
+      return `${(inches * 25.4).toFixed(1)} mm`;
+    }
+    return `${inches.toFixed(2)}"`;
+  }
+
+  private async commitDocTitleRename(rawTitle: string): Promise<void> {
+    this.isRenamingDocTitle = false;
+    const cleaned = rawTitle.trim();
+    if (!cleaned) {
+      this.render();
+      return;
+    }
+    const normalized = /\.[a-z0-9]+$/i.test(cleaned) ? cleaned : `${cleaned}.vsdx`;
+    this.currentFileName = normalized;
+    try {
+      const res = await this.callEngine('setDocumentTitle', { title: normalized });
+      if (res.snapshot) this.snapshot = res.snapshot;
+      this.persistMutationSideEffects(res.wal);
+    } catch {
+      // Keep local rename even if worker busy
+    }
+    this.showToast(`Renamed document to "${normalized}"`, 'info');
+    this.render();
+  }
+
+  private async applyRichTextPatch(patch: {
+    fontFamily?: string;
+    fontSizePt?: number;
+    bold?: boolean;
+    italic?: boolean;
+    underline?: boolean;
+    strikethrough?: boolean;
+    horizAlign?: number;
+    vertAlign?: number;
+    bullet?: number;
+    colorHex?: string;
+    bgColorHex?: string;
+  }): Promise<void> {
+    if (patch.fontFamily !== undefined) this.textFontFamily = patch.fontFamily;
+    if (patch.fontSizePt !== undefined) {
+      this.textFontSizePt = Math.max(6, Math.min(96, Math.round(patch.fontSizePt)));
+    }
+    if (patch.bold !== undefined) this.textBold = patch.bold;
+    if (patch.italic !== undefined) this.textItalic = patch.italic;
+    if (patch.underline !== undefined) this.textUnderline = patch.underline;
+    if (patch.strikethrough !== undefined) this.textStrikethrough = patch.strikethrough;
+    if (patch.horizAlign !== undefined) this.textHorizAlign = patch.horizAlign;
+    if (patch.vertAlign !== undefined) this.textVertAlign = patch.vertAlign;
+    if (patch.bullet !== undefined) this.textBullets = patch.bullet > 0;
+    if (patch.colorHex !== undefined) this.textColorHex = patch.colorHex;
+    if (patch.bgColorHex !== undefined) this.textBgColorHex = patch.bgColorHex;
+
+    if (this.selectedShapeIds.length === 0) {
+      this.render();
+      return;
+    }
+
+    const fullPatch: Record<string, unknown> = { ...patch };
+    if (
+      patch.bold !== undefined ||
+      patch.italic !== undefined ||
+      patch.underline !== undefined ||
+      patch.strikethrough !== undefined
+    ) {
+      fullPatch.bold = this.textBold;
+      fullPatch.italic = this.textItalic;
+      fullPatch.underline = this.textUnderline;
+      fullPatch.strikethrough = this.textStrikethrough;
+    }
+    if (patch.fontSizePt !== undefined) {
+      fullPatch.fontSizePt = this.textFontSizePt;
+    }
+
+    const res = await this.callEngine('applyTextStyle', {
+      shapeIds: this.selectedShapeIds,
+      patch: fullPatch,
+    });
+    if (res.snapshot) this.snapshot = res.snapshot;
+    this.persistMutationSideEffects(res.wal);
+    this.render();
+  }
+
+  private async rotateOrFlipSelected(
+    deltaAngleDeg = 0,
+    toggleFlipX = false,
+    toggleFlipY = false
+  ): Promise<void> {
+    if (this.selectedShapeIds.length === 0) return;
+    const res = await this.callEngine('rotateFlipShapes', {
+      shapeIds: this.selectedShapeIds,
+      deltaAngleDeg,
+      toggleFlipX,
+      toggleFlipY,
+    });
+    if (res.snapshot) this.snapshot = res.snapshot;
+    this.persistMutationSideEffects(res.wal);
+    this.render();
+  }
+
+  private async applyPagePresetById(presetId: string, resetBlank = false): Promise<void> {
+    const preset = PAGE_PRESET_OPTIONS.find((p) => p.id === presetId) ?? PAGE_PRESET_OPTIONS[0];
+    this.activePagePresetId = preset.id;
+    this.metricUnits = preset.isMetric;
+    try {
+      localStorage.setItem('vexio.metric', String(this.metricUnits));
+    } catch {
+      // Ignore storage block
+    }
+    if (resetBlank) {
+      await this.callEngine('loadStarterTemplate', { templateId: 'blank' });
+      this.currentFileName = preset.isMetric ? 'ISO-Architecture-Diagram.vsdx' : 'Architecture-Diagram.vsdx';
+      this.setSingleSelection(null);
+    }
+    let res = await this.callEngine('setPagePreset', {
+      presetSlug: preset.slug,
+      landscape: preset.landscape,
+    });
+    if (!res.applied) {
+      res = await this.callEngine('setPageDimensions', {
+        widthIn: preset.widthIn,
+        heightIn: preset.heightIn,
+        jumpStyle: 0,
+      });
+    }
+    this.snapshot = res.snapshot;
+    if (this.wgpuAttached && this.snapshot) {
+      const dpi = window.devicePixelRatio || 1;
+      await this.callEngine('resizeOffscreenCanvas', {
+        width: Math.round(this.snapshot.pageWidthIn * 96 * dpi),
+        height: Math.round(this.snapshot.pageHeightIn * 96 * dpi),
+        dpi,
+      });
+    }
+    this.activeModal = null;
+    this.zoomPct = this.computeFitZoomPct();
+    this.persistMutationSideEffects(res.wal);
+    this.showToast(`Page setup: ${preset.label}`, 'info');
+    this.render();
+  }
+
+  private async checkForUpdates(userInitiated: boolean): Promise<void> {
+    if (!userInitiated && !this.autoCheckUpdates) return;
+    if (userInitiated) {
+      this.updateStatusText = 'Checking Service Worker & GitHub Releases…';
+      this.activeModal = 'updates';
+      this.render();
+    }
+
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker
+        .getRegistration()
+        .then((reg) => reg?.update())
+        .catch(() => {});
+    }
+
+    if (!navigator.onLine) {
+      this.updateStatusText = 'Offline mode active • Running 100% locally (update check skipped cleanly).';
+      if (userInitiated) this.render();
+      return;
+    }
+
+    const currentVersion = '0.1.0-alpha';
+    try {
+      const resp = await fetch('https://api.github.com/repos/petrosvassiliou/vexio/releases', {
+        headers: { Accept: 'application/vnd.github+json' },
+      });
+      if (!resp.ok) {
+        this.updateStatusText = `Vexio v${currentVersion} is active (GitHub status ${resp.status}).`;
+        if (userInitiated) this.render();
+        return;
+      }
+      const releases = (await resp.json()) as Array<{
+        tag_name?: string;
+        html_url?: string;
+      }>;
+      const latest = releases[0];
+      const tag = latest?.tag_name ?? `v${currentVersion}`;
+      const cleanTag = tag.replace(/^[vV]/, '');
+      this.latestReleaseUrl = latest?.html_url ?? this.latestReleaseUrl;
+      const hasNewer = cleanTag.length > 0 && cleanTag !== currentVersion && cleanTag > currentVersion;
+      this.latestReleaseTag = hasNewer ? tag : null;
+      this.updateStatusText = hasNewer
+        ? `New release available: ${tag} (Installed: v${currentVersion})`
+        : `Vexio is up to date (${tag}).`;
+      if (hasNewer || userInitiated) {
+        this.activeModal = 'updates';
+        this.render();
+      }
+    } catch {
+      this.updateStatusText = 'Offline / firewalled network • Vexio continues 100% offline.';
+      if (userInitiated) this.render();
+    }
+  }
 
   private dragState:
     | null
@@ -979,6 +1231,8 @@ class VexioChromeOsApp {
 
     bindWindowControlsOverlay();
     registerChromeOsFileLaunchHandler(async (opened) => {
+      this.launchedWithExternalFile = true;
+      this.activeModal = null;
       this.activeFileHandle = opened.handle;
       this.currentFileName = opened.name;
       const res = await this.callEngine('openBytes', { bytes: opened.bytes, ext: opened.ext });
@@ -1020,18 +1274,21 @@ class VexioChromeOsApp {
         ? new SharedArrayBuffer(4096)
         : undefined;
 
+    const initW = this.metricUnits ? 11.6929 : 11.0;
+    const initH = this.metricUnits ? 8.2677 : 8.5;
     document.documentElement.dataset.theme = this.uiTheme;
+    document.documentElement.lang = this.lang === 'gr' ? 'el' : this.lang;
     if (!this.snapshot) {
       this.snapshot = {
         title: 'Untitled Drawing',
         activePageId: 1,
-        pageWidthIn: 11,
-        pageHeightIn: 8.5,
-        pages: [{ id: 1, name: 'Page-1', widthIn: 11, heightIn: 8.5, shapeCount: 0, isBackground: false }],
+        pageWidthIn: initW,
+        pageHeightIn: initH,
+        pages: [{ id: 1, name: 'Page-1', widthIn: initW, heightIn: initH, shapeCount: 0, isBackground: false }],
         layers: [],
         comments: [],
         shapes: [],
-        svgPreview: '<svg viewBox="0 0 1056 816" xmlns="http://www.w3.org/2000/svg"><rect width="1056" height="816" fill="#FFFFFF"/></svg>',
+        svgPreview: '<svg viewBox="0 0 1122 794" xmlns="http://www.w3.org/2000/svg"><rect width="1122" height="794" fill="#FFFFFF"/></svg>',
         canUndo: false,
         canRedo: false,
         wgpuSurfaceActive: false,
@@ -1045,7 +1302,12 @@ class VexioChromeOsApp {
     this.bindKeyboardShortcuts();
 
     try {
-      const initRes = await this.callEngine('init', { sharedBuffer, seedDemo: true });
+      const initRes = await this.callEngine('init', {
+        sharedBuffer,
+        seedDemo: true,
+        defaultPresetSlug: this.metricUnits ? 'a4' : 'letter',
+        landscape: true,
+      });
       this.snapshot = initRes.snapshot;
       if (initRes.stencils && Object.keys(initRes.stencils).length > 0) {
         this.stencilCatalog = { ...FALLBACK_STENCILS, ...initRes.stencils };
@@ -1067,6 +1329,20 @@ class VexioChromeOsApp {
       );
     }
 
+    // Preload recent OPFS workspaces & versions for the in-app Start Backstage hub (100% offline-safe)
+    if (!this.launchedWithExternalFile) {
+      Promise.all([
+        this.callOpfs('listVersions', { docId: this.docId }).catch(() => ({ versions: [] })),
+        this.callOpfs('listWorkspaces').catch(() => ({ workspaces: [] })),
+      ]).then(([vRes, wRes]) => {
+        this.opfsVersions = vRes.versions ?? [];
+        this.opfsWorkspaces = wRes.workspaces ?? [];
+        if (this.activeModal === 'backstage') {
+          this.render();
+        }
+      });
+    }
+
     // Transfer OffscreenCanvas to Rust wgpu WebGPU/WebGL2 worker pipeline once!
     if (!this.offscreenTransferred && 'transferControlToOffscreen' in this.wgpuCanvasEl) {
       try {
@@ -1075,7 +1351,12 @@ class VexioChromeOsApp {
         const dpi = window.devicePixelRatio || 1;
         const attachRes = await this.callEngine(
           'attachOffscreenCanvas',
-          { canvas: offscreen, width: Math.round(1056 * dpi), height: Math.round(816 * dpi), dpi },
+          {
+            canvas: offscreen,
+            width: Math.round((this.snapshot?.pageWidthIn ?? initW) * 96 * dpi),
+            height: Math.round((this.snapshot?.pageHeightIn ?? initH) * 96 * dpi),
+            dpi,
+          },
           [offscreen]
         );
         this.wgpuAttached = Boolean(attachRes.attached);
@@ -1090,6 +1371,10 @@ class VexioChromeOsApp {
     enumerateChromeOsSystemFonts().then((fonts) => {
       this.systemFonts = fonts;
     });
+
+    if (this.autoCheckUpdates) {
+      void this.checkForUpdates(false);
+    }
 
     this.render();
   }
@@ -1274,6 +1559,13 @@ class VexioChromeOsApp {
           menuEl?.remove();
         }
       }
+      if (this.openHeaderMenu) {
+        const topBar = document.querySelector('.top-menubar');
+        if (!topBar || !topBar.contains(ev.target as Node)) {
+          this.openHeaderMenu = null;
+          this.render();
+        }
+      }
     });
 
     window.addEventListener('keyup', (e) => {
@@ -1295,6 +1587,16 @@ class VexioChromeOsApp {
       }
 
       if (e.key === 'Escape') {
+        if (this.openHeaderMenu !== null) {
+          this.openHeaderMenu = null;
+          this.render();
+          return;
+        }
+        if (this.isRenamingDocTitle) {
+          this.isRenamingDocTitle = false;
+          this.render();
+          return;
+        }
         if (this.contextMenu !== null) {
           this.contextMenu = null;
           this.render();
@@ -1336,6 +1638,32 @@ class VexioChromeOsApp {
           this.inlineTextDraft = sh.text;
           this.render();
         }
+        return;
+      }
+
+      if (!inInput && (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b' && this.selectedShapeIds.length > 0) {
+        e.preventDefault();
+        await this.applyRichTextPatch({ bold: !this.textBold });
+        return;
+      }
+      if (!inInput && (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'i' && this.selectedShapeIds.length > 0) {
+        e.preventDefault();
+        await this.applyRichTextPatch({ italic: !this.textItalic });
+        return;
+      }
+      if (!inInput && (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'u' && this.selectedShapeIds.length > 0) {
+        e.preventDefault();
+        await this.applyRichTextPatch({ underline: !this.textUnderline });
+        return;
+      }
+      if (!inInput && (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'l' && this.selectedShapeIds.length > 0) {
+        e.preventDefault();
+        await this.rotateOrFlipSelected(-90);
+        return;
+      }
+      if (!inInput && (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'r' && this.selectedShapeIds.length > 0) {
+        e.preventDefault();
+        await this.rotateOrFlipSelected(90);
         return;
       }
 
@@ -1459,6 +1787,7 @@ class VexioChromeOsApp {
   }
 
   private async openBackstageModal(): Promise<void> {
+    this.openHeaderMenu = null;
     this.activeModal = 'backstage';
     this.modalOutputMessage = '';
     try {
@@ -1477,12 +1806,32 @@ class VexioChromeOsApp {
   }
 
   private async handleOpenDisk(): Promise<void> {
+    this.openHeaderMenu = null;
     const opened = await openLocalDiagramFile();
     if (!opened) return;
+    if (['vssx', 'vssm', 'vss', 'vst'].includes(opened.ext)) {
+      const res = await this.callEngine(
+        'importStencil',
+        { fileName: opened.name, bytes: opened.bytes },
+        [opened.bytes.buffer]
+      );
+      if (res.packTitle && Array.isArray(res.masterNames) && res.masterNames.length > 0) {
+        this.stencilCatalog = { [res.packTitle]: res.masterNames, ...this.stencilCatalog };
+        this.stencilPreviews = { [res.packTitle]: res.previews ?? [], ...this.stencilPreviews };
+        this.packOrder = [res.packTitle, ...this.packOrder.filter((p) => p !== res.packTitle)];
+        this.expandedStencilPacks.add(res.packTitle);
+        this.stencilGroupFilter = 'all';
+        this.activeModal = null;
+        this.showToast(`Imported Visio stencil "${res.packTitle}" (${res.masterNames.length} masters)`, 'info');
+        this.render();
+      }
+      return;
+    }
     this.activeFileHandle = opened.handle;
     this.currentFileName = opened.name;
     const res = await this.callEngine('openBytes', { bytes: opened.bytes, ext: opened.ext });
     this.snapshot = res.snapshot;
+    this.activeModal = null;
     this.setSingleSelection(this.snapshot?.shapes[0]?.id ?? null);
     this.persistMutationSideEffects();
     this.showToast(`Opened "${opened.name}"`, 'info');
@@ -1563,15 +1912,31 @@ class VexioChromeOsApp {
   private renderHorizRulerSvg(pageWidthIn: number, ppiZoom: number): string {
     const totalW = Math.ceil(pageWidthIn * ppiZoom) + 120;
     const ticks: string[] = [];
-    const steps = Math.ceil(pageWidthIn * 4);
-    for (let q = 0; q <= steps; q++) {
-      const x = 32 + (q * 0.25) * ppiZoom;
-      const isInch = q % 4 === 0;
-      const isHalf = q % 2 === 0;
-      const h = isInch ? 12 : isHalf ? 7 : 4;
-      ticks.push(`<line x1="${x.toFixed(1)}" y1="${22 - h}" x2="${x.toFixed(1)}" y2="22" stroke="var(--m3-outline-strong)" stroke-width="1"/>`);
-      if (isInch) {
-        ticks.push(`<text x="${(x + 3).toFixed(1)}" y="11" font-size="9" font-weight="600" fill="var(--m3-text-muted)">${q / 4}</text>`);
+    if (this.metricUnits) {
+      const totalMm = Math.ceil(pageWidthIn * 25.4);
+      const steps = Math.ceil(totalMm / 5);
+      for (let s = 0; s <= steps; s++) {
+        const mm = s * 5;
+        const x = 32 + (mm / 25.4) * ppiZoom;
+        const isMajor = mm % 20 === 0;
+        const isCm = mm % 10 === 0;
+        const h = isMajor ? 12 : isCm ? 8 : 4;
+        ticks.push(`<line x1="${x.toFixed(1)}" y1="${22 - h}" x2="${x.toFixed(1)}" y2="22" stroke="var(--m3-outline-strong)" stroke-width="1"/>`);
+        if (isMajor) {
+          ticks.push(`<text x="${(x + 3).toFixed(1)}" y="11" font-size="8.5" font-weight="600" fill="var(--m3-text-muted)">${mm}</text>`);
+        }
+      }
+    } else {
+      const steps = Math.ceil(pageWidthIn * 4);
+      for (let q = 0; q <= steps; q++) {
+        const x = 32 + q * 0.25 * ppiZoom;
+        const isInch = q % 4 === 0;
+        const isHalf = q % 2 === 0;
+        const h = isInch ? 12 : isHalf ? 7 : 4;
+        ticks.push(`<line x1="${x.toFixed(1)}" y1="${22 - h}" x2="${x.toFixed(1)}" y2="22" stroke="var(--m3-outline-strong)" stroke-width="1"/>`);
+        if (isInch) {
+          ticks.push(`<text x="${(x + 3).toFixed(1)}" y="11" font-size="9" font-weight="600" fill="var(--m3-text-muted)">${q / 4}</text>`);
+        }
       }
     }
     return `<svg class="ruler-svg" viewBox="0 0 ${totalW} 22" preserveAspectRatio="xMinYMin slice">${ticks.join('')}</svg>`;
@@ -1580,16 +1945,33 @@ class VexioChromeOsApp {
   private renderVertRulerSvg(pageHeightIn: number, ppiZoom: number): string {
     const totalH = Math.ceil(pageHeightIn * ppiZoom) + 120;
     const ticks: string[] = [];
-    const steps = Math.ceil(pageHeightIn * 4);
-    for (let q = 0; q <= steps; q++) {
-      const y = 32 + (q * 0.25) * ppiZoom;
-      const isInch = q % 4 === 0;
-      const isHalf = q % 2 === 0;
-      const w = isInch ? 12 : isHalf ? 7 : 4;
-      ticks.push(`<line x1="${24 - w}" y1="${y.toFixed(1)}" x2="24" y2="${y.toFixed(1)}" stroke="var(--m3-outline-strong)" stroke-width="1"/>`);
-      if (isInch) {
-        const label = Math.max(0, Math.round(pageHeightIn - q / 4));
-        ticks.push(`<text x="3" y="${(y + 9).toFixed(1)}" font-size="9" font-weight="600" fill="var(--m3-text-muted)">${label}</text>`);
+    if (this.metricUnits) {
+      const totalMm = Math.ceil(pageHeightIn * 25.4);
+      const steps = Math.ceil(totalMm / 5);
+      for (let s = 0; s <= steps; s++) {
+        const mm = s * 5;
+        const y = 32 + (mm / 25.4) * ppiZoom;
+        const isMajor = mm % 20 === 0;
+        const isCm = mm % 10 === 0;
+        const w = isMajor ? 12 : isCm ? 8 : 4;
+        ticks.push(`<line x1="${24 - w}" y1="${y.toFixed(1)}" x2="24" y2="${y.toFixed(1)}" stroke="var(--m3-outline-strong)" stroke-width="1"/>`);
+        if (isMajor) {
+          const label = Math.max(0, Math.round(pageHeightIn * 25.4 - mm));
+          ticks.push(`<text x="2" y="${(y + 9).toFixed(1)}" font-size="8" font-weight="600" fill="var(--m3-text-muted)">${label}</text>`);
+        }
+      }
+    } else {
+      const steps = Math.ceil(pageHeightIn * 4);
+      for (let q = 0; q <= steps; q++) {
+        const y = 32 + q * 0.25 * ppiZoom;
+        const isInch = q % 4 === 0;
+        const isHalf = q % 2 === 0;
+        const w = isInch ? 12 : isHalf ? 7 : 4;
+        ticks.push(`<line x1="${24 - w}" y1="${y.toFixed(1)}" x2="24" y2="${y.toFixed(1)}" stroke="var(--m3-outline-strong)" stroke-width="1"/>`);
+        if (isInch) {
+          const label = Math.max(0, Math.round(pageHeightIn - q / 4));
+          ticks.push(`<text x="3" y="${(y + 9).toFixed(1)}" font-size="9" font-weight="600" fill="var(--m3-text-muted)">${label}</text>`);
+        }
       }
     }
     return `<svg class="ruler-svg" viewBox="0 0 24 ${totalH}" preserveAspectRatio="xMinYMin slice">${ticks.join('')}</svg>`;
@@ -1651,7 +2033,7 @@ class VexioChromeOsApp {
         ${btn('hexagon', UI_ICONS.hexagon, 'Hexagon', 'Hexagon / Polygon — Click and drag on canvas (X)')}
         ${btn('star', UI_ICONS.star, 'Star', '5-Point Star — Click and drag on canvas (S)')}
         <div class="rail-divider"></div>
-        ${btn('text', UI_ICONS.text, 'Text', 'Text Box — Click or drag on canvas, or double-click any shape (T)')}
+        ${btn('text', UI_ICONS.text, 'Text', 'Text Box — Click or drag on canvas to type immediately, or double-click any stencil (T)')}
         ${btn('pen', UI_ICONS.pen, 'Pen', 'Freehand Markup Ink Pen (I)')}
         ${btn('highlighter', UI_ICONS.highlighter, 'Marker', 'Markup Highlighter')}
       </aside>
@@ -1661,9 +2043,10 @@ class VexioChromeOsApp {
   private renderContextMenu(snap: EngineSnapshot): string {
     if (!this.contextMenu) return '';
     const cm = this.contextMenu;
-    const clampedLeft = Math.max(8, Math.min(window.innerWidth - 252, cm.x));
-    const clampedTop = Math.max(8, Math.min(window.innerHeight - 360, cm.y));
+    const clampedLeft = Math.max(8, Math.min(window.innerWidth - 260, cm.x));
+    const clampedTop = Math.max(8, Math.min(window.innerHeight - 400, cm.y));
     const hasClip = this.clipboardShapeIds.length > 0 || this.clipboardSpecs.length > 0;
+    const t = this.i18n;
 
     if (cm.kind === 'shape') {
       const sh = this.primarySelectedId ? snap.shapes.find((s) => s.id === this.primarySelectedId) : null;
@@ -1673,7 +2056,12 @@ class VexioChromeOsApp {
       return `
         <div id="vexio-context-menu" class="vexio-context-menu" style="left:${clampedLeft}px;top:${clampedTop}px">
           <div class="ctx-header">${sh ? `${sh.text || sh.name} (Sheet.${sh.id})` : `${this.selectedShapeIds.length} Shapes Selected`}</div>
-          <button class="ctx-item" data-ctx="edit-text"><span>Edit Text</span><span class="ctx-kbd">F2</span></button>
+          <button class="ctx-item" data-ctx="edit-text"><span>${t.editLabel}</span><span class="ctx-kbd">F2</span></button>
+          <div class="ctx-sep"></div>
+          <button class="ctx-item" data-ctx="rotate-left"><span>${t.rotateLeft90}</span><span class="ctx-kbd">Ctrl+L</span></button>
+          <button class="ctx-item" data-ctx="rotate-right"><span>${t.rotateRight90}</span><span class="ctx-kbd">Ctrl+R</span></button>
+          <button class="ctx-item" data-ctx="flip-h"><span>${t.flipHoriz}</span></button>
+          <button class="ctx-item" data-ctx="flip-v"><span>${t.flipVert}</span></button>
           <div class="ctx-sep"></div>
           <button class="ctx-item" data-ctx="cut"><span>Cut</span><span class="ctx-kbd">Ctrl+X</span></button>
           <button class="ctx-item" data-ctx="copy"><span>Copy</span><span class="ctx-kbd">Ctrl+C</span></button>
@@ -1734,7 +2122,7 @@ class VexioChromeOsApp {
 
     return `
       <div id="vexio-context-menu" class="vexio-context-menu" style="left:${clampedLeft}px;top:${clampedTop}px">
-        <div class="ctx-header">Canvas • (${(cm.pageIn?.[0] ?? 0).toFixed(1)}", ${(cm.pageIn?.[1] ?? 0).toFixed(1)}")</div>
+        <div class="ctx-header">Canvas • (${this.formatLengthFromIn(cm.pageIn?.[0] ?? 0)}, ${this.formatLengthFromIn(cm.pageIn?.[1] ?? 0)})</div>
         <button class="ctx-item" data-ctx="paste-here" ${hasClip ? '' : 'disabled'}><span>Paste Here</span><span class="ctx-kbd">Ctrl+V</span></button>
         <button class="ctx-item" data-ctx="select-all"><span>Select All Shapes</span><span class="ctx-kbd">Ctrl+A</span></button>
         <div class="ctx-sep"></div>
@@ -1762,6 +2150,9 @@ class VexioChromeOsApp {
     const multiDisabled = this.selectedShapeIds.length < 2 ? 'disabled' : '';
     const distDisabled = this.selectedShapeIds.length < 3 ? 'disabled' : '';
     const hasClip = this.clipboardShapeIds.length > 0 || this.clipboardSpecs.length > 0;
+    const baseFonts = ['Inter', 'Roboto', 'Segoe UI', 'Arial', 'Calibri', 'Georgia', 'JetBrains Mono'];
+    const fontList = Array.from(new Set([...baseFonts, ...this.systemFonts.slice(0, 20)]));
+    const fontSizes = [8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 36, 48];
 
     switch (this.activeRibbonTab) {
       case 'Home':
@@ -1769,9 +2160,51 @@ class VexioChromeOsApp {
           <span class="ribbon-group-label">Clipboard</span>
           <button class="m3-btn" id="btn-paste-sel" ${hasClip ? '' : 'disabled'} title="Paste (Ctrl+V)">Paste</button>
           <button class="m3-btn" id="btn-copy-sel" ${selDisabled} title="Copy (Ctrl+C)">Copy</button>
-          <button class="m3-btn" id="btn-duplicate-sel" ${selDisabled} title="Duplicate Selected (Ctrl+D)">${UI_ICONS.duplicate} Duplicate</button>
-          <button class="m3-btn" id="btn-delete-sel" ${selDisabled} title="Delete Selected (Del)">${UI_ICONS.trash} Delete</button>
+          <button class="m3-btn" id="btn-duplicate-sel" ${selDisabled} title="Duplicate Selected (Ctrl+D)">${UI_ICONS.duplicate}</button>
+          <button class="m3-btn" id="btn-delete-sel" ${selDisabled} title="Delete Selected (Del)">${UI_ICONS.trash}</button>
           <div class="ribbon-divider"></div>
+
+          <span class="ribbon-group-label">Font &amp; Paragraph</span>
+          <select class="cell-input" id="ribbon-font-family" style="width:112px;height:26px;padding:1px 6px;font-size:11.5px" title="Font Family">
+            ${fontList
+              .map(
+                (f) => `<option value="${f.replace(/"/g, '&quot;')}" ${this.textFontFamily === f ? 'selected' : ''}>${f}</option>`
+              )
+              .join('')}
+          </select>
+          <select class="cell-input" id="ribbon-font-size" style="width:58px;height:26px;padding:1px 4px;font-size:11.5px" title="Font Size (pt)">
+            ${fontSizes
+              .map((sz) => `<option value="${sz}" ${this.textFontSizePt === sz ? 'selected' : ''}>${sz}pt</option>`)
+              .join('')}
+          </select>
+          <button class="fmt-btn" id="btn-font-grow" title="Grow Font Size (A▲)">A▲</button>
+          <button class="fmt-btn" id="btn-font-shrink" title="Shrink Font Size (A▼)">A▼</button>
+          <button class="fmt-btn ${this.textBold ? 'active' : ''}" id="btn-fmt-bold" title="Bold (Ctrl+B)"><strong>B</strong></button>
+          <button class="fmt-btn ${this.textItalic ? 'active' : ''}" id="btn-fmt-italic" title="Italic (Ctrl+I)"><em>I</em></button>
+          <button class="fmt-btn ${this.textUnderline ? 'active' : ''}" id="btn-fmt-underline" title="Underline (Ctrl+U)"><u>U</u></button>
+          <button class="fmt-btn ${this.textStrikethrough ? 'active' : ''}" id="btn-fmt-strike" title="Strikethrough"><s>S</s></button>
+          <select class="cell-input" id="ribbon-text-color" style="width:74px;height:26px;padding:1px 4px;font-size:11px" title="Text Color">
+            <option value="#0F172A" ${this.textColorHex === '#0F172A' ? 'selected' : ''}>A Slate</option>
+            <option value="#1D4ED8" ${this.textColorHex === '#1D4ED8' ? 'selected' : ''}>A Blue</option>
+            <option value="#DC2626" ${this.textColorHex === '#DC2626' ? 'selected' : ''}>A Red</option>
+            <option value="#047857" ${this.textColorHex === '#047857' ? 'selected' : ''}>A Green</option>
+            <option value="#FFFFFF" ${this.textColorHex === '#FFFFFF' ? 'selected' : ''}>A White</option>
+          </select>
+          <select class="cell-input" id="ribbon-text-bg" style="width:76px;height:26px;padding:1px 4px;font-size:11px" title="Text Highlight / Background">
+            <option value="none" ${this.textBgColorHex === 'none' ? 'selected' : ''}>ab None</option>
+            <option value="#FEF08A" ${this.textBgColorHex === '#FEF08A' ? 'selected' : ''}>ab Yellow</option>
+            <option value="#BBF7D0" ${this.textBgColorHex === '#BBF7D0' ? 'selected' : ''}>ab Mint</option>
+            <option value="#BFDBFE" ${this.textBgColorHex === '#BFDBFE' ? 'selected' : ''}>ab Sky</option>
+          </select>
+          <button class="fmt-btn ${this.textHorizAlign === 0 ? 'active' : ''}" data-halign="0" title="Align Text Left">≡L</button>
+          <button class="fmt-btn ${this.textHorizAlign === 1 ? 'active' : ''}" data-halign="1" title="Center Text">≡C</button>
+          <button class="fmt-btn ${this.textHorizAlign === 2 ? 'active' : ''}" data-halign="2" title="Align Text Right">≡R</button>
+          <button class="fmt-btn ${this.textVertAlign === 0 ? 'active' : ''}" data-valign="0" title="Top Vertical Align">⤒</button>
+          <button class="fmt-btn ${this.textVertAlign === 1 ? 'active' : ''}" data-valign="1" title="Middle Vertical Align">↕</button>
+          <button class="fmt-btn ${this.textVertAlign === 2 ? 'active' : ''}" data-valign="2" title="Bottom Vertical Align">⤓</button>
+          <button class="fmt-btn ${this.textBullets ? 'active' : ''}" id="btn-fmt-bullets" title="Bulleted List">• List</button>
+          <div class="ribbon-divider"></div>
+
           <span class="ribbon-group-label">Fill</span>
           <div class="swatch-row">
             ${['255,255,255', '239,246,255', '219,234,254', '220,252,231', '254,243,199', '243,232,255', '254,226,226']
@@ -1782,25 +2215,26 @@ class VexioChromeOsApp {
               .join('')}
           </div>
           <div class="ribbon-divider"></div>
-          <span class="ribbon-group-label">Arrange &amp; Order</span>
-          <button class="m3-btn" data-zorder="front" ${selDisabled} title="Bring Selected to Front">Bring Front</button>
-          <button class="m3-btn" data-zorder="back" ${selDisabled} title="Send Selected to Back">Send Back</button>
-          <button class="m3-btn" data-align="left" ${multiDisabled} title="Align Left">Align Left</button>
+
+          <span class="ribbon-group-label">Rotate &amp; Arrange</span>
+          <button class="m3-btn tonal" data-rot-deg="-90" ${selDisabled} title="${this.i18n.rotateLeft90} (Ctrl+L)">↺ 90°</button>
+          <button class="m3-btn tonal" data-rot-deg="90" ${selDisabled} title="${this.i18n.rotateRight90} (Ctrl+R)">↻ 90°</button>
+          <button class="m3-btn" data-flip-axis="x" ${selDisabled} title="${this.i18n.flipHoriz}">⇆ Flip H</button>
+          <button class="m3-btn" data-flip-axis="y" ${selDisabled} title="${this.i18n.flipVert}">⇅ Flip V</button>
+          <button class="m3-btn" data-zorder="front" ${selDisabled} title="Bring Selected to Front">Front</button>
+          <button class="m3-btn" data-zorder="back" ${selDisabled} title="Send Selected to Back">Back</button>
+          <button class="m3-btn" data-align="left" ${multiDisabled} title="Align Left">Align L</button>
           <button class="m3-btn" data-align="center" ${multiDisabled} title="Align Center">Center</button>
           <button class="m3-btn" data-align="middle" ${multiDisabled} title="Align Middle">Middle</button>
           <button class="m3-btn" data-align="distribute_h" ${distDisabled} title="Distribute Horizontally">Dist H</button>
-          <div class="ribbon-divider"></div>
-          <span class="ribbon-group-label">Layout &amp; Export</span>
           <button class="m3-btn tonal" data-layout="tb" title="Auto-Arrange Diagram Top-Down">Auto-Layout</button>
-          <button class="m3-btn tonal" id="btn-export-jpg" title="Export High-DPI JPEG Image (.jpg)">JPG</button>
-          <button class="m3-btn tonal" id="btn-export-pdf" title="Export Vector PDF/A">PDF</button>
-          <button class="m3-btn" id="btn-export-png" title="Export High-DPI PNG Image (.png)">PNG</button>
-          <button class="m3-btn" id="btn-export-pptx" title="Export PowerPoint Deck (.pptx)">PPTX</button>
-          <button class="m3-btn" id="btn-copy-svg" title="Copy SVG to Clipboard">SVG</button>
-          <button class="m3-btn" id="btn-export-dxf" title="Export AutoCAD .DXF">DXF</button>
         `;
       case 'Insert':
         return `
+          <span class="ribbon-group-label">Pages &amp; Stencils</span>
+          <button class="m3-btn tonal" id="btn-ribbon-add-page">+ Blank Page</button>
+          <button class="m3-btn active" id="btn-ribbon-import-vssx">${this.i18n.importVisioStencil}</button>
+          <div class="ribbon-divider"></div>
           <span class="ribbon-group-label">Diagram Structure</span>
           <button class="m3-btn tonal" id="btn-ins-container">Container Box</button>
           <button class="m3-btn tonal" id="btn-ins-swimlanes">Swimlanes</button>
@@ -1818,8 +2252,20 @@ class VexioChromeOsApp {
         `;
       case 'Design':
         return `
+          <span class="ribbon-group-label">Page Size &amp; Units</span>
+          <select class="cell-input" id="page-preset-select" style="width:210px;height:28px;padding:2px 8px;font-size:11.5px" title="ISO Metric (A0-A5) &amp; US Standard Page Sizes">
+            ${PAGE_PRESET_OPTIONS.map(
+              (p) => `<option value="${p.id}" ${this.activePagePresetId === p.id ? 'selected' : ''}>${p.label}</option>`
+            ).join('')}
+          </select>
+          <button class="m3-btn ${this.activePagePresetId === 'a4_l' ? 'active' : 'tonal'}" data-page-preset="a4_l">A4</button>
+          <button class="m3-btn ${this.activePagePresetId === 'a3_l' ? 'active' : 'tonal'}" data-page-preset="a3_l">A3</button>
+          <button class="m3-btn ${this.activePagePresetId === 'letter_l' ? 'active' : 'tonal'}" data-page-preset="letter_l">Letter</button>
+          <button class="fmt-btn ${this.metricUnits ? 'active' : ''}" id="btn-unit-mm" title="Metric Units (mm)">mm</button>
+          <button class="fmt-btn ${!this.metricUnits ? 'active' : ''}" id="btn-unit-in" title="Imperial Units (in)">in</button>
+          <div class="ribbon-divider"></div>
           <span class="ribbon-group-label">Theme</span>
-          <select class="cell-input" id="theme-slug-select" style="width:132px;height:28px;padding:2px 8px">
+          <select class="cell-input" id="theme-slug-select" style="width:122px;height:28px;padding:2px 8px">
             ${['modern', 'professional', 'vibrant', 'blueprint', 'monochrome', 'hand_drawn']
               .map(
                 (t) =>
@@ -1827,7 +2273,7 @@ class VexioChromeOsApp {
               )
               .join('')}
           </select>
-          <select class="cell-input" id="theme-variant-select" style="width:94px;height:28px;padding:2px 8px">
+          <select class="cell-input" id="theme-variant-select" style="width:90px;height:28px;padding:2px 8px">
             ${[0, 1, 2, 3]
               .map(
                 (v) =>
@@ -1837,21 +2283,13 @@ class VexioChromeOsApp {
           </select>
           <button class="m3-btn active" id="btn-apply-theme">Apply</button>
           <div class="ribbon-divider"></div>
-          <span class="ribbon-group-label">Effects</span>
+          <span class="ribbon-group-label">Effects &amp; Layout</span>
           <button class="m3-btn" data-vis-preset="grad_linear" ${selDisabled}>Linear Grad</button>
-          <button class="m3-btn" data-vis-preset="grad_radial" ${selDisabled}>Radial Grad</button>
-          <button class="m3-btn" data-vis-preset="shadow_soft" ${selDisabled}>Drop Shadow</button>
+          <button class="m3-btn" data-vis-preset="shadow_soft" ${selDisabled}>Shadow</button>
           <button class="m3-btn" data-vis-preset="bevel_3d" ${selDisabled}>3D Bevel</button>
-          <button class="m3-btn" data-vis-preset="hatch_diag" ${selDisabled}>Hatch</button>
-          <button class="m3-btn" data-vis-preset="sketchy" ${selDisabled}>Sketchy</button>
-          <div class="ribbon-divider"></div>
-          <span class="ribbon-group-label">Layout &amp; Page</span>
           <button class="m3-btn" data-layout="tb">Top-Down</button>
           <button class="m3-btn" data-layout="lr">Left-Right</button>
-          <button class="m3-btn" data-layout="radial">Radial</button>
-          <button class="m3-btn" id="btn-iso-title-block">Title Block</button>
-          <button class="m3-btn" data-pagesize="11,8.5,0">11×8.5"</button>
-          <button class="m3-btn" data-pagesize="17,11,2">17×11"</button>
+          <button class="m3-btn" id="btn-iso-title-block">ISO Title Block</button>
         `;
       case 'Data':
         return `
@@ -2180,37 +2618,135 @@ class VexioChromeOsApp {
       .filter(Boolean)
       .join(' ');
 
+    const t = this.i18n;
+    const ribbonTabLabels: Array<[string, string]> = [
+      ['Home', t.homeTab],
+      ['Insert', t.insertTab],
+      ['Design', t.designTab],
+      ['Data', t.dataTab],
+      ['Process', t.processTab],
+      ['Review', t.reviewTab],
+      ['View', t.viewTab],
+      ['Developer', t.developerTab],
+    ];
+
     root.innerHTML = `
-      <div class="workstation-shell">
-        <!-- Row 1: Clean ChromeOS Header + Classic Underline Ribbon Tabs -->
+      <div class="workstation-shell ${this.isRibbonCollapsed ? 'ribbon-collapsed' : ''}">
+        <!-- Row 1: Clean ChromeOS Header + Top-Left Inline Rename + Hover-Switching Menus + Collapsible Visio Ribbon Tabs -->
         <header class="wco-titlebar">
-          <div class="brand-lockup no-drag" id="btn-brand-backstage" title="Open File Backstage & Starter Templates">
+          <div class="brand-lockup no-drag" id="btn-brand-backstage" title="${t.startHeroTitle}">
             <img src="/icons/vexio-icon.svg" alt="Vexio" width="22" height="22" style="display:block;flex-shrink:0" />
             <span class="brand-name">Vexio</span>
           </div>
 
-          <button class="m3-btn file-backstage-btn no-drag" id="btn-backstage" title="Templates, Open, Save & Version History">File</button>
+          ${
+            this.isRenamingDocTitle
+              ? `<input id="doc-title-inline-input" class="doc-title-inline-input no-drag" value="${this.renameDocDraft.replace(/"/g, '&quot;')}" aria-label="Document Name" />`
+              : `<span class="doc-title-pill no-drag" id="doc-title-pill" title="${t.renameHint} (${this.currentFileName})">${this.currentFileName}</span>`
+          }
+
+          <div class="top-menubar no-drag" role="menubar">
+            <div class="top-menu-wrap" data-top-menu="file">
+              <button class="top-menu-trigger file-accent ${this.openHeaderMenu === 'file' ? 'open' : ''}" data-top-trigger="file">${t.fileMenu}</button>
+              ${
+                this.openHeaderMenu === 'file'
+                  ? `<div class="top-menu-dropdown" role="menu">
+                      <button class="ctx-item" data-top-cmd="backstage"><span>Start Hub &amp; Templates…</span></button>
+                      <div class="ctx-sep"></div>
+                      <button class="ctx-item" data-top-cmd="new-a4"><span>${t.newBlankA4}</span></button>
+                      <button class="ctx-item" data-top-cmd="new-a3"><span>${t.newBlankA3}</span></button>
+                      <button class="ctx-item" data-top-cmd="new-letter"><span>${t.newBlankLetter}</span></button>
+                      <div class="ctx-sep"></div>
+                      <button class="ctx-item" data-top-cmd="open-disk"><span>${t.openLocalFile}</span><span class="ctx-kbd">Ctrl+O</span></button>
+                      <button class="ctx-item" data-top-cmd="import-stencil"><span>${t.importVisioStencil}</span></button>
+                      <div class="ctx-sep"></div>
+                      <button class="ctx-item" data-top-cmd="save-vsdx"><span>Save Visio (.vsdx)</span><span class="ctx-kbd">Ctrl+S</span></button>
+                    </div>`
+                  : ''
+              }
+            </div>
+
+            <div class="top-menu-wrap" data-top-menu="edit">
+              <button class="top-menu-trigger ${this.openHeaderMenu === 'edit' ? 'open' : ''}" data-top-trigger="edit">${t.editMenu}</button>
+              ${
+                this.openHeaderMenu === 'edit'
+                  ? `<div class="top-menu-dropdown" role="menu">
+                      <button class="ctx-item" data-top-cmd="undo" ${snap.canUndo ? '' : 'disabled'}><span>Undo</span><span class="ctx-kbd">Ctrl+Z</span></button>
+                      <button class="ctx-item" data-top-cmd="redo" ${snap.canRedo ? '' : 'disabled'}><span>Redo</span><span class="ctx-kbd">Ctrl+Y</span></button>
+                      <div class="ctx-sep"></div>
+                      <button class="ctx-item" data-top-cmd="rotate-left" ${this.selectedShapeIds.length ? '' : 'disabled'}><span>${t.rotateLeft90}</span><span class="ctx-kbd">Ctrl+L</span></button>
+                      <button class="ctx-item" data-top-cmd="rotate-right" ${this.selectedShapeIds.length ? '' : 'disabled'}><span>${t.rotateRight90}</span><span class="ctx-kbd">Ctrl+R</span></button>
+                      <button class="ctx-item" data-top-cmd="flip-h" ${this.selectedShapeIds.length ? '' : 'disabled'}><span>${t.flipHoriz}</span></button>
+                      <button class="ctx-item" data-top-cmd="flip-v" ${this.selectedShapeIds.length ? '' : 'disabled'}><span>${t.flipVert}</span></button>
+                      <div class="ctx-sep"></div>
+                      <button class="ctx-item" data-top-cmd="rename-doc"><span>Rename Document…</span></button>
+                    </div>`
+                  : ''
+              }
+            </div>
+
+            <div class="top-menu-wrap" data-top-menu="export">
+              <button class="top-menu-trigger ${this.openHeaderMenu === 'export' ? 'open' : ''}" data-top-trigger="export">${t.exportMenu}</button>
+              ${
+                this.openHeaderMenu === 'export'
+                  ? `<div class="top-menu-dropdown" role="menu">
+                      <button class="ctx-item" data-top-cmd="exp-pdf"><span>Export Vector PDF/A (.pdf)</span></button>
+                      <button class="ctx-item" data-top-cmd="exp-svg"><span>Copy / Export Vector SVG (.svg)</span></button>
+                      <button class="ctx-item" data-top-cmd="exp-png"><span>Export High-DPI PNG (.png)</span></button>
+                      <button class="ctx-item" data-top-cmd="exp-jpg"><span>Export High-DPI JPEG (.jpg)</span></button>
+                      <div class="ctx-sep"></div>
+                      <button class="ctx-item" data-top-cmd="exp-dxf"><span>Export AutoCAD (.dxf)</span></button>
+                      <button class="ctx-item" data-top-cmd="exp-pptx"><span>Export PowerPoint (.pptx)</span></button>
+                      <button class="ctx-item" data-top-cmd="exp-docx"><span>Export Word Spec (.docx)</span></button>
+                    </div>`
+                  : ''
+              }
+            </div>
+
+            <div class="top-menu-wrap" data-top-menu="help">
+              <button class="top-menu-trigger ${this.openHeaderMenu === 'help' ? 'open' : ''}" data-top-trigger="help">${t.helpMenu}</button>
+              ${
+                this.openHeaderMenu === 'help'
+                  ? `<div class="top-menu-dropdown" role="menu">
+                      <button class="ctx-item" data-top-cmd="check-updates"><span>${t.checkUpdates}</span></button>
+                      <button class="ctx-item" data-top-cmd="toggle-auto-updates"><span>${this.autoCheckUpdates ? '✓ ' : ''}${t.autoCheckUpdates}</span></button>
+                      <div class="ctx-sep"></div>
+                      <button class="ctx-item" data-top-cmd="open-ss"><span>ShapeSheet Studio</span><span class="ctx-kbd">Shift+F5</span></button>
+                    </div>`
+                  : ''
+              }
+            </div>
+          </div>
 
           <div class="qat-group no-drag">
-            <button class="m3-btn icon-only" id="btn-open" title="Open Visio or CAD File (Ctrl+O)">${UI_ICONS.open}</button>
+            <button class="m3-btn icon-only" id="btn-open" title="${t.openLocalFile} (Ctrl+O)">${UI_ICONS.open}</button>
             <button class="m3-btn icon-only" id="btn-save" title="Save .vsdx (Ctrl+S)">${UI_ICONS.save}</button>
             <button class="m3-btn icon-only" id="btn-undo" title="Undo (Ctrl+Z)" ${snap.canUndo ? '' : 'disabled'}>${UI_ICONS.undo}</button>
             <button class="m3-btn icon-only" id="btn-redo" title="Redo (Ctrl+Y)" ${snap.canRedo ? '' : 'disabled'}>${UI_ICONS.redo}</button>
-            <button class="m3-btn icon-only" id="btn-snapshot-quick" title="Save Version Snapshot">${UI_ICONS.snapshot}</button>
           </div>
 
-          <nav class="header-ribbon-tabs no-drag">
-            ${['Home', 'Insert', 'Design', 'Data', 'Process', 'Review', 'View', 'Developer']
+          <nav class="header-ribbon-tabs no-drag" aria-label="Visio Ribbon Tabs">
+            ${ribbonTabLabels
               .map(
-                (tab) =>
-                  `<button class="ribbon-tab ${this.activeRibbonTab === tab ? 'active' : ''}" data-tab="${tab}">${tab}</button>`
+                ([tabId, label]) =>
+                  `<button class="ribbon-tab ${this.activeRibbonTab === tabId && !this.isRibbonCollapsed ? 'active' : ''}" data-tab="${tabId}" title="Click to switch • Double-click to collapse/expand Ribbon">${label}</button>`
               )
               .join('')}
           </nav>
 
+          <button class="m3-btn icon-only no-drag" id="btn-collapse-ribbon" title="${this.isRibbonCollapsed ? 'Expand Ribbon' : 'Collapse Ribbon'}">${this.isRibbonCollapsed ? '▾' : '▴'}</button>
+
           <div style="flex:1"></div>
 
-          <span class="doc-title-pill no-drag" id="btn-rename-doc" title="Click to rename document (${this.currentFileName})">${this.currentFileName}</span>
+          <select class="cell-input no-drag" id="lang-switcher" style="width:68px;height:26px;padding:1px 6px;font-size:11px;font-weight:700" title="Application Language (EN / DE / IT / FR / ES / GR)">
+            ${(['en', 'de', 'it', 'fr', 'es', 'gr'] as const)
+              .map(
+                (code) =>
+                  `<option value="${code}" ${this.lang === code ? 'selected' : ''}>${VEXIO_TRANSLATIONS[code].badge}</option>`
+              )
+              .join('')}
+          </select>
+
           <div class="peer-avatar-stack no-drag" id="peer-avatar-stack"></div>
           <span class="status-chip ${this.cloudState.online ? '' : 'offline'} no-drag" id="cloud-sync-chip">
             ${this.cloudState.online ? (this.cloudState.user ? 'Cloud Synced' : 'Saved Locally') : 'Offline Ready'}
@@ -2225,8 +2761,8 @@ class VexioChromeOsApp {
           </button>
         </header>
 
-        <!-- Row 2: Single-Row Contextual Command Toolbar -->
-        <div class="ribbon-bar">
+        <!-- Row 2: Classic Collapsible Visio Ribbon Command Bar -->
+        <div class="ribbon-bar ${this.isRibbonCollapsed ? 'collapsed' : ''}">
           <div class="ribbon-commands">
             ${this.renderContextualRibbon(snap)}
           </div>
@@ -2259,14 +2795,15 @@ class VexioChromeOsApp {
           <aside class="stencil-pane" style="${this.showLeftStencils ? '' : 'display:none'}">
             <div class="pane-header">
               <span>Shapes (${orderedPacks.length} Packs · ${totalMasterCount})</span>
-              <div style="display:flex;gap:4px;align-items:center">
-                <button class="m3-btn tonal" id="btn-import-vssx" style="height:20px;padding:0 6px;font-size:10px" title="Import Microsoft Visio Stencil (.vssx / .vss)">+ .vssx</button>
-                <input type="file" id="vssx-file-input" accept=".vssx,.vssm,.vss,.vsdx,.vdx" style="display:none" />
-                <button class="m3-btn" id="btn-expand-collapse-packs" style="height:20px;padding:0 6px;font-size:10px">
-                  ${this.expandedStencilPacks.size >= orderedPacks.length ? 'Collapse' : 'Expand All'}
-                </button>
-              </div>
+              <button class="m3-btn" id="btn-expand-collapse-packs" style="height:20px;padding:0 6px;font-size:10px">
+                ${this.expandedStencilPacks.size >= orderedPacks.length ? 'Collapse' : 'Expand All'}
+              </button>
             </div>
+
+            <button class="m3-btn tonal" id="btn-import-vssx" style="width:100%;height:28px;font-size:11.5px;justify-content:center" title="${t.importVisioStencil}">
+              ${t.importVisioStencil}
+            </button>
+            <input type="file" id="vssx-file-input" accept=".vssx,.vssm,.vss,.vsdx,.vstx,.vstm,.vsd,.vst,.vdx" style="display:none" />
 
             <div class="search-box-wrap">
               ${UI_ICONS.search}
@@ -2402,7 +2939,7 @@ class VexioChromeOsApp {
           ${this.renderDrawingToolRail()}
 
           <section class="canvas-shell" style="${this.showRulers ? '' : 'grid-template-columns:0px 1fr;grid-template-rows:0px 1fr'}">
-            <div class="ruler-corner">in</div>
+            <div class="ruler-corner">${this.metricUnits ? 'mm' : 'in'}</div>
             <div class="ruler-horiz" id="ruler-horiz">${this.renderHorizRulerSvg(snap.pageWidthIn, ppiZoom)}</div>
             <div class="ruler-vert" id="ruler-vert">${this.renderVertRulerSvg(snap.pageHeightIn, ppiZoom)}</div>
             <div class="canvas-viewport" id="canvas-viewport">
@@ -2501,7 +3038,7 @@ class VexioChromeOsApp {
           </div>
           <div style="display:flex;align-items:center;gap:14px">
             <span style="color:var(--m3-text-muted);font-size:11px">Tool: <strong style="color:var(--m3-text);text-transform:capitalize">${this.activeTool.replace('_', ' ')}</strong></span>
-            <span id="coord-readout" style="font-variant-numeric:tabular-nums">X: ${this.cursorCoordsIn[0].toFixed(2)}" &nbsp;Y: ${this.cursorCoordsIn[1].toFixed(2)}"</span>
+            <span id="coord-readout" style="font-variant-numeric:tabular-nums">X: ${this.formatLengthFromIn(this.cursorCoordsIn[0])} &nbsp;Y: ${this.formatLengthFromIn(this.cursorCoordsIn[1])}</span>
             <span>Selected: <strong>${this.selectedShapeIds.length}</strong></span>
             <label style="display:inline-flex;align-items:center;gap:6px">
               <input type="range" id="zoom-slider" min="25" max="400" value="${this.zoomPct}" style="width:88px;accent-color:var(--m3-primary)" />
@@ -2538,11 +3075,17 @@ class VexioChromeOsApp {
     this.attachDomListeners();
     this.syncViewportRulersAndMinimap();
 
-    if (this.editingShapeId !== null) {
+    if (this.isRenamingDocTitle) {
+      const titleInp = document.getElementById('doc-title-inline-input') as HTMLInputElement | null;
+      if (titleInp) {
+        titleInp.focus();
+        titleInp.select();
+      }
+    } else if (this.editingShapeId !== null) {
       const ed = document.getElementById('inline-shape-editor') as HTMLTextAreaElement | null;
       if (ed) {
         ed.focus();
-        ed.setSelectionRange(ed.value.length, ed.value.length);
+        ed.select();
       }
     }
   }
@@ -2624,12 +3167,18 @@ class VexioChromeOsApp {
     if (!selectedShape) {
       return `
         <div class="insp-card">
-          <div class="insp-card-title">Page Setup (${snap.pageWidthIn.toFixed(1)}" × ${snap.pageHeightIn.toFixed(1)}")</div>
+          <div class="insp-card-title">Page Setup (${this.formatLengthFromIn(snap.pageWidthIn)} × ${this.formatLengthFromIn(snap.pageHeightIn)})</div>
           <div class="effect-chips-grid">
-            <button class="m3-btn tonal" data-pagesize="11,8.5,0" style="height:28px;font-size:11px">Landscape 11×8.5"</button>
-            <button class="m3-btn tonal" data-pagesize="8.5,11,0" style="height:28px;font-size:11px">Portrait 8.5×11"</button>
-            <button class="m3-btn tonal" data-pagesize="16,9,1" style="height:28px;font-size:11px">Widescreen 16×9"</button>
-            <button class="m3-btn tonal" data-pagesize="17,11,2" style="height:28px;font-size:11px">Tabloid 17×11"</button>
+            <button class="m3-btn ${this.activePagePresetId === 'a4_l' ? 'active' : 'tonal'}" data-page-preset="a4_l" style="height:28px;font-size:11px">ISO A4 Land</button>
+            <button class="m3-btn ${this.activePagePresetId === 'a4_p' ? 'active' : 'tonal'}" data-page-preset="a4_p" style="height:28px;font-size:11px">ISO A4 Port</button>
+            <button class="m3-btn ${this.activePagePresetId === 'a3_l' ? 'active' : 'tonal'}" data-page-preset="a3_l" style="height:28px;font-size:11px">ISO A3 Land</button>
+            <button class="m3-btn ${this.activePagePresetId === 'a5_l' ? 'active' : 'tonal'}" data-page-preset="a5_l" style="height:28px;font-size:11px">ISO A5</button>
+            <button class="m3-btn ${this.activePagePresetId === 'letter_l' ? 'active' : 'tonal'}" data-page-preset="letter_l" style="height:28px;font-size:11px">Letter 11×8.5"</button>
+            <button class="m3-btn ${this.activePagePresetId === 'tabloid_l' ? 'active' : 'tonal'}" data-page-preset="tabloid_l" style="height:28px;font-size:11px">Tabloid 17×11"</button>
+          </div>
+          <div style="display:flex;gap:6px;margin-top:6px">
+            <button class="m3-btn ${this.metricUnits ? 'active' : 'tonal'}" id="btn-insp-unit-mm" style="flex:1;height:26px;font-size:11px">Metric (mm)</button>
+            <button class="m3-btn ${!this.metricUnits ? 'active' : 'tonal'}" id="btn-insp-unit-in" style="flex:1;height:26px;font-size:11px">Imperial (in)</button>
           </div>
         </div>
 
@@ -2656,7 +3205,7 @@ class VexioChromeOsApp {
           <div class="insp-card-title">Canvas View</div>
           <div style="display:flex;flex-direction:column;gap:6px;font-size:12px">
             <label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" id="chk-insp-grid" ${this.showGrid ? 'checked' : ''} /> Show Dot Grid</label>
-            <label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" id="chk-insp-rulers" ${this.showRulers ? 'checked' : ''} /> Show Inch Rulers</label>
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" id="chk-insp-rulers" ${this.showRulers ? 'checked' : ''} /> Show Rulers (${this.metricUnits ? 'mm' : 'in'})</label>
             <label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" id="chk-insp-minimap" ${this.showMinimap ? 'checked' : ''} /> Show Overview Minimap</label>
             <label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" id="chk-insp-fx" ${this.showFormulaBar ? 'checked' : ''} /> Show Developer Formula Bar (fx)</label>
           </div>
@@ -2695,8 +3244,27 @@ class VexioChromeOsApp {
       </div>
 
       <div class="insp-card">
-        <div class="insp-card-title">Label / Text</div>
+        <div class="insp-card-title">Label &amp; Text Formatting</div>
         <input class="cell-input" id="shape-text-input" value="${selectedShape.text.replace(/"/g, '&quot;')}" placeholder="Type shape label (or double-click shape)..." />
+        <div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:6px">
+          <button class="fmt-btn ${this.textBold ? 'active' : ''}" id="btn-insp-bold" title="Bold (Ctrl+B)"><strong>B</strong></button>
+          <button class="fmt-btn ${this.textItalic ? 'active' : ''}" id="btn-insp-italic" title="Italic (Ctrl+I)"><em>I</em></button>
+          <button class="fmt-btn ${this.textUnderline ? 'active' : ''}" id="btn-insp-underline" title="Underline (Ctrl+U)"><u>U</u></button>
+          <button class="fmt-btn ${this.textHorizAlign === 0 ? 'active' : ''}" data-halign="0" title="Align Left">≡L</button>
+          <button class="fmt-btn ${this.textHorizAlign === 1 ? 'active' : ''}" data-halign="1" title="Center">≡C</button>
+          <button class="fmt-btn ${this.textHorizAlign === 2 ? 'active' : ''}" data-halign="2" title="Align Right">≡R</button>
+          <button class="fmt-btn ${this.textBullets ? 'active' : ''}" id="btn-insp-bullets" title="Bullets">•</button>
+        </div>
+      </div>
+
+      <div class="insp-card">
+        <div class="insp-card-title">Rotate &amp; Flip Stencil</div>
+        <div class="effect-chips-grid">
+          <button class="m3-btn tonal" data-rot-deg="-90" style="height:27px;font-size:11px">↺ Left 90°</button>
+          <button class="m3-btn tonal" data-rot-deg="90" style="height:27px;font-size:11px">↻ Right 90°</button>
+          <button class="m3-btn tonal" data-flip-axis="x" style="height:27px;font-size:11px">⇆ Flip Horiz</button>
+          <button class="m3-btn tonal" data-flip-axis="y" style="height:27px;font-size:11px">⇅ Flip Vert</button>
+        </div>
       </div>
 
       ${
@@ -2781,39 +3349,101 @@ class VexioChromeOsApp {
 
   private renderStudioModal(): string {
     if (!this.activeModal) return '';
+    const t = this.i18n;
+
+    if (this.activeModal === 'updates') {
+      return `
+        <div class="modal-backdrop">
+          <div class="modal-card">
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <strong>${t.checkUpdates}</strong>
+              <button class="m3-btn" id="btn-close-modal">Close</button>
+            </div>
+            <div class="list-row-card" style="flex-direction:column;align-items:flex-start;gap:6px">
+              <strong>${this.updateStatusText}</strong>
+              <span style="font-size:11.5px;color:var(--m3-text-muted)">Installed build: Vexio v0.1.0-alpha • Offline-First Workbox PWA + GitHub Releases channel</span>
+            </div>
+            <label style="display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer">
+              <input type="checkbox" id="chk-auto-updates" ${this.autoCheckUpdates ? 'checked' : ''} />
+              ${t.autoCheckUpdates}
+            </label>
+            <div style="display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap">
+              <button class="m3-btn tonal" id="btn-recheck-updates">${t.checkUpdates}</button>
+              <a class="m3-btn active" href="${this.latestReleaseUrl}" target="_blank" rel="noopener noreferrer" style="text-decoration:none">Open GitHub Releases ↗</a>
+            </div>
+          </div>
+        </div>
+      `;
+    }
 
     if (this.activeModal === 'backstage') {
       return `
         <div class="modal-backdrop">
           <div class="modal-card wide">
-            <div style="display:flex;justify-content:space-between;align-items:center">
-              <strong style="font-size:15px">Vexio File Backstage — Export, Templates, Workspaces &amp; Version History</strong>
-              <button class="m3-btn" id="btn-close-modal">Close</button>
+            <div class="backstage-hero-banner">
+              <div style="display:flex;align-items:center;gap:12px">
+                <img src="/icons/vexio-icon.svg" alt="Vexio" width="38" height="38" />
+                <div>
+                  <strong style="font-size:15.5px;display:block">${t.startHeroTitle}</strong>
+                  <span style="font-size:11.5px;color:var(--m3-text-secondary)">${t.startHeroSubtitle}</span>
+                </div>
+              </div>
+              <div style="display:flex;gap:8px;flex-wrap:wrap">
+                <button class="m3-btn file-backstage-btn" id="btn-close-modal">${t.continueToCanvas} →</button>
+              </div>
             </div>
 
-            <div class="pane-header">Save &amp; Export Formats (100% Offline)</div>
+            <div class="pane-header">Create New Diagram or Open Local File Inside Vexio</div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+              <button class="m3-btn active" data-blank-preset="a4_l">${t.newBlankA4}</button>
+              <button class="m3-btn tonal" data-blank-preset="a3_l">${t.newBlankA3}</button>
+              <button class="m3-btn tonal" data-blank-preset="letter_l">${t.newBlankLetter}</button>
+              <button class="m3-btn tonal" id="btn-backstage-open">${t.openLocalFile}</button>
+              <button class="m3-btn tonal" id="btn-backstage-import-vssx">${t.importVisioStencil}</button>
+            </div>
+
+            <div class="pane-header" style="margin-top:4px">8 Built-In Enterprise Starter Templates</div>
+            <div class="backstage-grid">
+              ${STARTER_TEMPLATES.map(
+                (tpl) => `
+                <div class="template-card" data-template-id="${tpl.id}">
+                  <div style="font-size:10px;color:var(--m3-primary);font-weight:700">${tpl.category}</div>
+                  <div style="font-weight:700">${tpl.title}</div>
+                  <div style="font-size:11px;color:var(--m3-text-muted)">${tpl.desc}</div>
+                </div>
+              `
+              ).join('')}
+            </div>
+
+            <div class="pane-header" style="margin-top:4px">Save &amp; Export Formats (100% Offline)</div>
             <div style="display:flex;gap:8px;flex-wrap:wrap">
               <button class="m3-btn active" data-export-ext="vsdx">Save Visio (.vsdx)</button>
-              <button class="m3-btn tonal" data-export-ext="jpg">Export JPG Image (.jpg)</button>
-              <button class="m3-btn tonal" data-export-ext="png">Export PNG Image (.png)</button>
               <button class="m3-btn tonal" data-export-ext="pdf">Export PDF/A (.pdf)</button>
+              <button class="m3-btn tonal" data-export-ext="png">Export PNG (.png)</button>
+              <button class="m3-btn tonal" data-export-ext="jpg">Export JPG (.jpg)</button>
               <button class="m3-btn" data-export-ext="svg">Export Vector (.svg)</button>
               <button class="m3-btn" data-export-ext="pptx">PowerPoint (.pptx)</button>
               <button class="m3-btn" data-export-ext="docx">Word Spec (.docx)</button>
               <button class="m3-btn" data-export-ext="dxf">AutoCAD (.dxf)</button>
             </div>
 
-            <div class="pane-header" style="margin-top:4px">8 Built-In Enterprise Starter Templates</div>
-            <div class="backstage-grid">
-              ${STARTER_TEMPLATES.map(
-                (t) => `
-                <div class="template-card" data-template-id="${t.id}">
-                  <div style="font-size:10px;color:var(--m3-primary);font-weight:700">${t.category}</div>
-                  <div style="font-weight:700">${t.title}</div>
-                  <div style="font-size:11px;color:var(--m3-text-muted)">${t.desc}</div>
-                </div>
-              `
-              ).join('')}
+            <div class="pane-header" style="margin-top:4px">Language, Units &amp; Software Updates</div>
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+              <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                ${(['en', 'de', 'it', 'fr', 'es', 'gr'] as const)
+                  .map(
+                    (code) =>
+                      `<button class="m3-btn ${this.lang === code ? 'active' : 'tonal'}" data-set-lang="${code}" style="height:26px;font-size:11px">${VEXIO_TRANSLATIONS[code].badge} · ${VEXIO_TRANSLATIONS[code].nativeName}</button>`
+                  )
+                  .join('')}
+              </div>
+              <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+                <label style="display:flex;align-items:center;gap:6px;font-size:11.5px;cursor:pointer">
+                  <input type="checkbox" id="chk-backstage-auto-updates" ${this.autoCheckUpdates ? 'checked' : ''} />
+                  ${t.autoCheckUpdates}
+                </label>
+                <button class="m3-btn tonal" id="btn-backstage-check-updates">${t.checkUpdates}</button>
+              </div>
             </div>
 
             <div class="pane-header" style="margin-top:6px">Immutable Version History Snapshots (OPFS + Firebase Cloud)</div>
@@ -2821,7 +3451,7 @@ class VexioChromeOsApp {
               <input class="cell-input" id="version-label-input" value="${this.versionLabelDraft}" placeholder="Version label..." />
               <button class="m3-btn active" id="btn-create-version">Save Version Snapshot</button>
             </div>
-            <div style="display:flex;flex-direction:column;gap:6px;max-height:145px;overflow-y:auto">
+            <div style="display:flex;flex-direction:column;gap:6px;max-height:130px;overflow-y:auto">
               ${
                 this.opfsVersions.length === 0
                   ? '<div style="font-size:12px;color:var(--m3-text-muted)">No snapshots saved for this document yet.</div>'
@@ -2841,11 +3471,11 @@ class VexioChromeOsApp {
               }
             </div>
 
-            <div class="pane-header" style="margin-top:6px">Local OPFS & Synced Cloud Workspaces</div>
+            <div class="pane-header" style="margin-top:6px">Local OPFS &amp; Synced Cloud Workspaces</div>
             <div style="display:flex;gap:8px">
               <button class="m3-btn" id="btn-new-workspace">+ Create New Workspace Slot</button>
             </div>
-            <div style="display:flex;flex-direction:column;gap:6px;max-height:140px;overflow-y:auto">
+            <div style="display:flex;flex-direction:column;gap:6px;max-height:130px;overflow-y:auto">
               ${this.opfsWorkspaces
                 .map(
                   (w) => `
@@ -2866,7 +3496,7 @@ class VexioChromeOsApp {
                     <strong>[Firebase Cloud] ${cw.title}</strong>
                     <span style="color:var(--m3-secondary);font-size:11px;margin-left:8px">${cw.docId} • ${cw.updatedAt}</span>
                   </div>
-                  <button class="m3-btn" data-open-cloud-ws="${cw.docId}" data-ws-title="${cw.title}">Pull & Open</button>
+                  <button class="m3-btn" data-open-cloud-ws="${cw.docId}" data-ws-title="${cw.title}">Pull &amp; Open</button>
                 </div>`
                 )
                 .join('')}
@@ -3214,13 +3844,336 @@ class VexioChromeOsApp {
       }
     });
 
-    // Ribbon Tabs & Contextual Commands
+    // Ribbon Tabs, Collapse Pin, Hover-Switching Top Menus, Inline Rename, Language & Rich Text
     document.querySelectorAll('.ribbon-tab').forEach((btn) => {
       btn.addEventListener('click', () => {
-        this.activeRibbonTab = (btn as HTMLElement).dataset.tab ?? 'Home';
+        const nextTab = (btn as HTMLElement).dataset.tab ?? 'Home';
+        this.activeRibbonTab = nextTab;
+        this.isRibbonCollapsed = false;
+        this.render();
+      });
+      btn.addEventListener('dblclick', (ev) => {
+        ev.preventDefault();
+        this.isRibbonCollapsed = !this.isRibbonCollapsed;
         this.render();
       });
     });
+
+    document.getElementById('btn-collapse-ribbon')?.addEventListener('click', () => {
+      this.isRibbonCollapsed = !this.isRibbonCollapsed;
+      this.render();
+    });
+
+    // Chrome-style Hover-to-Switch across open sibling top menus (File | Edit | Export | Help)
+    document.querySelectorAll('[data-top-menu]').forEach((wrap) => {
+      const menuId = (wrap as HTMLElement).dataset.topMenu as 'file' | 'edit' | 'export' | 'help';
+      wrap.addEventListener('pointerenter', () => {
+        if (this.openHeaderMenu !== null && this.openHeaderMenu !== menuId) {
+          this.openHeaderMenu = menuId;
+          this.render();
+        }
+      });
+    });
+    document.querySelectorAll('[data-top-trigger]').forEach((trig) => {
+      trig.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        const menuId = (trig as HTMLElement).dataset.topTrigger as 'file' | 'edit' | 'export' | 'help';
+        this.openHeaderMenu = this.openHeaderMenu === menuId ? null : menuId;
+        this.render();
+      });
+    });
+    document.querySelectorAll('[data-top-cmd]').forEach((item) => {
+      item.addEventListener('click', async (ev) => {
+        ev.stopPropagation();
+        const cmd = (item as HTMLElement).dataset.topCmd ?? '';
+        this.openHeaderMenu = null;
+        switch (cmd) {
+          case 'backstage':
+            await this.openBackstageModal();
+            break;
+          case 'new-a4':
+            await this.applyPagePresetById('a4_l', true);
+            break;
+          case 'new-a3':
+            await this.applyPagePresetById('a3_l', true);
+            break;
+          case 'new-letter':
+            await this.applyPagePresetById('letter_l', true);
+            break;
+          case 'open-disk':
+            await this.handleOpenDisk();
+            break;
+          case 'import-stencil':
+            this.render();
+            (document.getElementById('vssx-file-input') as HTMLInputElement | null)?.click();
+            break;
+          case 'save-vsdx':
+            this.render();
+            await this.handleSaveInPlace('vsdx');
+            break;
+          case 'undo': {
+            const res = await this.callEngine('undo');
+            this.snapshot = res.snapshot;
+            this.persistMutationSideEffects(res.wal);
+            this.render();
+            break;
+          }
+          case 'redo': {
+            const res = await this.callEngine('redo');
+            this.snapshot = res.snapshot;
+            this.persistMutationSideEffects(res.wal);
+            this.render();
+            break;
+          }
+          case 'rotate-left':
+            await this.rotateOrFlipSelected(-90);
+            break;
+          case 'rotate-right':
+            await this.rotateOrFlipSelected(90);
+            break;
+          case 'flip-h':
+            await this.rotateOrFlipSelected(0, true, false);
+            break;
+          case 'flip-v':
+            await this.rotateOrFlipSelected(0, false, true);
+            break;
+          case 'rename-doc':
+            this.isRenamingDocTitle = true;
+            this.renameDocDraft = this.currentFileName;
+            this.render();
+            break;
+          case 'exp-pdf':
+            this.render();
+            await this.handleSaveInPlace('pdf');
+            break;
+          case 'exp-svg':
+            this.render();
+            await this.handleSaveInPlace('svg');
+            break;
+          case 'exp-png':
+            this.render();
+            await this.handleSaveInPlace('png');
+            break;
+          case 'exp-jpg':
+            this.render();
+            await this.handleSaveInPlace('jpg');
+            break;
+          case 'exp-dxf':
+            this.render();
+            await this.handleSaveInPlace('dxf');
+            break;
+          case 'exp-pptx':
+            this.render();
+            await this.handleSaveInPlace('pptx');
+            break;
+          case 'exp-docx':
+            this.render();
+            await this.handleSaveInPlace('docx');
+            break;
+          case 'check-updates':
+            await this.checkForUpdates(true);
+            break;
+          case 'toggle-auto-updates':
+            this.autoCheckUpdates = !this.autoCheckUpdates;
+            try {
+              localStorage.setItem('vexio.autoUpdate', String(this.autoCheckUpdates));
+            } catch {
+              // Ignore
+            }
+            this.render();
+            break;
+          case 'open-ss':
+            this.showShapeSheet = !this.showShapeSheet;
+            this.render();
+            break;
+          default:
+            this.render();
+            break;
+        }
+      });
+    });
+
+    // Double-Click Top-Left File Name to Select 100% & Rename Inline
+    document.getElementById('doc-title-pill')?.addEventListener('dblclick', (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      this.isRenamingDocTitle = true;
+      this.renameDocDraft = this.currentFileName;
+      this.render();
+    });
+    const docTitleInput = document.getElementById('doc-title-inline-input') as HTMLInputElement | null;
+    if (docTitleInput) {
+      let titleHandled = false;
+      docTitleInput.addEventListener('input', () => {
+        this.renameDocDraft = docTitleInput.value;
+      });
+      docTitleInput.addEventListener('keydown', (ev) => {
+        if (ev.key === 'Enter') {
+          ev.preventDefault();
+          if (!titleHandled) {
+            titleHandled = true;
+            void this.commitDocTitleRename(docTitleInput.value);
+          }
+        } else if (ev.key === 'Escape') {
+          ev.preventDefault();
+          titleHandled = true;
+          this.isRenamingDocTitle = false;
+          this.render();
+        }
+      });
+      docTitleInput.addEventListener('blur', () => {
+        if (!titleHandled) {
+          titleHandled = true;
+          void this.commitDocTitleRename(docTitleInput.value);
+        }
+      });
+    }
+
+    // 6-Language Switcher (EN, DE, IT, FR, ES, GR)
+    const switchLang = (code: VexioLangCode) => {
+      this.lang = code;
+      document.documentElement.lang = code === 'gr' ? 'el' : code;
+      try {
+        localStorage.setItem('vexio.lang', code);
+      } catch {
+        // Ignore
+      }
+      this.render();
+    };
+    document.getElementById('lang-switcher')?.addEventListener('change', (e) => {
+      switchLang((e.target as HTMLSelectElement).value as VexioLangCode);
+    });
+    document.querySelectorAll('[data-set-lang]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        switchLang(((btn as HTMLElement).dataset.setLang ?? 'en') as VexioLangCode);
+      });
+    });
+
+    // Rich Text Formatting Listeners
+    document.getElementById('ribbon-font-family')?.addEventListener('change', (e) => {
+      void this.applyRichTextPatch({ fontFamily: (e.target as HTMLSelectElement).value });
+    });
+    document.getElementById('ribbon-font-size')?.addEventListener('change', (e) => {
+      void this.applyRichTextPatch({ fontSizePt: Number((e.target as HTMLSelectElement).value) });
+    });
+    document.getElementById('btn-font-grow')?.addEventListener('click', () => {
+      void this.applyRichTextPatch({ fontSizePt: Math.min(96, this.textFontSizePt + 2) });
+    });
+    document.getElementById('btn-font-shrink')?.addEventListener('click', () => {
+      void this.applyRichTextPatch({ fontSizePt: Math.max(6, this.textFontSizePt - 2) });
+    });
+    const toggleBold = () => void this.applyRichTextPatch({ bold: !this.textBold });
+    const toggleItalic = () => void this.applyRichTextPatch({ italic: !this.textItalic });
+    const toggleUnderline = () => void this.applyRichTextPatch({ underline: !this.textUnderline });
+    const toggleBullets = () => void this.applyRichTextPatch({ bullet: this.textBullets ? 0 : 1 });
+    document.getElementById('btn-fmt-bold')?.addEventListener('click', toggleBold);
+    document.getElementById('btn-insp-bold')?.addEventListener('click', toggleBold);
+    document.getElementById('btn-fmt-italic')?.addEventListener('click', toggleItalic);
+    document.getElementById('btn-insp-italic')?.addEventListener('click', toggleItalic);
+    document.getElementById('btn-fmt-underline')?.addEventListener('click', toggleUnderline);
+    document.getElementById('btn-insp-underline')?.addEventListener('click', toggleUnderline);
+    document.getElementById('btn-fmt-strike')?.addEventListener('click', () => {
+      void this.applyRichTextPatch({ strikethrough: !this.textStrikethrough });
+    });
+    document.getElementById('btn-fmt-bullets')?.addEventListener('click', toggleBullets);
+    document.getElementById('btn-insp-bullets')?.addEventListener('click', toggleBullets);
+    document.getElementById('ribbon-text-color')?.addEventListener('change', (e) => {
+      void this.applyRichTextPatch({ colorHex: (e.target as HTMLSelectElement).value });
+    });
+    document.getElementById('ribbon-text-bg')?.addEventListener('change', (e) => {
+      void this.applyRichTextPatch({ bgColorHex: (e.target as HTMLSelectElement).value });
+    });
+    document.querySelectorAll('[data-halign]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        void this.applyRichTextPatch({ horizAlign: Number((btn as HTMLElement).dataset.halign ?? 1) });
+      });
+    });
+    document.querySelectorAll('[data-valign]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        void this.applyRichTextPatch({ vertAlign: Number((btn as HTMLElement).dataset.valign ?? 1) });
+      });
+    });
+
+    // Rotate & Flip All Stencils / Shapes
+    document.querySelectorAll('[data-rot-deg]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        void this.rotateOrFlipSelected(Number((btn as HTMLElement).dataset.rotDeg ?? 90));
+      });
+    });
+    document.querySelectorAll('[data-flip-axis]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const axis = (btn as HTMLElement).dataset.flipAxis;
+        void this.rotateOrFlipSelected(0, axis === 'x', axis === 'y');
+      });
+    });
+
+    // ISO Metric & US Page Presets + Unit Switcher
+    document.getElementById('page-preset-select')?.addEventListener('change', (e) => {
+      void this.applyPagePresetById((e.target as HTMLSelectElement).value, false);
+    });
+    document.querySelectorAll('[data-page-preset]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        void this.applyPagePresetById((btn as HTMLElement).dataset.pagePreset ?? 'a4_l', false);
+      });
+    });
+    document.querySelectorAll('[data-blank-preset]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        void this.applyPagePresetById((btn as HTMLElement).dataset.blankPreset ?? 'a4_l', true);
+      });
+    });
+    const setUnitSystem = async (metric: boolean) => {
+      this.metricUnits = metric;
+      try {
+        localStorage.setItem('vexio.metric', String(metric));
+      } catch {
+        // Ignore
+      }
+      if (this.snapshot) {
+        await this.callEngine('setPageSetupWithUnit', {
+          widthIn: this.snapshot.pageWidthIn,
+          heightIn: this.snapshot.pageHeightIn,
+          unitSlug: metric ? 'mm' : 'in',
+        });
+      }
+      this.render();
+    };
+    document.getElementById('btn-unit-mm')?.addEventListener('click', () => void setUnitSystem(true));
+    document.getElementById('btn-insp-unit-mm')?.addEventListener('click', () => void setUnitSystem(true));
+    document.getElementById('btn-unit-in')?.addEventListener('click', () => void setUnitSystem(false));
+    document.getElementById('btn-insp-unit-in')?.addEventListener('click', () => void setUnitSystem(false));
+
+    // Backstage & Ribbon Quick Actions + Software Updates
+    document.getElementById('btn-backstage-open')?.addEventListener('click', () => void this.handleOpenDisk());
+    document.getElementById('btn-ribbon-import-vssx')?.addEventListener('click', () => {
+      (document.getElementById('vssx-file-input') as HTMLInputElement | null)?.click();
+    });
+    document.getElementById('btn-backstage-import-vssx')?.addEventListener('click', () => {
+      this.activeModal = null;
+      this.render();
+      (document.getElementById('vssx-file-input') as HTMLInputElement | null)?.click();
+    });
+    document.getElementById('btn-ribbon-add-page')?.addEventListener('click', async () => {
+      const nextNum = (this.snapshot?.pages.length ?? 1) + 1;
+      const res = await this.callEngine('addPage', { name: `Page-${nextNum}` });
+      this.snapshot = res.snapshot;
+      this.selectedShapeIds = [];
+      this.persistMutationSideEffects(res.wal);
+      this.render();
+    });
+    const bindAutoUpdateChk = (id: string) => {
+      document.getElementById(id)?.addEventListener('change', (e) => {
+        this.autoCheckUpdates = (e.target as HTMLInputElement).checked;
+        try {
+          localStorage.setItem('vexio.autoUpdate', String(this.autoCheckUpdates));
+        } catch {
+          // Ignore
+        }
+      });
+    };
+    bindAutoUpdateChk('chk-auto-updates');
+    bindAutoUpdateChk('chk-backstage-auto-updates');
+    document.getElementById('btn-recheck-updates')?.addEventListener('click', () => void this.checkForUpdates(true));
+    document.getElementById('btn-backstage-check-updates')?.addEventListener('click', () => void this.checkForUpdates(true));
 
     document.querySelectorAll('[data-tool]').forEach((btn) => {
       btn.addEventListener('click', () => {
@@ -3228,15 +4181,6 @@ class VexioChromeOsApp {
         this.editingShapeId = null;
         this.render();
       });
-    });
-
-    document.getElementById('btn-rename-doc')?.addEventListener('click', () => {
-      const next = window.prompt('Rename Visio Document:', this.currentFileName);
-      if (next && next.trim()) {
-        const clean = next.trim();
-        this.currentFileName = /\.[a-z0-9]+$/i.test(clean) ? clean : `${clean}.vsdx`;
-        this.render();
-      }
     });
 
     document.getElementById('btn-copy-sel')?.addEventListener('click', async () => {
@@ -4257,7 +5201,7 @@ class VexioChromeOsApp {
       });
       stencilAside.addEventListener('drop', (ev) => {
         const f = ev.dataTransfer?.files?.[0];
-        if (f && /\.(vssx|vssm|vss|vsdx|vdx)$/i.test(f.name)) {
+        if (f && /\.(vssx|vssm|vss|vsdx|vstx|vstm|vsd|vst|vdx)$/i.test(f.name)) {
           ev.preventDefault();
           ev.stopPropagation();
           importVssxFile(f);
@@ -4326,6 +5270,7 @@ class VexioChromeOsApp {
         });
         this.persistMutationSideEffects(res.wal);
         this.snapshot = res.snapshot;
+        this.activeTool = 'pointer';
         this.setSingleSelection(res.shapeId);
         this.render();
       });
@@ -4406,6 +5351,7 @@ class VexioChromeOsApp {
           const res = await this.callEngine('dropShape', { category, masterName, xIn, yIn });
           this.persistMutationSideEffects(res.wal);
           this.snapshot = res.snapshot;
+          this.activeTool = 'pointer';
           this.setSingleSelection(res.shapeId);
           this.render();
           return;
@@ -4413,12 +5359,17 @@ class VexioChromeOsApp {
         const droppedFile = ev.dataTransfer?.files?.[0];
         if (droppedFile) {
           const ext = droppedFile.name.split('.').pop()?.toLowerCase() ?? 'vsdx';
-          if (['vsdx', 'vssx', 'vstx', 'vsdm', 'vsd', 'vdx', 'vdw', 'dwg', 'dxf'].includes(ext)) {
+          if (['vssx', 'vssm', 'vss', 'vst'].includes(ext)) {
+            await importVssxFile(droppedFile);
+            return;
+          }
+          if (['vsdx', 'vstx', 'vstm', 'vsdm', 'vsd', 'vdx', 'vdw', 'dwg', 'dxf'].includes(ext)) {
             const bytes = new Uint8Array(await droppedFile.arrayBuffer());
             this.activeFileHandle = null;
             this.currentFileName = droppedFile.name;
             const res = await this.callEngine('openBytes', { bytes, ext });
             this.snapshot = res.snapshot;
+            this.activeModal = null;
             this.setSingleSelection(this.snapshot?.shapes[0]?.id ?? null);
             this.persistMutationSideEffects();
             this.showToast(`Opened dropped file "${droppedFile.name}"`, 'info');
@@ -4734,7 +5685,7 @@ class VexioChromeOsApp {
         this.cursorCoordsIn = ptIn;
         const coordEl = document.getElementById('coord-readout');
         if (coordEl) {
-          coordEl.textContent = `X: ${ptIn[0].toFixed(2)}"  Y: ${ptIn[1].toFixed(2)}"`;
+          coordEl.textContent = `X: ${this.formatLengthFromIn(ptIn[0])}  Y: ${this.formatLengthFromIn(ptIn[1])}`;
         }
         if (this.snapshot) {
           this.collabSession?.broadcastCursor(
@@ -5032,8 +5983,10 @@ class VexioChromeOsApp {
           this.setSingleSelection(res.shapeId);
           this.activeTool = 'pointer';
           if (kind === 'text' && res.shapeId > 0) {
+            const clearRes = await this.callEngine('setShapeText', { shapeId: res.shapeId, text: '' });
+            if (clearRes?.snapshot) this.snapshot = clearRes.snapshot;
             this.editingShapeId = res.shapeId;
-            this.inlineTextDraft = 'Text';
+            this.inlineTextDraft = '';
           }
           this.render();
         } else if (st.mode === 'conn_endpoint' && st.shapeId) {
@@ -5067,6 +6020,7 @@ class VexioChromeOsApp {
               this.setSingleSelection(res.connId);
             }
           }
+          this.activeTool = 'pointer';
           this.render();
         } else if (st.mode === 'control' && st.shapeId) {
           const res = await this.callEngine('moveControlHandle', {
@@ -5325,6 +6279,18 @@ class VexioChromeOsApp {
             this.render();
             break;
           }
+          case 'rotate-left':
+            await this.rotateOrFlipSelected(-90);
+            break;
+          case 'rotate-right':
+            await this.rotateOrFlipSelected(90);
+            break;
+          case 'flip-h':
+            await this.rotateOrFlipSelected(0, true, false);
+            break;
+          case 'flip-v':
+            await this.rotateOrFlipSelected(0, false, true);
+            break;
           case 'cut':
             await this.cutSelectedShapesClean();
             break;
@@ -5479,10 +6445,13 @@ class VexioChromeOsApp {
               y2: py + hh,
             });
             this.snapshot = res.snapshot;
+            this.activeTool = 'pointer';
             this.setSingleSelection(res.shapeId);
             if (kind === 'text' && res.shapeId > 0) {
+              const clearRes = await this.callEngine('setShapeText', { shapeId: res.shapeId, text: '' });
+              if (clearRes?.snapshot) this.snapshot = clearRes.snapshot;
               this.editingShapeId = res.shapeId;
-              this.inlineTextDraft = 'Text';
+              this.inlineTextDraft = '';
             }
             this.persistMutationSideEffects(res.wal);
             this.render();
@@ -5496,6 +6465,7 @@ class VexioChromeOsApp {
               yIn: py,
             });
             this.snapshot = res.snapshot;
+            this.activeTool = 'pointer';
             this.setSingleSelection(res.shapeId);
             this.persistMutationSideEffects(res.wal);
             this.render();
@@ -5578,6 +6548,7 @@ class VexioChromeOsApp {
               yIn: (this.snapshot?.pageHeightIn ?? 8.5) * 0.5,
             });
             this.snapshot = res.snapshot;
+            this.activeTool = 'pointer';
             this.setSingleSelection(res.shapeId);
             this.persistMutationSideEffects(res.wal);
             this.render();
@@ -5593,6 +6564,7 @@ class VexioChromeOsApp {
             await this.callEngine('connectShapes', { fromId: r1.shapeId, toId: r2.shapeId });
             const res = await this.callEngine('connectShapes', { fromId: r2.shapeId, toId: r3.shapeId });
             this.snapshot = res.snapshot;
+            this.activeTool = 'pointer';
             this.selectedShapeIds = [r1.shapeId, r2.shapeId, r3.shapeId];
             this.persistMutationSideEffects(res.wal);
             this.render();

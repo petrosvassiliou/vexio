@@ -268,10 +268,60 @@ struct MainWindow : MainWindowT<MainWindow> {
     void OnRenameActivePageClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
     void OnZoomSliderValueChanged(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::Controls::Primitives::RangeBaseValueChangedEventArgs const& e);
 
+    // 14-Point Workstation UX: In-App Backstage, Inline Text Edit, Rich Text, Rotate/Flip, Stencil Import, Localization & Updates
+    void OnDocumentTitleDoubleTapped(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::Input::DoubleTappedRoutedEventArgs const& e);
+    void OnDocumentTitleEditKeyDown(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::Input::KeyRoutedEventArgs const& e);
+    void OnDocumentTitleEditLostFocus(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
+    void OnAppLanguageChanged(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::Controls::SelectionChangedEventArgs const& e);
+    void OnCheckUpdatesClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
+    void OnAutoUpdatePrefChanged(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
+
+    void OnFileBackstageToggleClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
+    void OnCloseBackstageClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
+    void OnNewBlankA4MetricClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
+    void OnNewBlankA3MetricClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
+    void OnNewBlankA4PortraitClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
+    void OnBackstageDragOver(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::DragEventArgs const& e);
+    void OnBackstageDrop(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::DragEventArgs const& e);
+
+    void OnTopMenuPointerEntered(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::Input::PointerRoutedEventArgs const& e);
+    void OnTopFlyoutOpened(winrt::Windows::Foundation::IInspectable const& sender, winrt::Windows::Foundation::IInspectable const& args);
+    void OnTopFlyoutClosed(winrt::Windows::Foundation::IInspectable const& sender, winrt::Windows::Foundation::IInspectable const& args);
+    void OnToggleRibbonCollapseClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
+
+    void OnFontFormattingComboChanged(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::Controls::SelectionChangedEventArgs const& e);
+    void OnGrowFontSizeClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
+    void OnShrinkFontSizeClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
+    void OnTextStyleToggleClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
+    void OnTextAlignLeftClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
+    void OnTextAlignCenterClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
+    void OnTextAlignRightClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
+    void OnTextVAlignTopClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
+    void OnTextVAlignMiddleClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
+    void OnTextVAlignBottomClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
+    void OnBulletListToggleClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
+
+    void OnRotateLeft90Click(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
+    void OnRotateRight90Click(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
+    void OnFlipHorizontalClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
+    void OnFlipVerticalClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
+
+    void OnImportStencilClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
+    void OnStencilDockDragOver(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::DragEventArgs const& e);
+    void OnStencilDockDrop(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::DragEventArgs const& e);
+
+    void OnCanvasDoubleTapped(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::Input::DoubleTappedRoutedEventArgs const& e);
+    void OnInlineCanvasTextKeyDown(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::Input::KeyRoutedEventArgs const& e);
+    void OnInlineCanvasTextLostFocus(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
+
 private:
     // Windowing & HWND Helpers
     [[nodiscard]] HWND GetNativeWindowHandle() const noexcept;
     void ConfigureCustomTitleBar();
+    void DetectOsLocaleAndUnits();
+    void ApplyLanguageStrings();
+    void CloseBackstageOverlay();
+    void CommitDocumentTitleEdit(bool apply);
 
     // DirectX 12 SwapChain Binding & Input Translation
     void AttachOrResizeDx12SwapChain();
@@ -279,6 +329,12 @@ private:
     void DispatchCanvasPointerEvent(uint32_t kindOverride,
                                     winrt::Microsoft::UI::Xaml::Input::PointerRoutedEventArgs const& e);
     void ApplyCanvasCursor(uint32_t cursorKind);
+
+    // Inline Canvas Label Editing & Rich Text Styling
+    void BeginInlineCanvasShapeTextEdit(uint64_t shapeId, bool isNewlyPlacedTextShape);
+    void CommitInlineCanvasShapeTextEdit(bool apply);
+    void ApplyRichTextPatchJson(std::string_view patchJsonUtf8);
+    void CreateNewBlankWithPreset(std::string_view presetSlugUtf8, bool landscape, bool metricDisplay, std::wstring_view docNameWide);
 
     // Stencils, Rulers, Page Tabs, Task Panes & ShapeSheet Synchronization
     void InitializeStencilCatalog();
@@ -308,9 +364,12 @@ private:
     void ExecuteBooleanOp(std::string_view opSlugUtf8, std::wstring_view displayLabel, double offsetIn = 0.18);
     void RefreshBaselineSnapshot();
 
-    // File Open / Save / Export Pickers & Plan 2 Connector Dialogs
+    // File Open / Save / Export Pickers, Stencil Import, Updates & Plan 2 Connector Dialogs
     winrt::fire_and_forget PromptOpenFilePickerAsync();
     winrt::fire_and_forget SaveDocumentAsync(bool forceSaveAs, std::string forcedExtensionUtf8 = {});
+    winrt::fire_and_forget ImportVisioStencilPickerAsync();
+    winrt::fire_and_forget ImportStencilStorageFileAsync(winrt::Windows::Storage::StorageFile file);
+    winrt::fire_and_forget CheckForUpdatesAsync(bool userInitiated);
     winrt::fire_and_forget ImportDataVisualizerPickerAsync();
     winrt::fire_and_forget ExportDataVisualizerXlsxAsync();
     winrt::fire_and_forget ShowCloudDiscoveryDialogAsync();
@@ -342,16 +401,24 @@ private:
     uint64_t     m_selectedShapeId{1};
     uint64_t     m_previousSelectedShapeId{1};
     uint64_t     m_nextShapeId{2};
+    uint64_t     m_inlineEditingShapeId{0};
     std::string  m_selectedCellName{"Width"};
 
-    // Workstation View & Tool State
+    // Workstation View, Localization, Updates & Tool State
     ActiveCanvasTool m_activeTool{ActiveCanvasTool::Pointer};
+    std::string  m_languageCode{"en"};
+    std::wstring m_openTopMenuTag{};
     bool   m_leftStencilOpen{true};
     bool   m_rightTaskPaneOpen{true};
     bool   m_shapeSheetOpen{false};
+    bool   m_ribbonCollapsed{false};
     bool   m_touchMode{false};
-    bool   m_metricUnits{false};
+    bool   m_metricUnits{true};
     bool   m_forceSetf{false};
+    bool   m_autoCheckUpdates{true};
+    bool   m_committingInlineEdit{false};
+    bool   m_committingTitleEdit{false};
+    bool   m_syncingTextControls{false};
     double m_zoomPercent{100.0};
     double m_shapeSheetHeightPx{248.0};
 
