@@ -11,7 +11,9 @@ use vexio_core::export_print::{export_document_pdf, export_page_svg};
 use vexio_core::workspace::DocumentSession;
 use vexio_render::foreign_media::tessellate_foreign_media;
 use vexio_render::{
-    measure_text_width_in, shape_line_to_pdf_contours, tessellate_shape, PdfContourOp,
+    InteractiveCanvasOverlay, PdfContourOp, ViewportCamera, build_page_scene_mesh_with_overlay,
+    measure_text_width_in, render_page_software_rgba_with_overlay, shape_line_to_pdf_contours,
+    tessellate_selection_handles, tessellate_shape,
 };
 use vexio_shapesheet::{
     ConnectionPointRow, ForeignMediaData, GradientStopRow, ReactiveEngine, ShapeKind,
@@ -509,3 +511,96 @@ fn smart_guides_equal_spacing_align_distribute_group_ungroup_and_connector_ergon
         .unwrap();
     assert!((mid_coord - 5.25).abs() < 1e-3);
 }
+
+#[test]
+fn high_dpi_rotate_button_icon_and_software_rgba_overlay_render_prominently() {
+    let mut session = DocumentSession::new_blank("v0.2.1 High-DPI Rotate Button");
+    let sid = session
+        .draw_primitive_2d(1, "rect", 4.0, 2.5, 6.0, 3.5)
+        .unwrap();
+
+    let visuals = ReactiveEngine::evaluate_page_visuals(&session.doc, 1);
+    let vis = visuals.iter().find(|v| v.shape_id == sid).unwrap();
+
+    let handles_mesh = tessellate_selection_handles(vis, 96.0);
+    let knob_xs: Vec<f32> = handles_mesh
+        .vertices
+        .iter()
+        .filter(|v| v.pos[1] > 3.65)
+        .map(|v| v.pos[0])
+        .collect();
+    assert!(
+        knob_xs.len() >= 80,
+        "expected >= 80 vertices for circular 22dp ↻ Rotate button + arrow icon, got {}",
+        knob_xs.len()
+    );
+    let min_kx = knob_xs.iter().copied().fold(f32::INFINITY, f32::min);
+    let max_kx = knob_xs.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+    let diameter_in = max_kx - min_kx;
+    assert!(
+        diameter_in > 0.20 && diameter_in < 0.28,
+        "expected ~22dp (0.229 in) Rotate button diameter, got {diameter_in:.4} in"
+    );
+
+    let mut cam = ViewportCamera::new(640, 480, 2.5);
+    cam.center_x_in = 5.0;
+    cam.center_y_in = 3.5;
+    cam.zoom_ppi = 96.0;
+
+    let mut cache = vexio_render::MeshCache::default();
+    let (scene_mesh, _stats, _elapsed_ms) = build_page_scene_mesh_with_overlay(
+        &session.doc,
+        1,
+        &cam,
+        &mut cache,
+        false,
+        false,
+        &[sid],
+        None,
+    )
+    .unwrap();
+    let hi_dpi_knob_xs: Vec<f32> = scene_mesh
+        .vertices
+        .iter()
+        .filter(|v| v.pos[1] > 3.65 && (v.pos[0] - 5.0).abs() < 0.30)
+        .map(|v| v.pos[0])
+        .collect();
+    let hi_min = hi_dpi_knob_xs.iter().copied().fold(f32::INFINITY, f32::min);
+    let hi_max = hi_dpi_knob_xs.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+    assert!(
+        (hi_max - hi_min) > 0.20,
+        "high-DPI (2.5x) scene mesh must preserve full 22dp (0.229 in) Rotate button diameter, got {:.4} in",
+        hi_max - hi_min
+    );
+
+    let overlay = InteractiveCanvasOverlay::default();
+    let rgba = render_page_software_rgba_with_overlay(
+        &session.doc,
+        1,
+        &cam,
+        false,
+        &[sid],
+        Some(&overlay),
+    )
+    .unwrap();
+    let [btn_sx, btn_sy] = cam.page_in_to_screen(5.0, 3.5 + 28.0 / 96.0);
+    let cx = btn_sx.round() as i32;
+    let cy = btn_sy.round() as i32;
+    let mut blue_icon_pixels = 0usize;
+    for py in (cy - 28)..=(cy + 28) {
+        for px in (cx - 28)..=(cx + 28) {
+            if px >= 0 && px < 640 && py >= 0 && py < 480 {
+                let idx = ((py as usize) * 640 + (px as usize)) * 4;
+                let (r, g, b) = (rgba[idx], rgba[idx + 1], rgba[idx + 2]);
+                if b > 180 && b > r.saturating_add(40) && g < 160 {
+                    blue_icon_pixels += 1;
+                }
+            }
+        }
+    }
+    assert!(
+        blue_icon_pixels >= 40,
+        "expected >= 40 blue ring/↻-icon pixels inside 55px physical Rotate button on 2.5x RGBA viewport, got {blue_icon_pixels}"
+    );
+}
+

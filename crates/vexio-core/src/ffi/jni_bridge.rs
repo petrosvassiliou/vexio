@@ -361,12 +361,13 @@ pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeRenderViewp
         if needed == 0 || cap < needed {
             return 1;
         }
-        let Ok(rgba) = vexio_render::render_page_software_rgba_with_selection(
+        let Ok(rgba) = vexio_render::render_page_software_rgba_with_overlay(
             &doc.session.doc,
             vp.page_id,
             &vp.camera,
             true,
             &vp.selected_ids,
+            Some(&vp.overlay),
         ) else {
             return 5;
         };
@@ -509,8 +510,14 @@ pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativePushMotionB
             7 => 7,  // TEXT_IBEAM
             11 => 5, // RESIZE_NWSE
             12 => 6, // RESIZE_NESW
-            13 => 1, // CROSSHAIR (Rotate)
-            _ => 0,  // ARROW
+            13 => {
+                if vp.drag_state.is_some() {
+                    9 // GRABBING_HAND (active rotation drag)
+                } else {
+                    8 // GRAB_HAND (hovering ↻ Rotate button)
+                }
+            }
+            _ => 0, // ARROW
         }
     }))
     .unwrap_or(0)

@@ -387,6 +387,7 @@ pub fn build_page_scene_mesh_with_overlay(
 
     // Foreground Markup Ink strokes.
     let ppi = camera.effective_ppi();
+    let ui_ppi = camera.zoom_ppi.max(1.0);
     let ink_tol = (0.35 / ppi).clamp(0.0004, 0.01) as f32;
     for stroke in &page.ink_strokes {
         scene.append(&tessellate_ink_stroke(stroke, ink_tol));
@@ -414,9 +415,11 @@ pub fn build_page_scene_mesh_with_overlay(
                             });
                             (bg, eg)
                         });
-                    scene.append(&tessellate_connector_1d_handles(vis, ppi, beg_glued, end_glued));
+                    scene.append(&tessellate_connector_1d_handles(
+                        vis, ui_ppi, beg_glued, end_glued,
+                    ));
                 } else {
-                    scene.append(&tessellate_selection_handles(vis, ppi));
+                    scene.append(&tessellate_selection_handles(vis, ui_ppi));
                     union_min[0] = union_min[0].min(vis.aabb_min[0]);
                     union_min[1] = union_min[1].min(vis.aabb_min[1]);
                     union_max[0] = union_max[0].max(vis.aabb_max[0]);
@@ -426,18 +429,18 @@ pub fn build_page_scene_mesh_with_overlay(
             }
         }
         if sel_2d_count >= 2 && union_min[0].is_finite() && union_max[0].is_finite() {
-            let pad = 4.0 / ppi.max(1.0);
+            let pad = 4.0 / ui_ppi;
             scene.append(&tessellate_multi_selection_frame(
                 [union_min[0] - pad, union_min[1] - pad],
                 [union_max[0] + pad, union_max[1] + pad],
-                ppi,
+                ui_ppi,
             ));
         }
     }
 
     // Transient interactive overlays (smart guides, marquee box, connection-point snap targets, connector preview).
     if let Some(ov) = overlay {
-        scene.append(&tessellate_interactive_overlay(ov, ppi));
+        scene.append(&tessellate_interactive_overlay(ov, ui_ppi));
     }
 
     // Optional interactive rulers along top/left viewport edges.
@@ -447,7 +450,7 @@ pub fn build_page_scene_mesh_with_overlay(
             vmin,
             vmax,
             grid_spacing.max(0.25),
-            ppi,
+            ui_ppi,
         ));
     }
 

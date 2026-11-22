@@ -17,8 +17,8 @@ android {
         applicationId = "com.vexio.googlebook"
         minSdk = 29
         targetSdk = 36
-        versionCode = 20
-        versionName = "0.2.0-alpha"
+        versionCode = 21
+        versionName = "0.2.1-alpha"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 

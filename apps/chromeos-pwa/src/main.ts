@@ -766,7 +766,7 @@ class VexioChromeOsApp {
       return true;
     }
   })();
-  private updateStatusText = 'Vexio v0.2.0-alpha • Automatic updates enabled';
+  private updateStatusText = 'Vexio v0.2.1-alpha • Automatic updates enabled';
   private latestReleaseTag: string | null = null;
   private latestReleaseUrl = 'https://github.com/petrosvassiliou/vexio/releases';
 
@@ -1192,7 +1192,7 @@ class VexioChromeOsApp {
       return;
     }
 
-    const currentVersion = '0.2.0-alpha';
+    const currentVersion = '0.2.1-alpha';
     try {
       const resp = await fetch('https://api.github.com/repos/petrosvassiliou/vexio/releases', {
         headers: { Accept: 'application/vnd.github+json' },
@@ -2890,7 +2890,7 @@ class VexioChromeOsApp {
         return `
           <div class="selection-box-overlay" style="left:${leftPx}px;top:${topPx}px;width:${wPx}px;height:${hPx}px;${rotCss}">
             <div class="rotation-stem"></div>
-            <div class="rotation-knob" data-rotate-knob="${sh.id}" title="Drag to Rotate (${sh.angleDeg.toFixed(0)}°)"></div>
+            <div class="rotation-knob" data-rotate-knob="${sh.id}" title="Drag to Rotate (${sh.angleDeg.toFixed(0)}°)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="pointer-events:none"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><polyline points="21 3 21 9 15 9"/></svg></div>
             <div class="selection-handle" data-handle="nw" data-handle-shape="${sh.id}" style="left:-6px;top:-6px" title="Resize NW (Hold Shift to lock aspect)"></div>
             <div class="selection-handle" data-handle="n" data-handle-shape="${sh.id}" style="left:calc(50% - 5.5px);top:-6px" title="Resize Top"></div>
             <div class="selection-handle" data-handle="ne" data-handle-shape="${sh.id}" style="right:-6px;top:-6px" title="Resize NE (Hold Shift to lock aspect)"></div>
@@ -3921,7 +3921,7 @@ class VexioChromeOsApp {
             </div>
             <div class="list-row-card" style="flex-direction:column;align-items:flex-start;gap:6px">
               <strong>${this.updateStatusText}</strong>
-              <span style="font-size:11.5px;color:var(--m3-text-muted)">Installed build: Vexio v0.2.0-alpha • Offline-First Workbox PWA + GitHub Releases channel</span>
+              <span style="font-size:11.5px;color:var(--m3-text-muted)">Installed build: Vexio v0.2.1-alpha • Offline-First Workbox PWA + GitHub Releases channel</span>
             </div>
             <label style="display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer">
               <input type="checkbox" id="chk-auto-updates" ${this.autoCheckUpdates ? 'checked' : ''} />

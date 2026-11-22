@@ -223,10 +223,10 @@ fn hit_test_selection_grips(
     page_id: u32,
     selected_id: u64,
     page_pt: [f64; 2],
-    effective_ppi: f64,
+    logical_ppi: f64,
 ) -> Option<Result<NativeResizeHandle, ()>> {
     let sh = doc.page(page_id)?.find_shape(selected_id)?;
-    if sh.kind != ShapeKind::Shape2D {
+    if !matches!(sh.kind, ShapeKind::Shape2D | ShapeKind::Group) {
         return None;
     }
     let px = sh.sheet.get_f64("PinX").unwrap_or(0.0);
@@ -242,12 +242,16 @@ fn hit_test_selection_grips(
     let lx = dx * c - dy * s;
     let ly = dx * s + dy * c;
 
-    let tol_in = (10.0 / effective_ppi.max(24.0)).clamp(0.07, 0.22);
-    let rot_offset = (22.0 / effective_ppi.max(24.0)).clamp(0.16, 0.40);
-    if lx.hypot(ly - (h * 0.5 + rot_offset)) <= tol_in * 1.15 {
-        return Some(Err(())); // Rotation knob!
+    let ppi = logical_ppi.max(1.0);
+    // Matches `tessellate_selection_handles` (`rot_stem_len = 28.0 / ppi`, `rot_radius = 11.0 / ppi`)
+    // with a generous 15 dp (`30 dp` diameter) hit target for mouse, stylus, and finger touch!
+    let rot_offset = 28.0 / ppi;
+    let rot_hit_radius = 15.0 / ppi;
+    if lx.hypot(ly - (h * 0.5 + rot_offset)) <= rot_hit_radius {
+        return Some(Err(())); // Rotation button (`↻`)!
     }
 
+    let tol_in = 10.0 / ppi;
     let hw = w * 0.5;
     let hh = h * 0.5;
     let grips = [
@@ -602,7 +606,8 @@ impl VexioViewport {
 
         let page_pt = self.camera.screen_to_page_in(ev.x_px, ev.y_px);
         let eff_ppi = self.camera.effective_ppi();
-        let port_tol_in = (10.0 / eff_ppi.max(12.0)).clamp(0.06, 0.22);
+        let logical_ppi = self.camera.zoom_ppi.max(1.0);
+        let port_tol_in = (10.0 / logical_ppi.max(12.0)).clamp(0.06, 0.22);
         let snap_tol_in = (7.5 / eff_ppi.max(12.0)).clamp(0.03, 0.14);
         let visuals = ReactiveEngine::evaluate_page_visuals(&session.doc, pid);
         let index = vexio_render::SpatialIndex::build(&visuals);
@@ -632,7 +637,7 @@ impl VexioViewport {
                         if self.selected_ids.len() == 1 {
                             let sel_id = self.selected_ids[0];
                             if let Some(c_hit) =
-                                hit_test_connector_1d_grips(&visuals, sel_id, page_pt, eff_ppi)
+                                hit_test_connector_1d_grips(&visuals, sel_id, page_pt, logical_ppi)
                             {
                                 match c_hit {
                                     Connector1DGripHit::BeginEndpoint(pt) => {
@@ -682,7 +687,7 @@ impl VexioViewport {
                                 pid,
                                 primary_sid,
                                 page_pt,
-                                eff_ppi,
+                                logical_ppi,
                             ) {
                                 if let Some(sh) = session
                                     .doc
@@ -1567,7 +1572,7 @@ impl VexioViewport {
                         &visuals,
                         self.selected_ids[0],
                         page_pt,
-                        eff_ppi,
+                        logical_ppi,
                     ) {
                         return match c_hit {
                             Connector1DGripHit::BeginEndpoint(_)
@@ -1584,7 +1589,7 @@ impl VexioViewport {
                 }
                 if let Some(&primary_sid) = self.selected_ids.first() {
                     if let Some(grip_hit) =
-                        hit_test_selection_grips(&session.doc, pid, primary_sid, page_pt, eff_ppi)
+                        hit_test_selection_grips(&session.doc, pid, primary_sid, page_pt, logical_ppi)
                     {
                         return match grip_hit {
                             Ok(h) => h.cursor_code(),
@@ -4529,6 +4534,105 @@ mod tests {
             );
             let ungrp_json = take_utf8(ungrp_buf);
             assert!(ungrp_json.contains(','), "ungroup must return JSON array of restored member IDs: {ungrp_json}");
+
+            // 4) v0.2.1-alpha High-DPI (`dpi_scale = 2.5`) `22 dp` `↻` Rotate Button Hit-Test & Drag Rotation!
+            assert_eq!(vexio_viewport_resize(vp, 2560, 1600, 2.5), VexioStatus::Ok);
+            assert_eq!(vexio_viewport_set_page(vp, doc, added_pid), VexioStatus::Ok);
+            assert_eq!(vexio_viewport_set_zoom(vp, doc, 1.0, 5.0, 3.0), VexioStatus::Ok);
+            assert_eq!(vexio_viewport_set_tool(vp, 0), VexioStatus::Ok);
+
+            let mut rot_sid = 0u64;
+            assert_eq!(
+                vexio_doc_draw_primitive(doc, added_pid, rect_c.as_ptr(), 4.0, 2.5, 6.0, 3.5, &mut rot_sid),
+                VexioStatus::Ok
+            );
+            let single_sel = [rot_sid];
+            assert_eq!(
+                vexio_viewport_set_selection(vp, doc, single_sel.as_ptr(), single_sel.len()),
+                VexioStatus::Ok
+            );
+
+            let logical_ppi = (*vp).camera.zoom_ppi.max(1.0);
+            let [rot_btn_x_px, rot_btn_y_px] =
+                (*vp).camera.page_in_to_screen(5.0, 3.5 + 28.0 / logical_ppi);
+            let [drag_to_x_px, drag_to_y_px] = (*vp).camera.page_in_to_screen(6.5, 3.0);
+
+            let mut hover_cur = 0u32;
+            let hover_ev = VexioPointerEvent {
+                kind: 0,
+                buttons: 0,
+                modifiers: 0,
+                x_px: rot_btn_x_px,
+                y_px: rot_btn_y_px,
+                pressure: 0.0,
+                tilt_x_deg: 0.0,
+                tilt_y_deg: 0.0,
+                timestamp_us: 9000,
+            };
+            assert_eq!(
+                vexio_viewport_dispatch_pointer(vp, doc, &hover_ev, &mut hover_cur),
+                VexioStatus::Ok
+            );
+            assert_eq!(
+                hover_cur, 13,
+                "hovering 22dp Rotate button on 2.5x high-DPI viewport must return rotate cursor 13"
+            );
+
+            let mut rot_cur = 0u32;
+            let rot_down = VexioPointerEvent {
+                kind: 1,
+                buttons: 0,
+                modifiers: 0,
+                x_px: rot_btn_x_px,
+                y_px: rot_btn_y_px,
+                pressure: 0.8,
+                tilt_x_deg: 0.0,
+                tilt_y_deg: 0.0,
+                timestamp_us: 9010,
+            };
+            let rot_move = VexioPointerEvent {
+                kind: 0,
+                buttons: 0,
+                modifiers: 0,
+                x_px: drag_to_x_px,
+                y_px: drag_to_y_px,
+                pressure: 0.8,
+                tilt_x_deg: 0.0,
+                tilt_y_deg: 0.0,
+                timestamp_us: 9020,
+            };
+            let rot_up = VexioPointerEvent {
+                kind: 2,
+                buttons: 0,
+                modifiers: 0,
+                x_px: drag_to_x_px,
+                y_px: drag_to_y_px,
+                pressure: 0.0,
+                tilt_x_deg: 0.0,
+                tilt_y_deg: 0.0,
+                timestamp_us: 9030,
+            };
+            assert_eq!(vexio_viewport_dispatch_pointer(vp, doc, &rot_down, &mut rot_cur), VexioStatus::Ok);
+            assert_eq!(rot_cur, 13);
+            assert_eq!(vexio_viewport_dispatch_pointer(vp, doc, &rot_move, &mut rot_cur), VexioStatus::Ok);
+            assert_eq!(rot_cur, 13);
+            assert_eq!(vexio_viewport_dispatch_pointer(vp, doc, &rot_up, &mut rot_cur), VexioStatus::Ok);
+
+            let angle_rad = (*doc)
+                .session
+                .doc
+                .page(added_pid)
+                .unwrap()
+                .find_shape(rot_sid)
+                .unwrap()
+                .sheet
+                .get_f64("Angle")
+                .unwrap();
+            assert!(
+                (angle_rad.to_degrees().abs() - 90.0).abs() < 1.0,
+                "dragging 22dp Rotate button 90 degrees CW must rotate Angle to ~-90 deg, got {} deg",
+                angle_rad.to_degrees()
+            );
 
             let _ = vexio_viewport_get_primary_selection(vp);
             vexio_viewport_destroy(vp);

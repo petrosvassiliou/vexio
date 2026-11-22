@@ -1299,7 +1299,7 @@ data class WorkstationUiState(
     val inlineTextEditor: InlineCanvasEditorModel? = null,
     val smartGuidesEnabled: Boolean = true,
     val autoCheckUpdates: Boolean = true,
-    val updateStatusMessage: String = "Vexio v0.2.0-alpha • Automatic update check enabled",
+    val updateStatusMessage: String = "Vexio v0.2.1-alpha • Automatic update check enabled",
     val availableUpdateTag: String? = null,
     val availableUpdateUrl: String? = null,
     val showUpdateDialog: Boolean = false,
@@ -1487,12 +1487,24 @@ class VexioSessionViewModel(
     private var docPtr: Long = 0L
     private var viewportPtr: Long = 0L
     private var nextSyntheticShapeId: Long = 3L
+    private var viewportWidthPx: Int = 0
+    private var viewportHeightPx: Int = 0
+    private var directViewportRgbaBuffer: ByteBuffer? = null
+    private val lenientJson = Json { ignoreUnknownKeys = true }
+    private val syntheticGroups = linkedMapOf<Long, List<Long>>()
 
     init {
         initializeEngineAndBlankDocument("Architecture_Blueprint.vsdx")
     }
 
     private fun resolveNativePageId(pageId: Int): Int = pageId.coerceAtLeast(0)
+
+    @Synchronized
+    private fun syncViewportSelection(ids: List<Long>) {
+        if (!NativeBridge.isNativeAvailable || viewportPtr == 0L || docPtr == 0L) return
+        val valid = ids.filter { it > 0L }.toLongArray()
+        NativeBridge.nativeSetSelectionIds(viewportPtr, docPtr, valid)
+    }
 
     @Synchronized
     private fun syncPagesAndActivePageFromNative(preferFirstForeground: Boolean = false) {
@@ -1561,6 +1573,9 @@ class VexioSessionViewModel(
             if (preferFirstForeground) {
                 NativeBridge.nativeSetViewportZoom(viewportPtr, docPtr, 0.0, 0.0, 0.0)
             }
+            if (primaryShapeId > 0L) {
+                syncViewportSelection(listOf(primaryShapeId))
+            }
         }
 
         _uiState.update { state ->
@@ -1588,11 +1603,6 @@ class VexioSessionViewModel(
         baselineNextShapeId = nextSyntheticShapeId
         deletedShapeCount = 0
     }
-
-    private var viewportWidthPx: Int = 0
-    private var viewportHeightPx: Int = 0
-    private var directViewportRgbaBuffer: ByteBuffer? = null
-    private val lenientJson = Json { ignoreUnknownKeys = true }
 
     @Synchronized
     private fun presentViewportOrFallback() {
@@ -1626,14 +1636,9 @@ class VexioSessionViewModel(
     }
 
     @Synchronized
-    private fun loadDynamicStencilsFromNative() {
-        if (!NativeBridge.isNativeAvailable || docPtr == 0L) return
-        val rawJson = runCatching { NativeBridge.nativeListStencilsJson(docPtr) }.getOrDefault("{}")
-        if (rawJson.length < 10) return
-        val grouped = runCatching {
-            lenientJson.decodeFromString<Map<String, List<NativeStencilMasterDto>>>(rawJson)
-        }.getOrNull() ?: return
-        if (grouped.isEmpty()) return
+    internal fun applyNativeStencilsJson(rawJson: String): Int {
+        val grouped = lenientJson.decodeFromString<Map<String, List<NativeStencilMasterDto>>>(rawJson)
+        if (grouped.isEmpty()) return 0
 
         val orderedCats = buildList {
             for (canonical in BuiltInStencilCatalog.categories) {
@@ -1671,6 +1676,15 @@ class VexioSessionViewModel(
                 )
             }
         }
+        return flatMasters.size
+    }
+
+    @Synchronized
+    private fun loadDynamicStencilsFromNative() {
+        if (!NativeBridge.isNativeAvailable || docPtr == 0L) return
+        val rawJson = runCatching { NativeBridge.nativeListStencilsJson(docPtr) }.getOrDefault("{}")
+        if (rawJson.length < 10) return
+        runCatching { applyNativeStencilsJson(rawJson) }
     }
 
     private fun inferShapeKind(name: String): String {
@@ -1689,6 +1703,8 @@ class VexioSessionViewModel(
 
     @Synchronized
     fun initializeEngineAndBlankDocument(title: String, hideStartBackstage: Boolean = false) {
+        // Verify `lenientJson` is initialized before `init` runs even when JNI is absent on host JVM tests.
+        applyNativeStencilsJson("{}")
         val defaultPreset = _uiState.value.activePagePreset
         if (NativeBridge.ensureLoaded()) {
             if (enginePtr == 0L) {
@@ -1743,6 +1759,10 @@ class VexioSessionViewModel(
                 NativeBridge.nativeSetViewportPage(viewportPtr, docPtr, resolveNativePageId(_uiState.value.activePageId))
                 NativeBridge.nativeSetViewportTool(viewportPtr, _uiState.value.activeTool.nativeCode)
                 NativeBridge.nativeSetSmartGuides(viewportPtr, _uiState.value.smartGuidesEnabled)
+                val initialSel = _uiState.value.selectedShapeIds.ifEmpty {
+                    listOf(_uiState.value.selectedShapeId)
+                }
+                syncViewportSelection(initialSel)
                 presentViewportOrFallback()
             }
         }
@@ -1999,11 +2019,7 @@ class VexioSessionViewModel(
                 if (mappedAction == MotionBatchFormat.ACTION_UP) {
                     newlyCreatedTextId = NativeBridge.nativePopCreatedTextShape(viewportPtr)
                 }
-                if (mappedAction == MotionBatchFormat.ACTION_UP ||
-                    (buttonState and MotionEvent.BUTTON_PRIMARY) != 0
-                ) {
-                    presentViewportOrFallback()
-                }
+                presentViewportOrFallback()
             }
             code
         } else {
@@ -2437,6 +2453,7 @@ class VexioSessionViewModel(
 
         if (NativeBridge.isNativeAvailable && viewportPtr != 0L) {
             NativeBridge.nativeSetViewportTool(viewportPtr, VexioTool.POINTER.nativeCode)
+            syncViewportSelection(listOf(shapeId))
         }
         _uiState.update { state ->
             val activeFormula = updatedCells.firstOrNull { it.cellName == state.activeCellName }?.formula
@@ -2478,10 +2495,11 @@ class VexioSessionViewModel(
         } else {
             nextSyntheticShapeId++
         }
+        val resolvedId = if (created > 0L) created else nextSyntheticShapeId++
         if (NativeBridge.isNativeAvailable && viewportPtr != 0L) {
             NativeBridge.nativeSetViewportTool(viewportPtr, VexioTool.POINTER.nativeCode)
+            syncViewportSelection(listOf(resolvedId))
         }
-        val resolvedId = if (created > 0L) created else nextSyntheticShapeId++
         _uiState.update {
             it.copy(
                 activeTool = VexioTool.POINTER,
@@ -2511,6 +2529,7 @@ class VexioSessionViewModel(
             nextSyntheticShapeId++
         }
         if (newId > 0L) {
+            syncViewportSelection(listOf(newId))
             _uiState.update {
                 it.copy(
                     selectedShapeId = newId,
@@ -4100,8 +4119,6 @@ class VexioSessionViewModel(
         }
     }
 
-    private val syntheticGroups = linkedMapOf<Long, List<Long>>()
-
     @Synchronized
     fun toggleSmartGuides(explicit: Boolean? = null) {
         val next = explicit ?: !_uiState.value.smartGuidesEnabled
@@ -4378,7 +4395,7 @@ class VexioSessionViewModel(
             }
         }
         viewModelScope.launch(ioDispatcher) {
-            val currentVersion = "0.2.0-alpha"
+            val currentVersion = "0.2.1-alpha"
             var latestTag: String? = null
             var downloadUrl = "https://github.com/petrosvassiliou/vexio/releases"
             var ok = false
@@ -4389,7 +4406,7 @@ class VexioSessionViewModel(
                     requestMethod = "GET"
                     connectTimeout = 4500
                     readTimeout = 4500
-                    setRequestProperty("User-Agent", "Vexio-Android-Googlebook/0.2.0-alpha")
+                    setRequestProperty("User-Agent", "Vexio-Android-Googlebook/0.2.1-alpha")
                     setRequestProperty("Accept", "application/vnd.github+json")
                 }
                 if (conn.responseCode in 200..299) {

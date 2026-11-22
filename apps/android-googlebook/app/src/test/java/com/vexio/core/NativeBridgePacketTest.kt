@@ -666,5 +666,40 @@ class NativeBridgePacketTest {
         assertTrue(vm.registerCustomFontBytes(ByteArray(64) { 1 }, "Custom Corporate Sans"))
         assertTrue(vm.uiState.value.availableFontFamilies.contains("Custom Corporate Sans"))
     }
+
+    @Test
+    fun v021StencilCatalogInitDynamicJsonAndVersionMetadataWorkDeterministically() {
+        val vm = VexioSessionViewModel()
+        assertEquals(22, vm.uiState.value.stencilCategories.size)
+        assertTrue(vm.uiState.value.stencilMasters.isNotEmpty())
+        assertTrue(
+            "Expected 0.2.1-alpha in updateStatusMessage, got: ${vm.uiState.value.updateStatusMessage}",
+            vm.uiState.value.updateStatusMessage.contains("0.2.1-alpha")
+        )
+
+        val sampleNativeJson = """
+            {
+              "BPMN 2.0": [
+                {"name": "User Task", "prompt": "Human workflow step", "widthIn": 1.6, "heightIn": 0.9, "fillFormula": "=RGB(239,246,255)", "svg": "<svg viewBox=\"0 0 144 96\"><rect x=\"8\" y=\"8\" width=\"128\" height=\"80\" fill=\"#eff6ff\" stroke=\"#1d4ed8\"/></svg>"},
+                {"name": "Exclusive Gateway", "prompt": "XOR branch", "widthIn": 0.8, "heightIn": 0.8, "fillFormula": "=RGB(254,249,195)", "svg": "<svg viewBox=\"0 0 96 96\"><polygon points=\"48,6 90,48 48,90 6,48\" fill=\"#fef9c3\" stroke=\"#ca8a04\"/></svg>"}
+              ],
+              "Basic Flowchart": [
+                {"name": "Process", "prompt": "Standard step", "widthIn": 1.5, "heightIn": 0.8, "fillFormula": "=RGB(219,234,254)", "svg": "<svg viewBox=\"0 0 144 96\"><path d=\"M 10 10 L 134 10 L 134 86 L 10 86 Z\" fill=\"#dbeafe\" stroke=\"#2563eb\"/></svg>"}
+              ],
+              "CustomImportedPack": [
+                {"name": "Telemetry Node", "prompt": "Custom sensor", "widthIn": 1.0, "heightIn": 1.0, "fillFormula": "RGB(220,252,231)", "svg": "<svg viewBox=\"0 0 64 64\"><circle cx=\"32\" cy=\"32\" r=\"26\" fill=\"#dcfce7\" stroke=\"#16a34a\"/></svg>"}
+              ]
+            }
+        """.trimIndent()
+
+        val loadedCount = vm.applyNativeStencilsJson(sampleNativeJson)
+        assertEquals(4, loadedCount)
+        assertEquals(
+            listOf("Basic Flowchart", "BPMN 2.0", "CustomImportedPack"),
+            vm.uiState.value.stencilCategories
+        )
+        assertEquals(4, vm.uiState.value.stencilMasters.size)
+        assertEquals("RGB(239,246,255)", vm.uiState.value.stencilMasters.first { it.title == "User Task" }.fillFormula)
+    }
 }
 

@@ -1203,26 +1203,34 @@ body,
 .rotation-stem {
   position: absolute;
   left: calc(50% - 0.75px);
-  top: -22px;
+  top: -19px;
   width: 1.5px;
-  height: 17px;
+  height: 19px;
   background: #2563eb;
   pointer-events: none;
 }
 
 .rotation-knob {
   position: absolute;
-  left: calc(50% - 6px);
-  top: -30px;
-  width: 12px;
-  height: 12px;
+  left: calc(50% - 11px);
+  top: -39px;
+  width: 22px;
+  height: 22px;
   border-radius: 999px;
   background: #ffffff;
   border: 2px solid #2563eb;
-  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.2);
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.24);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #1d4ed8;
   cursor: grab;
   pointer-events: auto;
   z-index: 31;
+}
+.rotation-knob:hover {
+  background: #eff6ff;
+  transform: scale(1.08);
 }
 
 .control-diamond-handle {

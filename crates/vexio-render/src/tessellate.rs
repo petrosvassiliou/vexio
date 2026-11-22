@@ -1975,14 +1975,16 @@ pub fn tessellate_selection_handles(
     }
     let ppi = zoom_ppi.max(1.0);
     let inv_ppi = 1.0 / ppi;
-    let stroke_w = (1.5 * inv_ppi) as f32;
-    let handle_half = (3.5 * inv_ppi) as f32;
-    let rot_stem_len = 18.0 * inv_ppi;
-    let rot_radius = 4.0 * inv_ppi;
+    let stroke_w = (1.6 * inv_ppi) as f32;
+    let handle_half = (4.5 * inv_ppi) as f32; // 9 dp crisp resize squares
+    let rot_stem_len = 28.0 * inv_ppi; // 28 dp offset above top edge
+    let rot_radius = 11.0 * inv_ppi; // 22 dp diameter unmistakable circular Rotate button!
 
     let accent = [0.145, 0.388, 0.922, 1.0]; // Vexio / Visio selection blue (#2563EB)
+    let icon_blue = [0.114, 0.306, 0.847, 1.0]; // High-contrast #1D4ED8 interior ↻ icon
+    let shadow_rgba = [0.06, 0.09, 0.16, 0.22];
     let white = [1.0, 1.0, 1.0, 1.0];
-    let tol = (0.35 * inv_ppi).clamp(0.0002, 0.02) as f32;
+    let tol = (0.25 * inv_ppi).clamp(0.00015, 0.015) as f32;
 
     let mut lyon_buf: VertexBuffers<GpuVertex, u32> = VertexBuffers::new();
     let mut fill_tess = FillTessellator::new();
@@ -1998,8 +2000,14 @@ pub fn tessellate_selection_handles(
     let left_mid = [(c00[0] + c01[0]) * 0.5, (c00[1] + c01[1]) * 0.5];
     let right_mid = [(c10[0] + c11[0]) * 0.5, (c10[1] + c11[1]) * 0.5];
 
-    // Upward normal in rotated shape frame for the rotation handle stem.
-    let up_pt: [f64; 2] = tf.local_to_parent(tf.width * 0.5, tf.height + rot_stem_len).into();
+    // Upward normal in rotated shape frame for the rotation button center (`up_pt`) and stem end (`stem_end`).
+    let up_pt: [f64; 2] = tf
+        .local_to_parent(tf.width * 0.5, tf.height + rot_stem_len)
+        .into();
+    let stem_end: [f64; 2] = tf
+        .local_to_parent(tf.width * 0.5, tf.height + (rot_stem_len - rot_radius))
+        .into();
+
     let mut frame_builder = Path::builder();
     frame_builder.begin(point(c00[0] as f32, c00[1] as f32));
     frame_builder.line_to(point(c10[0] as f32, c10[1] as f32));
@@ -2007,7 +2015,7 @@ pub fn tessellate_selection_handles(
     frame_builder.line_to(point(c01[0] as f32, c01[1] as f32));
     frame_builder.end(true);
     frame_builder.begin(point(top_mid[0] as f32, top_mid[1] as f32));
-    frame_builder.line_to(point(up_pt[0] as f32, up_pt[1] as f32));
+    frame_builder.line_to(point(stem_end[0] as f32, stem_end[1] as f32));
     frame_builder.end(false);
     let frame_path = frame_builder.build();
 
@@ -2045,8 +2053,28 @@ pub fn tessellate_selection_handles(
         );
     }
 
-    // Circular rotation handle knob at `up_pt`.
+    // Prominent 22 dp circular Rotate button at `up_pt` with subtle drop-shadow, white badge disc,
+    // crisp blue border, and interior clockwise `↻` circular arrow + triangular arrowhead!
     let mut knob_buf: VertexBuffers<GpuVertex, u32> = VertexBuffers::new();
+    let shadow_off = 1.4 * inv_ppi;
+    let mut sb = Path::builder();
+    emit_rotated_ellipse(
+        &mut sb,
+        [up_pt[0] + shadow_off * 0.4, up_pt[1] - shadow_off],
+        rot_radius + 0.6 * inv_ppi,
+        rot_radius + 0.6 * inv_ppi,
+        0.0,
+    );
+    let shadow_path = sb.build();
+    let _ = fill_tess.tessellate_path(
+        &shadow_path,
+        &FillOptions::tolerance(tol),
+        &mut BuffersBuilder::new(&mut knob_buf, |v: FillVertex| {
+            let p = v.position();
+            GpuVertex::new([p.x, p.y], shadow_rgba, [PRIM_FLAG_OVERLAY_UI, 0.0])
+        }),
+    );
+
     let mut kb = Path::builder();
     emit_rotated_ellipse(&mut kb, up_pt, rot_radius, rot_radius, 0.0);
     let knob_path = kb.build();
@@ -2060,12 +2088,82 @@ pub fn tessellate_selection_handles(
     );
     let _ = stroke_tess.tessellate_path(
         &knob_path,
-        &StrokeOptions::tolerance(tol).with_line_width(stroke_w),
+        &StrokeOptions::tolerance(tol).with_line_width((1.8 * inv_ppi) as f32),
         &mut BuffersBuilder::new(&mut knob_buf, |v: StrokeVertex| {
             let p = v.position();
             GpuVertex::new([p.x, p.y], accent, [PRIM_FLAG_OVERLAY_UI, 0.0])
         }),
     );
+
+    // Interior clockwise `↻` arc (`225°` -> `-50°`, sweeping 275° clockwise in `+Y`-up page space)
+    let arc_r = 5.4 * inv_ppi;
+    let start_deg = 225.0_f64;
+    let end_deg = -50.0_f64;
+    let arc_steps = 20usize;
+    let mut ab = Path::builder();
+    for step in 0..=arc_steps {
+        let t = (step as f64) / (arc_steps as f64);
+        let deg = start_deg + (end_deg - start_deg) * t;
+        let rad = deg.to_radians();
+        let px = (up_pt[0] + arc_r * rad.cos()) as f32;
+        let py = (up_pt[1] + arc_r * rad.sin()) as f32;
+        if step == 0 {
+            ab.begin(point(px, py));
+        } else {
+            ab.line_to(point(px, py));
+        }
+    }
+    ab.end(false);
+    let arc_path = ab.build();
+    let _ = stroke_tess.tessellate_path(
+        &arc_path,
+        &StrokeOptions::tolerance(tol)
+            .with_line_width((1.85 * inv_ppi) as f32)
+            .with_line_cap(LineCap::Round),
+        &mut BuffersBuilder::new(&mut knob_buf, |v: StrokeVertex| {
+            let p = v.position();
+            GpuVertex::new([p.x, p.y], icon_blue, [PRIM_FLAG_OVERLAY_UI, 0.0])
+        }),
+    );
+
+    // Directional triangular arrowhead at the clockwise end of the `↻` arc (`end_deg`)
+    let end_rad = end_deg.to_radians();
+    let end_pt = [
+        up_pt[0] + arc_r * end_rad.cos(),
+        up_pt[1] + arc_r * end_rad.sin(),
+    ];
+    // Clockwise unit tangent at `end_rad` is `(sin(theta), -cos(theta))`; outward normal is `(cos(theta), sin(theta))`
+    let tx = end_rad.sin();
+    let ty = -end_rad.cos();
+    let nx = end_rad.cos();
+    let ny = end_rad.sin();
+    let head_fwd = 3.2 * inv_ppi;
+    let head_back = 1.6 * inv_ppi;
+    let head_wing = 3.2 * inv_ppi;
+    let tip = [end_pt[0] + tx * head_fwd, end_pt[1] + ty * head_fwd];
+    let wing_l = [
+        end_pt[0] - tx * head_back + nx * head_wing,
+        end_pt[1] - ty * head_back + ny * head_wing,
+    ];
+    let wing_r = [
+        end_pt[0] - tx * head_back - nx * head_wing,
+        end_pt[1] - ty * head_back - ny * head_wing,
+    ];
+    let mut hb = Path::builder();
+    hb.begin(point(tip[0] as f32, tip[1] as f32));
+    hb.line_to(point(wing_l[0] as f32, wing_l[1] as f32));
+    hb.line_to(point(wing_r[0] as f32, wing_r[1] as f32));
+    hb.end(true);
+    let head_path = hb.build();
+    let _ = fill_tess.tessellate_path(
+        &head_path,
+        &FillOptions::tolerance(tol),
+        &mut BuffersBuilder::new(&mut knob_buf, |v: FillVertex| {
+            let p = v.position();
+            GpuVertex::new([p.x, p.y], icon_blue, [PRIM_FLAG_OVERLAY_UI, 0.0])
+        }),
+    );
+
     mesh.append(&TessellatedMesh {
         vertices: knob_buf.vertices,
         indices: knob_buf.indices,

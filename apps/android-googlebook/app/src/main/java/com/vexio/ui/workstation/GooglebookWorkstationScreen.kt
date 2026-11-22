@@ -596,13 +596,6 @@ fun GooglebookWorkstationScreen(
                     VerticalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 }
 
-                // Always-Visible Basic Drawing & Diagramming Tool Rail (All 16 Tools)
-                PersistentDrawingToolRail(
-                    activeTool = uiState.activeTool,
-                    onSelectTool = viewModel::selectTool
-                )
-                VerticalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-
                 // Primary Center Pane: Vulkan SurfaceView + Expressive Morphing Toolbar + ShapeSheet Grid
                 Column(
                     modifier = Modifier
@@ -2554,62 +2547,7 @@ private fun resolveToolIcon(tool: VexioTool): ImageVector = when (tool) {
 }
 
 /**
- * Always-visible vertical Basic Drawing & Diagramming Tool Rail exposing all 16 Visio tools.
- */
-@Composable
-private fun PersistentDrawingToolRail(
-    activeTool: VexioTool,
-    onSelectTool: (VexioTool) -> Unit
-) {
-    Surface(
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
-        modifier = Modifier
-            .width(50.dp)
-            .fillMaxHeight()
-    ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(3.dp),
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(vertical = 6.dp, horizontal = 4.dp)
-        ) {
-            VexioTool.entries.forEach { tool ->
-                val selected = activeTool == tool
-                val btnShape = rememberExpressiveToolButtonShape(isSelected = selected)
-                Surface(
-                    shape = btnShape,
-                    color = if (selected) {
-                        MaterialTheme.colorScheme.primary
-                    } else {
-                        Color.Transparent
-                    },
-                    modifier = Modifier
-                        .size(38.dp)
-                        .clip(btnShape)
-                        .clickable { onSelectTool(tool) }
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = resolveToolIcon(tool),
-                            contentDescription = "${tool.displayName} (${tool.shortcutHint})",
-                            tint = if (selected) {
-                                MaterialTheme.colorScheme.onPrimary
-                            } else {
-                                MaterialTheme.colorScheme.onSurfaceVariant
-                            },
-                            modifier = Modifier.size(19.dp)
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-/**
- * Collapsible 17-Category Visio Professional Stencil Navigator with live search,
+ * Collapsible 22-Category Visio Professional Stencil Navigator with live search,
  * category filter chips, crisp multi-geometry SVG previews, cross-window Drag & Drop,
  * and stencil context menus.
  */
@@ -2628,8 +2566,9 @@ private fun StencilMasterDrawerPane(
             setOf(
                 "Basic Shapes",
                 "Basic Flowchart",
-                "Arrows & Callouts",
-                "BPMN 2.0"
+                "Arrows & Connectors",
+                "BPMN 2.0",
+                "UML 2.5"
             )
         )
     }
@@ -2661,7 +2600,7 @@ private fun StencilMasterDrawerPane(
                     .padding(horizontal = 12.dp, vertical = 8.dp)
             ) {
                 Text(
-                    text = "Stencils (${uiState.stencilCategories.size} Packs)",
+                    text = "Stencils (${uiState.stencilMasters.size} • ${uiState.stencilCategories.size} Packs)",
                     style = MaterialTheme.typography.titleSmall,
                     modifier = Modifier.weight(1f)
                 )
@@ -2764,7 +2703,7 @@ private fun StencilMasterDrawerPane(
 
             Spacer(Modifier.height(6.dp))
 
-            // Horizontal Category Filter Pills (All + 17 Packs)
+            // Horizontal Category Filter Pills (All + 22 Packs)
             Row(
                 horizontalArrangement = Arrangement.spacedBy(5.dp),
                 modifier = Modifier
@@ -2811,7 +2750,7 @@ private fun StencilMasterDrawerPane(
             Spacer(Modifier.height(4.dp))
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
-            // 17-Category Accordion List
+            // 22-Category Accordion List
             LazyColumn(
                 contentPadding = PaddingValues(10.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -2901,6 +2840,12 @@ private data class ParsedComposeSvgPath(
     val strokeWidthPx: Float
 )
 
+private data class ParsedComposeSvgDoc(
+    val viewBoxW: Float,
+    val viewBoxH: Float,
+    val shapes: List<ParsedComposeSvgPath>
+)
+
 private fun extractSvgAttr(name: String, tagSlice: String): String? {
     val needle = "$name=\""
     val start = tagSlice.indexOf(needle)
@@ -2925,32 +2870,137 @@ private fun parseSvgHexColor(raw: String?, fallback: Color): Color? {
     return fallback
 }
 
-private fun parseStencilSvgPaths(svg: String, defaultAccent: Color): List<ParsedComposeSvgPath> {
-    if (svg.isBlank()) return emptyList()
-    val groupIdx = svg.indexOf("data-shape-id=")
-    if (groupIdx < 0) return emptyList()
-    val body = svg.substring(groupIdx)
-    val list = mutableListOf<ParsedComposeSvgPath>()
-    var cursor = 0
-    while (cursor < body.length) {
-        val pStart = body.indexOf("<path ", cursor)
-        if (pStart < 0) break
-        val pEnd = body.indexOf('>', pStart)
-        if (pEnd < 0) break
-        val tag = body.substring(pStart + 6, pEnd)
-        val d = extractSvgAttr("d", tag)
-        if (!d.isNullOrBlank()) {
-            val parsedPath = runCatching { PathParser().parsePathString(d).toPath() }.getOrNull()
-            if (parsedPath != null) {
-                val fill = parseSvgHexColor(extractSvgAttr("fill", tag), defaultAccent)
-                val stroke = parseSvgHexColor(extractSvgAttr("stroke", tag), defaultAccent)
-                val sw = extractSvgAttr("stroke-width", tag)?.toFloatOrNull() ?: 1.3f
-                list.add(ParsedComposeSvgPath(parsedPath, fill, stroke, sw))
+private fun parseSvgPointsToPath(pointsStr: String, closePoly: Boolean): Path? {
+    val nums = pointsStr.trim().split(Regex("[\\s,]+")).mapNotNull { it.toFloatOrNull() }
+    if (nums.size < 4) return null
+    return Path().apply {
+        moveTo(nums[0], nums[1])
+        var idx = 2
+        while (idx + 1 < nums.size) {
+            lineTo(nums[idx], nums[idx + 1])
+            idx += 2
+        }
+        if (closePoly) close()
+    }
+}
+
+private fun parseStencilSvgDoc(svg: String, defaultAccent: Color): ParsedComposeSvgDoc {
+    if (svg.isBlank()) return ParsedComposeSvgDoc(144f, 96f, emptyList())
+
+    var viewW = 144f
+    var viewH = 96f
+    val svgTagEnd = svg.indexOf('>')
+    if (svgTagEnd > 0) {
+        val header = svg.substring(0, svgTagEnd)
+        val vb = extractSvgAttr("viewBox", header)
+        if (!vb.isNullOrBlank()) {
+            val parts = vb.trim().split(Regex("[\\s,]+")).mapNotNull { it.toFloatOrNull() }
+            if (parts.size == 4 && parts[2] > 1f && parts[3] > 1f) {
+                viewW = parts[2]
+                viewH = parts[3]
             }
         }
-        cursor = pEnd + 1
     }
-    return list
+
+    val groupIdx = svg.indexOf("data-shape-id=")
+    val defsEndIdx = svg.indexOf("</defs>")
+    val startOffset = when {
+        groupIdx >= 0 -> groupIdx
+        defsEndIdx >= 0 -> defsEndIdx + 7
+        svgTagEnd >= 0 -> svgTagEnd + 1
+        else -> 0
+    }
+    val body = svg.substring(startOffset)
+    val list = mutableListOf<ParsedComposeSvgPath>()
+    val tagRegex = Regex("""<(path|polygon|polyline|rect|circle|ellipse|line)\b([^>]*)/?>""")
+
+    for (m in tagRegex.findAll(body)) {
+        val elemName = m.groupValues[1]
+        val attrs = m.groupValues[2]
+        val fillRaw = extractSvgAttr("fill", attrs)
+        val strokeRaw = extractSvgAttr("stroke", attrs)
+
+        if (elemName == "rect" && groupIdx < 0 &&
+            fillRaw?.equals("#ffffff", ignoreCase = true) == true &&
+            strokeRaw == null
+        ) {
+            continue
+        }
+
+        val parsedPath: Path? = when (elemName) {
+            "path" -> {
+                val d = extractSvgAttr("d", attrs)
+                if (!d.isNullOrBlank()) {
+                    runCatching { PathParser().parsePathString(d).toPath() }.getOrNull()
+                } else {
+                    null
+                }
+            }
+            "polygon" -> extractSvgAttr("points", attrs)?.let { parseSvgPointsToPath(it, closePoly = true) }
+            "polyline" -> extractSvgAttr("points", attrs)?.let { parseSvgPointsToPath(it, closePoly = false) }
+            "rect" -> {
+                val rx = extractSvgAttr("x", attrs)?.toFloatOrNull() ?: 0f
+                val ry = extractSvgAttr("y", attrs)?.toFloatOrNull() ?: 0f
+                val rw = extractSvgAttr("width", attrs)?.toFloatOrNull() ?: 0f
+                val rh = extractSvgAttr("height", attrs)?.toFloatOrNull() ?: 0f
+                if (rw > 0.1f && rh > 0.1f) {
+                    Path().apply {
+                        addRect(androidx.compose.ui.geometry.Rect(rx, ry, rx + rw, ry + rh))
+                    }
+                } else {
+                    null
+                }
+            }
+            "circle" -> {
+                val cx = extractSvgAttr("cx", attrs)?.toFloatOrNull() ?: 0f
+                val cy = extractSvgAttr("cy", attrs)?.toFloatOrNull() ?: 0f
+                val r = extractSvgAttr("r", attrs)?.toFloatOrNull() ?: 0f
+                if (r > 0.1f) {
+                    Path().apply {
+                        addOval(androidx.compose.ui.geometry.Rect(cx - r, cy - r, cx + r, cy + r))
+                    }
+                } else {
+                    null
+                }
+            }
+            "ellipse" -> {
+                val cx = extractSvgAttr("cx", attrs)?.toFloatOrNull() ?: 0f
+                val cy = extractSvgAttr("cy", attrs)?.toFloatOrNull() ?: 0f
+                val rx = extractSvgAttr("rx", attrs)?.toFloatOrNull() ?: 0f
+                val ry = extractSvgAttr("ry", attrs)?.toFloatOrNull() ?: 0f
+                if (rx > 0.1f && ry > 0.1f) {
+                    Path().apply {
+                        addOval(androidx.compose.ui.geometry.Rect(cx - rx, cy - ry, cx + rx, cy + ry))
+                    }
+                } else {
+                    null
+                }
+            }
+            "line" -> {
+                val x1 = extractSvgAttr("x1", attrs)?.toFloatOrNull() ?: 0f
+                val y1 = extractSvgAttr("y1", attrs)?.toFloatOrNull() ?: 0f
+                val x2 = extractSvgAttr("x2", attrs)?.toFloatOrNull() ?: 0f
+                val y2 = extractSvgAttr("y2", attrs)?.toFloatOrNull() ?: 0f
+                Path().apply {
+                    moveTo(x1, y1)
+                    lineTo(x2, y2)
+                }
+            }
+            else -> null
+        }
+
+        if (parsedPath != null) {
+            val fill = if (elemName == "line" || elemName == "polyline") {
+                parseSvgHexColor(fillRaw ?: "none", defaultAccent)
+            } else {
+                parseSvgHexColor(fillRaw, defaultAccent)
+            }
+            val stroke = parseSvgHexColor(strokeRaw, defaultAccent)
+            val sw = extractSvgAttr("stroke-width", attrs)?.toFloatOrNull() ?: 1.3f
+            list.add(ParsedComposeSvgPath(parsedPath, fill, stroke, sw))
+        }
+    }
+    return ParsedComposeSvgDoc(viewW, viewH, list)
 }
 
 /**
@@ -2967,8 +3017,8 @@ private fun DraggableStencilMasterCard(
 ) {
     var cardMenuExpanded by remember { mutableStateOf(false) }
     val primaryStroke = MaterialTheme.colorScheme.primary
-    val parsedSvgPaths = remember(master.svgPreview, primaryStroke) {
-        parseStencilSvgPaths(master.svgPreview, primaryStroke)
+    val parsedSvgDoc = remember(master.svgPreview, primaryStroke) {
+        parseStencilSvgDoc(master.svgPreview, primaryStroke)
     }
 
     val jsonPayload = remember(windowInstanceId, master) {
@@ -3030,9 +3080,9 @@ private fun DraggableStencilMasterCard(
                     ) {
                         val w = size.width
                         val h = size.height
-                        if (parsedSvgPaths.isNotEmpty()) {
-                            val srcW = 144f
-                            val srcH = 96f
+                        if (parsedSvgDoc.shapes.isNotEmpty()) {
+                            val srcW = parsedSvgDoc.viewBoxW
+                            val srcH = parsedSvgDoc.viewBoxH
                             val fitScale = minOf(w / srcW, h / srcH)
                             val offX = (w - srcW * fitScale) * 0.5f
                             val offY = (h - srcH * fitScale) * 0.5f
@@ -3040,7 +3090,7 @@ private fun DraggableStencilMasterCard(
                                 translate(left = offX, top = offY)
                                 scale(scaleX = fitScale, scaleY = fitScale, pivot = Offset.Zero)
                             }) {
-                                parsedSvgPaths.forEach { seg ->
+                                parsedSvgDoc.shapes.forEach { seg ->
                                     if (seg.fillColor != null) {
                                         drawPath(seg.path, color = seg.fillColor)
                                     }
