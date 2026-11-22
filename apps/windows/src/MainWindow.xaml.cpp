@@ -727,17 +727,24 @@ void MainWindow::RefreshStencilList() {
         card.ColumnDefinitions().Append(c0);
         card.ColumnDefinitions().Append(c1);
 
-        // Crisp multi-geometry SVG vector preview extracted from Rust engine SVG (with rich fallback)
-        std::wstring pathMarkup = L"M 3,5 L 33,5 L 33,21 L 3,21 Z";
-        Windows::UI::Color strokeCol = Windows::UI::ColorHelper::FromArgb(0xFF, 0x25, 0x63, 0xEB);
-        std::string extractedSvgPaths{};
+        // Crisp multi-color, exact-proportion 144x96 vector preview rendered via WinUI 3 Viewbox + Canvas
+        std::wstring xamlPaths{};
+        auto extractAttr = [](std::string_view tag, std::string_view key) -> std::string_view {
+            const size_t pos = tag.find(key);
+            if (pos == std::string_view::npos) return {};
+            const size_t start = pos + key.size();
+            const size_t end = tag.find('"', start);
+            if (end == std::string_view::npos || end <= start) return {};
+            return tag.substr(start, end - start);
+        };
+
         if (!master.svgMarkup.empty()) {
             size_t searchPos = master.svgMarkup.find("data-shape-id=");
             if (searchPos == std::string::npos) {
                 searchPos = 0;
             }
             while (true) {
-                const size_t pathPos = master.svgMarkup.find("<path", searchPos);
+                const size_t pathPos = master.svgMarkup.find("<path ", searchPos);
                 if (pathPos == std::string::npos) {
                     break;
                 }
@@ -746,74 +753,47 @@ void MainWindow::RefreshStencilList() {
                     break;
                 }
                 const std::string_view tagView{master.svgMarkup.data() + pathPos, tagEnd - pathPos};
-                const size_t dPos = tagView.find(" d=\"");
-                if (dPos != std::string_view::npos) {
-                    const size_t dStart = dPos + 4;
-                    const size_t dEnd = tagView.find('"', dStart);
-                    if (dEnd != std::string_view::npos && dEnd > dStart) {
-                        if (!extractedSvgPaths.empty()) {
-                            extractedSvgPaths.push_back(' ');
-                        }
-                        extractedSvgPaths.append(tagView.substr(dStart, dEnd - dStart));
+                const std::string_view dVal = extractAttr(tagView, "d=\"");
+                if (!dVal.empty()) {
+                    const std::string_view fillVal = extractAttr(tagView, "fill=\"");
+                    const std::string_view strokeVal = extractAttr(tagView, "stroke=\"");
+                    const std::string_view swVal = extractAttr(tagView, "stroke-width=\"");
+                    std::wstring fillAttr{};
+                    if (!fillVal.empty() && fillVal != "none" && fillVal[0] == '#') {
+                        fillAttr = std::format(L" Fill=\"{}\"", vexio::win::ToHString(fillVal).c_str());
                     }
+                    std::wstring strokeAttr{};
+                    if (!strokeVal.empty() && strokeVal != "none" && strokeVal[0] == '#') {
+                        strokeAttr = std::format(L" Stroke=\"{}\"", vexio::win::ToHString(strokeVal).c_str());
+                    }
+                    const std::wstring swWide = swVal.empty()
+                        ? L"1.4"
+                        : std::wstring{vexio::win::ToHString(swVal).c_str()};
+                    xamlPaths += std::format(
+                        L"<Path Data=\"{}\"{}{} StrokeThickness=\"{}\" StrokeStartLineCap=\"Round\" StrokeEndLineCap=\"Round\" StrokeLineJoin=\"Round\" />",
+                        vexio::win::ToHString(dVal).c_str(),
+                        fillAttr,
+                        strokeAttr,
+                        swWide
+                    );
                 }
                 searchPos = tagEnd + 1;
             }
         }
 
-        std::wstring lowName = master.displayName;
-        std::transform(lowName.begin(), lowName.end(), lowName.begin(), [](wchar_t ch) { return static_cast<wchar_t>(::towlower(ch)); });
-        if (!extractedSvgPaths.empty()) {
-            pathMarkup = std::wstring{vexio::win::ToHString(extractedSvgPaths).c_str()};
-        } else if (lowName.find(L"decision") != std::wstring::npos || lowName.find(L"gateway") != std::wstring::npos || lowName.find(L"diamond") != std::wstring::npos) {
-            pathMarkup = L"M 18,2 L 34,13 L 18,24 L 2,13 Z";
-            strokeCol = Windows::UI::ColorHelper::FromArgb(0xFF, 0xD9, 0x77, 0x06);
-        } else if (lowName.find(L"circle") != std::wstring::npos || lowName.find(L"ellipse") != std::wstring::npos || lowName.find(L"event") != std::wstring::npos || lowName.find(L"ring") != std::wstring::npos) {
-            pathMarkup = L"M 18,3 A 10,10 0 1 1 17.99,3 Z";
-            strokeCol = Windows::UI::ColorHelper::FromArgb(0xFF, 0x05, 0x96, 0x69);
-        } else if (lowName.find(L"triangle") != std::wstring::npos) {
-            pathMarkup = L"M 18,3 L 33,23 L 3,23 Z";
-        } else if (lowName.find(L"hexagon") != std::wstring::npos || lowName.find(L"pentagon") != std::wstring::npos || lowName.find(L"octagon") != std::wstring::npos) {
-            pathMarkup = L"M 10,3 L 26,3 L 34,13 L 26,23 L 10,23 L 2,13 Z";
-        } else if (lowName.find(L"star") != std::wstring::npos) {
-            pathMarkup = L"M 18,2 L 22,10 L 32,10 L 24,16 L 27,24 L 18,19 L 9,24 L 12,16 L 4,10 L 14,10 Z";
-            strokeCol = Windows::UI::ColorHelper::FromArgb(0xFF, 0xD9, 0x77, 0x06);
-        } else if (lowName.find(L"arrow") != std::wstring::npos || lowName.find(L"chevron") != std::wstring::npos) {
-            pathMarkup = L"M 3,9 L 21,9 L 21,4 L 33,13 L 21,22 L 21,17 L 3,17 Z";
-        } else if (lowName.find(L"callout") != std::wstring::npos || lowName.find(L"note") != std::wstring::npos) {
-            pathMarkup = L"M 3,3 L 33,3 L 33,18 L 16,18 L 9,24 L 11,18 L 3,18 Z";
-            strokeCol = Windows::UI::ColorHelper::FromArgb(0xFF, 0xCA, 0x8A, 0x04);
-        } else if (lowName.find(L"cylinder") != std::wstring::npos || lowName.find(L"database") != std::wstring::npos || lowName.find(L"tank") != std::wstring::npos) {
-            pathMarkup = L"M 5,6 C 5,3 31,3 31,6 L 31,20 C 31,23 5,23 5,20 Z M 5,6 C 5,9 31,9 31,6";
-            strokeCol = Windows::UI::ColorHelper::FromArgb(0xFF, 0x02, 0x84, 0xC7);
-        } else if (lowName.find(L"class") != std::wstring::npos || lowName.find(L"entity") != std::wstring::npos || lowName.find(L"table") != std::wstring::npos) {
-            pathMarkup = L"M 3,3 L 33,3 L 33,23 L 3,23 Z M 3,9 L 33,9 M 3,16 L 33,16";
-            strokeCol = Windows::UI::ColorHelper::FromArgb(0xFF, 0x6D, 0x28, 0xD9);
-        } else if (lowName.find(L"cloud") != std::wstring::npos || lowName.find(L"vpc") != std::wstring::npos) {
-            pathMarkup = L"M 9,20 C 4,20 3,14 8,13 C 9,7 19,6 22,11 C 28,10 33,15 29,20 Z";
-            strokeCol = Windows::UI::ColorHelper::FromArgb(0xFF, 0x02, 0x84, 0xC7);
-        } else if (lowName.find(L"resistor") != std::wstring::npos || lowName.find(L"inductor") != std::wstring::npos) {
-            pathMarkup = L"M 2,13 L 7,13 L 10,6 L 15,20 L 20,6 L 25,20 L 28,13 L 34,13";
-            strokeCol = Windows::UI::ColorHelper::FromArgb(0xFF, 0x33, 0x41, 0x55);
-        } else if (lowName.find(L"valve") != std::wstring::npos) {
-            pathMarkup = L"M 4,6 L 32,20 L 32,6 L 4,20 Z";
-            strokeCol = Windows::UI::ColorHelper::FromArgb(0xFF, 0x0F, 0x17, 0x2A);
-        }
-
         Border swatch{};
-        swatch.Width(44.0);
-        swatch.Height(32.0);
+        swatch.Width(48.0);
+        swatch.Height(36.0);
         swatch.CornerRadius(CornerRadius{6, 6, 6, 6});
-        swatch.Background(SolidColorBrush{Windows::UI::ColorHelper::FromArgb(0xFF, 0xF8, 0xFA, 0xFC)});
+        swatch.Background(SolidColorBrush{Windows::UI::ColorHelper::FromArgb(0xFF, 0xFF, 0xFF, 0xFF)});
         swatch.BorderBrush(SolidColorBrush{Windows::UI::ColorHelper::FromArgb(0xFF, 0xCB, 0xD5, 0xE1)});
         swatch.BorderThickness(Thickness{1, 1, 1, 1});
-        if (auto vectorPreview = Markup::XamlReader::Load(hstring{
-                std::format(
-                    L"<Path xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\" Data=\"{}\" Stretch=\"Uniform\" StrokeThickness=\"1.6\" Margin=\"5,4,5,4\" />",
-                    pathMarkup)
-            }).try_as<Shapes::Path>())
-        {
-            vectorPreview.Stroke(SolidColorBrush{strokeCol});
+        const std::wstring xamlBox = !xamlPaths.empty()
+            ? std::format(
+                L"<Viewbox xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\" Stretch=\"Uniform\" Margin=\"2\"><Canvas Width=\"144\" Height=\"96\">{}</Canvas></Viewbox>",
+                xamlPaths)
+            : L"<Path xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\" Data=\"M 4,6 L 32,6 L 32,20 L 4,20 Z\" Stretch=\"Uniform\" Stroke=\"#2563EB\" Fill=\"#EFF6FF\" StrokeThickness=\"1.6\" Margin=\"5,4,5,4\" />";
+        if (auto vectorPreview = Markup::XamlReader::Load(hstring{xamlBox}).try_as<UIElement>()) {
             swatch.Child(vectorPreview);
         }
         Grid::SetColumn(swatch, 0);

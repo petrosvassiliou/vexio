@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Strictly within 66dp Adaptive Safe Zone (24..84) for Circle, Squircle & Googlebook Shelf Masks -->
+    <!-- Dashed Routing Link -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#997DD3FC"
+        android:strokeWidth="1.6"
+        android:strokeLineCap="round"
+        android:pathData="M42,39L46,39M50,39L54,39M58,39L62,39M64,39L66,39" />
+    <!-- V Connector Drop Shadow -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#44020617"
+        android:strokeWidth="7.4"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M36,41.5L54,73.5L72,41.5" />
+    <!-- Primary Sculpted V Connector Arms -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FFF0F9FF"
+        android:strokeWidth="6.8"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M36,40L54,72L72,40" />
+    <!-- Top-Left Cyan Process Node -->
+    <path
+        android:fillColor="#FF0EA5E9"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="1.3"
+        android:pathData="M32,31L40,31C42.2,31 44,32.8 44,35L44,43C44,45.2 42.2,47 40,47L32,47C29.8,47 28,45.2 28,43L28,35C28,32.8 29.8,31 32,31Z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M36,39m-2.1,0a2.1,2.1 0,1 1,4.2 0a2.1,2.1 0,1 1,-4.2 0" />
+    <!-- Top-Right Emerald Decision Diamond -->
+    <path
+        android:fillColor="#FF10B981"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="1.3"
+        android:strokeLineJoin="round"
+        android:pathData="M72,29.5L81.5,39L72,48.5L62.5,39Z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M72,39m-2.0,0a2.0,2.0 0,1 1,4.0 0a2.0,2.0 0,1 1,-4.0 0" />
+    <!-- Bottom Master Hub Vertex -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M54,72m-7.2,0a7.2,7.2 0,1 1,14.4 0a7.2,7.2 0,1 1,-14.4 0" />
+    <path
+        android:fillColor="#FF2563EB"
+        android:pathData="M54,72m-4.2,0a4.2,4.2 0,1 1,8.4 0a4.2,4.2 0,1 1,-8.4 0" />
+</vector>

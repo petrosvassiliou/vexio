@@ -1,34 +1,37 @@
-//! Authentic 1:1 Microsoft Visio Stencil Vector Artwork & Multi-Color ShapeSheet Geometry Builder.
+//! Authentic 1:1 Microsoft Visio Stencil Vector Artwork & Isotropic Multi-Color ShapeSheet Geometry Builder.
 //!
-//! Produces dual-representation Visio masters:
-//! 1. Synchronous inline-ready vector SVG (`ForeignMediaData { media_type: "SVG", .. }`) with
-//!    Visio-authentic 3D isometric bevels, linear/radial metallic & product gradients, and badges.
-//! 2. Proportional multi-color `ShapeSheet` `Geometry1..N` sections (`=Width*..`, `=Height*..`,
-//!    `=MIN(Width,Height)*..` with per-section `FillForegnd` & `LineColor`) so `wgpu` (`DX12`,
-//!    `Metal`, `Vulkan`, `WebGPU`), 192-DPI `PNG`/`JPG` rasterizers, `PDF/A`, and `DXF` exports
-//!    render matching multi-color vector geometry at every scale.
+//! Every stencil master is authored in an **isotropic `(0..vb_w, 0..vb_h)` coordinate frame** matching
+//! its exact canonical `(Width, Height)` (`vb_w = Width * 100`, `vb_h = Height * 100`, i.e., `1 unit == 0.01 in`
+//! identically in both X and Y). All shapes emit pure multi-color `ShapeSheet` `Geometry1..N` sections
+//! (including rounded `ArcTo` corners, ellipses, 3D bevels, role badges, and vector glyphs), guaranteeing:
+//! 1. **Zero aspect-ratio distortion** (circles are 100% mathematical circles, tiles have uniform corner radii,
+//!    1U switches/servers and 42U racks fill their exact physical proportions without double-squashing).
+//! 2. **100% identical multi-color vector rendering across all 4 platforms** — macOS (`StencilVectorPreviewCanvas`
+//!    + Metal `wgpu`), Windows (WinUI 3 `Viewbox/Path` + DirectX 12 `wgpu`), Android/Googlebook (Compose `Canvas`
+//!    + Vulkan `wgpu`), ChromeOS PWA (SVG + WebGPU), PDF/A, PNG, JPG, and `.vsdx`/`.vssx` round-trips.
 
 use vexio_shapesheet::{
-    ForeignMediaData, GeometryRow, GeometryRowKind, GeometrySection, Unit, VisioShape,
-    format_clean_f64,
+    GeometryRow, GeometryRowKind, GeometrySection, Unit, VisioShape, format_clean_f64,
 };
 
-struct DualArtwork {
-    svg: String,
-    geoms: Vec<(GeometrySection, Option<&'static str>, Option<&'static str>, f64)>,
+struct IsoArtwork {
+    vb_w: f64,
+    vb_h: f64,
+    geoms: Vec<(
+        GeometrySection,
+        Option<&'static str>,
+        Option<&'static str>,
+        f64,
+    )>,
 }
 
-impl DualArtwork {
-    fn new(defs: &str) -> Self {
-        let mut svg = String::with_capacity(1024);
-        svg.push_str("<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 100 100\">");
-        if !defs.is_empty() {
-            svg.push_str("<defs>");
-            svg.push_str(defs);
-            svg.push_str("</defs>");
-        }
+impl IsoArtwork {
+    fn for_shape(sh: &VisioShape) -> Self {
+        let w_in = sh.sheet.get_f64("Width").unwrap_or(1.05).max(0.20);
+        let h_in = sh.sheet.get_f64("Height").unwrap_or(1.05).max(0.20);
         Self {
-            svg,
+            vb_w: w_in * 100.0,
+            vb_h: h_in * 100.0,
             geoms: Vec::new(),
         }
     }
@@ -37,59 +40,60 @@ impl DualArtwork {
         (self.geoms.len() as u32) + 1
     }
 
+    #[inline]
+    fn fx(&self, x: f64) -> String {
+        format!("=Width*{}", format_clean_f64(x / self.vb_w))
+    }
+
+    #[inline]
+    fn fy(&self, y: f64) -> String {
+        format!("=Height*{}", format_clean_f64((self.vb_h - y) / self.vb_h))
+    }
+
+    #[inline]
+    fn bow_formula(&self, bow_units: f64) -> String {
+        let vb_min = self.vb_w.min(self.vb_h).max(1.0);
+        format!("=MIN(Width,Height)*{}", format_clean_f64(bow_units / vb_min))
+    }
+
     fn add_poly(
         &mut self,
-        pts_100: &[(f64, f64)],
-        svg_fill: &str,
-        svg_stroke: &str,
-        sw_100: f64,
-        ss_fill_rgb: Option<&'static str>,
-        ss_stroke_rgb: Option<&'static str>,
+        pts: &[(f64, f64)],
+        fill_rgb: Option<&'static str>,
+        stroke_rgb: Option<&'static str>,
+        weight_pt: f64,
     ) {
-        if pts_100.len() < 2 {
+        if pts.len() < 3 {
             return;
         }
-        self.svg.push_str("<polygon points=\"");
-        for (i, &(x, y)) in pts_100.iter().enumerate() {
-            if i > 0 {
-                self.svg.push(' ');
-            }
-            self.svg.push_str(&format!("{x:.1},{y:.1}"));
-        }
-        self.svg.push_str(&format!(
-            "\" fill=\"{svg_fill}\" stroke=\"{svg_stroke}\" stroke-width=\"{sw_100:.1}\" stroke-linejoin=\"round\"/>"
-        ));
-
         let mut g = GeometrySection::new(self.next_idx());
-        g.no_fill = if ss_fill_rgb.is_none() || svg_fill == "none" {
+        g.no_fill = if fill_rgb.is_none() {
             "TRUE".into()
         } else {
             "FALSE".into()
         };
-        g.no_line = if ss_stroke_rgb.is_none() || svg_stroke == "none" {
+        g.no_line = if stroke_rgb.is_none() {
             "TRUE".into()
         } else {
             "FALSE".into()
         };
-        let mut rows = Vec::with_capacity(pts_100.len() + 1);
-        for (i, &(x, y)) in pts_100.iter().enumerate() {
-            let fx = format!("=Width*{}", format_clean_f64(x / 100.0));
-            let fy = format!("=Height*{}", format_clean_f64((100.0 - y) / 100.0));
+        let mut rows = Vec::with_capacity(pts.len() + 1);
+        for (i, &(x, y)) in pts.iter().enumerate() {
             if i == 0 {
-                rows.push(GeometryRow::move_to(1, fx, fy));
+                rows.push(GeometryRow::move_to(1, self.fx(x), self.fy(y)));
             } else {
-                rows.push(GeometryRow::line_to((i + 1) as u32, fx, fy));
+                rows.push(GeometryRow::line_to((i + 1) as u32, self.fx(x), self.fy(y)));
             }
         }
-        let (x0, y0) = pts_100[0];
+        let (x0, y0) = pts[0];
         rows.push(GeometryRow::line_to(
-            (pts_100.len() + 1) as u32,
-            format!("=Width*{}", format_clean_f64(x0 / 100.0)),
-            format!("=Height*{}", format_clean_f64((100.0 - y0) / 100.0)),
+            (pts.len() + 1) as u32,
+            self.fx(x0),
+            self.fy(y0),
         ));
         g.rows = rows;
         self.geoms
-            .push((g, ss_fill_rgb, ss_stroke_rgb, (sw_100 * 0.65).clamp(0.75, 2.5)));
+            .push((g, fill_rgb, stroke_rgb, weight_pt.clamp(0.75, 3.2)));
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -100,45 +104,48 @@ impl DualArtwork {
         w: f64,
         h: f64,
         rx: f64,
-        svg_fill: &str,
-        svg_stroke: &str,
-        sw_100: f64,
-        ss_fill_rgb: Option<&'static str>,
-        ss_stroke_rgb: Option<&'static str>,
+        fill_rgb: Option<&'static str>,
+        stroke_rgb: Option<&'static str>,
+        weight_pt: f64,
     ) {
-        self.svg.push_str(&format!(
-            "<rect x=\"{x:.1}\" y=\"{y:.1}\" width=\"{w:.1}\" height=\"{h:.1}\" rx=\"{rx:.1}\" fill=\"{svg_fill}\" stroke=\"{svg_stroke}\" stroke-width=\"{sw_100:.1}\"/>"
-        ));
-        let pts = [(x, y), (x + w, y), (x + w, y + h), (x, y + h)];
+        let r = rx.min(w * 0.48).min(h * 0.48).max(0.0);
         let mut g = GeometrySection::new(self.next_idx());
-        g.no_fill = if ss_fill_rgb.is_none() || svg_fill == "none" {
+        g.no_fill = if fill_rgb.is_none() {
             "TRUE".into()
         } else {
             "FALSE".into()
         };
-        g.no_line = if ss_stroke_rgb.is_none() || svg_stroke == "none" {
+        g.no_line = if stroke_rgb.is_none() {
             "TRUE".into()
         } else {
             "FALSE".into()
         };
-        let mut rows = Vec::with_capacity(5);
-        for (i, &(px, py)) in pts.iter().enumerate() {
-            let fx = format!("=Width*{}", format_clean_f64(px / 100.0));
-            let fy = format!("=Height*{}", format_clean_f64((100.0 - py) / 100.0));
-            if i == 0 {
-                rows.push(GeometryRow::move_to(1, fx, fy));
-            } else {
-                rows.push(GeometryRow::line_to((i + 1) as u32, fx, fy));
-            }
+
+        if r <= 0.35 {
+            g.rows = vec![
+                GeometryRow::move_to(1, self.fx(x), self.fy(y)),
+                GeometryRow::line_to(2, self.fx(x + w), self.fy(y)),
+                GeometryRow::line_to(3, self.fx(x + w), self.fy(y + h)),
+                GeometryRow::line_to(4, self.fx(x), self.fy(y + h)),
+                GeometryRow::line_to(5, self.fx(x), self.fy(y)),
+            ];
+        } else {
+            // Clockwise in screen space `(X right, Y down)` -> convex outward sagitta `bow = +0.29289322 * r`
+            let bow = self.bow_formula(0.292_893_22 * r);
+            g.rows = vec![
+                GeometryRow::move_to(1, self.fx(x + r), self.fy(y)),
+                GeometryRow::line_to(2, self.fx(x + w - r), self.fy(y)),
+                GeometryRow::arc_to(3, self.fx(x + w), self.fy(y + r), &bow),
+                GeometryRow::line_to(4, self.fx(x + w), self.fy(y + h - r)),
+                GeometryRow::arc_to(5, self.fx(x + w - r), self.fy(y + h), &bow),
+                GeometryRow::line_to(6, self.fx(x + r), self.fy(y + h)),
+                GeometryRow::arc_to(7, self.fx(x), self.fy(y + h - r), &bow),
+                GeometryRow::line_to(8, self.fx(x), self.fy(y + r)),
+                GeometryRow::arc_to(9, self.fx(x + r), self.fy(y), &bow),
+            ];
         }
-        rows.push(GeometryRow::line_to(
-            5,
-            format!("=Width*{}", format_clean_f64(x / 100.0)),
-            format!("=Height*{}", format_clean_f64((100.0 - y) / 100.0)),
-        ));
-        g.rows = rows;
         self.geoms
-            .push((g, ss_fill_rgb, ss_stroke_rgb, (sw_100 * 0.65).clamp(0.75, 2.5)));
+            .push((g, fill_rgb, stroke_rgb, weight_pt.clamp(0.75, 3.2)));
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -148,87 +155,92 @@ impl DualArtwork {
         cy: f64,
         rx: f64,
         ry: f64,
-        svg_fill: &str,
-        svg_stroke: &str,
-        sw_100: f64,
-        ss_fill_rgb: Option<&'static str>,
-        ss_stroke_rgb: Option<&'static str>,
+        fill_rgb: Option<&'static str>,
+        stroke_rgb: Option<&'static str>,
+        weight_pt: f64,
     ) {
-        self.svg.push_str(&format!(
-            "<ellipse cx=\"{cx:.1}\" cy=\"{cy:.1}\" rx=\"{rx:.1}\" ry=\"{ry:.1}\" fill=\"{svg_fill}\" stroke=\"{svg_stroke}\" stroke-width=\"{sw_100:.1}\"/>"
-        ));
         let mut g = GeometrySection::new(self.next_idx());
-        g.no_fill = if ss_fill_rgb.is_none() || svg_fill == "none" {
+        g.no_fill = if fill_rgb.is_none() {
             "TRUE".into()
         } else {
             "FALSE".into()
         };
-        g.no_line = if ss_stroke_rgb.is_none() || svg_stroke == "none" {
+        g.no_line = if stroke_rgb.is_none() {
             "TRUE".into()
         } else {
             "FALSE".into()
         };
-        let wy = 100.0 - cy;
         g.rows = vec![GeometryRow {
             ix: 1,
             kind: GeometryRowKind::Ellipse,
-            x: format!("=Width*{}", format_clean_f64(cx / 100.0)),
-            y: format!("=Height*{}", format_clean_f64(wy / 100.0)),
-            a: Some(format!("=Width*{}", format_clean_f64((cx + rx) / 100.0))),
-            b: Some(format!("=Height*{}", format_clean_f64(wy / 100.0))),
-            c: Some(format!("=Width*{}", format_clean_f64(cx / 100.0))),
-            d: Some(format!("=Height*{}", format_clean_f64((wy + ry) / 100.0))),
+            x: self.fx(cx),
+            y: self.fy(cy),
+            a: Some(self.fx(cx + rx)),
+            b: Some(self.fy(cy)),
+            c: Some(self.fx(cx)),
+            d: Some(self.fy(cy - ry)),
             e: None,
             deleted: false,
         }];
         self.geoms
-            .push((g, ss_fill_rgb, ss_stroke_rgb, (sw_100 * 0.65).clamp(0.75, 2.5)));
+            .push((g, fill_rgb, stroke_rgb, weight_pt.clamp(0.75, 3.2)));
     }
 
     fn add_lines(
         &mut self,
         segs: &[((f64, f64), (f64, f64))],
-        svg_stroke: &str,
-        sw_100: f64,
-        ss_stroke_rgb: &'static str,
+        stroke_rgb: &'static str,
+        weight_pt: f64,
     ) {
         if segs.is_empty() {
             return;
         }
-        let mut d = String::new();
         let mut g = GeometrySection::new(self.next_idx());
         g.no_fill = "TRUE".into();
         let mut ix = 1u32;
         for &((x1, y1), (x2, y2)) in segs {
-            d.push_str(&format!("M {x1:.1} {y1:.1} L {x2:.1} {y2:.1} "));
-            g.rows.push(GeometryRow::move_to(
-                ix,
-                format!("=Width*{}", format_clean_f64(x1 / 100.0)),
-                format!("=Height*{}", format_clean_f64((100.0 - y1) / 100.0)),
-            ));
-            g.rows.push(GeometryRow::line_to(
-                ix + 1,
-                format!("=Width*{}", format_clean_f64(x2 / 100.0)),
-                format!("=Height*{}", format_clean_f64((100.0 - y2) / 100.0)),
-            ));
+            g.rows.push(GeometryRow::move_to(ix, self.fx(x1), self.fy(y1)));
+            g.rows
+                .push(GeometryRow::line_to(ix + 1, self.fx(x2), self.fy(y2)));
             ix += 2;
         }
-        self.svg.push_str(&format!(
-            "<path d=\"{}\" fill=\"none\" stroke=\"{svg_stroke}\" stroke-width=\"{sw_100:.1}\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>",
-            d.trim()
-        ));
         self.geoms
-            .push((g, None, Some(ss_stroke_rgb), (sw_100 * 0.65).clamp(0.75, 2.8)));
+            .push((g, None, Some(stroke_rgb), weight_pt.clamp(0.75, 3.5)));
     }
 
-    fn add_svg_only(&mut self, fragment: &str) {
-        self.svg.push_str(fragment);
+    fn add_open_arc(
+        &mut self,
+        p0: (f64, f64),
+        p1: (f64, f64),
+        bow_units: f64,
+        stroke_rgb: &'static str,
+        weight_pt: f64,
+    ) {
+        let mut g = GeometrySection::new(self.next_idx());
+        g.no_fill = "TRUE".into();
+        let bow = self.bow_formula(bow_units);
+        g.rows = vec![
+            GeometryRow::move_to(1, self.fx(p0.0), self.fy(p0.1)),
+            GeometryRow::arc_to(2, self.fx(p1.0), self.fy(p1.1), &bow),
+        ];
+        self.geoms
+            .push((g, None, Some(stroke_rgb), weight_pt.clamp(0.75, 3.5)));
     }
 
-    fn apply_to_shape(mut self, sh: &mut VisioShape, primary_fill_rgb: &str, primary_stroke_rgb: &str, label_below: bool) {
-        self.svg.push_str("</svg>");
+    fn apply_to_shape(
+        self,
+        sh: &mut VisioShape,
+        primary_fill_rgb: &str,
+        primary_stroke_rgb: &str,
+        label_below: bool,
+    ) {
         sh.sheet.geometries.clear();
         sh.sheet.cells.retain(|k, _| !k.starts_with("geometry"));
+        sh.foreign_data = None;
+        sh.sheet
+            .cells
+            .remove("user.foreignsvgprimary");
+
         sh.sheet.set_formula(
             "FillForegnd",
             format!("=RGB({primary_fill_rgb})"),
@@ -278,23 +290,12 @@ impl DualArtwork {
             sh.sheet
                 .set_formula("Char.Color", "=RGB(15,23,42)", Some(Unit::Color));
         }
-
-        sh.sheet.set_user_cell(
-            "ForeignSvgPrimary",
-            "TRUE",
-            "Render embedded 1:1 Visio SVG artwork as primary vector visual",
-        );
-        sh.foreign_data = Some(ForeignMediaData {
-            media_type: "SVG".into(),
-            rel_id: None,
-            data: self.svg.into_bytes(),
-        });
     }
 }
 
 /// Apply authentic 1:1 Microsoft Visio multi-color vector artwork and below-icon `TxtPinY` captions
 /// for Microsoft 365/Office, Active Directory, Azure, Power Platform, Servers, Network & Rack,
-/// Cloud Architecture, and BPMN 2.0 events/gateways. Returns `true` if handled.
+/// and Cloud Architecture. Returns `true` if handled.
 pub fn apply_visio_1to1_icon_artwork(sh: &mut VisioShape, category: &str, role: &str) -> bool {
     match category {
         "Microsoft 365" => {
@@ -330,582 +331,803 @@ pub fn apply_visio_1to1_icon_artwork(sh: &mut VisioShape, category: &str, role: 
 }
 
 // ============================================================================
-// 1. Microsoft 365 & Office 1:1 Product Iconography
+// 1. Microsoft 365 & Office 1:1 Product Iconography (`105 × 105` Isotropic Square)
 // ============================================================================
 
 fn build_office_app_tile(
     sh: &mut VisioShape,
     letter: &str,
     tile_rgb: &'static str,
-    tile_hex: &str,
     top_rgb: &'static str,
-    top_hex: &str,
     mid_rgb: &'static str,
-    mid_hex: &str,
     bot_rgb: &'static str,
-    bot_hex: &str,
     right_mode: &str,
 ) {
-    let defs = format!(
-        "<linearGradient id=\"g1\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"1\"><stop offset=\"0%\" stop-color=\"{top_hex}\"/><stop offset=\"100%\" stop-color=\"{tile_hex}\"/></linearGradient>"
-    );
-    let mut art = DualArtwork::new(&defs);
+    let mut art = IsoArtwork::for_shape(sh);
+    let s = art.vb_w / 100.0;
 
     match right_mode {
         "ppt_circle" => {
-            // PowerPoint signature circular pie chart backing
-            art.add_ellipse(58.0, 50.0, 36.0, 36.0, mid_hex, tile_hex, 1.8, Some(mid_rgb), Some(tile_rgb));
+            art.add_ellipse(58.0 * s, 50.0 * s, 35.0 * s, 35.0 * s, Some(mid_rgb), Some(tile_rgb), 1.4);
             art.add_poly(
-                &[(58.0, 50.0), (58.0, 14.0), (88.0, 28.0), (94.0, 50.0)],
-                top_hex,
-                "none",
-                0.0,
+                &[
+                    (58.0 * s, 50.0 * s),
+                    (58.0 * s, 15.0 * s),
+                    (83.0 * s, 25.0 * s),
+                    (93.0 * s, 50.0 * s),
+                ],
                 Some(top_rgb),
-                None,
+                Some("255,255,255"),
+                1.4,
             );
-            art.add_lines(&[((58.0, 14.0), (58.0, 50.0)), ((58.0, 50.0), (94.0, 50.0))], "#FFFFFF", 2.2, "255,255,255");
+            art.add_lines(
+                &[
+                    ((58.0 * s, 15.0 * s), (58.0 * s, 50.0 * s)),
+                    ((58.0 * s, 50.0 * s), (93.0 * s, 50.0 * s)),
+                ],
+                "255,255,255",
+                1.8,
+            );
         }
         "db_cyl" => {
-            // Access signature 3-tier 3D burgundy cylinder
-            art.add_rect(30.0, 20.0, 62.0, 60.0, 8.0, mid_hex, tile_hex, 1.8, Some(mid_rgb), Some(tile_rgb));
-            art.add_ellipse(61.0, 22.0, 31.0, 10.0, top_hex, tile_hex, 1.8, Some(top_rgb), Some(tile_rgb));
-            art.add_ellipse(61.0, 50.0, 31.0, 9.0, bot_hex, "#FFFFFF", 1.5, Some(bot_rgb), Some("255,255,255"));
-            art.add_ellipse(61.0, 78.0, 31.0, 10.0, bot_hex, tile_hex, 1.8, Some(bot_rgb), Some(tile_rgb));
+            art.add_rect(30.0 * s, 22.0 * s, 62.0 * s, 56.0 * s, 6.0 * s, Some(mid_rgb), Some(tile_rgb), 1.4);
+            art.add_ellipse(61.0 * s, 22.0 * s, 31.0 * s, 10.0 * s, Some(top_rgb), Some(tile_rgb), 1.4);
+            art.add_ellipse(61.0 * s, 50.0 * s, 31.0 * s, 8.5 * s, Some(bot_rgb), Some("255,255,255"), 1.2);
+            art.add_ellipse(61.0 * s, 78.0 * s, 31.0 * s, 10.0 * s, Some(bot_rgb), Some(tile_rgb), 1.4);
         }
         "visio_nodes" => {
-            // Visio diagram card with diamond + connected node
-            art.add_rect(28.0, 14.0, 64.0, 72.0, 7.0, "#EFF6FF", mid_hex, 2.2, Some("239,246,255"), Some(mid_rgb));
+            art.add_rect(28.0 * s, 14.0 * s, 64.0 * s, 72.0 * s, 8.0 * s, Some("239,246,255"), Some(mid_rgb), 1.6);
             art.add_poly(
-                &[(64.0, 24.0), (78.0, 36.0), (64.0, 48.0), (50.0, 36.0)],
-                top_hex,
-                tile_hex,
-                1.6,
+                &[
+                    (66.0 * s, 22.0 * s),
+                    (81.0 * s, 35.0 * s),
+                    (66.0 * s, 48.0 * s),
+                    (51.0 * s, 35.0 * s),
+                ],
                 Some(top_rgb),
                 Some(tile_rgb),
+                1.4,
             );
-            art.add_rect(52.0, 60.0, 30.0, 16.0, 3.0, mid_hex, tile_hex, 1.6, Some(mid_rgb), Some(tile_rgb));
-            art.add_lines(&[((64.0, 48.0), (64.0, 60.0))], tile_hex, 2.4, tile_rgb);
+            art.add_rect(52.0 * s, 60.0 * s, 28.0 * s, 16.0 * s, 4.0 * s, Some(mid_rgb), Some(tile_rgb), 1.4);
+            art.add_lines(&[((66.0 * s, 48.0 * s), (66.0 * s, 60.0 * s))], tile_rgb, 1.8);
         }
         "onenote_tabs" => {
-            art.add_rect(26.0, 14.0, 56.0, 72.0, 6.0, mid_hex, tile_hex, 1.8, Some(mid_rgb), Some(tile_rgb));
-            art.add_rect(82.0, 18.0, 11.0, 18.0, 3.0, top_hex, tile_hex, 1.4, Some(top_rgb), Some(tile_rgb));
-            art.add_rect(82.0, 40.0, 11.0, 18.0, 3.0, mid_hex, tile_hex, 1.4, Some(mid_rgb), Some(tile_rgb));
-            art.add_rect(82.0, 62.0, 11.0, 18.0, 3.0, bot_hex, tile_hex, 1.4, Some(bot_rgb), Some(tile_rgb));
+            art.add_rect(26.0 * s, 14.0 * s, 56.0 * s, 72.0 * s, 7.0 * s, Some(mid_rgb), Some(tile_rgb), 1.5);
+            art.add_rect(81.0 * s, 18.0 * s, 12.0 * s, 18.0 * s, 3.0 * s, Some(top_rgb), Some(tile_rgb), 1.2);
+            art.add_rect(81.0 * s, 40.0 * s, 12.0 * s, 18.0 * s, 3.0 * s, Some(mid_rgb), Some(tile_rgb), 1.2);
+            art.add_rect(81.0 * s, 62.0 * s, 12.0 * s, 18.0 * s, 3.0 * s, Some(bot_rgb), Some(tile_rgb), 1.2);
+            art.add_lines(
+                &[
+                    ((48.0 * s, 32.0 * s), (72.0 * s, 32.0 * s)),
+                    ((48.0 * s, 48.0 * s), (72.0 * s, 48.0 * s)),
+                    ((48.0 * s, 64.0 * s), (68.0 * s, 64.0 * s)),
+                ],
+                "255,255,255",
+                1.8,
+            );
         }
         "outlook_env" => {
-            art.add_rect(30.0, 14.0, 62.0, 46.0, 5.0, top_hex, tile_hex, 1.8, Some(top_rgb), Some(tile_rgb));
-            art.add_lines(&[((42.0, 26.0), (80.0, 26.0)), ((42.0, 36.0), (74.0, 36.0))], "#FFFFFF", 2.6, "255,255,255");
-            art.add_poly(
-                &[(28.0, 44.0), (94.0, 44.0), (94.0, 86.0), (28.0, 86.0)],
-                mid_hex,
-                tile_hex,
+            art.add_rect(30.0 * s, 14.0 * s, 60.0 * s, 46.0 * s, 6.0 * s, Some(top_rgb), Some(tile_rgb), 1.4);
+            art.add_lines(
+                &[
+                    ((44.0 * s, 26.0 * s), (78.0 * s, 26.0 * s)),
+                    ((44.0 * s, 36.0 * s), (72.0 * s, 36.0 * s)),
+                ],
+                "255,255,255",
                 1.8,
-                Some(mid_rgb),
-                Some(tile_rgb),
             );
-            art.add_lines(&[((28.0, 45.0), (61.0, 68.0)), ((94.0, 45.0), (61.0, 68.0))], "#FFFFFF", 2.4, "255,255,255");
+            art.add_rect(28.0 * s, 44.0 * s, 66.0 * s, 42.0 * s, 6.0 * s, Some(mid_rgb), Some(tile_rgb), 1.5);
+            art.add_lines(
+                &[
+                    ((30.0 * s, 46.0 * s), (61.0 * s, 67.0 * s)),
+                    ((92.0 * s, 46.0 * s), (61.0 * s, 67.0 * s)),
+                ],
+                "255,255,255",
+                1.8,
+            );
         }
         _ => {
-            // Fluent 3-tier document/sheet bands (Word, Excel, Project, Publisher)
-            art.add_rect(28.0, 14.0, 64.0, 24.0, 5.0, top_hex, "none", 0.0, Some(top_rgb), None);
-            art.add_rect(28.0, 38.0, 64.0, 24.0, 0.0, mid_hex, "none", 0.0, Some(mid_rgb), None);
-            art.add_rect(28.0, 62.0, 64.0, 24.0, 5.0, bot_hex, "none", 0.0, Some(bot_rgb), None);
-            art.add_rect(28.0, 14.0, 64.0, 72.0, 6.0, "none", tile_hex, 1.8, None, Some(tile_rgb));
+            // Fluent 3-tier rounded document card (Word, Excel, Project, Publisher, Forms, Loop)
+            art.add_rect(28.0 * s, 14.0 * s, 64.0 * s, 72.0 * s, 8.0 * s, Some(mid_rgb), None, 0.8);
+            art.add_rect(28.0 * s, 14.0 * s, 64.0 * s, 25.0 * s, 8.0 * s, Some(top_rgb), None, 0.8);
+            art.add_rect(28.0 * s, 61.0 * s, 64.0 * s, 25.0 * s, 8.0 * s, Some(bot_rgb), None, 0.8);
+            art.add_rect(28.0 * s, 36.0 * s, 64.0 * s, 28.0 * s, 0.0, Some(mid_rgb), None, 0.8);
+            art.add_rect(28.0 * s, 14.0 * s, 64.0 * s, 72.0 * s, 8.0 * s, None, Some(tile_rgb), 1.5);
             if right_mode == "excel_grid" {
                 art.add_lines(
-                    &[((58.0, 14.0), (58.0, 86.0)), ((28.0, 38.0), (92.0, 38.0)), ((28.0, 62.0), (92.0, 62.0))],
-                    "#FFFFFF",
-                    1.8,
+                    &[
+                        ((60.0 * s, 15.0 * s), (60.0 * s, 85.0 * s)),
+                        ((29.0 * s, 38.0 * s), (91.0 * s, 38.0 * s)),
+                        ((29.0 * s, 62.0 * s), (91.0 * s, 62.0 * s)),
+                    ],
                     "255,255,255",
+                    1.5,
                 );
             } else if right_mode == "project_gantt" {
-                art.add_lines(
-                    &[((48.0, 26.0), (76.0, 26.0)), ((54.0, 50.0), (84.0, 50.0)), ((46.0, 74.0), (72.0, 74.0))],
-                    "#FFFFFF",
-                    4.2,
-                    "255,255,255",
-                );
+                art.add_rect(50.0 * s, 23.0 * s, 28.0 * s, 6.5 * s, 2.5 * s, Some("255,255,255"), None, 0.8);
+                art.add_rect(56.0 * s, 47.0 * s, 28.0 * s, 6.5 * s, 2.5 * s, Some("255,255,255"), None, 0.8);
+                art.add_rect(48.0 * s, 71.0 * s, 24.0 * s, 6.5 * s, 2.5 * s, Some("255,255,255"), None, 0.8);
             } else {
                 art.add_lines(
-                    &[((50.0, 26.0), (84.0, 26.0)), ((50.0, 50.0), (84.0, 50.0)), ((50.0, 74.0), (76.0, 74.0))],
-                    "#FFFFFF",
-                    2.8,
+                    &[
+                        ((52.0 * s, 26.0 * s), (83.0 * s, 26.0 * s)),
+                        ((52.0 * s, 50.0 * s), (83.0 * s, 50.0 * s)),
+                        ((52.0 * s, 74.0 * s), (76.0 * s, 74.0 * s)),
+                    ],
                     "255,255,255",
+                    2.0,
                 );
             }
         }
     }
 
-    // Left Fluent App Shield Tile + Crisp Vector Letter
-    art.add_svg_only("<rect x=\"8\" y=\"27\" width=\"46\" height=\"46\" rx=\"8\" fill=\"#000000\" fill-opacity=\"0.18\"/>");
-    art.add_rect(6.0, 25.0, 46.0, 46.0, 8.0, "url(#g1)", "#FFFFFF", 1.8, Some(tile_rgb), Some("255,255,255"));
-    draw_badge_letter(&mut art, letter, 29.0, 48.0, 13.0);
+    // Subtle elevation shadow + Left Fluent App Shield Tile + Crisp Vector Letter
+    art.add_rect(9.0 * s, 28.0 * s, 46.0 * s, 46.0 * s, 9.0 * s, Some("148,163,184"), None, 0.8);
+    art.add_rect(6.0 * s, 25.0 * s, 46.0 * s, 46.0 * s, 9.0 * s, Some(tile_rgb), Some("255,255,255"), 1.6);
+    draw_badge_letter(&mut art, letter, 29.0 * s, 48.0 * s, 12.5 * s);
     art.apply_to_shape(sh, top_rgb, tile_rgb, true);
 }
 
-fn draw_badge_letter(art: &mut DualArtwork, letter: &str, cx: f64, cy: f64, half: f64) {
-    art.add_svg_only(&format!(
-        "<text x=\"{cx:.1}\" y=\"{:.1}\" font-family=\"Segoe UI, Roboto, Arial, sans-serif\" font-size=\"{:.1}\" font-weight=\"800\" fill=\"#FFFFFF\" text-anchor=\"middle\" dominant-baseline=\"central\">{letter}</text>",
-        cy + 0.5,
-        half * 2.05
-    ));
+fn draw_badge_letter(art: &mut IsoArtwork, letter: &str, cx: f64, cy: f64, half: f64) {
     let l = cx - half * 0.68;
     let r = cx + half * 0.68;
     let t = cy - half * 0.78;
     let b = cy + half * 0.78;
-    let segs: Vec<((f64, f64), (f64, f64))> = match letter {
-        "W" => vec![
-            ((l, t), (cx - half * 0.32, b)),
-            ((cx - half * 0.32, b), (cx, cy - half * 0.15)),
-            ((cx, cy - half * 0.15), (cx + half * 0.32, b)),
-            ((cx + half * 0.32, b), (r, t)),
-        ],
-        "X" => vec![((l, t), (r, b)), ((r, t), (l, b))],
-        "P" => vec![
-            ((l, b), (l, t)),
-            ((l, t), (r, t)),
-            ((r, t), (r, cy)),
-            ((r, cy), (l, cy)),
-        ],
-        "N" => vec![((l, b), (l, t)), ((l, t), (r, b)), ((r, b), (r, t))],
-        "V" => vec![((l, t), (cx, b)), ((cx, b), (r, t))],
-        "A" => vec![((l, b), (cx, t)), ((cx, t), (r, b)), ((l + 3.0, cy + 2.0), (r - 3.0, cy + 2.0))],
-        "O" => vec![((l, t), (r, t)), ((r, t), (r, b)), ((r, b), (l, b)), ((l, b), (l, t))],
-        "T" => vec![((l, t), (r, t)), ((cx, t), (cx, b))],
-        "S" => vec![
-            ((r, t), (l, t)),
-            ((l, t), (l, cy)),
-            ((l, cy), (r, cy)),
-            ((r, cy), (r, b)),
-            ((r, b), (l, b)),
-        ],
-        "F" => vec![((l, b), (l, t)), ((l, t), (r, t)), ((l, cy), (r - 3.0, cy))],
-        "L" => vec![((l, t), (l, b)), ((l, b), (r, b))],
-        _ => vec![((l, cy), (r, cy))],
-    };
-    let mut g = GeometrySection::new(art.next_idx());
-    g.no_fill = "TRUE".into();
-    let mut ix = 1u32;
-    for ((x1, y1), (x2, y2)) in segs {
-        g.rows.push(GeometryRow::move_to(
-            ix,
-            format!("=Width*{}", format_clean_f64(x1 / 100.0)),
-            format!("=Height*{}", format_clean_f64((100.0 - y1) / 100.0)),
-        ));
-        g.rows.push(GeometryRow::line_to(
-            ix + 1,
-            format!("=Width*{}", format_clean_f64(x2 / 100.0)),
-            format!("=Height*{}", format_clean_f64((100.0 - y2) / 100.0)),
-        ));
-        ix += 2;
+    match letter {
+        "O" => {
+            art.add_ellipse(cx, cy, half * 0.68, half * 0.80, None, Some("255,255,255"), 2.6);
+        }
+        "P" => {
+            let mut g = GeometrySection::new(art.next_idx());
+            g.no_fill = "TRUE".into();
+            let bow = art.bow_formula(0.414 * half * 0.42);
+            g.rows = vec![
+                GeometryRow::move_to(1, art.fx(l), art.fy(b)),
+                GeometryRow::line_to(2, art.fx(l), art.fy(t)),
+                GeometryRow::line_to(3, art.fx(cx + half * 0.18), art.fy(t)),
+                GeometryRow::arc_to(4, art.fx(cx + half * 0.18), art.fy(cy + half * 0.04), &bow),
+                GeometryRow::line_to(5, art.fx(l), art.fy(cy + half * 0.04)),
+            ];
+            art.geoms.push((g, None, Some("255,255,255"), 2.6));
+        }
+        "S" => {
+            let mut g = GeometrySection::new(art.next_idx());
+            g.no_fill = "TRUE".into();
+            let bow_l = art.bow_formula(-0.36 * half);
+            let bow_r = art.bow_formula(0.36 * half);
+            g.rows = vec![
+                GeometryRow::move_to(1, art.fx(r - half * 0.1), art.fy(t + half * 0.15)),
+                GeometryRow::arc_to(2, art.fx(cx), art.fy(cy), &bow_l),
+                GeometryRow::arc_to(3, art.fx(l + half * 0.1), art.fy(b - half * 0.15), &bow_r),
+            ];
+            art.geoms.push((g, None, Some("255,255,255"), 2.5));
+        }
+        _ => {
+            let segs: Vec<((f64, f64), (f64, f64))> = match letter {
+                "W" => vec![
+                    ((l, t), (cx - half * 0.34, b)),
+                    ((cx - half * 0.34, b), (cx, cy - half * 0.12)),
+                    ((cx, cy - half * 0.12), (cx + half * 0.34, b)),
+                    ((cx + half * 0.34, b), (r, t)),
+                ],
+                "X" => vec![((l, t), (r, b)), ((r, t), (l, b))],
+                "N" => vec![((l, b), (l, t)), ((l, t), (r, b)), ((r, b), (r, t))],
+                "V" => vec![((l, t), (cx, b)), ((cx, b), (r, t))],
+                "A" => vec![
+                    ((l, b), (cx, t)),
+                    ((cx, t), (r, b)),
+                    ((l + half * 0.22, cy + half * 0.22), (r - half * 0.22, cy + half * 0.22)),
+                ],
+                "T" => vec![((l, t), (r, t)), ((cx, t), (cx, b))],
+                "F" => vec![
+                    ((l, b), (l, t)),
+                    ((l, t), (r, t)),
+                    ((l, cy), (r - half * 0.2, cy)),
+                ],
+                "L" => vec![((l, t), (l, b)), ((l, b), (r, b))],
+                _ => vec![((l, cy), (r, cy))],
+            };
+            art.add_lines(&segs, "255,255,255", 2.6);
+        }
     }
-    art.geoms.push((g, None, Some("255,255,255"), 2.2));
 }
 
 fn build_microsoft_365_artwork(sh: &mut VisioShape, role: &str) {
     match role {
         "office_word" => build_office_app_tile(
-            sh, "W", "24,90,189", "#185ABD", "65,165,238", "#41A5EE", "43,124,211", "#2B7CD3", "20,74,158", "#144A9E", "doc",
+            sh, "W", "24,90,189", "65,165,238", "43,124,211", "20,74,158", "doc",
         ),
         "office_excel" => build_office_app_tile(
-            sh, "X", "16,124,65", "#107C41", "51,196,129", "#33C481", "33,163,102", "#21A366", "16,124,65", "#107C41", "excel_grid",
+            sh, "X", "16,124,65", "51,196,129", "33,163,102", "16,124,65", "excel_grid",
         ),
         "office_powerpoint" => build_office_app_tile(
-            sh, "P", "196,62,28", "#C43E1C", "255,143,107", "#FF8F6B", "237,108,71", "#ED6C47", "210,71,38", "#D24726", "ppt_circle",
+            sh, "P", "196,62,28", "255,143,107", "237,108,71", "210,71,38", "ppt_circle",
         ),
         "office_onenote" => build_office_app_tile(
-            sh, "N", "119,25,170", "#7719AA", "202,100,234", "#CA64EA", "174,75,213", "#AE4BD5", "147,50,191", "#9332BF", "onenote_tabs",
+            sh, "N", "119,25,170", "202,100,234", "174,75,213", "147,50,191", "onenote_tabs",
         ),
         "office_visio" => build_office_app_tile(
-            sh, "V", "25,85,166", "#1955A6", "75,160,255", "#4BA0FF", "40,116,208", "#2874D0", "25,85,166", "#1955A6", "visio_nodes",
+            sh, "V", "25,85,166", "75,160,255", "40,116,208", "25,85,166", "visio_nodes",
         ),
         "office_project" => build_office_app_tile(
-            sh, "P", "16,124,65", "#107C41", "51,196,129", "#33C481", "33,163,102", "#21A366", "24,92,55", "#185C37", "project_gantt",
+            sh, "P", "16,124,65", "51,196,129", "33,163,102", "24,92,55", "project_gantt",
         ),
         "office_access" => build_office_app_tile(
-            sh, "A", "164,55,58", "#A4373A", "224,128,131", "#E08083", "201,79,82", "#C94F52", "140,42,45", "#8C2A2D", "db_cyl",
+            sh, "A", "164,55,58", "224,128,131", "201,79,82", "140,42,45", "db_cyl",
         ),
         "office_publisher" => build_office_app_tile(
-            sh, "P", "7,117,104", "#077568", "46,196,182", "#2EC4B6", "19,153,138", "#13998A", "7,117,104", "#077568", "doc",
+            sh, "P", "7,117,104", "46,196,182", "19,153,138", "7,117,104", "doc",
         ),
         "m365_outlook" => build_office_app_tile(
-            sh, "O", "0,120,212", "#0078D4", "80,217,255", "#50D9FF", "40,168,234", "#28A8EA", "0,90,158", "#005A9E", "outlook_env",
+            sh, "O", "0,120,212", "80,217,255", "40,168,234", "0,90,158", "outlook_env",
+        ),
+        "m365_forms" => build_office_app_tile(
+            sh, "F", "13,148,136", "45,212,191", "20,184,166", "15,118,110", "doc",
+        ),
+        "m365_loop" => build_office_app_tile(
+            sh, "L", "124,58,237", "167,139,250", "139,92,246", "109,40,217", "doc",
         ),
         "m365_teams" => {
-            let mut art = DualArtwork::new(
-                "<linearGradient id=\"g1\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"1\"><stop offset=\"0%\" stop-color=\"#7B83EB\"/><stop offset=\"100%\" stop-color=\"#4B53BC\"/></linearGradient>",
-            );
-            // Secondary & Primary Teams People Silhouettes
-            art.add_ellipse(78.0, 30.0, 9.0, 9.0, "#7B83EB", "#4B53BC", 1.4, Some("123,131,235"), Some("75,83,188"));
-            art.add_rect(64.0, 42.0, 28.0, 32.0, 10.0, "#7B83EB", "#4B53BC", 1.4, Some("123,131,235"), Some("75,83,188"));
-            art.add_ellipse(56.0, 24.0, 12.0, 12.0, "#5059C9", "#3B429F", 1.6, Some("80,89,201"), Some("59,66,159"));
-            art.add_rect(36.0, 39.0, 42.0, 44.0, 12.0, "url(#g1)", "#3B429F", 1.6, Some("80,89,201"), Some("59,66,159"));
-            art.add_rect(6.0, 27.0, 44.0, 44.0, 8.0, "#4B53BC", "#FFFFFF", 1.8, Some("75,83,188"), Some("255,255,255"));
-            draw_badge_letter(&mut art, "T", 28.0, 49.0, 12.5);
+            let mut art = IsoArtwork::for_shape(sh);
+            let s = art.vb_w / 100.0;
+            art.add_ellipse(78.0 * s, 29.0 * s, 9.0 * s, 9.0 * s, Some("123,131,235"), Some("75,83,188"), 1.2);
+            art.add_rect(64.0 * s, 41.0 * s, 28.0 * s, 32.0 * s, 10.0 * s, Some("123,131,235"), Some("75,83,188"), 1.2);
+            art.add_ellipse(56.0 * s, 23.0 * s, 12.0 * s, 12.0 * s, Some("80,89,201"), Some("59,66,159"), 1.4);
+            art.add_rect(36.0 * s, 38.0 * s, 42.0 * s, 45.0 * s, 12.0 * s, Some("80,89,201"), Some("59,66,159"), 1.4);
+            art.add_rect(9.0 * s, 30.0 * s, 44.0 * s, 44.0 * s, 9.0 * s, Some("148,163,184"), None, 0.8);
+            art.add_rect(6.0 * s, 27.0 * s, 44.0 * s, 44.0 * s, 9.0 * s, Some("75,83,188"), Some("255,255,255"), 1.6);
+            draw_badge_letter(&mut art, "T", 28.0 * s, 49.0 * s, 12.0 * s);
             art.apply_to_shape(sh, "80,89,201", "59,66,159", true);
         }
         "m365_sharepoint" => {
-            let mut art = DualArtwork::new("");
-            art.add_ellipse(58.0, 30.0, 22.0, 22.0, "#036C70", "#FFFFFF", 1.5, Some("3,108,112"), Some("255,255,255"));
-            art.add_ellipse(72.0, 56.0, 19.0, 19.0, "#1A9BA1", "#FFFFFF", 1.5, Some("26,155,161"), Some("255,255,255"));
-            art.add_ellipse(54.0, 72.0, 15.0, 15.0, "#37C6D0", "#FFFFFF", 1.5, Some("55,198,208"), Some("255,255,255"));
-            art.add_rect(8.0, 28.0, 44.0, 44.0, 8.0, "#038387", "#FFFFFF", 1.8, Some("3,131,135"), Some("255,255,255"));
-            draw_badge_letter(&mut art, "S", 30.0, 50.0, 12.5);
+            let mut art = IsoArtwork::for_shape(sh);
+            let s = art.vb_w / 100.0;
+            art.add_ellipse(58.0 * s, 29.0 * s, 22.0 * s, 22.0 * s, Some("3,108,112"), Some("255,255,255"), 1.4);
+            art.add_ellipse(72.0 * s, 56.0 * s, 19.0 * s, 19.0 * s, Some("26,155,161"), Some("255,255,255"), 1.4);
+            art.add_ellipse(54.0 * s, 73.0 * s, 15.0 * s, 15.0 * s, Some("55,198,208"), Some("255,255,255"), 1.4);
+            art.add_rect(8.0 * s, 28.0 * s, 44.0 * s, 44.0 * s, 9.0 * s, Some("3,131,135"), Some("255,255,255"), 1.6);
+            draw_badge_letter(&mut art, "S", 30.0 * s, 50.0 * s, 12.0 * s);
             art.apply_to_shape(sh, "26,155,161", "3,108,112", true);
         }
         "m365_onedrive" => {
-            let mut art = DualArtwork::new(
-                "<linearGradient id=\"g1\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"1\"><stop offset=\"0%\" stop-color=\"#28A8EA\"/><stop offset=\"100%\" stop-color=\"#0078D4\"/></linearGradient>",
-            );
-            art.add_ellipse(44.0, 44.0, 24.0, 22.0, "#0364B8", "none", 0.0, Some("3,100,184"), None);
-            art.add_ellipse(66.0, 48.0, 20.0, 18.0, "#0078D4", "none", 0.0, Some("0,120,212"), None);
-            art.add_ellipse(26.0, 58.0, 18.0, 16.0, "#28A8EA", "none", 0.0, Some("40,168,234"), None);
-            art.add_rect(24.0, 52.0, 56.0, 22.0, 10.0, "url(#g1)", "none", 0.0, Some("40,168,234"), None);
-            art.add_ellipse(76.0, 60.0, 15.0, 14.0, "#50D9FF", "none", 0.0, Some("80,217,255"), None);
+            let mut art = IsoArtwork::for_shape(sh);
+            let w = art.vb_w;
+            let h = art.vb_h;
+            art.add_ellipse(w * 0.44, h * 0.42, h * 0.25, h * 0.25, Some("3,100,184"), None, 0.8);
+            art.add_ellipse(w * 0.66, h * 0.47, h * 0.21, h * 0.21, Some("0,120,212"), None, 0.8);
+            art.add_ellipse(w * 0.25, h * 0.60, h * 0.19, h * 0.19, Some("40,168,234"), None, 0.8);
+            art.add_ellipse(w * 0.76, h * 0.62, h * 0.17, h * 0.17, Some("80,217,255"), None, 0.8);
+            art.add_rect(w * 0.23, h * 0.54, w * 0.54, h * 0.25, h * 0.12, Some("40,168,234"), None, 0.8);
             art.apply_to_shape(sh, "40,168,234", "0,120,212", true);
         }
         "m365_exchange" => {
-            let mut art = DualArtwork::new(
-                "<linearGradient id=\"g1\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"1\"><stop offset=\"0%\" stop-color=\"#28A8EA\"/><stop offset=\"100%\" stop-color=\"#0078D4\"/></linearGradient>",
-            );
+            let mut art = IsoArtwork::for_shape(sh);
+            let s = art.vb_w / 100.0;
             art.add_poly(
-                &[(50.0, 8.0), (92.0, 50.0), (50.0, 92.0), (8.0, 50.0)],
-                "url(#g1)",
-                "#005A9E",
-                2.0,
+                &[
+                    (50.0 * s, 8.0 * s),
+                    (92.0 * s, 50.0 * s),
+                    (50.0 * s, 92.0 * s),
+                    (8.0 * s, 50.0 * s),
+                ],
                 Some("0,120,212"),
                 Some("0,90,158"),
+                1.6,
             );
-            art.add_rect(28.0, 34.0, 44.0, 32.0, 4.0, "#FFFFFF", "#005A9E", 1.8, Some("255,255,255"), Some("0,90,158"));
+            art.add_rect(28.0 * s, 34.0 * s, 44.0 * s, 32.0 * s, 4.0 * s, Some("255,255,255"), Some("0,90,158"), 1.4);
             art.add_lines(
-                &[((28.0, 35.0), (50.0, 52.0)), ((72.0, 35.0), (50.0, 52.0))],
-                "#0078D4",
-                2.4,
+                &[
+                    ((29.0 * s, 36.0 * s), (50.0 * s, 52.0 * s)),
+                    ((71.0 * s, 36.0 * s), (50.0 * s, 52.0 * s)),
+                ],
                 "0,120,212",
+                1.8,
             );
             art.apply_to_shape(sh, "0,120,212", "0,90,158", true);
         }
         "m365_tenant" => {
-            // Microsoft 4-color Fluent Window + Cloud Tenant Frame (Container-capable!)
-            let mut art = DualArtwork::new("");
-            art.add_rect(4.0, 4.0, 92.0, 92.0, 10.0, "#F8FAFC", "#0078D4", 2.4, Some("248,250,252"), Some("0,120,212"));
-            art.add_rect(14.0, 14.0, 14.0, 14.0, 2.0, "#F25022", "none", 0.0, Some("242,80,34"), None);
-            art.add_rect(31.0, 14.0, 14.0, 14.0, 2.0, "#7FBA00", "none", 0.0, Some("127,186,0"), None);
-            art.add_rect(14.0, 31.0, 14.0, 14.0, 2.0, "#00A4EF", "none", 0.0, Some("0,164,239"), None);
-            art.add_rect(31.0, 31.0, 14.0, 14.0, 2.0, "#FFB900", "none", 0.0, Some("255,185,0"), None);
-            art.add_lines(&[((54.0, 22.0), (84.0, 22.0)), ((54.0, 34.0), (76.0, 34.0))], "#0078D4", 3.0, "0,120,212");
-            art.apply_to_shape(sh, "248,250,252", "0,120,212", true);
+            // Isotropic Container Frame (`240 × 150` — corner Microsoft 4-pane logo is 100% square!)
+            let mut art = IsoArtwork::for_shape(sh);
+            let w = art.vb_w;
+            let h = art.vb_h;
+            art.add_rect(5.0, 5.0, w - 10.0, h - 10.0, 10.0, Some("248,250,252"), Some("0,120,212"), 1.8);
+            art.add_rect(16.0, 16.0, 14.0, 14.0, 2.0, Some("242,80,34"), None, 0.8);
+            art.add_rect(33.0, 16.0, 14.0, 14.0, 2.0, Some("127,186,0"), None, 0.8);
+            art.add_rect(16.0, 33.0, 14.0, 14.0, 2.0, Some("0,164,239"), None, 0.8);
+            art.add_rect(33.0, 33.0, 14.0, 14.0, 2.0, Some("255,185,0"), None, 0.8);
+            art.add_lines(&[((56.0, 24.0), (118.0, 24.0)), ((56.0, 36.0), (96.0, 36.0))], "0,120,212", 2.0);
+            art.apply_to_shape(sh, "248,250,252", "0,120,212", false);
+            sh.sheet
+                .set_formula("TxtPinY", "=Height - 0.22 in", Some(Unit::Inch));
         }
         "m365_copilot" => {
-            let mut art = DualArtwork::new(
-                "<linearGradient id=\"g1\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"1\"><stop offset=\"0%\" stop-color=\"#38BDF8\"/><stop offset=\"50%\" stop-color=\"#A855F7\"/><stop offset=\"100%\" stop-color=\"#F97316\"/></linearGradient>",
-            );
+            let mut art = IsoArtwork::for_shape(sh);
+            let s = art.vb_w / 100.0;
             art.add_poly(
-                &[(26.0, 18.0), (62.0, 18.0), (48.0, 82.0), (12.0, 82.0)],
-                "#0EA5E9",
-                "#FFFFFF",
-                1.8,
+                &[
+                    (28.0 * s, 16.0 * s),
+                    (62.0 * s, 16.0 * s),
+                    (46.0 * s, 84.0 * s),
+                    (12.0 * s, 84.0 * s),
+                ],
                 Some("14,165,233"),
                 Some("255,255,255"),
+                1.6,
             );
             art.add_poly(
-                &[(52.0, 18.0), (88.0, 18.0), (74.0, 82.0), (38.0, 82.0)],
-                "url(#g1)",
-                "#FFFFFF",
-                1.8,
+                &[
+                    (54.0 * s, 16.0 * s),
+                    (88.0 * s, 16.0 * s),
+                    (72.0 * s, 84.0 * s),
+                    (38.0 * s, 84.0 * s),
+                ],
                 Some("168,85,247"),
                 Some("255,255,255"),
+                1.6,
+            );
+            art.add_poly(
+                &[
+                    (54.0 * s, 16.0 * s),
+                    (88.0 * s, 16.0 * s),
+                    (80.0 * s, 48.0 * s),
+                    (46.0 * s, 48.0 * s),
+                ],
+                Some("249,115,22"),
+                None,
+                0.8,
             );
             art.apply_to_shape(sh, "168,85,247", "126,34,206", true);
         }
         "m365_defender" => {
-            let mut art = DualArtwork::new(
-                "<linearGradient id=\"g1\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0%\" stop-color=\"#38BDF8\"/><stop offset=\"100%\" stop-color=\"#1D4ED8\"/></linearGradient>",
-            );
+            let mut art = IsoArtwork::for_shape(sh);
+            let s = art.vb_w / 100.0;
             art.add_poly(
-                &[(50.0, 8.0), (88.0, 22.0), (84.0, 60.0), (50.0, 92.0), (16.0, 60.0), (12.0, 22.0)],
-                "url(#g1)",
-                "#1E3A8A",
-                2.2,
+                &[
+                    (50.0 * s, 8.0 * s),
+                    (88.0 * s, 22.0 * s),
+                    (84.0 * s, 60.0 * s),
+                    (50.0 * s, 92.0 * s),
+                    (16.0 * s, 60.0 * s),
+                    (12.0 * s, 22.0 * s),
+                ],
                 Some("29,78,216"),
                 Some("30,58,138"),
+                1.8,
+            );
+            art.add_poly(
+                &[
+                    (50.0 * s, 8.0 * s),
+                    (88.0 * s, 22.0 * s),
+                    (84.0 * s, 50.0 * s),
+                    (50.0 * s, 50.0 * s),
+                ],
+                Some("56,189,248"),
+                None,
+                0.8,
             );
             art.add_lines(
-                &[((50.0, 12.0), (50.0, 88.0)), ((16.0, 44.0), (84.0, 44.0)), ((36.0, 52.0), (47.0, 64.0)), ((47.0, 64.0), (68.0, 38.0))],
-                "#FFFFFF",
-                3.2,
+                &[
+                    ((34.0 * s, 52.0 * s), (46.0 * s, 65.0 * s)),
+                    ((46.0 * s, 65.0 * s), (68.0 * s, 38.0 * s)),
+                ],
                 "255,255,255",
+                2.6,
             );
             art.apply_to_shape(sh, "29,78,216", "30,58,138", true);
         }
         "m365_intune" => {
-            let mut art = DualArtwork::new("");
-            art.add_rect(12.0, 16.0, 62.0, 46.0, 6.0, "#0078D4", "#004578", 2.0, Some("0,120,212"), Some("0,69,120"));
-            art.add_rect(18.0, 22.0, 50.0, 34.0, 3.0, "#E0F2FE", "none", 0.0, Some("224,242,254"), None);
-            art.add_rect(60.0, 38.0, 28.0, 48.0, 5.0, "#28A8EA", "#004578", 2.0, Some("40,168,234"), Some("0,69,120"));
-            art.add_lines(&[((68.0, 62.0), (74.0, 68.0)), ((74.0, 68.0), (83.0, 55.0))], "#FFFFFF", 3.0, "255,255,255");
+            let mut art = IsoArtwork::for_shape(sh);
+            let s = art.vb_w / 100.0;
+            art.add_rect(10.0 * s, 16.0 * s, 64.0 * s, 46.0 * s, 6.0 * s, Some("0,120,212"), Some("0,69,120"), 1.6);
+            art.add_rect(16.0 * s, 22.0 * s, 52.0 * s, 34.0 * s, 3.0 * s, Some("224,242,254"), None, 0.8);
+            art.add_rect(60.0 * s, 38.0 * s, 30.0 * s, 48.0 * s, 6.0 * s, Some("40,168,234"), Some("0,69,120"), 1.6);
+            art.add_lines(
+                &[
+                    ((68.0 * s, 62.0 * s), (74.0 * s, 68.0 * s)),
+                    ((74.0 * s, 68.0 * s), (84.0 * s, 55.0 * s)),
+                ],
+                "255,255,255",
+                2.4,
+            );
             art.apply_to_shape(sh, "0,120,212", "0,69,120", true);
         }
         "m365_purview" => {
-            let mut art = DualArtwork::new("");
-            art.add_ellipse(50.0, 50.0, 38.0, 24.0, "#F3E8FF", "#7E22CE", 3.2, Some("243,232,255"), Some("126,34,206"));
-            art.add_ellipse(50.0, 50.0, 14.0, 14.0, "#9333EA", "#FFFFFF", 2.0, Some("147,51,234"), Some("255,255,255"));
+            let mut art = IsoArtwork::for_shape(sh);
+            let s = art.vb_w / 100.0;
+            art.add_ellipse(50.0 * s, 50.0 * s, 39.0 * s, 24.0 * s, Some("243,232,255"), Some("126,34,206"), 2.2);
+            art.add_ellipse(50.0 * s, 50.0 * s, 16.0 * s, 16.0 * s, Some("147,51,234"), Some("255,255,255"), 1.6);
+            art.add_ellipse(55.0 * s, 45.0 * s, 5.5 * s, 5.5 * s, Some("255,255,255"), None, 0.8);
             art.apply_to_shape(sh, "147,51,234", "126,34,206", true);
         }
-        "m365_forms" => build_office_app_tile(
-            sh, "F", "13,148,136", "#0D9488", "45,212,191", "#2DD4BF", "20,184,166", "#14B8A6", "15,118,110", "#0F766E", "doc",
-        ),
-        "m365_loop" => build_office_app_tile(
-            sh, "L", "124,58,237", "#7C3AED", "167,139,250", "#A78BFA", "139,92,246", "#8B5CF6", "109,40,217", "#6D28D9", "doc",
-        ),
         "m365_planner" => {
-            let mut art = DualArtwork::new("");
-            art.add_rect(12.0, 14.0, 76.0, 72.0, 8.0, "#ECFDF5", "#107C41", 2.2, Some("236,253,245"), Some("16,124,65"));
-            art.add_rect(20.0, 24.0, 18.0, 52.0, 4.0, "#107C41", "none", 0.0, Some("16,124,65"), None);
-            art.add_rect(42.0, 24.0, 18.0, 38.0, 4.0, "#21A366", "none", 0.0, Some("33,163,102"), None);
-            art.add_rect(64.0, 24.0, 18.0, 26.0, 4.0, "#33C481", "none", 0.0, Some("51,196,129"), None);
+            let mut art = IsoArtwork::for_shape(sh);
+            let s = art.vb_w / 100.0;
+            art.add_rect(12.0 * s, 14.0 * s, 76.0 * s, 72.0 * s, 9.0 * s, Some("236,253,245"), Some("16,124,65"), 1.8);
+            art.add_rect(20.0 * s, 24.0 * s, 16.0 * s, 52.0 * s, 4.0 * s, Some("16,124,65"), None, 0.8);
+            art.add_rect(42.0 * s, 24.0 * s, 16.0 * s, 38.0 * s, 4.0 * s, Some("33,163,102"), None, 0.8);
+            art.add_rect(64.0 * s, 24.0 * s, 16.0 * s, 26.0 * s, 4.0 * s, Some("51,196,129"), None, 0.8);
             art.apply_to_shape(sh, "33,163,102", "16,124,65", true);
         }
         "m365_todo" => {
-            let mut art = DualArtwork::new("");
+            let mut art = IsoArtwork::for_shape(sh);
+            let s = art.vb_w / 100.0;
+            art.add_rect(10.0 * s, 10.0 * s, 80.0 * s, 80.0 * s, 16.0 * s, Some("239,246,255"), Some("37,99,235"), 1.6);
+            // Authentic 2-tone Microsoft To Do Ribbon Checkmark
             art.add_poly(
-                &[(16.0, 52.0), (40.0, 76.0), (86.0, 24.0), (74.0, 14.0), (40.0, 52.0), (28.0, 40.0)],
-                "#2563EB",
-                "#1D4ED8",
-                1.8,
-                Some("37,99,235"),
+                &[
+                    (20.0 * s, 52.0 * s),
+                    (32.0 * s, 40.0 * s),
+                    (52.0 * s, 60.0 * s),
+                    (40.0 * s, 72.0 * s),
+                ],
                 Some("29,78,216"),
+                None,
+                0.8,
+            );
+            art.add_poly(
+                &[
+                    (40.0 * s, 72.0 * s),
+                    (29.0 * s, 61.0 * s),
+                    (70.0 * s, 20.0 * s),
+                    (82.0 * s, 32.0 * s),
+                ],
+                Some("56,189,248"),
+                Some("2,132,199"),
+                1.2,
             );
             art.apply_to_shape(sh, "37,99,235", "29,78,216", true);
         }
         "m365_stream" => {
-            let mut art = DualArtwork::new("");
-            art.add_rect(10.0, 18.0, 80.0, 64.0, 14.0, "#E11D48", "#9F1239", 2.0, Some("225,29,72"), Some("159,18,57"));
+            let mut art = IsoArtwork::for_shape(sh);
+            let s = art.vb_w / 100.0;
+            art.add_rect(10.0 * s, 18.0 * s, 80.0 * s, 64.0 * s, 14.0 * s, Some("225,29,72"), Some("159,18,57"), 1.6);
+            art.add_rect(10.0 * s, 18.0 * s, 80.0 * s, 24.0 * s, 12.0 * s, Some("244,63,94"), None, 0.8);
             art.add_poly(
-                &[(40.0, 32.0), (70.0, 50.0), (40.0, 68.0)],
-                "#FFFFFF",
-                "none",
-                0.0,
+                &[(40.0 * s, 32.0 * s), (68.0 * s, 50.0 * s), (40.0 * s, 68.0 * s)],
                 Some("255,255,255"),
                 None,
+                0.8,
             );
             art.apply_to_shape(sh, "225,29,72", "159,18,57", true);
         }
         "m365_whiteboard" => {
-            let mut art = DualArtwork::new("");
-            art.add_rect(10.0, 14.0, 80.0, 68.0, 8.0, "#0284C7", "#0369A1", 2.0, Some("2,132,199"), Some("3,105,161"));
-            art.add_rect(18.0, 22.0, 64.0, 48.0, 4.0, "#FFFFFF", "none", 0.0, Some("255,255,255"), None);
-            art.add_rect(26.0, 30.0, 20.0, 18.0, 2.0, "#FEF08A", "#CA8A04", 1.4, Some("254,240,138"), Some("202,138,4"));
-            art.add_lines(&[((52.0, 56.0), (74.0, 32.0))], "#2563EB", 4.0, "37,99,235");
+            let mut art = IsoArtwork::for_shape(sh);
+            let s = art.vb_w / 100.0;
+            art.add_rect(10.0 * s, 16.0 * s, 80.0 * s, 68.0 * s, 9.0 * s, Some("2,132,199"), Some("3,105,161"), 1.6);
+            art.add_rect(18.0 * s, 24.0 * s, 64.0 * s, 48.0 * s, 4.0 * s, Some("255,255,255"), None, 0.8);
+            art.add_rect(24.0 * s, 30.0 * s, 20.0 * s, 18.0 * s, 3.0 * s, Some("254,240,138"), Some("202,138,4"), 1.2);
+            art.add_poly(
+                &[
+                    (50.0 * s, 62.0 * s),
+                    (70.0 * s, 34.0 * s),
+                    (76.0 * s, 39.0 * s),
+                    (56.0 * s, 66.0 * s),
+                ],
+                Some("37,99,235"),
+                None,
+                0.8,
+            );
             art.apply_to_shape(sh, "2,132,199", "3,105,161", true);
         }
         _ => {
-            // Viva Engage / Viva Insights multi-petal Fluent emblem
-            let mut art = DualArtwork::new("");
-            art.add_ellipse(38.0, 38.0, 22.0, 22.0, "#0078D4", "#FFFFFF", 1.5, Some("0,120,212"), Some("255,255,255"));
-            art.add_ellipse(62.0, 38.0, 22.0, 22.0, "#50E6FF", "#FFFFFF", 1.5, Some("80,230,255"), Some("255,255,255"));
-            art.add_ellipse(50.0, 62.0, 22.0, 22.0, "#6366F1", "#FFFFFF", 1.5, Some("99,102,241"), Some("255,255,255"));
+            let mut art = IsoArtwork::for_shape(sh);
+            let s = art.vb_w / 100.0;
+            art.add_ellipse(38.0 * s, 38.0 * s, 21.0 * s, 21.0 * s, Some("0,120,212"), Some("255,255,255"), 1.4);
+            art.add_ellipse(62.0 * s, 38.0 * s, 21.0 * s, 21.0 * s, Some("56,189,248"), Some("255,255,255"), 1.4);
+            art.add_ellipse(50.0 * s, 62.0 * s, 21.0 * s, 21.0 * s, Some("99,102,241"), Some("255,255,255"), 1.4);
             art.apply_to_shape(sh, "0,120,212", "59,130,246", true);
         }
     }
 }
 
 // ============================================================================
-// 2. Standard Servers & Microsoft Servers / Active Directory (3D Visio Chassis + Role Badges)
+// 2. Standard Servers & Microsoft Servers / Active Directory (`110 × 130` Isotropic Tower)
 // ============================================================================
 
-fn draw_3d_server_tower_base(art: &mut DualArtwork, accent_hex: &str, accent_rgb: &'static str) {
-    // 3D Isometric Visio Server Tower (Front face + Top bevel + Right depth side)
+fn draw_3d_server_tower_base(art: &mut IsoArtwork, accent_rgb: &'static str) {
+    // Designed natively in `110 × 130` isotropic units (`Width = 1.10 in, Height = 1.30 in`)
+    let sx = art.vb_w / 110.0;
+    let sy = art.vb_h / 130.0;
+    let s = sx.min(sy);
     art.add_poly(
-        &[(18.0, 16.0), (32.0, 8.0), (78.0, 8.0), (64.0, 16.0)],
-        "#94A3B8",
-        "#334155",
-        1.6,
+        &[
+            (14.0 * sx, 20.0 * sy),
+            (30.0 * sx, 8.0 * sy),
+            (84.0 * sx, 8.0 * sy),
+            (68.0 * sx, 20.0 * sy),
+        ],
         Some("148,163,184"),
         Some("51,65,85"),
+        1.4,
     );
     art.add_poly(
-        &[(64.0, 16.0), (78.0, 8.0), (78.0, 78.0), (64.0, 88.0)],
-        "#475569",
-        "#1E293B",
-        1.6,
+        &[
+            (68.0 * sx, 20.0 * sy),
+            (84.0 * sx, 8.0 * sy),
+            (84.0 * sx, 104.0 * sy),
+            (68.0 * sx, 118.0 * sy),
+        ],
         Some("71,85,105"),
         Some("30,41,59"),
+        1.4,
     );
-    art.add_rect(18.0, 16.0, 46.0, 72.0, 3.0, "url(#srvFront)", "#1E293B", 1.8, Some("100,116,139"), Some("30,41,59"));
-    // Optical & Hot-Swap Drive Bays + Accent Bezel Stripe + Power LED
-    art.add_rect(22.0, 21.0, 38.0, 5.0, 1.0, accent_hex, "none", 0.0, Some(accent_rgb), None);
-    art.add_rect(24.0, 31.0, 34.0, 7.0, 1.0, "#1E293B", "none", 0.0, Some("30,41,59"), None);
-    art.add_rect(24.0, 42.0, 34.0, 7.0, 1.0, "#1E293B", "none", 0.0, Some("30,41,59"), None);
+    art.add_rect(14.0 * sx, 20.0 * sy, 54.0 * sx, 98.0 * sy, 3.0 * s, Some("100,116,139"), Some("30,41,59"), 1.6);
+    art.add_rect(19.0 * sx, 26.0 * sy, 44.0 * sx, 6.5 * sy, 1.5 * s, Some(accent_rgb), None, 0.8);
+    art.add_rect(21.0 * sx, 40.0 * sy, 40.0 * sx, 9.0 * sy, 1.5 * s, Some("30,41,59"), None, 0.8);
+    art.add_rect(21.0 * sx, 54.0 * sy, 40.0 * sx, 9.0 * sy, 1.5 * s, Some("30,41,59"), None, 0.8);
     art.add_lines(
-        &[((25.0, 58.0), (52.0, 58.0)), ((25.0, 64.0), (52.0, 64.0)), ((25.0, 70.0), (52.0, 70.0))],
-        "#334155",
-        2.0,
+        &[
+            ((22.0 * sx, 74.0 * sy), (54.0 * sx, 74.0 * sy)),
+            ((22.0 * sx, 82.0 * sy), (54.0 * sx, 82.0 * sy)),
+            ((22.0 * sx, 90.0 * sy), (54.0 * sx, 90.0 * sy)),
+        ],
         "51,65,85",
+        1.6,
     );
-    art.add_ellipse(30.0, 80.0, 3.2, 3.2, "#22C55E", "#14532D", 1.0, Some("34,197,94"), Some("20,83,45"));
+    art.add_ellipse(28.0 * sx, 106.0 * sy, 4.0 * s, 4.0 * s, Some("34,197,94"), Some("20,83,45"), 1.0);
 }
 
-fn draw_server_role_badge(art: &mut DualArtwork, badge: &str) {
+fn draw_server_role_badge(art: &mut IsoArtwork, badge: &str) {
+    let sx = art.vb_w / 110.0;
+    let sy = art.vb_h / 130.0;
+    let s = sx.min(sy);
+    let cx = 80.0 * sx;
+    let cy = 94.0 * sy;
     match badge {
         "globe" => {
-            art.add_ellipse(72.0, 68.0, 20.0, 20.0, "#0284C7", "#FFFFFF", 2.0, Some("2,132,199"), Some("255,255,255"));
-            art.add_ellipse(72.0, 68.0, 9.0, 19.0, "none", "#E0F2FE", 1.6, None, Some("224,242,254"));
-            art.add_lines(&[((53.0, 68.0), (91.0, 68.0)), ((56.0, 59.0), (88.0, 59.0)), ((56.0, 77.0), (88.0, 77.0))], "#E0F2FE", 1.5, "224,242,254");
+            art.add_ellipse(cx, cy, 22.0 * s, 22.0 * s, Some("2,132,199"), Some("255,255,255"), 1.6);
+            art.add_ellipse(cx, cy, 10.0 * s, 21.0 * s, None, Some("224,242,254"), 1.3);
+            art.add_lines(
+                &[
+                    ((cx - 21.0 * s, cy), (cx + 21.0 * s, cy)),
+                    ((cx - 17.0 * s, cy - 10.0 * s), (cx + 17.0 * s, cy - 10.0 * s)),
+                    ((cx - 17.0 * s, cy + 10.0 * s), (cx + 17.0 * s, cy + 10.0 * s)),
+                ],
+                "224,242,254",
+                1.2,
+            );
         }
         "db" | "sql" => {
-            let col = if badge == "sql" { "#DC2626" } else { "#D97706" };
             let rgb = if badge == "sql" { "220,38,38" } else { "217,119,6" };
-            art.add_rect(54.0, 52.0, 36.0, 34.0, 4.0, col, "#FFFFFF", 1.8, Some(rgb), Some("255,255,255"));
-            art.add_ellipse(72.0, 52.0, 18.0, 6.5, "#FDE047", "#B45309", 1.5, Some("253,224,71"), Some("180,83,9"));
-            art.add_ellipse(72.0, 86.0, 18.0, 6.5, col, "#FFFFFF", 1.5, Some(rgb), Some("255,255,255"));
+            art.add_rect(cx - 19.0 * s, cy - 18.0 * s, 38.0 * s, 36.0 * s, 4.0 * s, Some(rgb), Some("255,255,255"), 1.5);
+            art.add_ellipse(cx, cy - 18.0 * s, 19.0 * s, 7.0 * s, Some("253,224,71"), Some("180,83,9"), 1.2);
+            art.add_ellipse(cx, cy + 18.0 * s, 19.0 * s, 7.0 * s, Some(rgb), Some("255,255,255"), 1.2);
         }
         "folder" => {
             art.add_poly(
-                &[(50.0, 56.0), (66.0, 56.0), (70.0, 62.0), (94.0, 62.0), (94.0, 90.0), (50.0, 90.0)],
-                "#FACC15",
-                "#B45309",
-                1.8,
+                &[
+                    (cx - 22.0 * s, cy - 14.0 * s),
+                    (cx - 5.0 * s, cy - 14.0 * s),
+                    (cx, cy - 8.0 * s),
+                    (cx + 22.0 * s, cy - 8.0 * s),
+                    (cx + 22.0 * s, cy + 18.0 * s),
+                    (cx - 22.0 * s, cy + 18.0 * s),
+                ],
                 Some("250,204,21"),
                 Some("180,83,9"),
+                1.4,
             );
         }
         "mail" => {
-            art.add_rect(50.0, 58.0, 44.0, 30.0, 4.0, "#2563EB", "#FFFFFF", 2.0, Some("37,99,235"), Some("255,255,255"));
-            art.add_lines(&[((51.0, 60.0), (72.0, 75.0)), ((93.0, 60.0), (72.0, 75.0))], "#FFFFFF", 2.4, "255,255,255");
+            art.add_rect(cx - 22.0 * s, cy - 15.0 * s, 44.0 * s, 30.0 * s, 4.0 * s, Some("37,99,235"), Some("255,255,255"), 1.6);
+            art.add_lines(
+                &[
+                    ((cx - 20.0 * s, cy - 13.0 * s), (cx, cy + 2.0 * s)),
+                    ((cx + 20.0 * s, cy - 13.0 * s), (cx, cy + 2.0 * s)),
+                ],
+                "255,255,255",
+                1.8,
+            );
         }
         "printer" => {
-            art.add_rect(56.0, 52.0, 30.0, 12.0, 2.0, "#FFFFFF", "#475569", 1.6, Some("255,255,255"), Some("71,85,105"));
-            art.add_rect(50.0, 62.0, 42.0, 20.0, 4.0, "#334155", "#FFFFFF", 1.8, Some("51,65,85"), Some("255,255,255"));
-            art.add_rect(58.0, 76.0, 26.0, 14.0, 2.0, "#E2E8F0", "#475569", 1.4, Some("226,232,240"), Some("71,85,105"));
+            art.add_rect(cx - 14.0 * s, cy - 20.0 * s, 28.0 * s, 12.0 * s, 2.0 * s, Some("255,255,255"), Some("71,85,105"), 1.3);
+            art.add_rect(cx - 21.0 * s, cy - 10.0 * s, 42.0 * s, 20.0 * s, 4.0 * s, Some("51,65,85"), Some("255,255,255"), 1.5);
+            art.add_rect(cx - 13.0 * s, cy + 5.0 * s, 26.0 * s, 14.0 * s, 2.0 * s, Some("226,232,240"), Some("71,85,105"), 1.2);
         }
         "ad_pyramid" => {
             art.add_poly(
-                &[(72.0, 46.0), (95.0, 88.0), (49.0, 88.0)],
-                "#0078D4",
-                "#FFFFFF",
-                2.0,
+                &[
+                    (cx, cy - 22.0 * s),
+                    (cx + 23.0 * s, cy + 20.0 * s),
+                    (cx - 23.0 * s, cy + 20.0 * s),
+                ],
                 Some("0,120,212"),
                 Some("255,255,255"),
+                1.6,
             );
-            art.add_lines(&[((72.0, 48.0), (72.0, 88.0)), ((58.0, 72.0), (86.0, 72.0))], "#FDE047", 2.2, "253,224,71");
+            art.add_lines(
+                &[
+                    ((cx, cy - 20.0 * s), (cx, cy + 20.0 * s)),
+                    ((cx - 13.0 * s, cy + 5.0 * s), (cx + 13.0 * s, cy + 5.0 * s)),
+                ],
+                "253,224,71",
+                1.7,
+            );
         }
         "shield_brick" => {
             art.add_poly(
-                &[(72.0, 48.0), (94.0, 56.0), (90.0, 78.0), (72.0, 92.0), (54.0, 78.0), (50.0, 56.0)],
-                "#DC2626",
-                "#FFFFFF",
-                2.0,
+                &[
+                    (cx, cy - 22.0 * s),
+                    (cx + 21.0 * s, cy - 14.0 * s),
+                    (cx + 17.0 * s, cy + 8.0 * s),
+                    (cx, cy + 22.0 * s),
+                    (cx - 17.0 * s, cy + 8.0 * s),
+                    (cx - 21.0 * s, cy - 14.0 * s),
+                ],
                 Some("220,38,38"),
                 Some("255,255,255"),
+                1.6,
             );
-            art.add_lines(&[((54.0, 66.0), (90.0, 66.0)), ((72.0, 52.0), (72.0, 88.0))], "#FCA5A5", 1.8, "252,165,165");
+            art.add_lines(
+                &[
+                    ((cx - 17.0 * s, cy - 3.0 * s), (cx + 17.0 * s, cy - 3.0 * s)),
+                    ((cx, cy - 18.0 * s), (cx, cy + 18.0 * s)),
+                ],
+                "254,226,226",
+                1.4,
+            );
         }
         "pki_seal" => {
-            art.add_ellipse(72.0, 66.0, 16.0, 16.0, "#F59E0B", "#FFFFFF", 2.0, Some("245,158,11"), Some("255,255,255"));
             art.add_poly(
-                &[(64.0, 78.0), (60.0, 94.0), (72.0, 87.0), (84.0, 94.0), (80.0, 78.0)],
-                "#DC2626",
-                "none",
-                0.0,
+                &[
+                    (cx - 9.0 * s, cy + 8.0 * s),
+                    (cx - 14.0 * s, cy + 25.0 * s),
+                    (cx, cy + 18.0 * s),
+                    (cx + 14.0 * s, cy + 25.0 * s),
+                    (cx + 9.0 * s, cy + 8.0 * s),
+                ],
                 Some("220,38,38"),
                 None,
+                0.8,
             );
+            art.add_ellipse(cx, cy - 2.0 * s, 17.0 * s, 17.0 * s, Some("245,158,11"), Some("255,255,255"), 1.6);
         }
         "vms" => {
-            art.add_rect(50.0, 56.0, 22.0, 22.0, 3.0, "#0EA5E9", "#FFFFFF", 1.8, Some("14,165,233"), Some("255,255,255"));
-            art.add_rect(64.0, 66.0, 22.0, 22.0, 3.0, "#6366F1", "#FFFFFF", 1.8, Some("99,102,241"), Some("255,255,255"));
-            art.add_rect(74.0, 50.0, 20.0, 20.0, 3.0, "#10B981", "#FFFFFF", 1.8, Some("16,185,129"), Some("255,255,255"));
+            art.add_rect(cx - 22.0 * s, cy - 12.0 * s, 22.0 * s, 22.0 * s, 3.0 * s, Some("14,165,233"), Some("255,255,255"), 1.5);
+            art.add_rect(cx - 6.0 * s, cy - 2.0 * s, 22.0 * s, 22.0 * s, 3.0 * s, Some("99,102,241"), Some("255,255,255"), 1.5);
+            art.add_rect(cx + 2.0 * s, cy - 20.0 * s, 20.0 * s, 20.0 * s, 3.0 * s, Some("16,185,129"), Some("255,255,255"), 1.5);
         }
         "clock" => {
-            art.add_ellipse(72.0, 70.0, 18.0, 18.0, "#FFFFFF", "#0284C7", 2.4, Some("255,255,255"), Some("2,132,199"));
-            art.add_lines(&[((72.0, 70.0), (72.0, 58.0)), ((72.0, 70.0), (82.0, 74.0))], "#0F172A", 2.4, "15,23,42");
+            art.add_ellipse(cx, cy, 19.0 * s, 19.0 * s, Some("255,255,255"), Some("2,132,199"), 1.8);
+            art.add_lines(
+                &[((cx, cy), (cx, cy - 11.0 * s)), ((cx, cy), (cx + 10.0 * s, cy + 4.0 * s))],
+                "15,23,42",
+                1.8,
+            );
         }
         "pulse" => {
-            art.add_rect(48.0, 54.0, 46.0, 34.0, 5.0, "#0F172A", "#38BDF8", 2.0, Some("15,23,42"), Some("56,189,248"));
+            art.add_rect(cx - 23.0 * s, cy - 16.0 * s, 46.0 * s, 32.0 * s, 5.0 * s, Some("15,23,42"), Some("56,189,248"), 1.5);
             art.add_lines(
-                &[((52.0, 72.0), (62.0, 72.0)), ((62.0, 72.0), (68.0, 59.0)), ((68.0, 59.0), (75.0, 82.0)), ((75.0, 82.0), (81.0, 70.0)), ((81.0, 70.0), (90.0, 70.0))],
-                "#22C55E",
-                2.4,
+                &[
+                    ((cx - 18.0 * s, cy + 2.0 * s), (cx - 8.0 * s, cy + 2.0 * s)),
+                    ((cx - 8.0 * s, cy + 2.0 * s), (cx - 2.0 * s, cy - 10.0 * s)),
+                    ((cx - 2.0 * s, cy - 10.0 * s), (cx + 5.0 * s, cy + 11.0 * s)),
+                    ((cx + 5.0 * s, cy + 11.0 * s), (cx + 11.0 * s, cy)),
+                    ((cx + 11.0 * s, cy), (cx + 19.0 * s, cy)),
+                ],
                 "34,197,94",
+                1.8,
             );
         }
         "backup" => {
-            art.add_ellipse(72.0, 70.0, 18.0, 18.0, "#10B981", "#FFFFFF", 2.0, Some("16,185,129"), Some("255,255,255"));
-            art.add_lines(&[((72.0, 58.0), (72.0, 78.0)), ((64.0, 66.0), (72.0, 58.0)), ((80.0, 66.0), (72.0, 58.0))], "#FFFFFF", 2.6, "255,255,255");
+            art.add_ellipse(cx, cy, 19.0 * s, 19.0 * s, Some("16,185,129"), Some("255,255,255"), 1.6);
+            art.add_lines(
+                &[
+                    ((cx, cy - 10.0 * s), (cx, cy + 10.0 * s)),
+                    ((cx - 8.0 * s, cy - 2.0 * s), (cx, cy - 10.0 * s)),
+                    ((cx + 8.0 * s, cy - 2.0 * s), (cx, cy - 10.0 * s)),
+                ],
+                "255,255,255",
+                2.0,
+            );
         }
         "arrows" => {
-            art.add_ellipse(72.0, 70.0, 18.0, 18.0, "#0284C7", "#FFFFFF", 2.0, Some("2,132,199"), Some("255,255,255"));
-            art.add_lines(&[((60.0, 65.0), (84.0, 65.0)), ((60.0, 75.0), (84.0, 75.0))], "#FFFFFF", 2.6, "255,255,255");
+            art.add_ellipse(cx, cy, 19.0 * s, 19.0 * s, Some("2,132,199"), Some("255,255,255"), 1.6);
+            art.add_lines(
+                &[
+                    ((cx - 11.0 * s, cy - 5.0 * s), (cx + 11.0 * s, cy - 5.0 * s)),
+                    ((cx - 11.0 * s, cy + 5.0 * s), (cx + 11.0 * s, cy + 5.0 * s)),
+                ],
+                "255,255,255",
+                2.0,
+            );
         }
         "gear" => {
-            art.add_ellipse(72.0, 70.0, 18.0, 18.0, "#4F46E5", "#FFFFFF", 2.0, Some("79,70,229"), Some("255,255,255"));
-            art.add_ellipse(72.0, 70.0, 7.0, 7.0, "#FFFFFF", "none", 0.0, Some("255,255,255"), None);
+            art.add_ellipse(cx, cy, 19.0 * s, 19.0 * s, Some("79,70,229"), Some("255,255,255"), 1.6);
+            art.add_ellipse(cx, cy, 7.5 * s, 7.5 * s, Some("255,255,255"), None, 0.8);
         }
         _ => {}
     }
 }
 
 fn build_standard_server_artwork(sh: &mut VisioShape, role: &str) {
-    let srv_defs = "<linearGradient id=\"srvFront\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"1\"><stop offset=\"0%\" stop-color=\"#CBD5E1\"/><stop offset=\"55%\" stop-color=\"#94A3B8\"/><stop offset=\"100%\" stop-color=\"#64748B\"/></linearGradient>";
-
     match role {
         "srv_rack" | "srv_rack_4u" => {
-            let mut art = DualArtwork::new(srv_defs);
-            let h = if role == "srv_rack_4u" { 68.0 } else { 46.0 };
-            let y = (100.0 - h) * 0.5;
-            // Rack mounting ears + brushed steel 19" chassis + NVMe drive caddies + status LEDs
-            art.add_rect(4.0, y, 8.0, h, 2.0, "#475569", "#1E293B", 1.6, Some("71,85,105"), Some("30,41,59"));
-            art.add_rect(88.0, y, 8.0, h, 2.0, "#475569", "#1E293B", 1.6, Some("71,85,105"), Some("30,41,59"));
-            art.add_rect(12.0, y, 76.0, h, 3.0, "url(#srvFront)", "#1E293B", 2.0, Some("148,163,184"), Some("30,41,59"));
+            // Designed natively for exact `1.85 × 0.50` (1U/2U) or `1.85 × 0.85` (4U) box — zero padding squash!
+            let mut art = IsoArtwork::for_shape(sh);
+            let w = art.vb_w;
+            let h = art.vb_h;
+            let ear_w = 10.0;
+            art.add_rect(3.0, 4.0, ear_w, h - 8.0, 2.0, Some("71,85,105"), Some("30,41,59"), 1.3);
+            art.add_rect(w - 3.0 - ear_w, 4.0, ear_w, h - 8.0, 2.0, Some("71,85,105"), Some("30,41,59"), 1.3);
+            art.add_rect(3.0 + ear_w, 4.0, w - 6.0 - 2.0 * ear_w, h - 8.0, 3.0, Some("148,163,184"), Some("30,41,59"), 1.6);
+            let bay_w = (w - 58.0) / 4.0;
             for col in 0..4 {
-                let bx = 18.0 + (col as f64) * 14.0;
-                art.add_rect(bx, y + 8.0, 11.0, h - 16.0, 1.5, "#1E293B", "#334155", 1.2, Some("30,41,59"), Some("51,65,85"));
+                let bx = 20.0 + (col as f64) * (bay_w + 4.0);
+                art.add_rect(bx, 10.0, bay_w, h - 20.0, 2.0, Some("30,41,59"), Some("51,65,85"), 1.1);
             }
-            art.add_ellipse(80.0, y + h * 0.38, 3.5, 3.5, "#22C55E", "none", 0.0, Some("34,197,94"), None);
-            art.add_ellipse(80.0, y + h * 0.66, 3.5, 3.5, "#38BDF8", "none", 0.0, Some("56,189,248"), None);
+            let r_led = (h * 0.08).clamp(2.5, 4.5);
+            art.add_ellipse(w - 22.0, h * 0.36, r_led, r_led, Some("34,197,94"), None, 0.8);
+            art.add_ellipse(w - 22.0, h * 0.66, r_led, r_led, Some("56,189,248"), None, 0.8);
             art.apply_to_shape(sh, "148,163,184", "30,41,59", true);
         }
         "srv_blade" => {
-            let mut art = DualArtwork::new(srv_defs);
-            art.add_rect(8.0, 12.0, 84.0, 76.0, 4.0, "#334155", "#0F172A", 2.2, Some("51,65,85"), Some("15,23,42"));
+            let mut art = IsoArtwork::for_shape(sh);
+            let w = art.vb_w;
+            let h = art.vb_h;
+            art.add_rect(6.0, 6.0, w - 12.0, h - 12.0, 5.0, Some("51,65,85"), Some("15,23,42"), 1.8);
+            let slot_w = (w - 30.0) / 6.0;
             for b in 0..6 {
-                let bx = 14.0 + (b as f64) * 12.2;
-                art.add_rect(bx, 18.0, 9.5, 52.0, 1.5, "url(#srvFront)", "#1E293B", 1.2, Some("148,163,184"), Some("30,41,59"));
-                art.add_ellipse(bx + 4.8, 25.0, 2.0, 2.0, "#22C55E", "none", 0.0, Some("34,197,94"), None);
+                let bx = 13.0 + (b as f64) * slot_w;
+                art.add_rect(bx, 13.0, slot_w - 3.5, h - 38.0, 2.0, Some("148,163,184"), Some("30,41,59"), 1.1);
+                art.add_ellipse(bx + (slot_w - 3.5) * 0.5, 22.0, 2.6, 2.6, Some("34,197,94"), None, 0.8);
             }
-            art.add_rect(14.0, 74.0, 72.0, 9.0, 2.0, "#0284C7", "none", 0.0, Some("2,132,199"), None);
+            art.add_rect(13.0, h - 20.0, w - 26.0, 9.0, 2.0, Some("2,132,199"), None, 0.8);
             art.apply_to_shape(sh, "100,116,139", "15,23,42", true);
         }
+        "srv_blade_mod" => {
+            let mut art = IsoArtwork::for_shape(sh);
+            let w = art.vb_w;
+            let h = art.vb_h;
+            art.add_rect(8.0, 6.0, w - 16.0, h - 12.0, 4.0, Some("148,163,184"), Some("30,41,59"), 1.6);
+            art.add_rect(14.0, 14.0, w - 28.0, 18.0, 2.0, Some("2,132,199"), None, 0.8);
+            art.add_rect(14.0, 38.0, w - 28.0, 28.0, 2.0, Some("30,41,59"), None, 0.8);
+            art.add_rect(14.0, 72.0, w - 28.0, 28.0, 2.0, Some("30,41,59"), None, 0.8);
+            art.add_ellipse(w * 0.5, h - 18.0, 4.0, 4.0, Some("34,197,94"), None, 0.8);
+            art.apply_to_shape(sh, "148,163,184", "30,41,59", true);
+        }
         "srv_mainframe" => {
-            let mut art = DualArtwork::new("");
-            art.add_rect(10.0, 8.0, 80.0, 84.0, 4.0, "#1E293B", "#0F172A", 2.2, Some("30,41,59"), Some("15,23,42"));
-            art.add_rect(14.0, 12.0, 22.0, 76.0, 2.0, "#334155", "#0F172A", 1.4, Some("51,65,85"), Some("15,23,42"));
-            art.add_rect(39.0, 12.0, 22.0, 76.0, 2.0, "#334155", "#0F172A", 1.4, Some("51,65,85"), Some("15,23,42"));
-            art.add_rect(64.0, 12.0, 22.0, 76.0, 2.0, "#334155", "#0F172A", 1.4, Some("51,65,85"), Some("15,23,42"));
-            art.add_rect(42.0, 22.0, 16.0, 12.0, 1.5, "#38BDF8", "none", 0.0, Some("56,189,248"), None);
+            let mut art = IsoArtwork::for_shape(sh);
+            let w = art.vb_w;
+            let h = art.vb_h;
+            art.add_rect(8.0, 8.0, w - 16.0, h - 16.0, 5.0, Some("30,41,59"), Some("15,23,42"), 1.8);
+            let col_w = (w - 32.0) / 3.0;
+            for c in 0..3 {
+                let cx = 14.0 + (c as f64) * (col_w + 2.0);
+                art.add_rect(cx, 14.0, col_w - 2.0, h - 28.0, 2.5, Some("51,65,85"), Some("15,23,42"), 1.2);
+            }
+            art.add_rect(w * 0.38, 24.0, w * 0.24, 16.0, 2.0, Some("56,189,248"), None, 0.8);
             art.apply_to_shape(sh, "30,41,59", "15,23,42", true);
         }
+        "srv_edge" => {
+            let mut art = IsoArtwork::for_shape(sh);
+            let w = art.vb_w;
+            let h = art.vb_h;
+            art.add_rect(8.0, 18.0, w - 16.0, h - 32.0, 6.0, Some("71,85,105"), Some("15,23,42"), 1.6);
+            art.add_rect(15.0, 26.0, w - 30.0, 10.0, 2.0, Some("14,165,233"), None, 0.8);
+            art.add_ellipse(24.0, h - 26.0, 4.0, 4.0, Some("34,197,94"), None, 0.8);
+            art.apply_to_shape(sh, "71,85,105", "15,23,42", true);
+        }
         _ => {
-            let (accent_hex, accent_rgb, badge) = match role {
-                "srv_web" => ("#0284C7", "2,132,199", "globe"),
-                "srv_db" => ("#DC2626", "220,38,38", "db"),
-                "srv_app" => ("#4F46E5", "79,70,229", "gear"),
-                "srv_file" => ("#EAB308", "234,179,8", "folder"),
-                "srv_print" => ("#475569", "71,85,105", "printer"),
-                "srv_mail" => ("#2563EB", "37,99,235", "mail"),
-                "srv_ldap" => ("#0078D4", "0,120,212", "ad_pyramid"),
-                "srv_dns" | "srv_dhcp" | "srv_proxy" | "srv_ftp" => ("#0284C7", "2,132,199", "arrows"),
-                "srv_ntp" => ("#0284C7", "2,132,199", "clock"),
-                "srv_bastion" => ("#DC2626", "220,38,38", "shield_brick"),
-                "srv_siem" | "srv_nms" => ("#10B981", "16,185,129", "pulse"),
-                "srv_pki" => ("#D97706", "217,119,6", "pki_seal"),
-                "srv_hypervisor" | "srv_rds" => ("#6366F1", "99,102,241", "vms"),
-                "srv_backup" => ("#10B981", "16,185,129", "backup"),
-                _ => ("#0078D4", "0,120,212", ""),
+            let (accent_rgb, badge) = match role {
+                "srv_web" => ("2,132,199", "globe"),
+                "srv_db" => ("220,38,38", "db"),
+                "srv_app" => ("79,70,229", "gear"),
+                "srv_file" => ("234,179,8", "folder"),
+                "srv_print" => ("71,85,105", "printer"),
+                "srv_mail" => ("37,99,235", "mail"),
+                "srv_ldap" => ("0,120,212", "ad_pyramid"),
+                "srv_dns" | "srv_dhcp" | "srv_proxy" | "srv_ftp" => ("2,132,199", "arrows"),
+                "srv_ntp" => ("2,132,199", "clock"),
+                "srv_bastion" => ("220,38,38", "shield_brick"),
+                "srv_siem" | "srv_nms" => ("16,185,129", "pulse"),
+                "srv_pki" => ("217,119,6", "pki_seal"),
+                "srv_hypervisor" | "srv_rds" => ("99,102,241", "vms"),
+                "srv_backup" => ("16,185,129", "backup"),
+                _ => ("0,120,212", ""),
             };
-            let mut art = DualArtwork::new(srv_defs);
-            draw_3d_server_tower_base(&mut art, accent_hex, accent_rgb);
+            let mut art = IsoArtwork::for_shape(sh);
+            draw_3d_server_tower_base(&mut art, accent_rgb);
             if !badge.is_empty() {
                 draw_server_role_badge(&mut art, badge);
             }
@@ -915,51 +1137,128 @@ fn build_standard_server_artwork(sh: &mut VisioShape, role: &str) {
 }
 
 fn build_microsoft_server_ad_artwork(sh: &mut VisioShape, role: &str) {
-    let srv_defs = "<linearGradient id=\"srvFront\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"1\"><stop offset=\"0%\" stop-color=\"#CBD5E1\"/><stop offset=\"55%\" stop-color=\"#94A3B8\"/><stop offset=\"100%\" stop-color=\"#64748B\"/></linearGradient>";
     match role {
         "ms_entra_id" | "ms_entra_connect" => {
-            // Iconic Microsoft Entra ID faceted cyan/cobalt crystal prism
-            let mut art = DualArtwork::new("");
-            art.add_poly(&[(50.0, 8.0), (12.0, 62.0), (50.0, 92.0)], "#0078D4", "#FFFFFF", 1.6, Some("0,120,212"), Some("255,255,255"));
-            art.add_poly(&[(50.0, 8.0), (88.0, 62.0), (50.0, 92.0)], "#50E6FF", "#0078D4", 1.6, Some("80,230,255"), Some("0,120,212"));
-            art.add_poly(&[(50.0, 34.0), (74.0, 62.0), (50.0, 80.0), (26.0, 62.0)], "#38BDF8", "#FFFFFF", 1.4, Some("56,189,248"), Some("255,255,255"));
+            let mut art = IsoArtwork::for_shape(sh);
+            let s = art.vb_w / 100.0;
+            art.add_poly(
+                &[(50.0 * s, 8.0 * s), (12.0 * s, 60.0 * s), (50.0 * s, 92.0 * s)],
+                Some("0,120,212"),
+                Some("255,255,255"),
+                1.4,
+            );
+            art.add_poly(
+                &[(50.0 * s, 8.0 * s), (88.0 * s, 60.0 * s), (50.0 * s, 92.0 * s)],
+                Some("80,230,255"),
+                Some("0,120,212"),
+                1.4,
+            );
+            art.add_poly(
+                &[
+                    (50.0 * s, 34.0 * s),
+                    (74.0 * s, 60.0 * s),
+                    (50.0 * s, 80.0 * s),
+                    (26.0 * s, 60.0 * s),
+                ],
+                Some("56,189,248"),
+                Some("255,255,255"),
+                1.2,
+            );
             art.apply_to_shape(sh, "0,120,212", "0,90,158", true);
         }
         "ms_ad_ou" => {
-            let mut art = DualArtwork::new("");
+            let mut art = IsoArtwork::for_shape(sh);
+            let s = art.vb_w / 100.0;
             art.add_poly(
-                &[(10.0, 22.0), (40.0, 22.0), (48.0, 32.0), (90.0, 32.0), (90.0, 84.0), (10.0, 84.0)],
-                "#FACC15",
-                "#B45309",
-                2.0,
+                &[
+                    (10.0 * s, 20.0 * s),
+                    (40.0 * s, 20.0 * s),
+                    (48.0 * s, 30.0 * s),
+                    (90.0 * s, 30.0 * s),
+                    (90.0 * s, 84.0 * s),
+                    (10.0 * s, 84.0 * s),
+                ],
                 Some("250,204,21"),
                 Some("180,83,9"),
+                1.6,
             );
-            art.add_poly(&[(50.0, 42.0), (72.0, 76.0), (28.0, 76.0)], "#0078D4", "#FFFFFF", 1.8, Some("0,120,212"), Some("255,255,255"));
+            art.add_poly(
+                &[(50.0 * s, 40.0 * s), (72.0 * s, 76.0 * s), (28.0 * s, 76.0 * s)],
+                Some("0,120,212"),
+                Some("255,255,255"),
+                1.5,
+            );
+            art.add_lines(
+                &[((50.0 * s, 42.0 * s), (50.0 * s, 75.0 * s))],
+                "253,224,71",
+                1.5,
+            );
             art.apply_to_shape(sh, "250,204,21", "180,83,9", true);
         }
         "ms_gpo" => {
-            let mut art = DualArtwork::new("");
-            art.add_rect(18.0, 10.0, 64.0, 80.0, 5.0, "#FFFFFF", "#0078D4", 2.2, Some("255,255,255"), Some("0,120,212"));
-            art.add_lines(&[((28.0, 26.0), (72.0, 26.0)), ((28.0, 38.0), (72.0, 38.0)), ((28.0, 50.0), (58.0, 50.0))], "#64748B", 2.4, "100,116,139");
-            art.add_poly(&[(68.0, 54.0), (86.0, 70.0), (68.0, 86.0), (50.0, 70.0)], "#F59E0B", "#B45309", 1.8, Some("245,158,11"), Some("180,83,9"));
+            let mut art = IsoArtwork::for_shape(sh);
+            let s = art.vb_w / 100.0;
+            art.add_rect(16.0 * s, 10.0 * s, 64.0 * s, 80.0 * s, 6.0 * s, Some("255,255,255"), Some("0,120,212"), 1.8);
+            art.add_lines(
+                &[
+                    ((26.0 * s, 26.0 * s), (70.0 * s, 26.0 * s)),
+                    ((26.0 * s, 38.0 * s), (70.0 * s, 38.0 * s)),
+                    ((26.0 * s, 50.0 * s), (54.0 * s, 50.0 * s)),
+                ],
+                "100,116,139",
+                1.8,
+            );
+            art.add_poly(
+                &[
+                    (68.0 * s, 54.0 * s),
+                    (88.0 * s, 70.0 * s),
+                    (68.0 * s, 86.0 * s),
+                    (48.0 * s, 70.0 * s),
+                ],
+                Some("245,158,11"),
+                Some("180,83,9"),
+                1.5,
+            );
             art.apply_to_shape(sh, "255,255,255", "0,120,212", true);
         }
         "ms_ad_trust" => {
-            let mut art = DualArtwork::new("");
-            art.add_poly(&[(26.0, 24.0), (46.0, 76.0), (6.0, 76.0)], "#0078D4", "#004578", 1.8, Some("0,120,212"), Some("0,69,120"));
-            art.add_poly(&[(74.0, 24.0), (94.0, 76.0), (54.0, 76.0)], "#107C41", "#064E3B", 1.8, Some("16,124,65"), Some("6,78,59"));
-            art.add_lines(&[((40.0, 50.0), (60.0, 50.0))], "#D97706", 4.0, "217,119,6");
+            let mut art = IsoArtwork::for_shape(sh);
+            let w = art.vb_w;
+            let h = art.vb_h;
+            art.add_poly(
+                &[(w * 0.25, h * 0.18), (w * 0.44, h * 0.80), (w * 0.06, h * 0.80)],
+                Some("0,120,212"),
+                Some("0,69,120"),
+                1.6,
+            );
+            art.add_poly(
+                &[(w * 0.75, h * 0.18), (w * 0.94, h * 0.80), (w * 0.56, h * 0.80)],
+                Some("16,124,65"),
+                Some("6,78,59"),
+                1.6,
+            );
+            art.add_lines(&[((w * 0.38, h * 0.52), (w * 0.62, h * 0.52))], "217,119,6", 2.6);
             art.apply_to_shape(sh, "0,120,212", "0,69,120", true);
         }
         "ms_win11_client" => {
-            let mut art = DualArtwork::new("");
-            art.add_rect(12.0, 14.0, 76.0, 52.0, 5.0, "#0078D4", "#1E293B", 2.2, Some("0,120,212"), Some("30,41,59"));
-            art.add_rect(38.0, 30.0, 11.0, 11.0, 1.0, "#FFFFFF", "none", 0.0, Some("255,255,255"), None);
-            art.add_rect(51.0, 30.0, 11.0, 11.0, 1.0, "#FFFFFF", "none", 0.0, Some("255,255,255"), None);
-            art.add_rect(38.0, 43.0, 11.0, 11.0, 1.0, "#FFFFFF", "none", 0.0, Some("255,255,255"), None);
-            art.add_rect(51.0, 43.0, 11.0, 11.0, 1.0, "#FFFFFF", "none", 0.0, Some("255,255,255"), None);
-            art.add_poly(&[(36.0, 66.0), (64.0, 66.0), (72.0, 82.0), (28.0, 82.0)], "#94A3B8", "#334155", 1.8, Some("148,163,184"), Some("51,65,85"));
+            let mut art = IsoArtwork::for_shape(sh);
+            let s = art.vb_w / 100.0;
+            art.add_rect(10.0 * s, 14.0 * s, 80.0 * s, 54.0 * s, 6.0 * s, Some("0,120,212"), Some("30,41,59"), 1.8);
+            art.add_rect(37.0 * s, 29.0 * s, 11.0 * s, 11.0 * s, 1.5 * s, Some("255,255,255"), None, 0.8);
+            art.add_rect(52.0 * s, 29.0 * s, 11.0 * s, 11.0 * s, 1.5 * s, Some("255,255,255"), None, 0.8);
+            art.add_rect(37.0 * s, 44.0 * s, 11.0 * s, 11.0 * s, 1.5 * s, Some("255,255,255"), None, 0.8);
+            art.add_rect(52.0 * s, 44.0 * s, 11.0 * s, 11.0 * s, 1.5 * s, Some("255,255,255"), None, 0.8);
+            art.add_poly(
+                &[
+                    (36.0 * s, 68.0 * s),
+                    (64.0 * s, 68.0 * s),
+                    (74.0 * s, 84.0 * s),
+                    (26.0 * s, 84.0 * s),
+                ],
+                Some("148,163,184"),
+                Some("51,65,85"),
+                1.5,
+            );
             art.apply_to_shape(sh, "0,120,212", "30,41,59", true);
         }
         _ => {
@@ -976,11 +1275,8 @@ fn build_microsoft_server_ad_artwork(sh: &mut VisioShape, role: &str) {
                 "ms_dns_dhcp" | "ms_win_dns" | "ms_win_dhcp" => "arrows",
                 _ => "",
             };
-            let mut art = DualArtwork::new(srv_defs);
-            draw_3d_server_tower_base(&mut art, "#0078D4", "0,120,212");
-            // Windows 4-pane blue badge on top bezel
-            art.add_rect(24.0, 20.0, 6.0, 6.0, 0.5, "#38BDF8", "none", 0.0, Some("56,189,248"), None);
-            art.add_rect(31.0, 20.0, 6.0, 6.0, 0.5, "#38BDF8", "none", 0.0, Some("56,189,248"), None);
+            let mut art = IsoArtwork::for_shape(sh);
+            draw_3d_server_tower_base(&mut art, "0,120,212");
             if !badge.is_empty() {
                 draw_server_role_badge(&mut art, badge);
             }
@@ -990,295 +1286,499 @@ fn build_microsoft_server_ad_artwork(sh: &mut VisioShape, role: &str) {
 }
 
 // ============================================================================
-// 3. Visio / Cisco-Standard 3D Network & Rack Equipment
+// 3. Visio / Cisco-Standard 3D Network & Rack Equipment (Exact Physical Aspect Ratios)
 // ============================================================================
 
 fn build_network_equipment_artwork(sh: &mut VisioShape, role: &str) {
     match role {
         "net_router" | "net_edge_router" | "net_isr_router" => {
-            // Iconic Visio / Cisco 3D Shaded Turquoise Cylindrical Router Puck + 4 White Arrows!
-            let mut art = DualArtwork::new(
-                "<linearGradient id=\"rCyl\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"0\"><stop offset=\"0%\" stop-color=\"#0369A1\"/><stop offset=\"45%\" stop-color=\"#0EA5E9\"/><stop offset=\"100%\" stop-color=\"#075985\"/></linearGradient>",
-            );
-            art.add_rect(10.0, 36.0, 80.0, 34.0, 4.0, "url(#rCyl)", "#0C4A6E", 2.0, Some("3,105,161"), Some("12,74,110"));
-            art.add_ellipse(50.0, 70.0, 40.0, 18.0, "url(#rCyl)", "#0C4A6E", 2.0, Some("3,105,161"), Some("12,74,110"));
-            art.add_ellipse(50.0, 36.0, 40.0, 20.0, "#38BDF8", "#0C4A6E", 2.0, Some("56,189,248"), Some("12,74,110"));
-            // 4 crisp white Visio/Cisco router arrows on top face
+            // 3D Turquoise Cylindrical Router Puck (`120 × 85` isotropic units)
+            let mut art = IsoArtwork::for_shape(sh);
+            let w = art.vb_w;
+            let h = art.vb_h;
+            let rx = w * 0.42;
+            let ry = h * 0.24;
+            let cx = w * 0.5;
+            let top_y = h * 0.36;
+            let bot_y = h * 0.68;
+            art.add_rect(cx - rx, top_y, rx * 2.0, bot_y - top_y, 0.0, Some("3,105,161"), Some("12,74,110"), 1.5);
+            art.add_ellipse(cx, bot_y, rx, ry, Some("3,105,161"), Some("12,74,110"), 1.5);
+            art.add_ellipse(cx, top_y, rx, ry, Some("56,189,248"), Some("12,74,110"), 1.6);
             art.add_lines(
                 &[
-                    ((24.0, 36.0), (43.0, 36.0)),
-                    ((38.0, 31.0), (44.0, 36.0)),
-                    ((38.0, 41.0), (44.0, 36.0)),
-                    ((76.0, 36.0), (57.0, 36.0)),
-                    ((62.0, 31.0), (56.0, 36.0)),
-                    ((62.0, 41.0), (56.0, 36.0)),
-                    ((50.0, 21.0), (50.0, 31.0)),
-                    ((46.0, 26.0), (50.0, 32.0)),
-                    ((54.0, 26.0), (50.0, 32.0)),
-                    ((50.0, 40.0), (50.0, 51.0)),
-                    ((46.0, 46.0), (50.0, 52.0)),
-                    ((54.0, 46.0), (50.0, 52.0)),
+                    ((cx - rx * 0.65, top_y), (cx - rx * 0.16, top_y)),
+                    ((cx - rx * 0.30, top_y - ry * 0.26), (cx - rx * 0.14, top_y)),
+                    ((cx - rx * 0.30, top_y + ry * 0.26), (cx - rx * 0.14, top_y)),
+                    ((cx + rx * 0.65, top_y), (cx + rx * 0.16, top_y)),
+                    ((cx + rx * 0.30, top_y - ry * 0.26), (cx + rx * 0.14, top_y)),
+                    ((cx + rx * 0.30, top_y + ry * 0.26), (cx + rx * 0.14, top_y)),
+                    ((cx, top_y - ry * 0.72), (cx, top_y - ry * 0.22)),
+                    ((cx - rx * 0.12, top_y - ry * 0.44), (cx, top_y - ry * 0.18)),
+                    ((cx + rx * 0.12, top_y - ry * 0.44), (cx, top_y - ry * 0.18)),
+                    ((cx, top_y + ry * 0.22), (cx, top_y + ry * 0.72)),
+                    ((cx - rx * 0.12, top_y + ry * 0.46), (cx, top_y + ry * 0.74)),
+                    ((cx + rx * 0.12, top_y + ry * 0.46), (cx, top_y + ry * 0.74)),
                 ],
-                "#FFFFFF",
-                2.8,
                 "255,255,255",
+                1.9,
             );
             art.apply_to_shape(sh, "14,165,233", "12,74,110", true);
         }
-        "switch_1u" | "net_l2_switch" | "net_poe_switch" | "net_fiber_switch" | "net_din_switch" => {
-            // Iconic Visio / Cisco 3D Isometric Teal Switch Box + Opposing Arrows + RJ45 Ports!
-            let top_col = if role == "net_poe_switch" { "#14B8A6" } else { "#0EA5E9" };
-            let front_col = if role == "net_poe_switch" { "#0F766E" } else { "#0369A1" };
+        "switch_1u" | "net_l2_switch" | "net_poe_switch" | "net_fiber_switch" => {
+            // Designed natively for `185 × 52` 1U Isometric Switch Box — fills tight bounding box!
+            let top_rgb = if role == "net_poe_switch" { "45,212,191" } else { "56,189,248" };
             let front_rgb = if role == "net_poe_switch" { "15,118,110" } else { "3,105,161" };
-            let mut art = DualArtwork::new("");
+            let mut art = IsoArtwork::for_shape(sh);
+            let w = art.vb_w;
+            let h = art.vb_h;
+            let dx = 18.0;
+            let dy = 14.0;
             art.add_poly(
-                &[(8.0, 44.0), (24.0, 20.0), (94.0, 20.0), (78.0, 44.0)],
-                top_col,
-                "#0F172A",
-                1.8,
-                Some("14,165,233"),
+                &[(6.0, 6.0 + dy), (6.0 + dx, 6.0), (w - 6.0, 6.0), (w - 6.0 - dx, 6.0 + dy)],
+                Some(top_rgb),
                 Some("15,23,42"),
+                1.4,
             );
             art.add_poly(
-                &[(78.0, 44.0), (94.0, 20.0), (94.0, 54.0), (78.0, 78.0)],
-                "#0C4A6E",
-                "#0F172A",
-                1.8,
+                &[(w - 6.0 - dx, 6.0 + dy), (w - 6.0, 6.0), (w - 6.0, h - 6.0 - dy), (w - 6.0 - dx, h - 6.0)],
                 Some("12,74,110"),
                 Some("15,23,42"),
+                1.4,
             );
-            art.add_rect(8.0, 44.0, 70.0, 34.0, 2.0, front_col, "#0F172A", 1.8, Some(front_rgb), Some("15,23,42"));
-            // Opposing white switching arrows on top face
+            let fw = w - 12.0 - dx;
+            let fh = h - 12.0 - dy;
+            art.add_rect(6.0, 6.0 + dy, fw, fh, 2.0, Some(front_rgb), Some("15,23,42"), 1.5);
             art.add_lines(
                 &[
-                    ((28.0, 28.0), (62.0, 28.0)),
-                    ((56.0, 24.0), (63.0, 28.0)),
-                    ((36.0, 36.0), (72.0, 36.0)),
-                    ((42.0, 32.0), (35.0, 36.0)),
+                    ((36.0, 11.0), (104.0, 11.0)),
+                    ((94.0, 8.0), (105.0, 11.0)),
+                    ((56.0, 16.0), (126.0, 16.0)),
+                    ((66.0, 13.0), (55.0, 16.0)),
                 ],
-                "#FFFFFF",
-                2.5,
                 "255,255,255",
+                1.5,
             );
-            // Front RJ45 port blocks + green link LEDs
-            for p in 0..6 {
-                let px = 14.0 + (p as f64) * 9.5;
-                art.add_rect(px, 53.0, 6.8, 12.0, 1.0, "#0F172A", "#38BDF8", 1.0, Some("15,23,42"), Some("56,189,248"));
+            for p in 0..8 {
+                let px = 14.0 + (p as f64) * ((fw - 42.0) / 8.0);
+                art.add_rect(px, 11.0 + dy, 10.0, fh - 10.0, 1.0, Some("15,23,42"), Some("56,189,248"), 0.9);
             }
-            art.add_ellipse(72.0, 58.0, 2.8, 2.8, "#22C55E", "none", 0.0, Some("34,197,94"), None);
+            art.add_ellipse(6.0 + fw - 12.0, 6.0 + dy + fh * 0.5, 3.2, 3.2, Some("34,197,94"), None, 0.8);
             art.apply_to_shape(sh, front_rgb, "15,23,42", true);
+        }
+        "net_din_switch" => {
+            let mut art = IsoArtwork::for_shape(sh);
+            let w = art.vb_w;
+            let h = art.vb_h;
+            art.add_rect(8.0, 6.0, w - 16.0, h - 12.0, 4.0, Some("3,105,161"), Some("15,23,42"), 1.6);
+            for r in 0..4 {
+                let py = 20.0 + (r as f64) * 22.0;
+                art.add_rect(18.0, py, w - 36.0, 14.0, 2.0, Some("15,23,42"), Some("56,189,248"), 1.0);
+            }
+            art.add_ellipse(w * 0.5, h - 16.0, 4.0, 4.0, Some("34,197,94"), None, 0.8);
+            art.apply_to_shape(sh, "3,105,161", "15,23,42", true);
         }
         "net_l3_switch" | "net_chassis_sw" => {
             // Iconic Visio / Cisco 3D Square Layer-3 Multilayer Switch with Central Hub + 8 White Arrows!
-            let mut art = DualArtwork::new(
-                "<linearGradient id=\"l3g\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"1\"><stop offset=\"0%\" stop-color=\"#0EA5E9\"/><stop offset=\"100%\" stop-color=\"#0369A1\"/></linearGradient>",
+            let mut art = IsoArtwork::for_shape(sh);
+            let w = art.vb_w;
+            let h = art.vb_h;
+            let dx = 14.0;
+            let dy = 12.0;
+            let fw = w - 16.0 - dx;
+            let fh = h - 16.0 - dy;
+            art.add_poly(
+                &[(8.0, 8.0 + dy), (8.0 + dx, 8.0), (8.0 + fw + dx, 8.0), (8.0 + fw, 8.0 + dy)],
+                Some("56,189,248"),
+                Some("12,74,110"),
+                1.5,
             );
-            art.add_poly(&[(12.0, 18.0), (24.0, 8.0), (92.0, 8.0), (80.0, 18.0)], "#38BDF8", "#0C4A6E", 1.8, Some("56,189,248"), Some("12,74,110"));
-            art.add_poly(&[(80.0, 18.0), (92.0, 8.0), (92.0, 78.0), (80.0, 90.0)], "#075985", "#0C4A6E", 1.8, Some("7,89,133"), Some("12,74,110"));
-            art.add_rect(12.0, 18.0, 68.0, 72.0, 4.0, "url(#l3g)", "#0C4A6E", 2.0, Some("2,132,199"), Some("12,74,110"));
-            art.add_ellipse(46.0, 54.0, 11.0, 11.0, "none", "#FFFFFF", 2.6, None, Some("255,255,255"));
+            art.add_poly(
+                &[(8.0 + fw, 8.0 + dy), (8.0 + fw + dx, 8.0), (8.0 + fw + dx, 8.0 + fh), (8.0 + fw, 8.0 + dy + fh)],
+                Some("7,89,133"),
+                Some("12,74,110"),
+                1.5,
+            );
+            art.add_rect(8.0, 8.0 + dy, fw, fh, 5.0, Some("2,132,199"), Some("12,74,110"), 1.6);
+            let cx = 8.0 + fw * 0.5;
+            let cy = 8.0 + dy + fh * 0.5;
+            let r_hub = fw.min(fh) * 0.16;
+            let r_arm = fw.min(fh) * 0.38;
+            let r_diag = r_arm * 0.72;
+            art.add_ellipse(cx, cy, r_hub, r_hub, None, Some("255,255,255"), 2.0);
             art.add_lines(
                 &[
-                    ((46.0, 43.0), (46.0, 25.0)),
-                    ((46.0, 65.0), (46.0, 83.0)),
-                    ((35.0, 54.0), (19.0, 54.0)),
-                    ((57.0, 54.0), (73.0, 54.0)),
-                    ((38.0, 46.0), (25.0, 33.0)),
-                    ((54.0, 46.0), (67.0, 33.0)),
-                    ((38.0, 62.0), (25.0, 75.0)),
-                    ((54.0, 62.0), (67.0, 75.0)),
+                    ((cx, cy - r_hub), (cx, cy - r_arm)),
+                    ((cx, cy + r_hub), (cx, cy + r_arm)),
+                    ((cx - r_hub, cy), (cx - r_arm, cy)),
+                    ((cx + r_hub, cy), (cx + r_arm, cy)),
+                    ((cx - r_hub * 0.7, cy - r_hub * 0.7), (cx - r_diag, cy - r_diag)),
+                    ((cx + r_hub * 0.7, cy - r_hub * 0.7), (cx + r_diag, cy - r_diag)),
+                    ((cx - r_hub * 0.7, cy + r_hub * 0.7), (cx - r_diag, cy + r_diag)),
+                    ((cx + r_hub * 0.7, cy + r_hub * 0.7), (cx + r_diag, cy + r_diag)),
                 ],
-                "#FFFFFF",
-                2.6,
                 "255,255,255",
+                2.0,
             );
             art.apply_to_shape(sh, "2,132,199", "12,74,110", true);
         }
-        "firewall" | "net_ngfw" | "net_waf" | "net_ids_ips" | "net_ddos" => {
-            // Iconic Visio 3D Crimson Mortared Brick Wall Firewall (+ Inspection Shield/Flame on NGFW/WAF!)
-            let mut art = DualArtwork::new(
-                "<linearGradient id=\"fwg\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0%\" stop-color=\"#EF4444\"/><stop offset=\"100%\" stop-color=\"#B91C1C\"/></linearGradient>",
+        "firewall" | "net_ngfw" | "net_waf" | "net_ids_ips" | "net_ddos" | "net_nac" => {
+            // Iconic Visio 3D Crimson Mortared Brick Wall Firewall (`150 × 95` or `115 × 110`)
+            let mut art = IsoArtwork::for_shape(sh);
+            let w = art.vb_w;
+            let h = art.vb_h;
+            let dx = 12.0;
+            let dy = 10.0;
+            let fw = w - 18.0 - dx;
+            let fh = h - 18.0 - dy;
+            let x0 = 6.0;
+            let y0 = 8.0 + dy;
+            art.add_poly(
+                &[(x0, y0), (x0 + dx, y0 - dy), (x0 + fw + dx, y0 - dy), (x0 + fw, y0)],
+                Some("248,113,113"),
+                Some("127,29,29"),
+                1.4,
             );
-            art.add_poly(&[(8.0, 22.0), (20.0, 12.0), (92.0, 12.0), (80.0, 22.0)], "#F87171", "#7F1D1D", 1.8, Some("248,113,113"), Some("127,29,29"));
-            art.add_poly(&[(80.0, 22.0), (92.0, 12.0), (92.0, 76.0), (80.0, 86.0)], "#991B1B", "#7F1D1D", 1.8, Some("153,27,27"), Some("127,29,29"));
-            art.add_rect(8.0, 22.0, 72.0, 64.0, 3.0, "url(#fwg)", "#7F1D1D", 2.0, Some("220,38,38"), Some("127,29,29"));
-            // Crisp white staggered brick mortar joints
+            art.add_poly(
+                &[(x0 + fw, y0), (x0 + fw + dx, y0 - dy), (x0 + fw + dx, y0 + fh - dy), (x0 + fw, y0 + fh)],
+                Some("153,27,27"),
+                Some("127,29,29"),
+                1.4,
+            );
+            art.add_rect(x0, y0, fw, fh, 3.0, Some("220,38,38"), Some("127,29,29"), 1.6);
+            let r1 = y0 + fh * 0.25;
+            let r2 = y0 + fh * 0.50;
+            let r3 = y0 + fh * 0.75;
             art.add_lines(
                 &[
-                    ((8.0, 38.0), (80.0, 38.0)),
-                    ((8.0, 54.0), (80.0, 54.0)),
-                    ((8.0, 70.0), (80.0, 70.0)),
-                    ((32.0, 22.0), (32.0, 38.0)),
-                    ((56.0, 22.0), (56.0, 38.0)),
-                    ((20.0, 38.0), (20.0, 54.0)),
-                    ((44.0, 38.0), (44.0, 54.0)),
-                    ((68.0, 38.0), (68.0, 54.0)),
-                    ((32.0, 54.0), (32.0, 70.0)),
-                    ((56.0, 54.0), (56.0, 70.0)),
-                    ((20.0, 70.0), (20.0, 86.0)),
-                    ((44.0, 70.0), (44.0, 86.0)),
-                    ((68.0, 70.0), (68.0, 86.0)),
+                    ((x0, r1), (x0 + fw, r1)),
+                    ((x0, r2), (x0 + fw, r2)),
+                    ((x0, r3), (x0 + fw, r3)),
+                    ((x0 + fw * 0.33, y0), (x0 + fw * 0.33, r1)),
+                    ((x0 + fw * 0.67, y0), (x0 + fw * 0.67, r1)),
+                    ((x0 + fw * 0.18, r1), (x0 + fw * 0.18, r2)),
+                    ((x0 + fw * 0.50, r1), (x0 + fw * 0.50, r2)),
+                    ((x0 + fw * 0.82, r1), (x0 + fw * 0.82, r2)),
+                    ((x0 + fw * 0.33, r2), (x0 + fw * 0.33, r3)),
+                    ((x0 + fw * 0.67, r2), (x0 + fw * 0.67, r3)),
+                    ((x0 + fw * 0.18, r3), (x0 + fw * 0.18, y0 + fh)),
+                    ((x0 + fw * 0.50, r3), (x0 + fw * 0.50, y0 + fh)),
                 ],
-                "#FEE2E2",
-                2.0,
                 "254,226,226",
+                1.5,
             );
             if role != "firewall" {
+                let scx = w - 24.0;
+                let scy = h - 24.0;
                 art.add_poly(
-                    &[(74.0, 44.0), (94.0, 52.0), (90.0, 76.0), (74.0, 92.0), (58.0, 76.0), (54.0, 52.0)],
-                    "#F59E0B",
-                    "#FFFFFF",
-                    2.0,
+                    &[
+                        (scx, scy - 18.0),
+                        (scx + 18.0, scy - 11.0),
+                        (scx + 15.0, scy + 7.0),
+                        (scx, scy + 19.0),
+                        (scx - 15.0, scy + 7.0),
+                        (scx - 18.0, scy - 11.0),
+                    ],
                     Some("245,158,11"),
                     Some("255,255,255"),
+                    1.6,
                 );
             }
             art.apply_to_shape(sh, "220,38,38", "127,29,29", true);
         }
         "net_wifi" | "net_mesh_ap" => {
-            let mut art = DualArtwork::new("");
-            art.add_ellipse(50.0, 68.0, 36.0, 14.0, "#E2E8F0", "#0284C7", 2.0, Some("226,232,240"), Some("2,132,199"));
-            art.add_ellipse(50.0, 66.0, 8.0, 5.0, "#0284C7", "none", 0.0, Some("2,132,199"), None);
-            art.add_svg_only("<path d=\"M 28 46 A 30 30 0 0 1 72 46 M 18 32 A 44 44 0 0 1 82 32\" fill=\"none\" stroke=\"#0284C7\" stroke-width=\"4.0\" stroke-linecap=\"round\"/>");
-            art.add_lines(&[((30.0, 44.0), (50.0, 32.0)), ((50.0, 32.0), (70.0, 44.0)), ((20.0, 30.0), (50.0, 14.0)), ((50.0, 14.0), (80.0, 30.0))], "#0284C7", 2.8, "2,132,199");
+            let mut art = IsoArtwork::for_shape(sh);
+            let s = art.vb_w / 100.0;
+            art.add_ellipse(50.0 * s, 72.0 * s, 36.0 * s, 13.0 * s, Some("226,232,240"), Some("2,132,199"), 1.6);
+            art.add_ellipse(50.0 * s, 70.0 * s, 7.0 * s, 4.5 * s, Some("2,132,199"), None, 0.8);
+            art.add_open_arc((28.0 * s, 48.0 * s), (72.0 * s, 48.0 * s), 13.0 * s, "2,132,199", 2.4);
+            art.add_open_arc((16.0 * s, 34.0 * s), (84.0 * s, 34.0 * s), 20.0 * s, "14,165,233", 2.4);
             art.apply_to_shape(sh, "226,232,240", "2,132,199", true);
         }
         "rack_42u" => {
-            // 42U Enterprise Rack Cabinet (Container-friendly with top header!)
-            let mut art = DualArtwork::new("");
-            art.add_rect(8.0, 4.0, 84.0, 92.0, 3.0, "#1E293B", "#0F172A", 2.4, Some("30,41,59"), Some("15,23,42"));
-            art.add_rect(16.0, 10.0, 68.0, 80.0, 1.5, "#F8FAFC", "#475569", 1.6, Some("248,250,252"), Some("71,85,105"));
-            art.add_rect(18.0, 14.0, 64.0, 10.0, 1.0, "#0284C7", "#0F172A", 1.2, Some("2,132,199"), Some("15,23,42"));
-            art.add_rect(18.0, 27.0, 64.0, 10.0, 1.0, "#64748B", "#0F172A", 1.2, Some("100,116,139"), Some("15,23,42"));
-            art.add_rect(18.0, 74.0, 64.0, 12.0, 1.0, "#334155", "#0F172A", 1.2, Some("51,65,85"), Some("15,23,42"));
+            // Authentic Visio 42U Rack Elevation (`140 × 260` isotropic units)
+            let mut art = IsoArtwork::for_shape(sh);
+            let w = art.vb_w;
+            let h = art.vb_h;
+            art.add_rect(8.0, 6.0, w - 16.0, h - 12.0, 4.0, Some("30,41,59"), Some("15,23,42"), 2.0);
+            art.add_rect(18.0, 16.0, w - 36.0, h - 32.0, 2.0, Some("248,250,252"), Some("71,85,105"), 1.4);
+            art.add_rect(22.0, 22.0, w - 44.0, 18.0, 1.5, Some("2,132,199"), Some("15,23,42"), 1.1);
+            art.add_rect(22.0, 45.0, w - 44.0, 18.0, 1.5, Some("100,116,139"), Some("15,23,42"), 1.1);
+            art.add_rect(22.0, 68.0, w - 44.0, 26.0, 1.5, Some("148,163,184"), Some("15,23,42"), 1.1);
+            art.add_rect(22.0, h - 54.0, w - 44.0, 30.0, 1.5, Some("51,65,85"), Some("15,23,42"), 1.1);
             art.apply_to_shape(sh, "248,250,252", "15,23,42", true);
         }
         "cloud_vpc" => {
-            // Large VPC Cloud Boundary Container (Label at top!)
-            let mut art = DualArtwork::new("");
-            art.add_rect(4.0, 4.0, 92.0, 92.0, 8.0, "#F8FAFC", "#0284C7", 2.0, Some("248,250,252"), Some("2,132,199"));
-            art.add_ellipse(18.0, 16.0, 8.0, 6.0, "#38BDF8", "none", 0.0, Some("56,189,248"), None);
+            let mut art = IsoArtwork::for_shape(sh);
+            let w = art.vb_w;
+            let h = art.vb_h;
+            art.add_rect(5.0, 5.0, w - 10.0, h - 10.0, 10.0, Some("248,250,252"), Some("2,132,199"), 1.8);
+            art.add_ellipse(24.0, 20.0, 10.0, 8.0, Some("56,189,248"), None, 0.8);
+            art.add_ellipse(34.0, 22.0, 8.0, 6.5, Some("2,132,199"), None, 0.8);
             art.apply_to_shape(sh, "248,250,252", "2,132,199", false);
-            sh.sheet.set_formula("TxtPinY", "=Height - 0.18 in", Some(Unit::Inch));
+            sh.sheet
+                .set_formula("TxtPinY", "=Height - 0.22 in", Some(Unit::Inch));
+        }
+        "net_patch_panel" | "net_pdu" => {
+            let mut art = IsoArtwork::for_shape(sh);
+            let w = art.vb_w;
+            let h = art.vb_h;
+            art.add_rect(4.0, 6.0, w - 8.0, h - 12.0, 3.0, Some("30,41,59"), Some("15,23,42"), 1.6);
+            let n_ports = 10;
+            let step = (w - 28.0) / (n_ports as f64);
+            for p in 0..n_ports {
+                let px = 14.0 + (p as f64) * step;
+                let fill = if role == "net_pdu" { "239,68,68" } else { "56,189,248" };
+                art.add_rect(px, 14.0, step - 4.0, h - 28.0, 1.0, Some(fill), None, 0.8);
+            }
+            art.apply_to_shape(sh, "30,41,59", "15,23,42", true);
+        }
+        "net_ups" => {
+            let mut art = IsoArtwork::for_shape(sh);
+            draw_3d_server_tower_base(&mut art, "234,179,8");
+            art.apply_to_shape(sh, "100,116,139", "30,41,59", true);
         }
         "net_laptop" => {
-            let mut art = DualArtwork::new("");
-            art.add_rect(18.0, 16.0, 64.0, 46.0, 4.0, "#1E293B", "#0F172A", 2.0, Some("30,41,59"), Some("15,23,42"));
-            art.add_rect(22.0, 20.0, 56.0, 38.0, 2.0, "#38BDF8", "none", 0.0, Some("56,189,248"), None);
-            art.add_poly(&[(18.0, 62.0), (82.0, 62.0), (92.0, 78.0), (8.0, 78.0)], "#CBD5E1", "#475569", 1.8, Some("203,213,225"), Some("71,85,105"));
+            let mut art = IsoArtwork::for_shape(sh);
+            let w = art.vb_w;
+            let h = art.vb_h;
+            art.add_rect(w * 0.18, h * 0.14, w * 0.64, h * 0.50, 4.0, Some("30,41,59"), Some("15,23,42"), 1.6);
+            art.add_rect(w * 0.23, h * 0.20, w * 0.54, h * 0.38, 2.0, Some("56,189,248"), None, 0.8);
+            art.add_poly(
+                &[(w * 0.18, h * 0.64), (w * 0.82, h * 0.64), (w * 0.92, h * 0.82), (w * 0.08, h * 0.82)],
+                Some("203,213,225"),
+                Some("71,85,105"),
+                1.4,
+            );
             art.apply_to_shape(sh, "203,213,225", "30,41,59", true);
         }
         "net_voip" => {
-            let mut art = DualArtwork::new("");
-            art.add_rect(22.0, 18.0, 62.0, 64.0, 7.0, "#334155", "#0F172A", 2.0, Some("51,65,85"), Some("15,23,42"));
-            art.add_rect(14.0, 14.0, 16.0, 72.0, 8.0, "#1E293B", "#0F172A", 1.8, Some("30,41,59"), Some("15,23,42"));
-            art.add_rect(36.0, 24.0, 40.0, 18.0, 2.0, "#38BDF8", "none", 0.0, Some("56,189,248"), None);
-            art.add_lines(&[((40.0, 52.0), (72.0, 52.0)), ((40.0, 62.0), (72.0, 62.0)), ((40.0, 72.0), (72.0, 72.0))], "#CBD5E1", 3.0, "203,213,225");
+            let mut art = IsoArtwork::for_shape(sh);
+            let w = art.vb_w;
+            let h = art.vb_h;
+            art.add_rect(w * 0.24, h * 0.16, w * 0.62, h * 0.68, 7.0, Some("51,65,85"), Some("15,23,42"), 1.6);
+            art.add_rect(w * 0.12, h * 0.12, w * 0.16, h * 0.76, 7.0, Some("30,41,59"), Some("15,23,42"), 1.4);
+            art.add_rect(w * 0.36, h * 0.24, w * 0.40, h * 0.20, 2.0, Some("56,189,248"), None, 0.8);
+            art.add_lines(
+                &[
+                    ((w * 0.40, h * 0.54), (w * 0.72, h * 0.54)),
+                    ((w * 0.40, h * 0.64), (w * 0.72, h * 0.64)),
+                    ((w * 0.40, h * 0.74), (w * 0.72, h * 0.74)),
+                ],
+                "203,213,225",
+                2.0,
+            );
             art.apply_to_shape(sh, "51,65,85", "15,23,42", true);
         }
         "net_printer" => {
-            let mut art = DualArtwork::new("");
-            art.add_rect(26.0, 12.0, 48.0, 22.0, 2.0, "#FFFFFF", "#64748B", 1.8, Some("255,255,255"), Some("100,116,139"));
-            art.add_rect(12.0, 32.0, 76.0, 38.0, 6.0, "#475569", "#1E293B", 2.0, Some("71,85,105"), Some("30,41,59"));
-            art.add_rect(26.0, 58.0, 48.0, 26.0, 2.0, "#F8FAFC", "#64748B", 1.6, Some("248,250,252"), Some("100,116,139"));
-            art.add_lines(&[((34.0, 68.0), (66.0, 68.0)), ((34.0, 76.0), (58.0, 76.0))], "#94A3B8", 2.0, "148,163,184");
+            let mut art = IsoArtwork::for_shape(sh);
+            let w = art.vb_w;
+            let h = art.vb_h;
+            art.add_rect(w * 0.26, h * 0.10, w * 0.48, h * 0.24, 2.0, Some("255,255,255"), Some("100,116,139"), 1.4);
+            art.add_rect(w * 0.12, h * 0.32, w * 0.76, h * 0.38, 6.0, Some("71,85,105"), Some("30,41,59"), 1.6);
+            art.add_rect(w * 0.26, h * 0.58, w * 0.48, h * 0.28, 2.0, Some("248,250,252"), Some("100,116,139"), 1.3);
+            art.add_lines(
+                &[((w * 0.34, h * 0.70), (w * 0.66, h * 0.70)), ((w * 0.34, h * 0.78), (w * 0.58, h * 0.78))],
+                "148,163,184",
+                1.5,
+            );
             art.apply_to_shape(sh, "71,85,105", "30,41,59", true);
         }
         "net_ip_cam" => {
-            let mut art = DualArtwork::new("");
-            art.add_ellipse(50.0, 46.0, 34.0, 26.0, "#E2E8F0", "#334155", 2.0, Some("226,232,240"), Some("51,65,85"));
-            art.add_ellipse(50.0, 50.0, 18.0, 18.0, "#1E293B", "#0F172A", 1.8, Some("30,41,59"), Some("15,23,42"));
-            art.add_ellipse(50.0, 50.0, 8.0, 8.0, "#0284C7", "#38BDF8", 1.5, Some("2,132,199"), Some("56,189,248"));
+            let mut art = IsoArtwork::for_shape(sh);
+            let s = art.vb_w / 100.0;
+            art.add_ellipse(50.0 * s, 48.0 * s, 34.0 * s, 26.0 * s, Some("226,232,240"), Some("51,65,85"), 1.6);
+            art.add_ellipse(50.0 * s, 52.0 * s, 18.0 * s, 18.0 * s, Some("30,41,59"), Some("15,23,42"), 1.4);
+            art.add_ellipse(50.0 * s, 52.0 * s, 8.0 * s, 8.0 * s, Some("2,132,199"), Some("56,189,248"), 1.2);
             art.apply_to_shape(sh, "226,232,240", "51,65,85", true);
         }
-        "db_cluster" => {
-            let mut art = DualArtwork::new("");
-            art.add_rect(14.0, 24.0, 48.0, 56.0, 6.0, "#0284C7", "#075985", 2.0, Some("2,132,199"), Some("7,89,133"));
-            art.add_ellipse(38.0, 24.0, 24.0, 9.0, "#38BDF8", "#075985", 1.8, Some("56,189,248"), Some("7,89,133"));
-            art.add_rect(42.0, 34.0, 44.0, 50.0, 6.0, "#0369A1", "#FFFFFF", 1.8, Some("3,105,161"), Some("255,255,255"));
-            art.add_ellipse(64.0, 34.0, 22.0, 8.0, "#7DD3FC", "#075985", 1.8, Some("125,211,252"), Some("7,89,133"));
+        "db_cluster" | "net_nas_san" => {
+            let mut art = IsoArtwork::for_shape(sh);
+            let w = art.vb_w;
+            let h = art.vb_h;
+            art.add_rect(w * 0.12, h * 0.22, w * 0.46, h * 0.56, 4.0, Some("2,132,199"), Some("7,89,133"), 1.5);
+            art.add_ellipse(w * 0.35, h * 0.22, w * 0.23, h * 0.10, Some("56,189,248"), Some("7,89,133"), 1.4);
+            art.add_rect(w * 0.42, h * 0.32, w * 0.46, h * 0.54, 4.0, Some("3,105,161"), Some("255,255,255"), 1.5);
+            art.add_ellipse(w * 0.65, h * 0.32, w * 0.23, h * 0.10, Some("125,211,252"), Some("7,89,133"), 1.4);
             art.apply_to_shape(sh, "2,132,199", "7,89,133", true);
         }
         _ => {
-            // 3D Network / Rack Appliance (Load Balancer, VPN, SD-WAN, Patch Panel, NAS/SAN, UPS, PDU)
-            let mut art = DualArtwork::new("");
-            art.add_poly(&[(8.0, 34.0), (22.0, 18.0), (94.0, 18.0), (80.0, 34.0)], "#64748B", "#1E293B", 1.8, Some("100,116,139"), Some("30,41,59"));
-            art.add_poly(&[(80.0, 34.0), (94.0, 18.0), (94.0, 62.0), (80.0, 78.0)], "#334155", "#1E293B", 1.8, Some("51,65,85"), Some("30,41,59"));
-            art.add_rect(8.0, 34.0, 72.0, 44.0, 3.0, "#1E293B", "#0F172A", 2.0, Some("30,41,59"), Some("15,23,42"));
-            art.add_lines(
-                &[((18.0, 56.0), (42.0, 56.0)), ((42.0, 56.0), (66.0, 44.0)), ((42.0, 56.0), (66.0, 68.0))],
-                "#38BDF8",
-                3.0,
-                "56,189,248",
+            // 3D Network Appliance (`Load Balancer`, `VPN`, `SD-WAN`, `WLC`, `ODF`, `Modem`, `Tape Library`)
+            let mut art = IsoArtwork::for_shape(sh);
+            let w = art.vb_w;
+            let h = art.vb_h;
+            let dx = 14.0;
+            let dy = 12.0;
+            let fw = w - 16.0 - dx;
+            let fh = h - 16.0 - dy;
+            art.add_poly(
+                &[(8.0, 8.0 + dy), (8.0 + dx, 8.0), (8.0 + fw + dx, 8.0), (8.0 + fw, 8.0 + dy)],
+                Some("100,116,139"),
+                Some("30,41,59"),
+                1.4,
             );
-            art.add_ellipse(22.0, 44.0, 3.0, 3.0, "#22C55E", "none", 0.0, Some("34,197,94"), None);
+            art.add_poly(
+                &[(8.0 + fw, 8.0 + dy), (8.0 + fw + dx, 8.0), (8.0 + fw + dx, 8.0 + fh), (8.0 + fw, 8.0 + dy + fh)],
+                Some("51,65,85"),
+                Some("30,41,59"),
+                1.4,
+            );
+            art.add_rect(8.0, 8.0 + dy, fw, fh, 3.0, Some("30,41,59"), Some("15,23,42"), 1.6);
+            let cy = 8.0 + dy + fh * 0.5;
+            art.add_lines(
+                &[
+                    ((22.0, cy), (8.0 + fw * 0.48, cy)),
+                    ((8.0 + fw * 0.48, cy), (8.0 + fw * 0.78, cy - fh * 0.24)),
+                    ((8.0 + fw * 0.48, cy), (8.0 + fw * 0.78, cy + fh * 0.24)),
+                ],
+                "56,189,248",
+                2.0,
+            );
+            art.add_ellipse(20.0, 8.0 + dy + 10.0, 3.2, 3.2, Some("34,197,94"), None, 0.8);
             art.apply_to_shape(sh, "51,65,85", "15,23,42", true);
         }
     }
 }
 
 // ============================================================================
-// 4. Microsoft Azure, Power Platform & Multi-Cloud Architecture Icons
+// 4. Microsoft Azure, Power Platform & Multi-Cloud Architecture Icons (`105 × 105` Square)
 // ============================================================================
 
 fn build_azure_artwork(sh: &mut VisioShape, role: &str) {
-    let az_defs = "<linearGradient id=\"azg\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"1\"><stop offset=\"0%\" stop-color=\"#50E6FF\"/><stop offset=\"100%\" stop-color=\"#0078D4\"/></linearGradient>";
     match role {
         "az_resource_group" | "az_mgmt_group" | "az_vnet" => {
-            let mut art = DualArtwork::new("");
-            art.add_rect(4.0, 4.0, 92.0, 92.0, 8.0, "#F8FAFC", "#0078D4", 2.2, Some("248,250,252"), Some("0,120,212"));
-            art.add_poly(&[(12.0, 24.0), (22.0, 10.0), (32.0, 24.0)], "#0078D4", "none", 0.0, Some("0,120,212"), None);
+            let mut art = IsoArtwork::for_shape(sh);
+            let w = art.vb_w;
+            let h = art.vb_h;
+            art.add_rect(5.0, 5.0, w - 10.0, h - 10.0, 9.0, Some("248,250,252"), Some("0,120,212"), 1.8);
+            art.add_rect(14.0, 12.0, 28.0, 24.0, 4.0, Some("224,242,254"), Some("0,120,212"), 1.2);
+            art.add_poly(&[(18.0, 31.0), (28.0, 15.0), (38.0, 31.0)], Some("0,120,212"), None, 0.8);
             art.apply_to_shape(sh, "248,250,252", "0,120,212", false);
-            sh.sheet.set_formula("TxtPinY", "=Height - 0.16 in", Some(Unit::Inch));
+            sh.sheet
+                .set_formula("TxtPinY", "=Height - 0.22 in", Some(Unit::Inch));
         }
         "az_vm" | "az_vmss" => {
-            let mut art = DualArtwork::new(az_defs);
-            art.add_rect(12.0, 14.0, 76.0, 54.0, 6.0, "url(#azg)", "#005A9E", 2.0, Some("0,120,212"), Some("0,90,158"));
-            art.add_poly(&[(50.0, 24.0), (66.0, 33.0), (66.0, 50.0), (50.0, 59.0), (34.0, 50.0), (34.0, 33.0)], "#FFFFFF", "#005A9E", 1.6, Some("255,255,255"), Some("0,90,158"));
-            art.add_poly(&[(36.0, 68.0), (64.0, 68.0), (72.0, 84.0), (28.0, 84.0)], "#94A3B8", "#475569", 1.8, Some("148,163,184"), Some("71,85,105"));
+            let mut art = IsoArtwork::for_shape(sh);
+            let s = art.vb_w / 100.0;
+            art.add_rect(12.0 * s, 14.0 * s, 76.0 * s, 54.0 * s, 7.0 * s, Some("0,120,212"), Some("0,90,158"), 1.6);
+            art.add_poly(
+                &[
+                    (50.0 * s, 23.0 * s),
+                    (66.0 * s, 32.0 * s),
+                    (66.0 * s, 50.0 * s),
+                    (50.0 * s, 59.0 * s),
+                    (34.0 * s, 50.0 * s),
+                    (34.0 * s, 32.0 * s),
+                ],
+                Some("255,255,255"),
+                Some("0,90,158"),
+                1.3,
+            );
+            art.add_poly(
+                &[
+                    (36.0 * s, 68.0 * s),
+                    (64.0 * s, 68.0 * s),
+                    (72.0 * s, 84.0 * s),
+                    (28.0 * s, 84.0 * s),
+                ],
+                Some("148,163,184"),
+                Some("71,85,105"),
+                1.5,
+            );
             art.apply_to_shape(sh, "0,120,212", "0,90,158", true);
         }
         "az_aks" | "az_container_apps" => {
-            let mut art = DualArtwork::new("");
+            let mut art = IsoArtwork::for_shape(sh);
+            let s = art.vb_w / 100.0;
             for &(cx, cy) in &[(34.0, 34.0), (66.0, 34.0), (50.0, 64.0)] {
                 art.add_poly(
-                    &[(cx, cy - 18.0), (cx + 16.0, cy - 9.0), (cx + 16.0, cy + 9.0), (cx, cy + 18.0), (cx - 16.0, cy + 9.0), (cx - 16.0, cy - 9.0)],
-                    "#7C3AED",
-                    "#FFFFFF",
-                    2.0,
+                    &[
+                        (cx * s, (cy - 18.0) * s),
+                        ((cx + 16.0) * s, (cy - 9.0) * s),
+                        ((cx + 16.0) * s, (cy + 9.0) * s),
+                        (cx * s, (cy + 18.0) * s),
+                        ((cx - 16.0) * s, (cy + 9.0) * s),
+                        ((cx - 16.0) * s, (cy - 9.0) * s),
+                    ],
                     Some("124,58,237"),
                     Some("255,255,255"),
+                    1.6,
                 );
             }
             art.apply_to_shape(sh, "124,58,237", "91,33,182", true);
         }
         "az_functions" => {
-            let mut art = DualArtwork::new("");
-            art.add_lines(&[((26.0, 32.0), (10.0, 50.0)), ((10.0, 50.0), (26.0, 68.0)), ((74.0, 32.0), (90.0, 50.0)), ((90.0, 50.0), (74.0, 68.0))], "#0078D4", 4.0, "0,120,212");
-            art.add_poly(&[(56.0, 10.0), (32.0, 52.0), (50.0, 52.0), (42.0, 90.0), (70.0, 44.0), (52.0, 44.0)], "#FACC15", "#CA8A04", 1.8, Some("250,204,21"), Some("202,138,4"));
+            let mut art = IsoArtwork::for_shape(sh);
+            let s = art.vb_w / 100.0;
+            art.add_rect(8.0 * s, 8.0 * s, 84.0 * s, 84.0 * s, 14.0 * s, Some("240,249,255"), Some("186,230,253"), 1.2);
+            art.add_lines(
+                &[
+                    ((26.0 * s, 32.0 * s), (10.0 * s, 50.0 * s)),
+                    ((10.0 * s, 50.0 * s), (26.0 * s, 68.0 * s)),
+                    ((74.0 * s, 32.0 * s), (90.0 * s, 50.0 * s)),
+                    ((90.0 * s, 50.0 * s), (74.0 * s, 68.0 * s)),
+                ],
+                "0,120,212",
+                2.6,
+            );
+            art.add_poly(
+                &[
+                    (56.0 * s, 10.0 * s),
+                    (32.0 * s, 52.0 * s),
+                    (50.0 * s, 52.0 * s),
+                    (42.0 * s, 90.0 * s),
+                    (70.0 * s, 44.0 * s),
+                    (52.0 * s, 44.0 * s),
+                ],
+                Some("250,204,21"),
+                Some("202,138,4"),
+                1.5,
+            );
             art.apply_to_shape(sh, "250,204,21", "0,120,212", true);
         }
         "az_sql_db" | "az_sql_cosmos" => {
-            let mut art = DualArtwork::new(az_defs);
-            art.add_rect(20.0, 20.0, 60.0, 62.0, 6.0, "url(#azg)", "#005A9E", 2.0, Some("0,120,212"), Some("0,90,158"));
-            art.add_ellipse(50.0, 20.0, 30.0, 11.0, "#E0F2FE", "#005A9E", 2.0, Some("224,242,254"), Some("0,90,158"));
-            art.add_svg_only("<text x=\"50\" y=\"58\" font-family=\"Segoe UI, Roboto, sans-serif\" font-size=\"18\" font-weight=\"800\" fill=\"#FFFFFF\" text-anchor=\"middle\">SQL</text>");
+            let mut art = IsoArtwork::for_shape(sh);
+            let s = art.vb_w / 100.0;
+            art.add_rect(20.0 * s, 20.0 * s, 60.0 * s, 62.0 * s, 6.0 * s, Some("0,120,212"), Some("0,90,158"), 1.6);
+            art.add_ellipse(50.0 * s, 20.0 * s, 30.0 * s, 11.0 * s, Some("224,242,254"), Some("0,90,158"), 1.5);
+            art.add_ellipse(50.0 * s, 82.0 * s, 30.0 * s, 10.0 * s, Some("0,120,212"), Some("0,90,158"), 1.5);
+            draw_badge_letter(&mut art, "S", 36.0 * s, 54.0 * s, 9.0 * s);
+            draw_badge_letter(&mut art, "O", 51.0 * s, 54.0 * s, 9.0 * s);
+            draw_badge_letter(&mut art, "L", 66.0 * s, 54.0 * s, 9.0 * s);
             art.apply_to_shape(sh, "0,120,212", "0,90,158", true);
         }
         "az_firewall" => {
             build_network_equipment_artwork(sh, "net_ngfw");
         }
         "az_key_vault" => {
-            let mut art = DualArtwork::new("");
-            art.add_ellipse(50.0, 50.0, 38.0, 38.0, "#FACC15", "#B45309", 2.4, Some("250,204,21"), Some("180,83,9"));
-            art.add_ellipse(42.0, 44.0, 11.0, 11.0, "#FFFFFF", "#B45309", 2.4, Some("255,255,255"), Some("180,83,9"));
-            art.add_lines(&[((50.0, 52.0), (70.0, 72.0)), ((64.0, 66.0), (58.0, 72.0))], "#FFFFFF", 4.0, "255,255,255");
+            let mut art = IsoArtwork::for_shape(sh);
+            let s = art.vb_w / 100.0;
+            art.add_ellipse(50.0 * s, 50.0 * s, 38.0 * s, 38.0 * s, Some("250,204,21"), Some("180,83,9"), 1.8);
+            art.add_ellipse(42.0 * s, 44.0 * s, 11.0 * s, 11.0 * s, Some("255,255,255"), Some("180,83,9"), 1.8);
+            art.add_lines(
+                &[((50.0 * s, 52.0 * s), (70.0 * s, 72.0 * s)), ((64.0 * s, 66.0 * s), (58.0 * s, 72.0 * s))],
+                "255,255,255",
+                2.6,
+            );
             art.apply_to_shape(sh, "250,204,21", "180,83,9", true);
         }
         _ => {
-            let mut art = DualArtwork::new(az_defs);
-            art.add_rect(14.0, 14.0, 72.0, 72.0, 14.0, "url(#azg)", "#005A9E", 2.0, Some("0,120,212"), Some("0,90,158"));
-            art.add_poly(&[(50.0, 24.0), (74.0, 70.0), (56.0, 70.0), (46.0, 50.0), (34.0, 70.0), (24.0, 70.0)], "#FFFFFF", "none", 0.0, Some("255,255,255"), None);
+            let mut art = IsoArtwork::for_shape(sh);
+            let s = art.vb_w / 100.0;
+            art.add_rect(12.0 * s, 12.0 * s, 76.0 * s, 76.0 * s, 15.0 * s, Some("0,120,212"), Some("0,90,158"), 1.6);
+            art.add_rect(12.0 * s, 12.0 * s, 76.0 * s, 28.0 * s, 15.0 * s, Some("40,168,234"), None, 0.8);
+            art.add_poly(
+                &[
+                    (50.0 * s, 24.0 * s),
+                    (74.0 * s, 70.0 * s),
+                    (56.0 * s, 70.0 * s),
+                    (46.0 * s, 50.0 * s),
+                    (34.0 * s, 70.0 * s),
+                    (24.0 * s, 70.0 * s),
+                ],
+                Some("255,255,255"),
+                None,
+                0.8,
+            );
             art.apply_to_shape(sh, "0,120,212", "0,90,158", true);
         }
     }
@@ -1287,75 +1787,196 @@ fn build_azure_artwork(sh: &mut VisioShape, role: &str) {
 fn build_power_platform_artwork(sh: &mut VisioShape, role: &str) {
     match role {
         "pp_managed_env" => {
-            let mut art = DualArtwork::new("");
-            art.add_rect(4.0, 4.0, 92.0, 92.0, 8.0, "#F8FAFC", "#742774", 2.2, Some("248,250,252"), Some("116,39,116"));
+            let mut art = IsoArtwork::for_shape(sh);
+            let w = art.vb_w;
+            let h = art.vb_h;
+            art.add_rect(5.0, 5.0, w - 10.0, h - 10.0, 9.0, Some("248,250,252"), Some("116,39,116"), 1.8);
+            art.add_rect(14.0, 12.0, 28.0, 26.0, 4.0, Some("243,232,255"), Some("116,39,116"), 1.2);
+            art.add_poly(&[(28.0, 16.0), (37.0, 25.0), (28.0, 34.0), (19.0, 25.0)], Some("116,39,116"), None, 0.8);
             art.apply_to_shape(sh, "248,250,252", "116,39,116", false);
-            sh.sheet.set_formula("TxtPinY", "=Height - 0.16 in", Some(Unit::Inch));
+            sh.sheet
+                .set_formula("TxtPinY", "=Height - 0.22 in", Some(Unit::Inch));
         }
         "pp_powerbi" | "pp_pbi_model" | "pp_pbi_paginated" => {
-            let mut art = DualArtwork::new("");
-            art.add_rect(18.0, 48.0, 18.0, 40.0, 4.0, "#FDE047", "#CA8A04", 1.6, Some("253,224,71"), Some("202,138,4"));
-            art.add_rect(41.0, 30.0, 18.0, 58.0, 4.0, "#FACC15", "#CA8A04", 1.6, Some("250,204,21"), Some("202,138,4"));
-            art.add_rect(64.0, 12.0, 18.0, 76.0, 4.0, "#EAB308", "#A16207", 1.6, Some("234,179,8"), Some("161,98,7"));
+            let mut art = IsoArtwork::for_shape(sh);
+            let s = art.vb_w / 100.0;
+            art.add_rect(18.0 * s, 48.0 * s, 18.0 * s, 40.0 * s, 5.0 * s, Some("253,224,71"), Some("202,138,4"), 1.4);
+            art.add_rect(41.0 * s, 30.0 * s, 18.0 * s, 58.0 * s, 5.0 * s, Some("250,204,21"), Some("202,138,4"), 1.4);
+            art.add_rect(64.0 * s, 12.0 * s, 18.0 * s, 76.0 * s, 5.0 * s, Some("234,179,8"), Some("161,98,7"), 1.4);
             art.apply_to_shape(sh, "250,204,21", "161,98,7", true);
         }
         "pp_automate" | "pp_rpa" => {
-            let mut art = DualArtwork::new("");
-            art.add_poly(&[(10.0, 20.0), (56.0, 20.0), (88.0, 50.0), (56.0, 80.0), (10.0, 80.0), (38.0, 50.0)], "#0066FF", "#0044CC", 1.8, Some("0,102,255"), Some("0,68,204"));
-            art.add_poly(&[(10.0, 20.0), (56.0, 20.0), (68.0, 32.0), (26.0, 62.0)], "#38BDF8", "none", 0.0, Some("56,189,248"), None);
+            let mut art = IsoArtwork::for_shape(sh);
+            let s = art.vb_w / 100.0;
+            art.add_poly(
+                &[
+                    (10.0 * s, 20.0 * s),
+                    (56.0 * s, 20.0 * s),
+                    (88.0 * s, 50.0 * s),
+                    (56.0 * s, 80.0 * s),
+                    (10.0 * s, 80.0 * s),
+                    (38.0 * s, 50.0 * s),
+                ],
+                Some("0,102,255"),
+                Some("0,68,204"),
+                1.6,
+            );
+            art.add_poly(
+                &[
+                    (10.0 * s, 20.0 * s),
+                    (56.0 * s, 20.0 * s),
+                    (72.0 * s, 35.0 * s),
+                    (28.0 * s, 64.0 * s),
+                ],
+                Some("56,189,248"),
+                None,
+                0.8,
+            );
+            art.add_poly(
+                &[
+                    (38.0 * s, 50.0 * s),
+                    (88.0 * s, 50.0 * s),
+                    (56.0 * s, 80.0 * s),
+                    (10.0 * s, 80.0 * s),
+                ],
+                Some("29,78,216"),
+                None,
+                0.8,
+            );
             art.apply_to_shape(sh, "0,102,255", "0,68,204", true);
         }
         "pp_powerapps" | "pp_model_app" => {
-            let mut art = DualArtwork::new("");
-            art.add_poly(&[(50.0, 10.0), (90.0, 50.0), (50.0, 90.0), (10.0, 50.0)], "#742774", "#4A154B", 2.0, Some("116,39,116"), Some("74,21,75"));
-            art.add_poly(&[(50.0, 26.0), (74.0, 50.0), (50.0, 74.0), (26.0, 50.0)], "#C084FC", "#FFFFFF", 1.6, Some("192,132,252"), Some("255,255,255"));
+            let mut art = IsoArtwork::for_shape(sh);
+            let s = art.vb_w / 100.0;
+            art.add_poly(
+                &[
+                    (50.0 * s, 10.0 * s),
+                    (90.0 * s, 50.0 * s),
+                    (50.0 * s, 90.0 * s),
+                    (10.0 * s, 50.0 * s),
+                ],
+                Some("116,39,116"),
+                Some("74,21,75"),
+                1.6,
+            );
+            art.add_poly(
+                &[
+                    (50.0 * s, 26.0 * s),
+                    (74.0 * s, 50.0 * s),
+                    (50.0 * s, 74.0 * s),
+                    (26.0 * s, 50.0 * s),
+                ],
+                Some("192,132,252"),
+                Some("255,255,255"),
+                1.4,
+            );
+            art.add_poly(
+                &[
+                    (50.0 * s, 38.0 * s),
+                    (62.0 * s, 50.0 * s),
+                    (50.0 * s, 62.0 * s),
+                    (38.0 * s, 50.0 * s),
+                ],
+                Some("255,255,255"),
+                None,
+                0.8,
+            );
             art.apply_to_shape(sh, "116,39,116", "74,21,75", true);
         }
         "pp_dataverse" | "ms_fabric" => {
-            let mut art = DualArtwork::new("");
-            art.add_rect(14.0, 18.0, 72.0, 20.0, 6.0, "#10B981", "#047857", 1.8, Some("16,185,129"), Some("4,120,87"));
-            art.add_rect(14.0, 42.0, 72.0, 20.0, 6.0, "#059669", "#047857", 1.8, Some("5,150,105"), Some("4,120,87"));
-            art.add_rect(14.0, 66.0, 72.0, 20.0, 6.0, "#047857", "#064E3B", 1.8, Some("4,120,87"), Some("6,78,59"));
+            let mut art = IsoArtwork::for_shape(sh);
+            let s = art.vb_w / 100.0;
+            art.add_rect(14.0 * s, 18.0 * s, 72.0 * s, 20.0 * s, 7.0 * s, Some("16,185,129"), Some("4,120,87"), 1.5);
+            art.add_rect(14.0 * s, 42.0 * s, 72.0 * s, 20.0 * s, 7.0 * s, Some("5,150,105"), Some("4,120,87"), 1.5);
+            art.add_rect(14.0 * s, 66.0 * s, 72.0 * s, 20.0 * s, 7.0 * s, Some("4,120,87"), Some("6,78,59"), 1.5);
             art.apply_to_shape(sh, "16,185,129", "4,120,87", true);
         }
         _ => {
-            // Dynamics 365 / Copilot Studio / AI Builder / Power Pages
-            let mut art = DualArtwork::new("");
-            art.add_poly(&[(20.0, 12.0), (84.0, 34.0), (54.0, 52.0), (20.0, 42.0)], "#0078D4", "#002050", 1.8, Some("0,120,212"), Some("0,32,80"));
-            art.add_poly(&[(36.0, 48.0), (84.0, 34.0), (84.0, 72.0), (20.0, 90.0)], "#28A8EA", "#002050", 1.8, Some("40,168,234"), Some("0,32,80"));
+            let mut art = IsoArtwork::for_shape(sh);
+            let s = art.vb_w / 100.0;
+            art.add_poly(
+                &[
+                    (20.0 * s, 12.0 * s),
+                    (84.0 * s, 34.0 * s),
+                    (54.0 * s, 52.0 * s),
+                    (20.0 * s, 42.0 * s),
+                ],
+                Some("0,120,212"),
+                Some("0,32,80"),
+                1.5,
+            );
+            art.add_poly(
+                &[
+                    (36.0 * s, 48.0 * s),
+                    (84.0 * s, 34.0 * s),
+                    (84.0 * s, 72.0 * s),
+                    (20.0 * s, 90.0 * s),
+                ],
+                Some("40,168,234"),
+                Some("0,32,80"),
+                1.5,
+            );
+            art.add_ellipse(74.0 * s, 34.0 * s, 6.0 * s, 6.0 * s, Some("255,255,255"), None, 0.8);
             art.apply_to_shape(sh, "0,120,212", "0,32,80", true);
         }
     }
 }
 
 fn build_cloud_arch_artwork(sh: &mut VisioShape, role: &str) {
-    let (bg_hex, bg_rgb, border_hex, border_rgb) = match role {
-        "cloud_vm" | "cloud_asg" | "cloud_spot" | "cloud_fn" | "cloud_batch" => ("#FF9900", "255,153,0", "#B45309", "180,83,9"),
-        "cloud_bucket" | "cloud_ebs" | "cloud_glacier" => ("#16A34A", "22,163,74", "#15803D", "21,128,61"),
-        "cloud_sql" | "cloud_nosql" | "cloud_cache" | "cloud_dwh" => ("#3B82F6", "59,130,246", "#1D4ED8", "29,78,216"),
-        "cloud_iam" | "cloud_kms" => ("#EF4444", "239,68,68", "#B91C1C", "185,28,28"),
-        _ => ("#6366F1", "99,102,241", "#4338CA", "67,56,202"),
+    let (bg_rgb, border_rgb) = match role {
+        "cloud_vm" | "cloud_asg" | "cloud_spot" | "cloud_fn" | "cloud_batch" => {
+            ("255,153,0", "180,83,9")
+        }
+        "cloud_bucket" | "cloud_ebs" | "cloud_glacier" => ("22,163,74", "21,128,61"),
+        "cloud_sql" | "cloud_nosql" | "cloud_cache" | "cloud_dwh" => ("59,130,246", "29,78,216"),
+        "cloud_iam" | "cloud_kms" => ("239,68,68", "185,28,28"),
+        _ => ("99,102,241", "67,56,202"),
     };
-    let mut art = DualArtwork::new("");
-    art.add_rect(12.0, 12.0, 76.0, 76.0, 14.0, bg_hex, border_hex, 2.2, Some(bg_rgb), Some(border_rgb));
+    let mut art = IsoArtwork::for_shape(sh);
+    let s = art.vb_w / 100.0;
+    art.add_rect(12.0 * s, 12.0 * s, 76.0 * s, 76.0 * s, 15.0 * s, Some(bg_rgb), Some(border_rgb), 1.8);
     if role.contains("k8s") || role.contains("pod") {
         art.add_poly(
-            &[(50.0, 22.0), (74.0, 36.0), (74.0, 64.0), (50.0, 78.0), (26.0, 64.0), (26.0, 36.0)],
-            "none",
-            "#FFFFFF",
-            3.0,
+            &[
+                (50.0 * s, 22.0 * s),
+                (74.0 * s, 36.0 * s),
+                (74.0 * s, 64.0 * s),
+                (50.0 * s, 78.0 * s),
+                (26.0 * s, 64.0 * s),
+                (26.0 * s, 36.0 * s),
+            ],
             None,
             Some("255,255,255"),
+            2.2,
         );
-        art.add_ellipse(50.0, 50.0, 10.0, 10.0, "#FFFFFF", "none", 0.0, Some("255,255,255"), None);
-    } else if role.contains("sql") || role.contains("nosql") || role.contains("dwh") || role.contains("cache") {
-        art.add_ellipse(50.0, 32.0, 22.0, 8.0, "#FFFFFF", "none", 0.0, Some("255,255,255"), None);
-        art.add_lines(&[((28.0, 32.0), (28.0, 68.0)), ((72.0, 32.0), (72.0, 68.0)), ((28.0, 68.0), (72.0, 68.0))], "#FFFFFF", 3.0, "255,255,255");
+        art.add_ellipse(50.0 * s, 50.0 * s, 10.0 * s, 10.0 * s, Some("255,255,255"), None, 0.8);
+    } else if role.contains("sql")
+        || role.contains("nosql")
+        || role.contains("dwh")
+        || role.contains("cache")
+    {
+        art.add_ellipse(50.0 * s, 32.0 * s, 22.0 * s, 8.0 * s, Some("255,255,255"), None, 0.8);
+        art.add_lines(
+            &[
+                ((28.0 * s, 32.0 * s), (28.0 * s, 68.0 * s)),
+                ((72.0 * s, 32.0 * s), (72.0 * s, 68.0 * s)),
+                ((28.0 * s, 68.0 * s), (72.0 * s, 68.0 * s)),
+            ],
+            "255,255,255",
+            2.2,
+        );
     } else if role == "cloud_fn" {
-        art.add_lines(&[((34.0, 72.0), (54.0, 28.0)), ((46.0, 48.0), (66.0, 72.0))], "#FFFFFF", 4.2, "255,255,255");
+        art.add_lines(
+            &[
+                ((34.0 * s, 72.0 * s), (54.0 * s, 28.0 * s)),
+                ((46.0 * s, 48.0 * s), (66.0 * s, 72.0 * s)),
+            ],
+            "255,255,255",
+            2.8,
+        );
     } else {
-        art.add_rect(28.0, 28.0, 44.0, 44.0, 6.0, "none", "#FFFFFF", 3.0, None, Some("255,255,255"));
-        art.add_rect(38.0, 38.0, 24.0, 24.0, 3.0, "#FFFFFF", "none", 0.0, Some("255,255,255"), None);
+        art.add_rect(28.0 * s, 28.0 * s, 44.0 * s, 44.0 * s, 7.0 * s, None, Some("255,255,255"), 2.2);
+        art.add_rect(38.0 * s, 38.0 * s, 24.0 * s, 24.0 * s, 4.0 * s, Some("255,255,255"), None, 0.8);
     }
     art.apply_to_shape(sh, bg_rgb, border_rgb, true);
 }

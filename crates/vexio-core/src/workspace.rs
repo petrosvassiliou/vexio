@@ -460,12 +460,12 @@ impl DocumentSession {
                     let scale = (1.24 / orig_w).min(0.80 / orig_h);
                     sh.sheet.set_formula(
                         "Width",
-                        format!("{} in", format_clean_f64((orig_w * scale).max(0.22))),
+                        format!("{} in", format_clean_f64((orig_w * scale).max(0.04))),
                         Some(Unit::Inch),
                     );
                     sh.sheet.set_formula(
                         "Height",
-                        format!("{} in", format_clean_f64((orig_h * scale).max(0.18))),
+                        format!("{} in", format_clean_f64((orig_h * scale).max(0.04))),
                         Some(Unit::Inch),
                     );
                     sh.sheet

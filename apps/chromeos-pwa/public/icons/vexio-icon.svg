@@ -1,13 +1,98 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#1d4ed8"/>
-      <stop offset="100%" stop-color="#0f172a"/>
+    <defs>
+      
+    <linearGradient id="bgSapphire" x1="0.12" y1="0.06" x2="0.88" y2="0.96">
+      <stop offset="0%" stop-color="#2563EB"/>
+      <stop offset="48%" stop-color="#1E40AF"/>
+      <stop offset="100%" stop-color="#0F172A"/>
     </linearGradient>
-  </defs>
-  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
-  <rect x="96" y="108" width="128" height="92" rx="18" fill="#38bdf8"/>
-  <polygon points="352,96 424,154 352,212 280,154" fill="#34d399"/>
-  <rect x="192" y="308" width="144" height="96" rx="20" fill="#f8fafc"/>
-  <path d="M224 154 H280 M352 212 V260 H264 V308 M160 200 V356 H192" fill="none" stroke="#93c5fd" stroke-width="18" stroke-linecap="round" stroke-linejoin="round"/>
-</svg>
+    <radialGradient id="topGlow" cx="0.28" cy="0.18" r="0.68">
+      <stop offset="0%" stop-color="#38BDF8" stop-opacity="0.48"/>
+      <stop offset="60%" stop-color="#2563EB" stop-opacity="0.08"/>
+      <stop offset="100%" stop-color="#0F172A" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="glassRim" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.68"/>
+      <stop offset="35%" stop-color="#FFFFFF" stop-opacity="0.14"/>
+      <stop offset="100%" stop-color="#38BDF8" stop-opacity="0.28"/>
+    </linearGradient>
+    <linearGradient id="vArmGrad" x1="0.2" y1="0.15" x2="0.8" y2="0.9">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="55%" stop-color="#E0F2FE"/>
+      <stop offset="100%" stop-color="#BAE6FD"/>
+    </linearGradient>
+    <linearGradient id="cyanNodeGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#38BDF8"/>
+      <stop offset="100%" stop-color="#0284C7"/>
+    </linearGradient>
+    <linearGradient id="emeraldNodeGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#34D399"/>
+      <stop offset="100%" stop-color="#059669"/>
+    </linearGradient>
+    <linearGradient id="hubCoreGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#38BDF8"/>
+      <stop offset="100%" stop-color="#1D4ED8"/>
+    </linearGradient>
+    <pattern id="isoGrid" width="64" height="64" patternUnits="userSpaceOnUse">
+      <path d="M 64 0 L 0 0 0 64" fill="none" stroke="#93C5FD" stroke-opacity="0.13" stroke-width="2"/>
+    </pattern>
+    <filter id="macSquircleShadow" x="-15%" y="-12%" width="130%" height="132%">
+      <feDropShadow dx="0" dy="14" stdDeviation="18" flood-color="#020617" flood-opacity="0.38"/>
+    </filter>
+    <filter id="fluentPlateShadow" x="-18%" y="-15%" width="136%" height="138%">
+      <feDropShadow dx="0" dy="16" stdDeviation="20" flood-color="#020617" flood-opacity="0.34"/>
+    </filter>
+    <filter id="nodeShadow" x="-25%" y="-20%" width="150%" height="155%">
+      <feDropShadow dx="0" dy="10" stdDeviation="10" flood-color="#020617" flood-opacity="0.30"/>
+    </filter>
+  
+      <clipPath id="crosClip">
+        <rect x="32" y="32" width="448" height="448" rx="112"/>
+      </clipPath>
+    </defs>
+    <rect x="32" y="32" width="448" height="448" rx="112" fill="url(#bgSapphire)"/>
+    <g clip-path="url(#crosClip)">
+      <rect x="32" y="32" width="448" height="448" fill="url(#topGlow)"/>
+      <rect x="32" y="32" width="448" height="448" fill="url(#isoGrid)"/>
+      <g transform="scale(0.5)">
+        
+    <g transform="translate(512 512) scale(0.86) translate(-512 -512)">
+      <!-- Subtle horizontal dashed routing link between top Process & Decision nodes -->
+      <line x1="336" y1="322" x2="688" y2="322" stroke="#7DD3FC" stroke-opacity="0.55" stroke-width="16" stroke-dasharray="22 20" stroke-linecap="round"/>
+
+      <!-- Ambient shadow under V connector arms -->
+      <path d="M 294 334 L 512 738 L 730 334" fill="none" stroke="#020617" stroke-opacity="0.34" stroke-width="92" stroke-linecap="round" stroke-linejoin="round" transform="translate(0 18)"/>
+
+      <!-- Primary Sculpted V Connector Arms -->
+      <path d="M 294 334 L 512 738 L 730 334" fill="none" stroke="url(#vArmGrad)" stroke-width="84" stroke-linecap="round" stroke-linejoin="round"/>
+      <!-- Specular inner highlight along V Connector Arms -->
+      <path d="M 294 334 L 512 738 L 730 334" fill="none" stroke="#FFFFFF" stroke-opacity="0.55" stroke-width="22" stroke-linecap="round" stroke-linejoin="round" transform="translate(0 -4)"/>
+
+      <!-- Top-Left Node: Cyan Process Rounded Tile -->
+      <g filter="url(#nodeShadow)">
+        <rect x="200" y="228" width="188" height="188" rx="46" fill="url(#cyanNodeGrad)" stroke="#FFFFFF" stroke-width="14"/>
+        <rect x="246" y="274" width="96" height="96" rx="22" fill="#FFFFFF" fill-opacity="0.22"/>
+        <circle cx="294" cy="322" r="24" fill="#FFFFFF"/>
+      </g>
+
+      <!-- Top-Right Node: Emerald Decision Diamond -->
+      <g filter="url(#nodeShadow)">
+        <g transform="translate(730 322) rotate(45)">
+          <rect x="-86" y="-86" width="172" height="172" rx="34" fill="url(#emeraldNodeGrad)" stroke="#FFFFFF" stroke-width="14"/>
+          <rect x="-40" y="-40" width="80" height="80" rx="16" fill="#FFFFFF" fill-opacity="0.24"/>
+        </g>
+        <circle cx="730" cy="322" r="22" fill="#FFFFFF"/>
+      </g>
+
+      <!-- Bottom Apex Node: Master Connection Hub -->
+      <g filter="url(#nodeShadow)">
+        <circle cx="512" cy="738" r="88" fill="#FFFFFF"/>
+        <circle cx="512" cy="738" r="52" fill="url(#hubCoreGrad)"/>
+        <circle cx="496" cy="722" r="14" fill="#FFFFFF" fill-opacity="0.75"/>
+      </g>
+    </g>
+  
+      </g>
+    </g>
+    <rect x="34" y="34" width="444" height="444" rx="110" fill="none" stroke="url(#glassRim)" stroke-width="4"/>
+  </svg>

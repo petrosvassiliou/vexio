@@ -1828,7 +1828,11 @@ private fun DraggableStencilMasterCard(
                                         drawPath(
                                             seg.path,
                                             color = seg.strokeColor,
-                                            style = Stroke(width = (seg.strokeWidthPx).coerceAtLeast(1.6f))
+                                            style = Stroke(
+                                                width = seg.strokeWidthPx.coerceAtLeast(1.1f),
+                                                cap = androidx.compose.ui.graphics.StrokeCap.Round,
+                                                join = androidx.compose.ui.graphics.StrokeJoin.Round
+                                            )
                                         )
                                     }
                                 }

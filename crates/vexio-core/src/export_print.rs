@@ -151,7 +151,7 @@ pub fn export_page_svg(doc: &VisioDocument, page_id: u32) -> String {
     let mut svg = String::with_capacity(defs.len() + body.len() + 256);
     let _ = writeln!(
         svg,
-        "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{:.2}\" height=\"{:.2}\" viewBox=\"0 0 {:.2} {:.2}\">",
+        "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{:.2}\" height=\"{:.2}\" viewBox=\"0 0 {:.2} {:.2}\" preserveAspectRatio=\"xMidYMid meet\">",
         w_px, h_px, w_px, h_px
     );
     let _ = writeln!(svg, "<defs>\n{defs}</defs>");
@@ -402,110 +402,288 @@ fn render_single_shape_svg(
             let mut last_pt = [0.0, 0.0];
             let mut seg_idx = 0u32;
 
-            for verb in &path.verbs_page_space {
-                match verb {
-                    EvaluatedPathVerb::MoveTo(p) => {
-                        let _ = write!(d, "M {:.2} {:.2} ", to_svg_x(p[0]), to_svg_y(p[1]));
-                        if sketchy {
-                            let _ = write!(
-                                sketch_d,
-                                "M {:.2} {:.2} ",
-                                to_svg_x(p[0]) + 1.1,
-                                to_svg_y(p[1]) - 0.9
-                            );
+            // Check if pure closed polyline with `vis.rounding_in > 1e-4` (`Rounded Rectangle`, `Pill`, `BPMN Task`)
+            let mut rounded_emitted = false;
+            if !sketchy && vis.rounding_in > 1e-4 && path.verbs_page_space.len() >= 4 {
+                let all_poly = path.verbs_page_space.iter().all(|v| {
+                    matches!(
+                        v,
+                        EvaluatedPathVerb::MoveTo(_)
+                            | EvaluatedPathVerb::LineTo(_)
+                            | EvaluatedPathVerb::Close
+                    )
+                });
+                if all_poly {
+                    let mut pts: Vec<[f64; 2]> = Vec::new();
+                    for v in &path.verbs_page_space {
+                        match v {
+                            EvaluatedPathVerb::MoveTo(p) | EvaluatedPathVerb::LineTo(p) => {
+                                if pts.last().is_none_or(|prev| {
+                                    ((prev[0] - p[0]).powi(2) + (prev[1] - p[1]).powi(2)).sqrt()
+                                        > 1e-5
+                                }) {
+                                    pts.push(*p);
+                                }
+                            }
+                            _ => {}
                         }
-                        last_pt = *p;
                     }
-                    EvaluatedPathVerb::LineTo(p) => {
-                        let sx = to_svg_x(p[0]);
-                        let sy = to_svg_y(p[1]);
-                        if sketchy {
-                            let mx = (to_svg_x(last_pt[0]) + sx) * 0.5;
-                            let my = (to_svg_y(last_pt[1]) + sy) * 0.5;
-                            let jitter = if (vis.shape_id as u32 + seg_idx) % 2 == 0 {
-                                2.2
+                    let closed = pts.len() >= 3
+                        && (((pts[0][0] - pts[pts.len() - 1][0]).powi(2)
+                            + (pts[0][1] - pts[pts.len() - 1][1]).powi(2))
+                        .sqrt()
+                            < 1e-4
+                            || matches!(
+                                path.verbs_page_space.last(),
+                                Some(EvaluatedPathVerb::Close)
+                            ));
+                    if closed
+                        && ((pts[0][0] - pts[pts.len() - 1][0]).powi(2)
+                            + (pts[0][1] - pts[pts.len() - 1][1]).powi(2))
+                        .sqrt()
+                            < 1e-4
+                    {
+                        pts.pop();
+                    }
+                    if closed && pts.len() >= 3 {
+                        let n = pts.len();
+                        let k = 0.552_284_75;
+                        for i in 0..n {
+                            let prev = pts[(i + n - 1) % n];
+                            let curr = pts[i];
+                            let next = pts[(i + 1) % n];
+                            let v1 = [prev[0] - curr[0], prev[1] - curr[1]];
+                            let v2 = [next[0] - curr[0], next[1] - curr[1]];
+                            let l1 = (v1[0] * v1[0] + v1[1] * v1[1]).sqrt();
+                            let l2 = (v2[0] * v2[0] + v2[1] * v2[1]).sqrt();
+                            let r = vis.rounding_in.min(l1 * 0.499).min(l2 * 0.499);
+                            if l1 > 1e-6 && l2 > 1e-6 && r > 1e-5 {
+                                let p_in = [curr[0] + (v1[0] / l1) * r, curr[1] + (v1[1] / l1) * r];
+                                let p_out =
+                                    [curr[0] + (v2[0] / l2) * r, curr[1] + (v2[1] / l2) * r];
+                                let c1 = [
+                                    p_in[0] + (curr[0] - p_in[0]) * k,
+                                    p_in[1] + (curr[1] - p_in[1]) * k,
+                                ];
+                                let c2 = [
+                                    p_out[0] + (curr[0] - p_out[0]) * k,
+                                    p_out[1] + (curr[1] - p_out[1]) * k,
+                                ];
+                                if i == 0 {
+                                    let _ = write!(
+                                        d,
+                                        "M {:.2} {:.2} ",
+                                        to_svg_x(p_in[0]),
+                                        to_svg_y(p_in[1])
+                                    );
+                                } else {
+                                    let _ = write!(
+                                        d,
+                                        "L {:.2} {:.2} ",
+                                        to_svg_x(p_in[0]),
+                                        to_svg_y(p_in[1])
+                                    );
+                                }
+                                let _ = write!(
+                                    d,
+                                    "C {:.2} {:.2} {:.2} {:.2} {:.2} {:.2} ",
+                                    to_svg_x(c1[0]),
+                                    to_svg_y(c1[1]),
+                                    to_svg_x(c2[0]),
+                                    to_svg_y(c2[1]),
+                                    to_svg_x(p_out[0]),
+                                    to_svg_y(p_out[1])
+                                );
+                            } else if i == 0 {
+                                let _ = write!(
+                                    d,
+                                    "M {:.2} {:.2} ",
+                                    to_svg_x(curr[0]),
+                                    to_svg_y(curr[1])
+                                );
                             } else {
-                                -2.2
-                            };
-                            let _ = write!(
-                                d,
-                                "Q {:.2} {:.2} {:.2} {:.2} ",
-                                mx + jitter,
-                                my - jitter,
-                                sx,
-                                sy
-                            );
-                            let _ = write!(
-                                sketch_d,
-                                "Q {:.2} {:.2} {:.2} {:.2} ",
-                                mx - jitter * 0.7,
-                                my + jitter * 0.7,
-                                sx - 0.8,
-                                sy + 0.8
-                            );
-                        } else {
-                            let _ = write!(d, "L {:.2} {:.2} ", sx, sy);
+                                let _ = write!(
+                                    d,
+                                    "L {:.2} {:.2} ",
+                                    to_svg_x(curr[0]),
+                                    to_svg_y(curr[1])
+                                );
+                            }
                         }
-                        last_pt = *p;
-                        seg_idx += 1;
+                        d.push_str("Z ");
+                        rounded_emitted = true;
                     }
-                    EvaluatedPathVerb::QuadTo { ctrl, to } => {
-                        let _ = write!(
-                            d,
-                            "Q {:.2} {:.2} {:.2} {:.2} ",
-                            to_svg_x(ctrl[0]),
-                            to_svg_y(ctrl[1]),
-                            to_svg_x(to[0]),
-                            to_svg_y(to[1])
-                        );
-                        last_pt = *to;
-                    }
-                    EvaluatedPathVerb::CubicTo { ctrl1, ctrl2, to } => {
-                        let _ = write!(
-                            d,
-                            "C {:.2} {:.2} {:.2} {:.2} {:.2} {:.2} ",
-                            to_svg_x(ctrl1[0]),
-                            to_svg_y(ctrl1[1]),
-                            to_svg_x(ctrl2[0]),
-                            to_svg_y(ctrl2[1]),
-                            to_svg_x(to[0]),
-                            to_svg_y(to[1])
-                        );
-                        last_pt = *to;
-                    }
-                    EvaluatedPathVerb::ArcTo { to, bow } => {
-                        let chord =
-                            ((to[0] - last_pt[0]).powi(2) + (to[1] - last_pt[1]).powi(2)).sqrt();
-                        if bow.abs() < 1e-6 || chord < 1e-6 {
-                            let _ = write!(d, "L {:.2} {:.2} ", to_svg_x(to[0]), to_svg_y(to[1]));
-                        } else {
-                            let r_in = (chord * chord) / (8.0 * bow.abs()) + bow.abs() * 0.5;
-                            let r_px = r_in * ppi;
-                            let sweep = if *bow > 0.0 { 0 } else { 1 };
+                }
+            }
+
+            if !rounded_emitted {
+                for verb in &path.verbs_page_space {
+                    match verb {
+                        EvaluatedPathVerb::MoveTo(p) => {
+                            let _ = write!(d, "M {:.2} {:.2} ", to_svg_x(p[0]), to_svg_y(p[1]));
+                            if sketchy {
+                                let _ = write!(
+                                    sketch_d,
+                                    "M {:.2} {:.2} ",
+                                    to_svg_x(p[0]) + 1.1,
+                                    to_svg_y(p[1]) - 0.9
+                                );
+                            }
+                            last_pt = *p;
+                        }
+                        EvaluatedPathVerb::LineTo(p) => {
+                            let sx = to_svg_x(p[0]);
+                            let sy = to_svg_y(p[1]);
+                            if sketchy {
+                                let mx = (to_svg_x(last_pt[0]) + sx) * 0.5;
+                                let my = (to_svg_y(last_pt[1]) + sy) * 0.5;
+                                let jitter = if (vis.shape_id as u32 + seg_idx) % 2 == 0 {
+                                    2.2
+                                } else {
+                                    -2.2
+                                };
+                                let _ = write!(
+                                    d,
+                                    "Q {:.2} {:.2} {:.2} {:.2} ",
+                                    mx + jitter,
+                                    my - jitter,
+                                    sx,
+                                    sy
+                                );
+                                let _ = write!(
+                                    sketch_d,
+                                    "Q {:.2} {:.2} {:.2} {:.2} ",
+                                    mx - jitter * 0.7,
+                                    my + jitter * 0.7,
+                                    sx - 0.8,
+                                    sy + 0.8
+                                );
+                            } else {
+                                let _ = write!(d, "L {:.2} {:.2} ", sx, sy);
+                            }
+                            last_pt = *p;
+                            seg_idx += 1;
+                        }
+                        EvaluatedPathVerb::QuadTo { ctrl, to } => {
                             let _ = write!(
                                 d,
-                                "A {:.2} {:.2} 0 0 {sweep} {:.2} {:.2} ",
-                                r_px,
-                                r_px,
+                                "Q {:.2} {:.2} {:.2} {:.2} ",
+                                to_svg_x(ctrl[0]),
+                                to_svg_y(ctrl[1]),
                                 to_svg_x(to[0]),
                                 to_svg_y(to[1])
                             );
+                            last_pt = *to;
                         }
-                        last_pt = *to;
+                        EvaluatedPathVerb::CubicTo { ctrl1, ctrl2, to } => {
+                            let _ = write!(
+                                d,
+                                "C {:.2} {:.2} {:.2} {:.2} {:.2} {:.2} ",
+                                to_svg_x(ctrl1[0]),
+                                to_svg_y(ctrl1[1]),
+                                to_svg_x(ctrl2[0]),
+                                to_svg_y(ctrl2[1]),
+                                to_svg_x(to[0]),
+                                to_svg_y(to[1])
+                            );
+                            last_pt = *to;
+                        }
+                        EvaluatedPathVerb::ArcTo { to, bow } => {
+                            let dx = to[0] - last_pt[0];
+                            let dy = to[1] - last_pt[1];
+                            let chord = (dx * dx + dy * dy).sqrt();
+                            if bow.abs() < 1e-6 || chord < 1e-6 {
+                                let _ =
+                                    write!(d, "L {:.2} {:.2} ", to_svg_x(to[0]), to_svg_y(to[1]));
+                            } else {
+                                let ux = dx / chord;
+                                let uy = dy / chord;
+                                let nx = -uy;
+                                let ny = ux;
+                                let mx = (last_pt[0] + to[0]) * 0.5;
+                                let my = (last_pt[1] + to[1]) * 0.5;
+                                let arc_mx = mx + bow * nx;
+                                let arc_my = my + bow * ny;
+                                let half_c = chord * 0.5;
+                                let radius = (half_c * half_c + bow * bow) / (2.0 * bow.abs());
+                                let center_offset = bow - radius * bow.signum();
+                                let cx = mx + center_offset * nx;
+                                let cy = my + center_offset * ny;
+                                let a0 = (last_pt[1] - cy).atan2(last_pt[0] - cx);
+                                let amid = (arc_my - cy).atan2(arc_mx - cx);
+                                let a1 = (to[1] - cy).atan2(to[0] - cx);
+                                let tau = std::f64::consts::TAU;
+                                let ccw_end = (a1 - a0).rem_euclid(tau);
+                                let ccw_mid = (amid - a0).rem_euclid(tau);
+                                let sweep = if ccw_mid <= ccw_end + 1e-9 {
+                                    ccw_end
+                                } else {
+                                    ccw_end - tau
+                                };
+                                let n_segs = ((sweep.abs() / std::f64::consts::FRAC_PI_4).ceil()
+                                    as usize)
+                                    .clamp(1, 16);
+                                let dt = sweep / (n_segs as f64);
+                                let k = (4.0 / 3.0) * (dt * 0.25).tan();
+                                for seg in 0..n_segs {
+                                    let t0 = a0 + (seg as f64) * dt;
+                                    let t1 = if seg + 1 == n_segs {
+                                        a0 + sweep
+                                    } else {
+                                        t0 + dt
+                                    };
+                                    let (s0, c0) = t0.sin_cos();
+                                    let (s1, c1) = t1.sin_cos();
+                                    let sx = cx + radius * c0;
+                                    let sy = cy + radius * s0;
+                                    let ex = if seg + 1 == n_segs {
+                                        to[0]
+                                    } else {
+                                        cx + radius * c1
+                                    };
+                                    let ey = if seg + 1 == n_segs {
+                                        to[1]
+                                    } else {
+                                        cy + radius * s1
+                                    };
+                                    let ctrl1 = [sx - k * radius * s0, sy + k * radius * c0];
+                                    let ctrl2 = [ex + k * radius * s1, ey - k * radius * c1];
+                                    let _ = write!(
+                                        d,
+                                        "C {:.2} {:.2} {:.2} {:.2} {:.2} {:.2} ",
+                                        to_svg_x(ctrl1[0]),
+                                        to_svg_y(ctrl1[1]),
+                                        to_svg_x(ctrl2[0]),
+                                        to_svg_y(ctrl2[1]),
+                                        to_svg_x(ex),
+                                        to_svg_y(ey)
+                                    );
+                                }
+                            }
+                            last_pt = *to;
+                        }
+                        EvaluatedPathVerb::Ellipse {
+                            center, rx, ry, ..
+                        } => {
+                            let cx = to_svg_x(center[0]);
+                            let cy = to_svg_y(center[1]);
+                            let rx_px = rx * ppi;
+                            let ry_px = ry * ppi;
+                            let k = 0.552_284_75;
+                            let kx = rx_px * k;
+                            let ky = ry_px * k;
+                            let _ = write!(
+                                d,
+                                "M {:.2} {:.2} C {:.2} {:.2} {:.2} {:.2} {:.2} {:.2} C {:.2} {:.2} {:.2} {:.2} {:.2} {:.2} C {:.2} {:.2} {:.2} {:.2} {:.2} {:.2} C {:.2} {:.2} {:.2} {:.2} {:.2} {:.2} Z ",
+                                cx - rx_px, cy,
+                                cx - rx_px, cy - ky, cx - kx, cy - ry_px, cx, cy - ry_px,
+                                cx + kx, cy - ry_px, cx + rx_px, cy - ky, cx + rx_px, cy,
+                                cx + rx_px, cy + ky, cx + kx, cy + ry_px, cx, cy + ry_px,
+                                cx - kx, cy + ry_px, cx - rx_px, cy + ky, cx - rx_px, cy
+                            );
+                        }
+                        EvaluatedPathVerb::Close => d.push_str("Z "),
                     }
-                    EvaluatedPathVerb::Ellipse {
-                        center, rx, ry, ..
-                    } => {
-                        let cx = to_svg_x(center[0]);
-                        let cy = to_svg_y(center[1]);
-                        let rx_px = rx * ppi;
-                        let ry_px = ry * ppi;
-                        let _ = writeln!(
-                            body,
-                            "<ellipse cx=\"{cx:.2}\" cy=\"{cy:.2}\" rx=\"{rx_px:.2}\" ry=\"{ry_px:.2}\" fill=\"{p_fill}\" stroke=\"{p_stroke}\" stroke-width=\"{p_sw_px:.2}\"/>"
-                        );
-                    }
-                    EvaluatedPathVerb::Close => d.push_str("Z "),
                 }
             }
             if !d.is_empty() {

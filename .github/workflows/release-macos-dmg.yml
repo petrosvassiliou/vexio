@@ -88,6 +88,7 @@ jobs:
             "${X64_BIN_DIR}/VexioMacApp"
           chmod +x "${APP_BUNDLE}/Contents/MacOS/VexioMacApp"
           cp -f "apps/macos/Info.plist" "${APP_BUNDLE}/Contents/Info.plist"
+          cp -f "apps/macos/Resources/AppIcon.icns" "${APP_BUNDLE}/Contents/Resources/AppIcon.icns"
           cp -f stencils/*.vssx "${APP_BUNDLE}/Contents/Resources/Stencils/"
 
           # Embed Universal2 VexioQuickLookExtension (.vsdx, .vssx, .vstx, .vsd offline previews)

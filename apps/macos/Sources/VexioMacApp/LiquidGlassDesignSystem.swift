@@ -359,7 +359,7 @@ public struct StencilVectorPreviewCanvas: View {
                             transformed,
                             with: .color(stroke),
                             style: StrokeStyle(
-                                lineWidth: max(item.strokeWidth * scale, 1.15),
+                                lineWidth: max(item.strokeWidth * scale, 0.78),
                                 lineCap: .round,
                                 lineJoin: .round
                             )
@@ -367,7 +367,7 @@ public struct StencilVectorPreviewCanvas: View {
                     }
                 }
             }
-            .frame(maxWidth: .infinity, minHeight: 44, maxHeight: 44)
+            .frame(maxWidth: .infinity, minHeight: 46, maxHeight: 46)
         }
     }
 
@@ -466,6 +466,16 @@ public struct StencilVectorPreviewCanvas: View {
                     current = CGPoint(x: x, y: y)
                     path.addLine(to: current)
                 }
+            case "H":
+                if let x = nextCGFloat() {
+                    current = CGPoint(x: x, y: current.y)
+                    path.addLine(to: current)
+                }
+            case "V":
+                if let y = nextCGFloat() {
+                    current = CGPoint(x: current.x, y: y)
+                    path.addLine(to: current)
+                }
             case "Q":
                 if let cx = nextCGFloat(), let cy = nextCGFloat(),
                    let x = nextCGFloat(), let y = nextCGFloat() {
@@ -497,7 +507,7 @@ public struct StencilVectorPreviewCanvas: View {
                     if chord > 0.001 {
                         let radius = max((rx + ry) * 0.5, chord * 0.5)
                         let sagitta = radius - sqrt(max(radius * radius - (chord * chord * 0.25), 0))
-                        let sign: CGFloat = sweep > 0.5 ? 1.0 : -1.0
+                        let sign: CGFloat = sweep > 0.5 ? -1.0 : 1.0
                         let nx = -dy / chord
                         let ny = dx / chord
                         let ctrl = CGPoint(

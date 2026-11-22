@@ -110,6 +110,11 @@ set(VEXIO_WINDOWS_SOURCES
     app.manifest
 )
 
+if(WIN32)
+    enable_language(RC)
+    list(APPEND VEXIO_WINDOWS_SOURCES src/Vexio.rc)
+endif()
+
 add_executable(Vexio WIN32 ${VEXIO_WINDOWS_SOURCES})
 
 if(TARGET vexio_core_cargo_build)

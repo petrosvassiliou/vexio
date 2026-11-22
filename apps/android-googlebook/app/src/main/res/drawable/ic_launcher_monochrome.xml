@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Android 13-16+ Material You Monochrome Themed Icon Silhouette -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FF000000"
+        android:strokeWidth="6.8"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M36,40L54,72L72,40" />
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M32,31L40,31C42.2,31 44,32.8 44,35L44,43C44,45.2 42.2,47 40,47L32,47C29.8,47 28,45.2 28,43L28,35C28,32.8 29.8,31 32,31Z" />
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M72,29.5L81.5,39L72,48.5L62.5,39Z" />
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M54,72m-7.2,0a7.2,7.2 0,1 1,14.4 0a7.2,7.2 0,1 1,-14.4 0" />
+</vector>

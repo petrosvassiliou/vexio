@@ -2185,9 +2185,7 @@ class VexioChromeOsApp {
         <!-- Row 1: Clean ChromeOS Header + Classic Underline Ribbon Tabs -->
         <header class="wco-titlebar">
           <div class="brand-lockup no-drag" id="btn-brand-backstage" title="Open File Backstage & Starter Templates">
-            <span class="brand-emblem">
-              <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M2.2 2.5 L8 13.8 L13.8 2.5 H10.8 L8 8.6 L5.2 2.5 Z"/></svg>
-            </span>
+            <img src="/icons/vexio-icon.svg" alt="Vexio" width="22" height="22" style="display:block;flex-shrink:0" />
             <span class="brand-name">Vexio</span>
           </div>
 

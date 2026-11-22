@@ -8,6 +8,10 @@
     <string>Vexio</string>
     <key>CFBundleExecutable</key>
     <string>VexioMacApp</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
+    <key>CFBundleIconName</key>
+    <string>AppIcon</string>
     <key>CFBundleIdentifier</key>
     <string>app.vexio.macos</string>
     <key>CFBundleInfoDictionaryVersion</key>

@@ -94,25 +94,8 @@ jobs:
           $ManifestContent = $ManifestContent -replace 'ProcessorArchitecture="[^"]*"', 'ProcessorArchitecture="${{ matrix.arch }}"'
           Set-Content -Path "$StageDir/AppxManifest.xml" -Value $ManifestContent -Encoding UTF8
 
-          # Generate crisp exact-dimension MSIX visual tile assets matching Package.appxmanifest
-          Add-Type -AssemblyName System.Drawing
-          $TileSpecs = @(
-            @{ Name = "StoreLogo.png";        W = 50;  H = 50  },
-            @{ Name = "Square44x44Logo.png";  W = 44;  H = 44  },
-            @{ Name = "SmallTile.png";        W = 71;  H = 71  },
-            @{ Name = "Square150x150Logo.png";W = 150; H = 150 },
-            @{ Name = "Wide310x150Logo.png";  W = 310; H = 150 },
-            @{ Name = "LargeTile.png";        W = 310; H = 310 },
-            @{ Name = "VisioFileIcon.png";    W = 150; H = 150 }
-          )
-          foreach ($Spec in $TileSpecs) {
-            $Bmp = New-Object System.Drawing.Bitmap([int]$Spec.W, [int]$Spec.H)
-            $Gfx = [System.Drawing.Graphics]::FromImage($Bmp)
-            $Gfx.Clear([System.Drawing.Color]::FromArgb(255, 29, 78, 216))
-            $Gfx.Dispose()
-            $Bmp.Save("$StageDir/Assets/$($Spec.Name)", [System.Drawing.Imaging.ImageFormat]::Png)
-            $Bmp.Dispose()
-          }
+          # Copy pre-rendered Windows 11 Fluent 2 layered MSIX tile assets & Vexio.ico
+          Copy-Item "${{ github.workspace }}/apps/windows/Assets/*" "$StageDir/Assets/" -Force
 
           $MakeAppx = Get-ChildItem "C:/Program Files (x86)/Windows Kits/10/bin/*/x64/makeappx.exe" |
             Sort-Object FullName -Descending |
