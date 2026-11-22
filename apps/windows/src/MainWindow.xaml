@@ -917,13 +917,13 @@
                         </Border>
                     </StackPanel>
 
-                    <!-- Inline Canvas Text Label Editor (Opened on Double-Click Stencil or Text Tool Placement) -->
+                    <!-- Pure In-Place Canvas Text Label Editor (Directly Over Shape or Below-Icon Caption) -->
                     <Canvas x:Name="InlineEditorOverlayCanvas" IsHitTestVisible="True">
                         <Border x:Name="InlineCanvasEditorBorder" Visibility="Collapsed"
-                                Background="#F8FFFFFF" BorderBrush="#FF2563EB" BorderThickness="2" CornerRadius="4" Padding="2">
+                                Background="#FFFFFFFF" BorderBrush="#FF2563EB" BorderThickness="1.5" CornerRadius="2" Padding="2,1">
                             <TextBox x:Name="InlineCanvasTextBox" AcceptsReturn="True" TextWrapping="Wrap"
-                                     MinWidth="120" MinHeight="32" FontSize="12.5" BorderThickness="0" Background="Transparent"
-                                     PlaceholderText="Type label text (Enter to apply, Shift+Enter newline, Esc cancel)..."
+                                     TextAlignment="Center" MinWidth="120" MinHeight="24" FontSize="12" Padding="3,2"
+                                     BorderThickness="0" Background="Transparent" PlaceholderText=""
                                      KeyDown="OnInlineCanvasTextKeyDown" LostFocus="OnInlineCanvasTextLostFocus" />
                         </Border>
                     </Canvas>

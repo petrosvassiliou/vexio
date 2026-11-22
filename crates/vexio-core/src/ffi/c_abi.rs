@@ -2615,11 +2615,23 @@ pub unsafe extern "C" fn vexio_viewport_hit_test_shape(
         let page_pt = vp_ref.camera.screen_to_page_in(x_px, y_px);
         let visuals = ReactiveEngine::evaluate_page_visuals(&doc_ref.session.doc, vp_ref.page_id);
         let index = vexio_render::SpatialIndex::build(&visuals);
-        index
+        if let Some(hit_id) = index
             .hit_test_visuals(&visuals, page_pt[0], page_pt[1], 0.10)
             .into_iter()
             .next()
-            .unwrap_or(0)
+        {
+            return hit_id;
+        }
+        // Fallback: hit-test external/below-icon stencil text captions (`vis.txt_pos`) topmost-first
+        for vis in visuals.iter().rev() {
+            let cap_half_w = (vis.transform.width * 0.5 + 0.18).max(0.92);
+            if (page_pt[0] - vis.txt_pos[0]).abs() <= cap_half_w
+                && (page_pt[1] - vis.txt_pos[1]).abs() <= 0.24
+            {
+                return vis.shape_id;
+            }
+        }
+        0
     }));
     res.unwrap_or(0)
 }
@@ -2651,12 +2663,28 @@ pub unsafe extern "C" fn vexio_viewport_get_shape_screen_bounds(
         let Some(vis) = visuals.iter().find(|v| v.shape_id == shape_id) else {
             return VexioStatus::ErrInvalidArg;
         };
+        let dpi = vp_ref.camera.dpi_scale.max(1.0);
         let tl = vp_ref.camera.page_in_to_screen(vis.aabb_min[0], vis.aabb_max[1]);
         let br = vp_ref.camera.page_in_to_screen(vis.aabb_max[0], vis.aabb_min[1]);
-        let min_x = tl[0].min(br[0]);
-        let min_y = tl[1].min(br[1]);
-        let w = (br[0] - tl[0]).abs().max(48.0);
-        let h = (br[1] - tl[1]).abs().max(26.0);
+        let shape_w = (br[0] - tl[0]).abs();
+        let shape_h = (br[1] - tl[1]).abs();
+
+        // If the stencil's text block (`txt_pos`) sits outside/below the icon body (e.g. Microsoft 365,
+        // Azure, Servers, Network, BPMN Events/Gateways), position the in-place text editor directly over `txt_pos`!
+        let external_caption = vis.txt_pos[1] < vis.aabb_min[1] + 0.02
+            || vis.txt_pos[1] > vis.aabb_max[1] - 0.02;
+        let (min_x, min_y, w, h) = if external_caption {
+            let tc = vp_ref.camera.page_in_to_screen(vis.txt_pos[0], vis.txt_pos[1]);
+            let cap_w = (shape_w + 36.0 * dpi).max(148.0 * dpi);
+            let cap_h = (26.0 * dpi).max(vis.font_size_pt * 2.1 * dpi);
+            (tc[0] - cap_w * 0.5, tc[1] - cap_h * 0.5, cap_w, cap_h)
+        } else {
+            let box_w = shape_w.max(110.0 * dpi);
+            let box_h = shape_h.max(26.0 * dpi);
+            let mid_x = (tl[0] + br[0]) * 0.5;
+            let mid_y = (tl[1] + br[1]) * 0.5;
+            (mid_x - box_w * 0.5, mid_y - box_h * 0.5, box_w, box_h)
+        };
         // SAFETY: Output pointers checked non-null.
         unsafe {
             *out_x_px = min_x;

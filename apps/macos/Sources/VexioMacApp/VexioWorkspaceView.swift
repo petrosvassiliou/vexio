@@ -250,82 +250,38 @@ public struct VexioWorkspaceView: View {
 
     @ViewBuilder
     private func inlineCanvasLabelEditor(for edit: InlineShapeTextEditContext) -> some View {
-        VStack(alignment: .leading, spacing: 5) {
-            HStack(spacing: 4) {
-                Button {
-                    session.applyTextStyle(toggleStyleMask: 1, undoManager: undoManager)
-                } label: {
-                    Text("B").font(.system(size: 11, weight: .bold)).frame(width: 20, height: 20)
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.mini)
-
-                Button {
-                    session.applyTextStyle(toggleStyleMask: 2, undoManager: undoManager)
-                } label: {
-                    Text("I").font(.system(size: 11)).italic().frame(width: 20, height: 20)
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.mini)
-
-                Button {
-                    session.applyTextStyle(toggleStyleMask: 4, undoManager: undoManager)
-                } label: {
-                    Text("U").font(.system(size: 11)).underline().frame(width: 20, height: 20)
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.mini)
-
-                Divider().frame(height: 14)
-
-                Button {
-                    session.rotateOrFlipSelectedShapes(deltaDegrees: 90.0, undoManager: undoManager)
-                } label: {
-                    Image(systemName: "rotate.left").font(.system(size: 10.5))
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.mini)
-                .help(i18n.t("rotateLeft"))
-
-                Button {
-                    session.rotateOrFlipSelectedShapes(deltaDegrees: -90.0, undoManager: undoManager)
-                } label: {
-                    Image(systemName: "rotate.right").font(.system(size: 10.5))
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.mini)
-                .help(i18n.t("rotateRight"))
-
-                Spacer()
-
-                Button(i18n.t("done")) {
-                    session.commitInlineEditing(newText: inlineLabelDraft, undoManager: undoManager)
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.mini)
-            }
-
-            SelectAllInlineTextField(
-                text: $inlineLabelDraft,
-                placeholder: i18n.t("editLabelPlaceholder"),
-                fontSize: max(CGFloat(session.selectedFontSizePt), 12.0),
-                fontWeight: (session.selectedCharStyle & 1) != 0 ? .bold : .regular,
-                onCommit: {
-                    session.commitInlineEditing(newText: inlineLabelDraft, undoManager: undoManager)
-                },
-                onCancel: {
-                    session.activeInlineTextEdit = nil
-                }
-            )
-            .frame(width: max(edit.viewRect.width, 190), height: 28)
+        let align: NSTextAlignment = switch session.selectedHorizAlign {
+        case 0: .left
+        case 2: .right
+        default: .center
         }
-        .padding(8)
-        .liquidGlassSurface(cornerRadius: 10, elevation: .quickPopover)
-        .shadow(color: .black.opacity(0.18), radius: 10, y: 4)
-        .position(
-            x: max(edit.viewRect.midX, 130),
-            y: max(edit.viewRect.midY, 44)
+        let boxW = max(edit.viewRect.width, 132)
+        let boxH = max(min(edit.viewRect.height, 64), 24)
+
+        SelectAllInlineTextField(
+            text: $inlineLabelDraft,
+            placeholder: "",
+            fontSize: max(CGFloat(session.selectedFontSizePt * Double(session.zoomScale)), 11.5),
+            fontWeight: (session.selectedCharStyle & 1) != 0 ? .bold : .regular,
+            alignment: align,
+            isCanvasInPlace: true,
+            onCommit: {
+                session.commitInlineEditing(newText: inlineLabelDraft, undoManager: undoManager)
+            },
+            onCancel: {
+                session.activeInlineTextEdit = nil
+            }
         )
+        .padding(.horizontal, 4)
+        .padding(.vertical, 2)
+        .frame(width: boxW, height: boxH)
+        .background(Color(nsColor: .textBackgroundColor))
+        .overlay(
+            RoundedRectangle(cornerRadius: 2, style: .continuous)
+                .stroke(Color.accentColor, lineWidth: 1.5)
+        )
+        .fixedSize()
+        .position(x: edit.viewRect.midX, y: edit.viewRect.midY)
     }
 
     // MARK: - Refractive Canvas Overlays (Tool Palette, Guard Banner, Compare Pill, Force Touch Popover, Bottom Pills)

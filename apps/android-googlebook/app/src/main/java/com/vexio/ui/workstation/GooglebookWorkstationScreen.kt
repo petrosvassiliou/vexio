@@ -3130,6 +3130,9 @@ private fun VulkanCanvasDropZone(
 
                     setOnTouchListener { view, motionEvent ->
                         if (motionEvent.actionMasked == MotionEvent.ACTION_DOWN) {
+                            viewModel.uiState.value.inlineTextEditor?.let { activeEd ->
+                                viewModel.commitInlineTextEdit(activeEd.text)
+                            }
                             val tool = motionEvent.getToolType(0)
                             if (tool == MotionEvent.TOOL_TYPE_STYLUS ||
                                 tool == MotionEvent.TOOL_TYPE_ERASER
@@ -3185,13 +3188,14 @@ private fun VulkanCanvasDropZone(
             )
         }
 
-        // Inline Stencil & Text-Box Label Editor Overlay (double-click any placed stencil/shape or place a Text block)
+        // Pure In-Place Stencil & Text-Box Label Editor (directly over shape or below-icon caption)
         val inlineEd = uiState.inlineTextEditor
         if (inlineEd != null) {
             val safeDensity = density.coerceAtLeast(1f)
-            val offsetXDp = (inlineEd.xPx / safeDensity).coerceAtLeast(8f).dp
-            val offsetYDp = (inlineEd.yPx / safeDensity).coerceAtLeast(8f).dp
-            val boxWidthDp = (inlineEd.widthPx / safeDensity).coerceIn(140f, 520f).dp
+            val offsetXDp = (inlineEd.xPx / safeDensity).coerceAtLeast(4f).dp
+            val offsetYDp = (inlineEd.yPx / safeDensity).coerceAtLeast(4f).dp
+            val boxWidthDp = (inlineEd.widthPx / safeDensity).coerceIn(132f, 480f).dp
+            val boxHeightDp = (inlineEd.heightPx / safeDensity).coerceIn(26f, 96f).dp
             val inlineFocusRequester = remember(inlineEd.shapeId) { FocusRequester() }
             var inlineFieldValue by remember(inlineEd.shapeId) {
                 mutableStateOf(
@@ -3205,83 +3209,53 @@ private fun VulkanCanvasDropZone(
                 runCatching { inlineFocusRequester.requestFocus() }
             }
 
-            Surface(
-                shape = RoundedCornerShape(10.dp),
-                color = MaterialTheme.colorScheme.surfaceContainerLowest,
-                shadowElevation = 8.dp,
-                border = BorderStroke(2.dp, MaterialTheme.colorScheme.primary),
+            Box(
+                contentAlignment = Alignment.Center,
                 modifier = Modifier
                     .offset(x = offsetXDp, y = offsetYDp)
                     .width(boxWidthDp)
+                    .height(boxHeightDp)
+                    .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(2.dp))
+                    .border(1.5.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(2.dp))
+                    .padding(horizontal = 4.dp, vertical = 2.dp)
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
-                ) {
-                    Box(modifier = Modifier.weight(1f)) {
-                        if (inlineFieldValue.text.isEmpty()) {
-                            Text(
-                                text = "Type shape / text label…",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                BasicTextField(
+                    value = inlineFieldValue,
+                    onValueChange = { next ->
+                        inlineFieldValue = next
+                        viewModel.updateInlineTextDraft(next.text)
+                    },
+                    textStyle = MaterialTheme.typography.bodyMedium.copy(
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontWeight = if (uiState.textBold) FontWeight.Bold else FontWeight.Normal,
+                        fontStyle = if (uiState.textItalic) FontStyle.Italic else FontStyle.Normal,
+                        textAlign = when (uiState.textHorizAlign) {
+                            0 -> androidx.compose.ui.text.style.TextAlign.Start
+                            2 -> androidx.compose.ui.text.style.TextAlign.End
+                            else -> androidx.compose.ui.text.style.TextAlign.Center
                         }
-                        BasicTextField(
-                            value = inlineFieldValue,
-                            onValueChange = { next ->
-                                inlineFieldValue = next
-                                viewModel.updateInlineTextDraft(next.text)
-                            },
-                            textStyle = MaterialTheme.typography.bodyMedium.copy(
-                                color = MaterialTheme.colorScheme.onSurface,
-                                fontWeight = if (uiState.textBold) FontWeight.Bold else FontWeight.Normal,
-                                fontStyle = if (uiState.textItalic) FontStyle.Italic else FontStyle.Normal
-                            ),
-                            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .focusRequester(inlineFocusRequester)
-                                .onPreviewKeyEvent { keyEv ->
-                                    if (keyEv.type == KeyEventType.KeyDown &&
-                                        keyEv.key == Key.Enter &&
-                                        !keyEv.isShiftPressed
-                                    ) {
-                                        viewModel.commitInlineTextEdit(inlineFieldValue.text)
-                                        true
-                                    } else if (keyEv.type == KeyEventType.KeyDown &&
-                                        keyEv.key == Key.Escape
-                                    ) {
-                                        viewModel.cancelInlineTextEdit()
-                                        true
-                                    } else {
-                                        false
-                                    }
-                                }
-                        )
-                    }
-                    IconButton(
-                        onClick = { viewModel.commitInlineTextEdit(inlineFieldValue.text) },
-                        modifier = Modifier.size(26.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Check,
-                            contentDescription = "Commit Label",
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(16.dp)
-                        )
-                    }
-                    IconButton(
-                        onClick = { viewModel.cancelInlineTextEdit() },
-                        modifier = Modifier.size(26.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = "Cancel",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(16.dp)
-                        )
-                    }
-                }
+                    ),
+                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .focusRequester(inlineFocusRequester)
+                        .onPreviewKeyEvent { keyEv ->
+                            if (keyEv.type == KeyEventType.KeyDown &&
+                                keyEv.key == Key.Enter &&
+                                !keyEv.isShiftPressed
+                            ) {
+                                viewModel.commitInlineTextEdit(inlineFieldValue.text)
+                                true
+                            } else if (keyEv.type == KeyEventType.KeyDown &&
+                                keyEv.key == Key.Escape
+                            ) {
+                                viewModel.cancelInlineTextEdit()
+                                true
+                            } else {
+                                false
+                            }
+                        }
+                )
             }
         }
 

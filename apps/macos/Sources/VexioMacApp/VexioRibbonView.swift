@@ -96,6 +96,8 @@ public struct SelectAllInlineTextField: NSViewRepresentable {
     public var placeholder: String
     public var fontSize: CGFloat
     public var fontWeight: NSFont.Weight
+    public var alignment: NSTextAlignment
+    public var isCanvasInPlace: Bool
     public var onCommit: () -> Void
     public var onCancel: () -> Void
 
@@ -104,6 +106,8 @@ public struct SelectAllInlineTextField: NSViewRepresentable {
         placeholder: String = "",
         fontSize: CGFloat = 12.5,
         fontWeight: NSFont.Weight = .semibold,
+        alignment: NSTextAlignment = .left,
+        isCanvasInPlace: Bool = false,
         onCommit: @escaping () -> Void,
         onCancel: @escaping () -> Void
     ) {
@@ -111,6 +115,8 @@ public struct SelectAllInlineTextField: NSViewRepresentable {
         self.placeholder = placeholder
         self.fontSize = fontSize
         self.fontWeight = fontWeight
+        self.alignment = alignment
+        self.isCanvasInPlace = isCanvasInPlace
         self.onCommit = onCommit
         self.onCancel = onCancel
     }
@@ -123,9 +129,17 @@ public struct SelectAllInlineTextField: NSViewRepresentable {
         let tf = NSTextField(string: text)
         tf.placeholderString = placeholder
         tf.font = NSFont.systemFont(ofSize: fontSize, weight: fontWeight)
-        tf.isBordered = true
-        tf.bezelStyle = .roundedBezel
-        tf.focusRingType = .exterior
+        tf.alignment = alignment
+        if isCanvasInPlace {
+            tf.isBordered = false
+            tf.drawsBackground = true
+            tf.backgroundColor = NSColor.textBackgroundColor
+            tf.focusRingType = .none
+        } else {
+            tf.isBordered = true
+            tf.bezelStyle = .roundedBezel
+            tf.focusRingType = .exterior
+        }
         tf.delegate = context.coordinator
         DispatchQueue.main.async {
             tf.window?.makeFirstResponder(tf)
@@ -135,6 +149,8 @@ public struct SelectAllInlineTextField: NSViewRepresentable {
     }
 
     public func updateNSView(_ nsView: NSTextField, context: Context) {
+        nsView.alignment = alignment
+        nsView.font = NSFont.systemFont(ofSize: fontSize, weight: fontWeight)
         if nsView.stringValue != text {
             nsView.stringValue = text
         }

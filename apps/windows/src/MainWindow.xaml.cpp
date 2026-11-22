@@ -3971,7 +3971,7 @@ void MainWindow::BeginInlineCanvasShapeTextEdit(uint64_t shapeId, bool isNewlyPl
         dipX = boundsRes.value->xPx / static_cast<double>(scaleX);
         dipY = boundsRes.value->yPx / static_cast<double>(scaleY);
         dipW = std::max(120.0, boundsRes.value->widthPx / static_cast<double>(scaleX));
-        dipH = std::max(36.0, boundsRes.value->heightPx / static_cast<double>(scaleY));
+        dipH = std::max(24.0, boundsRes.value->heightPx / static_cast<double>(scaleY));
     }
 
     const double maxW = std::max(200.0, panel.ActualWidth() - 20.0);

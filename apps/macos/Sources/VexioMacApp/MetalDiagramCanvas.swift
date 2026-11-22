@@ -278,8 +278,10 @@ public final class VexioMetalNSView: NSView {
 
     override public func mouseDown(with event: NSEvent) {
         let scale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2.0
-        if let activeEdit = session?.activeInlineTextEdit {
-            session?.commitInlineEditing(newText: activeEdit.initialText, undoManager: activeUndoManager)
+        if session?.activeInlineTextEdit != nil {
+            // Resigning first responder triggers SelectAllInlineTextField.controlTextDidEndEditing,
+            // committing the user's edited draft cleanly before processing the new canvas click.
+            window?.makeFirstResponder(self)
         }
         if event.clickCount == 2, let session {
             let localPoint = convert(event.locationInWindow, from: nil)

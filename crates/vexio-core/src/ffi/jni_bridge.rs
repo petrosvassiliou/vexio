@@ -1373,24 +1373,18 @@ pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeHitTestShap
     x_px: jdouble,
     y_px: jdouble,
 ) -> jlong {
-    catch_unwind(AssertUnwindSafe(|| {
-        if viewport_ptr == 0 || doc_ptr == 0 {
-            return 0i64;
-        }
-        // SAFETY: Valid `VexioViewport` and `VexioDoc` pointers.
-        let vp = unsafe { &*(viewport_ptr as *const VexioViewport) };
-        let doc = unsafe { &*(doc_ptr as *const VexioDoc) };
-        let page_pt = vp.camera.screen_to_page_in(x_px, y_px);
-        let visuals =
-            vexio_shapesheet::ReactiveEngine::evaluate_page_visuals(&doc.session.doc, vp.page_id);
-        let index = vexio_render::SpatialIndex::build(&visuals);
-        index
-            .hit_test_visuals(&visuals, page_pt[0], page_pt[1], 0.10)
-            .into_iter()
-            .next()
-            .unwrap_or(0) as jlong
-    }))
-    .unwrap_or(0)
+    if viewport_ptr == 0 || doc_ptr == 0 {
+        return 0;
+    }
+    // SAFETY: Non-null `VexioViewport` and `VexioDoc` handles managed by `NativeBridge`.
+    unsafe {
+        crate::ffi::c_abi::vexio_viewport_hit_test_shape(
+            viewport_ptr as *const VexioViewport,
+            doc_ptr as *const VexioDoc,
+            x_px,
+            y_px,
+        ) as jlong
+    }
 }
 
 #[no_mangle]
@@ -1408,18 +1402,20 @@ pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeGetShapeScr
                 .map(|s| s.into_raw())
                 .unwrap_or(std::ptr::null_mut());
         }
-        // SAFETY: Valid `VexioViewport` and `VexioDoc` pointers.
-        let vp = unsafe { &*(viewport_ptr as *const VexioViewport) };
-        let doc = unsafe { &*(doc_ptr as *const VexioDoc) };
-        let visuals =
-            vexio_shapesheet::ReactiveEngine::evaluate_page_visuals(&doc.session.doc, vp.page_id);
-        let json = if let Some(vis) = visuals.iter().find(|v| v.shape_id == shape_id as u64) {
-            let tl = vp.camera.page_in_to_screen(vis.aabb_min[0], vis.aabb_max[1]);
-            let br = vp.camera.page_in_to_screen(vis.aabb_max[0], vis.aabb_min[1]);
-            let x = tl[0].min(br[0]);
-            let y = tl[1].min(br[1]);
-            let w = (br[0] - tl[0]).abs().max(48.0);
-            let h = (br[1] - tl[1]).abs().max(26.0);
+        let (mut x, mut y, mut w, mut h) = (0.0, 0.0, 0.0, 0.0);
+        // SAFETY: Non-null handles and valid stack output pointers.
+        let status = unsafe {
+            crate::ffi::c_abi::vexio_viewport_get_shape_screen_bounds(
+                viewport_ptr as *const VexioViewport,
+                doc_ptr as *const VexioDoc,
+                shape_id as u64,
+                &mut x,
+                &mut y,
+                &mut w,
+                &mut h,
+            )
+        };
+        let json = if status == crate::ffi::c_abi::VexioStatus::Ok {
             format!("{{\"x\":{x:.2},\"y\":{y:.2},\"w\":{w:.2},\"h\":{h:.2}}}")
         } else {
             "{}".to_string()

@@ -3066,7 +3066,7 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
             x: boundsPx.origin.x / scale,
             y: boundsPx.origin.y / scale,
             width: max(boundsPx.size.width / scale, 120),
-            height: max(boundsPx.size.height / scale, 32)
+            height: max(boundsPx.size.height / scale, 24)
         )
         let initial = currentShapeLabelText(shapeId: shapeId)
         activeInlineTextEdit = InlineShapeTextEditContext(
