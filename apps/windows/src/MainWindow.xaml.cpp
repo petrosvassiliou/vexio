@@ -3437,7 +3437,7 @@ void MainWindow::PopulateInstalledSystemFonts() {
     if (SUCCEEDED(::DWriteCreateFactory(
             DWRITE_FACTORY_TYPE_SHARED,
             __uuidof(IDWriteFactory),
-            reinterpret_cast<IUnknown**>(dwriteFactory.put()))))
+            reinterpret_cast<::IUnknown**>(dwriteFactory.put()))))
     {
         com_ptr<IDWriteFontCollection> collection;
         if (SUCCEEDED(dwriteFactory->GetSystemFontCollection(collection.put(), FALSE)) && collection) {
