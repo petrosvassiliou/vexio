@@ -793,6 +793,10 @@ class VexioChromeOsApp {
   private hoveredShapeId: number | null = null;
   private editingShapeId: number | null = null;
   private inlineTextDraft = '';
+  private pendingInlineSelectAll = false;
+  private inlineSelectAllGuardUntilMs = 0;
+  private isRebuildingDom = false;
+  private lastCanvasClick: { shapeId: number; timeMs: number; clientX: number; clientY: number } | null = null;
   private toastBanner: { text: string; level: 'info' | 'warn' | 'error' } | null = null;
   private toastTimer: number | null = null;
 
@@ -1031,7 +1035,8 @@ class VexioChromeOsApp {
           | 'freeform'
           | 'ink'
           | 'control'
-          | 'vertex';
+          | 'vertex'
+          | 'open_text_edit';
         primitiveKind?: string;
         startPageIn: [number, number];
         curPageIn: [number, number];
@@ -1100,13 +1105,79 @@ class VexioChromeOsApp {
     }, 3400);
   }
 
-  private hitTestSnapshotSync(xIn: number, yIn: number, only2D = false): number {
+  private shapeHasBelowCaption(sh: EngineSnapshot['shapes'][number]): boolean {
+    const txtPinYCell = sh.cells?.find(
+      (c) => c.name === 'TxtPinY' || c.name.endsWith('.TxtPinY')
+    );
+    if (txtPinYCell) {
+      const f = txtPinYCell.formula.trim().replace(/^=/, '').trim();
+      const v = txtPinYCell.value.trim();
+      return f.startsWith('-') || v.startsWith('-');
+    }
+    // Fallback if TxtPinY fell past the 80-cell summary slice on multi-port stencils
+    return sh.kind !== 'Connector1D' && sh.text.trim().length > 0 && sh.width <= 1.9 && sh.height <= 1.6;
+  }
+
+  private openInlineShapeTextEditor(shapeId: number, initialOverride?: string): void {
+    const sh = this.snapshot?.shapes.find((s) => s.id === shapeId);
+    if (!sh) return;
+    this.setSingleSelection(shapeId);
+    this.editingShapeId = sh.id;
+    this.inlineTextDraft = initialOverride !== undefined ? initialOverride : sh.text;
+    this.pendingInlineSelectAll = true;
+    this.inlineSelectAllGuardUntilMs = performance.now() + 220;
+    this.render();
+  }
+
+  private hitTestSnapshotSync(
+    xIn: number,
+    yIn: number,
+    only2D = false,
+    includeCaptionBounds = false
+  ): number {
     if (!this.snapshot) return 0;
     const shapes = this.snapshot.shapes;
+
+    // Pass 1: Exact 2D shape bodies (topmost Z-order first)
     for (let i = shapes.length - 1; i >= 0; i--) {
       const sh = shapes[i];
-      if (sh.kind === 'Connector1D') {
-        if (only2D) continue;
+      if (sh.kind === 'Connector1D') continue;
+      const dx = xIn - sh.pinX;
+      const dy = yIn - sh.pinY;
+      const rad = (-sh.angleDeg * Math.PI) / 180;
+      const lx = dx * Math.cos(rad) - dy * Math.sin(rad);
+      const ly = dx * Math.sin(rad) + dy * Math.cos(rad);
+      if (Math.abs(lx) <= sh.width * 0.5 + 0.05 && Math.abs(ly) <= sh.height * 0.5 + 0.05) {
+        return sh.id;
+      }
+    }
+
+    // Pass 2: External below-icon stencil captions (when includeCaptionBounds = true)
+    if (includeCaptionBounds) {
+      for (let i = shapes.length - 1; i >= 0; i--) {
+        const sh = shapes[i];
+        if (sh.kind === 'Connector1D' || !this.shapeHasBelowCaption(sh)) continue;
+        const dx = xIn - sh.pinX;
+        const dy = yIn - sh.pinY;
+        const rad = (-sh.angleDeg * Math.PI) / 180;
+        const lx = dx * Math.cos(rad) - dy * Math.sin(rad);
+        const ly = dx * Math.sin(rad) + dy * Math.cos(rad);
+        const capHalfW = Math.max(sh.width * 0.5 + 0.16, 0.95);
+        if (
+          Math.abs(lx) <= capHalfW &&
+          ly >= -sh.height * 0.5 - 0.46 &&
+          ly <= -sh.height * 0.5 + 0.08
+        ) {
+          return sh.id;
+        }
+      }
+    }
+
+    // Pass 3: 1D Connectors (unless only2D = true)
+    if (!only2D) {
+      for (let i = shapes.length - 1; i >= 0; i--) {
+        const sh = shapes[i];
+        if (sh.kind !== 'Connector1D') continue;
         const pts =
           sh.pathPoints && sh.pathPoints.length >= 2
             ? sh.pathPoints
@@ -1116,21 +1187,13 @@ class VexioChromeOsApp {
               ];
         for (let seg = 0; seg + 1 < pts.length; seg++) {
           const d = pointToSegmentDist(xIn, yIn, pts[seg][0], pts[seg][1], pts[seg + 1][0], pts[seg + 1][1]);
-          if (d <= 0.12) {
+          if (d <= 0.14) {
             return sh.id;
           }
         }
-      } else {
-        const dx = xIn - sh.pinX;
-        const dy = yIn - sh.pinY;
-        const rad = (-sh.angleDeg * Math.PI) / 180;
-        const lx = dx * Math.cos(rad) - dy * Math.sin(rad);
-        const ly = dx * Math.sin(rad) + dy * Math.cos(rad);
-        if (Math.abs(lx) <= sh.width * 0.5 + 0.04 && Math.abs(ly) <= sh.height * 0.5 + 0.04) {
-          return sh.id;
-        }
       }
     }
+
     return 0;
   }
 
@@ -1632,12 +1695,7 @@ class VexioChromeOsApp {
 
       if (!inInput && e.key === 'F2' && this.primarySelectedId) {
         e.preventDefault();
-        const sh = this.snapshot?.shapes.find((s) => s.id === this.primarySelectedId);
-        if (sh) {
-          this.editingShapeId = sh.id;
-          this.inlineTextDraft = sh.text;
-          this.render();
-        }
+        this.openInlineShapeTextEditor(this.primarySelectedId);
         return;
       }
 
@@ -2517,11 +2575,21 @@ class VexioChromeOsApp {
     if (this.editingShapeId !== null) {
       const editSh = snap.shapes.find((s) => s.id === this.editingShapeId);
       if (editSh) {
-        const wPx = Math.max(110, editSh.width * ppi);
-        const hPx = Math.max(40, editSh.height * ppi);
+        const belowCap = this.shapeHasBelowCaption(editSh);
+        const wPx = belowCap
+          ? Math.max(150, editSh.width * ppi + 32)
+          : Math.max(120, editSh.width * ppi);
+        const hPx = belowCap ? 38 : Math.max(40, editSh.height * ppi);
         const leftPx = editSh.pinX * ppi - wPx * 0.5;
-        const topPx = (snap.pageHeightIn - editSh.pinY) * ppi - hPx * 0.5;
-        inlineEditorHtml = `<textarea id="inline-shape-editor" class="inline-shape-editor" style="left:${leftPx.toFixed(1)}px;top:${topPx.toFixed(1)}px;width:${wPx.toFixed(1)}px;height:${hPx.toFixed(1)}px" placeholder="Type shape text...">${this.inlineTextDraft.replace(/</g, '&lt;')}</textarea>`;
+        const centerYPx = belowCap
+          ? (snap.pageHeightIn - (editSh.pinY - editSh.height * 0.5 - 0.18)) * ppi
+          : (snap.pageHeightIn - editSh.pinY) * ppi;
+        const topPx = centerYPx - hPx * 0.5;
+        const escapedDraft = this.inlineTextDraft
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;');
+        inlineEditorHtml = `<textarea id="inline-shape-editor" class="inline-shape-editor" style="left:${leftPx.toFixed(1)}px;top:${topPx.toFixed(1)}px;width:${wPx.toFixed(1)}px;height:${hPx.toFixed(1)}px" placeholder="Type shape text...">${escapedDraft}</textarea>`;
       }
     }
 
@@ -2630,6 +2698,7 @@ class VexioChromeOsApp {
       ['Developer', t.developerTab],
     ];
 
+    this.isRebuildingDom = true;
     root.innerHTML = `
       <div class="workstation-shell ${this.isRibbonCollapsed ? 'ribbon-collapsed' : ''}">
         <!-- Row 1: Clean ChromeOS Header + Top-Left Inline Rename + Hover-Switching Menus + Collapsible Visio Ribbon Tabs -->
@@ -3074,18 +3143,31 @@ class VexioChromeOsApp {
     this.renderStatusChipsOnly();
     this.attachDomListeners();
     this.syncViewportRulersAndMinimap();
+    this.isRebuildingDom = false;
 
     if (this.isRenamingDocTitle) {
       const titleInp = document.getElementById('doc-title-inline-input') as HTMLInputElement | null;
       if (titleInp) {
-        titleInp.focus();
+        titleInp.focus({ preventScroll: true });
         titleInp.select();
       }
     } else if (this.editingShapeId !== null) {
       const ed = document.getElementById('inline-shape-editor') as HTMLTextAreaElement | null;
       if (ed) {
-        ed.focus();
-        ed.select();
+        const shouldSelectAll = this.pendingInlineSelectAll;
+        this.pendingInlineSelectAll = false;
+        ed.focus({ preventScroll: true });
+        if (shouldSelectAll) {
+          ed.setSelectionRange(0, ed.value.length);
+          requestAnimationFrame(() => {
+            if (document.activeElement !== ed && ed.isConnected) {
+              ed.focus({ preventScroll: true });
+            }
+            if (ed.isConnected) {
+              ed.setSelectionRange(0, ed.value.length);
+            }
+          });
+        }
       }
     }
   }
@@ -4022,6 +4104,7 @@ class VexioChromeOsApp {
         }
       });
       docTitleInput.addEventListener('blur', () => {
+        if (this.isRebuildingDom || !docTitleInput.isConnected) return;
         if (!titleHandled) {
           titleHandled = true;
           void this.commitDocTitleRename(docTitleInput.value);
@@ -5291,9 +5374,35 @@ class VexioChromeOsApp {
         this.snapshot = res.snapshot;
         this.render();
       };
-      inlineEditor.addEventListener('pointerdown', (e) => e.stopPropagation());
-      inlineEditor.addEventListener('dblclick', (e) => e.stopPropagation());
+      inlineEditor.addEventListener('pointerdown', (e) => {
+        e.stopPropagation();
+        this.inlineSelectAllGuardUntilMs = 0;
+      });
+      inlineEditor.addEventListener('pointerup', (e) => e.stopPropagation());
+      inlineEditor.addEventListener('mouseup', (e) => {
+        e.stopPropagation();
+        if (performance.now() < this.inlineSelectAllGuardUntilMs) {
+          e.preventDefault();
+          inlineEditor.setSelectionRange(0, inlineEditor.value.length);
+        }
+      });
+      inlineEditor.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (performance.now() < this.inlineSelectAllGuardUntilMs) {
+          e.preventDefault();
+          inlineEditor.setSelectionRange(0, inlineEditor.value.length);
+        }
+      });
+      inlineEditor.addEventListener('dblclick', (e) => {
+        e.stopPropagation();
+        if (performance.now() < this.inlineSelectAllGuardUntilMs) {
+          e.preventDefault();
+          inlineEditor.setSelectionRange(0, inlineEditor.value.length);
+          this.inlineSelectAllGuardUntilMs = 0;
+        }
+      });
       inlineEditor.addEventListener('input', () => {
+        this.inlineSelectAllGuardUntilMs = 0;
         this.inlineTextDraft = inlineEditor.value;
       });
       inlineEditor.addEventListener('keydown', (e) => {
@@ -5308,6 +5417,7 @@ class VexioChromeOsApp {
         }
       });
       inlineEditor.addEventListener('blur', () => {
+        if (this.isRebuildingDom || !inlineEditor.isConnected) return;
         commitInlineText();
       });
     }
@@ -5319,7 +5429,7 @@ class VexioChromeOsApp {
         ev.preventDefault();
         ev.stopPropagation();
         const ptIn = this.clientToPageInches(host, ev.clientX, ev.clientY);
-        const hitId = this.hitTestSnapshotSync(ptIn[0], ptIn[1], false);
+        const hitId = this.hitTestSnapshotSync(ptIn[0], ptIn[1], false, true);
         if (hitId > 0) {
           if (!this.selectedShapeIds.includes(hitId)) {
             this.setSingleSelection(hitId);
@@ -5379,16 +5489,15 @@ class VexioChromeOsApp {
       });
 
       host.addEventListener('dblclick', (ev) => {
+        const targetEl = ev.target as HTMLElement | null;
+        if (targetEl?.id === 'inline-shape-editor') return;
         const ptIn = this.clientToPageInches(host, ev.clientX, ev.clientY);
-        const hitId = this.hitTestSnapshotSync(ptIn[0], ptIn[1], false);
-        if (hitId > 0 && this.snapshot) {
-          const sh = this.snapshot.shapes.find((s) => s.id === hitId);
-          if (sh) {
-            this.setSingleSelection(hitId);
-            this.editingShapeId = sh.id;
-            this.inlineTextDraft = sh.text;
-            this.render();
-          }
+        const hitId = this.hitTestSnapshotSync(ptIn[0], ptIn[1], false, true);
+        if (hitId > 0 && this.editingShapeId !== hitId) {
+          ev.preventDefault();
+          ev.stopPropagation();
+          this.lastCanvasClick = null;
+          this.openInlineShapeTextEditor(hitId);
         }
       });
 
@@ -5412,6 +5521,41 @@ class VexioChromeOsApp {
         const targetEl = ev.target as HTMLElement | null;
         if (targetEl?.id === 'inline-shape-editor' || targetEl?.dataset.subPill) {
           return;
+        }
+
+        // 0. Deterministic Double-Click / Double-Tap Stencil Text Edit Detection
+        // Survives innerHTML DOM rebuilds after Click #1 and takes priority over nearby grips/ports on compact stencils!
+        if (ev.button === 0 && this.activeTool === 'pointer' && !this.spaceKeyDown && !ev.shiftKey) {
+          const ptCheck = this.clientToPageInches(host, ev.clientX, ev.clientY);
+          const hitCheck = this.hitTestSnapshotSync(ptCheck[0], ptCheck[1], false, true);
+          const nowMs = performance.now();
+          const isDoubleActivate =
+            hitCheck > 0 &&
+            (ev.detail >= 2 ||
+              (this.lastCanvasClick !== null &&
+                this.lastCanvasClick.shapeId === hitCheck &&
+                nowMs - this.lastCanvasClick.timeMs <= 500 &&
+                Math.hypot(
+                  ev.clientX - this.lastCanvasClick.clientX,
+                  ev.clientY - this.lastCanvasClick.clientY
+                ) <= 24));
+          if (isDoubleActivate) {
+            ev.preventDefault();
+            ev.stopPropagation();
+            this.lastCanvasClick = null;
+            host.setPointerCapture(ev.pointerId);
+            this.dragState = {
+              mode: 'open_text_edit',
+              shapeId: hitCheck,
+              startPageIn: ptCheck,
+              curPageIn: ptCheck,
+            };
+            return;
+          }
+          this.lastCanvasClick =
+            hitCheck > 0
+              ? { shapeId: hitCheck, timeMs: nowMs, clientX: ev.clientX, clientY: ev.clientY }
+              : null;
         }
 
         // Pan via Middle-Mouse, Hand tool, or Spacebar+Drag
@@ -5614,17 +5758,11 @@ class VexioChromeOsApp {
           this.activeTool === 'text'
         ) {
           if (this.activeTool === 'text') {
-            const hitExisting = this.hitTestSnapshotSync(ptIn[0], ptIn[1], false);
+            const hitExisting = this.hitTestSnapshotSync(ptIn[0], ptIn[1], false, true);
             if (hitExisting > 0 && this.snapshot) {
-              const sh = this.snapshot.shapes.find((s) => s.id === hitExisting);
-              if (sh) {
-                this.setSingleSelection(hitExisting);
-                this.editingShapeId = sh.id;
-                this.inlineTextDraft = sh.text;
-                this.activeTool = 'pointer';
-                this.render();
-                return;
-              }
+              this.activeTool = 'pointer';
+              this.openInlineShapeTextEditor(hitExisting);
+              return;
             }
           }
           this.dragState = {
@@ -5636,8 +5774,8 @@ class VexioChromeOsApp {
           return;
         }
 
-        // Synchronous Pointer Hit-Test (Zero Latency, Zero Ghost-Drag!)
-        const hitId = this.hitTestSnapshotSync(ptIn[0], ptIn[1], false);
+        // Synchronous Pointer Hit-Test (Zero Latency, Zero Ghost-Drag, Includes External Stencil Captions!)
+        const hitId = this.hitTestSnapshotSync(ptIn[0], ptIn[1], false, true);
         if (hitId > 0) {
           if (ev.shiftKey) {
             if (this.selectedShapeIds.includes(hitId)) {
@@ -5667,10 +5805,17 @@ class VexioChromeOsApp {
               origSize: [sh.width, sh.height],
             };
           } else {
+            this.lastCanvasClick = {
+              shapeId: hitId,
+              timeMs: performance.now(),
+              clientX: ev.clientX,
+              clientY: ev.clientY,
+            };
             this.dragState = null;
             this.render();
           }
         } else {
+          this.lastCanvasClick = null;
           // Empty canvas click/drag initiates Marquee Lasso (and deselects on simple click!)
           this.dragState = {
             mode: 'lasso',
@@ -5896,6 +6041,9 @@ class VexioChromeOsApp {
 
         if (st.mode === 'pan') {
           return;
+        } else if (st.mode === 'open_text_edit' && st.shapeId) {
+          this.openInlineShapeTextEditor(st.shapeId);
+          return;
         } else if (st.mode === 'ink' && st.inkPoints && st.inkPoints.length >= 2) {
           const isHi = this.activeTool === 'highlighter';
           const res = await this.callEngine('addInkStroke', {
@@ -6099,6 +6247,7 @@ class VexioChromeOsApp {
           const dx = ptIn[0] - st.startPageIn[0];
           const dy = ptIn[1] - st.startPageIn[1];
           if (Math.hypot(dx, dy) > 0.04) {
+            this.lastCanvasClick = null;
             if (this.selectedShapeIds.length > 1 && this.selectedShapeIds.includes(st.shapeId)) {
               const res = await this.callEngine('moveShapesDelta', {
                 shapeIds: this.selectedShapeIds,
@@ -6119,6 +6268,12 @@ class VexioChromeOsApp {
               this.snapshot = res.snapshot;
             }
           } else {
+            this.lastCanvasClick = {
+              shapeId: st.shapeId,
+              timeMs: performance.now(),
+              clientX: ev.clientX,
+              clientY: ev.clientY,
+            };
             this.callEngine('renderOffscreenFrame', { selectedIds: this.selectedShapeIds }).catch(() => {});
           }
           this.latestSmartGuides = [];
@@ -6269,14 +6424,11 @@ class VexioChromeOsApp {
 
         switch (action) {
           case 'edit-text': {
-            const sh = this.primarySelectedId
-              ? this.snapshot?.shapes.find((s) => s.id === this.primarySelectedId)
-              : null;
-            if (sh) {
-              this.editingShapeId = sh.id;
-              this.inlineTextDraft = sh.text;
+            if (this.primarySelectedId) {
+              this.openInlineShapeTextEditor(this.primarySelectedId);
+            } else {
+              this.render();
             }
-            this.render();
             break;
           }
           case 'rotate-left':

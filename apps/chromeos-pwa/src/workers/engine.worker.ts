@@ -448,8 +448,26 @@ self.onmessage = async (ev: MessageEvent) => {
         break;
       }
       case 'loadStarterTemplate': {
-        session.load_starter_template(String(payload.templateId ?? 'blank'));
-        activePageId = 1;
+        const tplId = String(payload.templateId ?? 'blank');
+        if (tplId === 'blank') {
+          const curState = JSON.parse(session.get_state_json(activePageId));
+          const keepPid = Number(curState.pages?.[0]?.id ?? curState.activePageId ?? 1);
+          for (const pg of curState.pages ?? []) {
+            if (Number(pg.id) !== keepPid) {
+              session.delete_page(Number(pg.id));
+            }
+          }
+          const pState = JSON.parse(session.get_state_json(keepPid));
+          for (const s of pState.shapes ?? []) {
+            session.delete_shape(keepPid, Number(s.id));
+          }
+          session.rename_page(keepPid, 'Page-1');
+          activePageId = keepPid;
+        } else {
+          session.load_starter_template(tplId);
+          const nextState = JSON.parse(session.get_state_json(1));
+          activePageId = Number(nextState.activePageId ?? 1);
+        }
         latestIssues = [];
         selectedShapeIds = [];
         const wal = session.export_wal();
