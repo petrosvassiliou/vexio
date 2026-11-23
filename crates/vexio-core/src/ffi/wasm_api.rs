@@ -13,10 +13,9 @@
 
 use crate::boolean_ops::{
     BooleanOpKind, ControlHandleInfo, apply_boolean_operation, draw_freeform_curve,
-    ensure_default_control_handle, list_control_handles, list_shape_vertices, move_control_handle,
-    move_shape_vertex,
+    ensure_default_control_handle, list_control_handles, list_shape_vertices, move_shape_vertex,
 };
-use crate::containers::{attach_callout, build_cross_functional_swimlanes, create_container};
+use crate::containers::{is_container_shape, is_swimlane_shape, parse_container_members};
 use crate::crdt::CrdtDocumentState;
 use crate::data_link::{
     DataGraphicItem, DataGraphicSpec, DataRecordset, apply_data_graphics, bind_recordset_to_page,
@@ -202,6 +201,9 @@ struct WasmShapeInfo {
     line_pattern: i32,
     subprocess_page: Option<String>,
     screentip: Option<String>,
+    is_container: bool,
+    is_swimlane: bool,
+    container_members: Vec<u32>,
     control_handles: Vec<ControlHandleInfo>,
     cells: Vec<WasmCellInfo>,
 }
@@ -1039,59 +1041,33 @@ impl WasmVexioSession {
     // --- Enterprise Containers, Swimlanes, Callouts, FloorPlan, Rack, Org Chart, Gantt & Timeline ---
 
     pub fn insert_container(&mut self, page_id: u32, title: &str, member_ids: &[u32]) -> u32 {
-        let ids: Vec<u64> = if member_ids.is_empty() {
-            self.inner
-                .doc
-                .page(page_id)
-                .map(|p| {
-                    p.shapes
-                        .iter()
-                        .filter(|s| s.kind == ShapeKind::Shape2D)
-                        .map(|s| s.id)
-                        .collect()
-                })
-                .unwrap_or_default()
-        } else {
-            member_ids.iter().map(|&i| i as u64).collect()
-        };
-        let mut created = 0u32;
-        let _ = self
-            .inner
-            .journal
-            .record_mutation(&mut self.inner.doc, "Insert Container", |doc| {
-                created = create_container(doc, page_id, title, &ids, 0.35).unwrap_or(0) as u32;
-            });
-        created
+        let ids: Vec<u64> = member_ids.iter().map(|&i| i as u64).collect();
+        self.inner
+            .insert_container(page_id, title, &ids)
+            .unwrap_or(0) as u32
     }
 
     pub fn insert_callout(&mut self, page_id: u32, target_shape_id: u32, text: &str) -> u32 {
-        let mut created = 0u32;
-        let _ = self
-            .inner
-            .journal
-            .record_mutation(&mut self.inner.doc, "Insert Callout", |doc| {
-                created =
-                    attach_callout(doc, page_id, target_shape_id as u64, text, 1.6, 1.1).unwrap_or(0)
-                        as u32;
-            });
-        created
+        self.inner
+            .insert_callout(page_id, target_shape_id as u64, text)
+            .unwrap_or(0) as u32
     }
 
     pub fn insert_swimlanes(&mut self, page_id: u32, lanes_semicolon: &str) -> usize {
-        let names: Vec<&str> = lanes_semicolon
-            .split(';')
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .collect();
-        let mut count = 0usize;
-        let _ = self
-            .inner
-            .journal
-            .record_mutation(&mut self.inner.doc, "Insert Swimlanes", |doc| {
-                count = build_cross_functional_swimlanes(doc, page_id, &names, 0.75, 7.75, 9.5, 2.1)
-                    .len();
-            });
-        count
+        self.inner
+            .insert_swimlanes(page_id, lanes_semicolon)
+            .map(|v| v.len())
+            .unwrap_or(0)
+    }
+
+    pub fn auto_connect(&mut self, page_id: u32, source_shape_id: u32, dir: &str) -> u32 {
+        let Some(ac_dir) = vexio_render::AutoConnectDir::from_slug(dir) else {
+            return 0;
+        };
+        self.inner
+            .auto_connect_shape(page_id, source_shape_id as u64, ac_dir)
+            .map(|(tid, _)| tid as u32)
+            .unwrap_or(0)
     }
 
     pub fn insert_architectural_room(&mut self, page_id: u32, room_name: &str) -> u32 {
@@ -1700,6 +1676,12 @@ impl WasmVexioSession {
                             line_pattern,
                             subprocess_page,
                             screentip,
+                            is_container: is_container_shape(s),
+                            is_swimlane: is_swimlane_shape(s),
+                            container_members: parse_container_members(s)
+                                .into_iter()
+                                .map(|id| id as u32)
+                                .collect(),
                             control_handles,
                             cells,
                         }
@@ -1850,14 +1832,9 @@ impl WasmVexioSession {
         x_in: f64,
         y_in: f64,
     ) -> bool {
-        let mut ok = false;
-        let _ = self
-            .inner
-            .journal
-            .record_mutation(&mut self.inner.doc, "Move Control Handle", |doc| {
-                ok = move_control_handle(doc, page_id, shape_id as u64, row_name, x_in, y_in);
-            });
-        ok
+        self.inner
+            .drag_control_handle(page_id, shape_id as u64, row_name, x_in, y_in)
+            .unwrap_or(false)
     }
 
     // --- Phase 7: 6 Themes × 4 Variants, Gradients/Hatches/Shadows/3D Bevels/Sketchy & Cropped Images ---

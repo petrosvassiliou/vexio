@@ -1210,6 +1210,75 @@ private final class NativeDocumentCore: @unchecked Sendable {
         }
     }
 
+    func insertContainer(pageId: UInt32, title: String, memberIds: [UInt64]) throws -> UInt64 {
+        lock.lock()
+        defer { lock.unlock() }
+
+        var outId: UInt64 = 0
+        let status: VexioStatus = withUnsafeMutablePointer(to: &outId) { outPtr in
+            title.withCString { titleCStr in
+                memberIds.withUnsafeBufferPointer { idsBuf in
+                    vexio_doc_insert_container(doc, pageId, titleCStr, idsBuf.baseAddress, idsBuf.count, outPtr)
+                }
+            }
+        }
+        if let err = VexioBridgeError.from(status: status, context: "insert_container") {
+            throw err
+        }
+        return outId
+    }
+
+    func insertSwimlanes(pageId: UInt32, lanesSemicolon: String = "") throws -> UInt32 {
+        lock.lock()
+        defer { lock.unlock() }
+
+        var outCount: UInt32 = 0
+        let status: VexioStatus = withUnsafeMutablePointer(to: &outCount) { outPtr in
+            lanesSemicolon.withCString { lanesCStr in
+                vexio_doc_insert_swimlanes(doc, pageId, lanesCStr, outPtr)
+            }
+        }
+        if let err = VexioBridgeError.from(status: status, context: "insert_swimlanes") {
+            throw err
+        }
+        return outCount
+    }
+
+    func attachCallout(pageId: UInt32, targetShapeId: UInt64, text: String) throws -> UInt64 {
+        lock.lock()
+        defer { lock.unlock() }
+
+        var outId: UInt64 = 0
+        let status: VexioStatus = withUnsafeMutablePointer(to: &outId) { outPtr in
+            text.withCString { textCStr in
+                vexio_doc_attach_callout(doc, pageId, targetShapeId, textCStr, outPtr)
+            }
+        }
+        if let err = VexioBridgeError.from(status: status, context: "attach_callout") {
+            throw err
+        }
+        return outId
+    }
+
+    func autoConnect(pageId: UInt32, sourceShapeId: UInt64, direction: String) throws -> UInt64 {
+        lock.lock()
+        defer { lock.unlock() }
+
+        var outTargetId: UInt64 = 0
+        var outConnId: UInt64 = 0
+        let status: VexioStatus = withUnsafeMutablePointer(to: &outTargetId) { tPtr in
+            withUnsafeMutablePointer(to: &outConnId) { cPtr in
+                direction.withCString { dirCStr in
+                    vexio_doc_auto_connect(doc, pageId, sourceShapeId, dirCStr, tPtr, cPtr)
+                }
+            }
+        }
+        if let err = VexioBridgeError.from(status: status, context: "auto_connect(\(direction))") {
+            throw err
+        }
+        return outTargetId
+    }
+
     func renderPreviewRGBA(pageId: UInt32, widthPx: UInt32, heightPx: UInt32) throws -> CGImage {
         lock.lock()
         defer { lock.unlock() }
@@ -3804,6 +3873,83 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
             statusMessage = bridgeErr.localizedDescription
         } catch {
             statusMessage = "Stencil import failed: \(error.localizedDescription)"
+        }
+    }
+
+    public func insertContainerBox(title: String = "Container", undoManager: UndoManager? = nil) {
+        let members = selectedShapeIds.filter { $0 > 0 }
+        do {
+            let cid = try core.insertContainer(pageId: activePageId, title: title, memberIds: members)
+            if cid > 0 {
+                selectedShapeId = cid
+                selectedShapeIds = [cid]
+                core.setSelectionIds([cid])
+                registerJournalUndoStep(actionName: "Insert Container", undoManager: undoManager)
+                reloadSelectedShapeSheetCells()
+                syncSelectedShapeMetadataFromCore()
+                core.renderViewportFrame()
+                statusMessage = members.isEmpty
+                    ? "Inserted interactive Container (drag shapes inside to group)"
+                    : "Enclosed \(members.count) shape(s) in Container"
+            }
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    public func insertSwimlanePool(lanesSemicolon: String = "", undoManager: UndoManager? = nil) {
+        do {
+            let count = try core.insertSwimlanes(pageId: activePageId, lanesSemicolon: lanesSemicolon)
+            registerJournalUndoStep(actionName: "Insert Swimlanes", undoManager: undoManager)
+            reloadSelectedShapeSheetCells()
+            syncSelectedShapeMetadataFromCore()
+            core.renderViewportFrame()
+            statusMessage = count > 1
+                ? "Inserted \(count)-lane Cross-Functional Swimlane pool"
+                : "Appended contiguous Cross-Functional Swimlane band"
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    public func attachCalloutNote(text: String = "Callout Note", undoManager: UndoManager? = nil) {
+        let targetId = selectedShapeIds.first ?? selectedShapeId
+        do {
+            let cid = try core.attachCallout(pageId: activePageId, targetShapeId: targetId, text: text)
+            if cid > 0 {
+                selectedShapeId = cid
+                selectedShapeIds = [cid]
+                core.setSelectionIds([cid])
+                registerJournalUndoStep(actionName: "Attach Callout", undoManager: undoManager)
+                reloadSelectedShapeSheetCells()
+                syncSelectedShapeMetadataFromCore()
+                core.renderViewportFrame()
+                statusMessage = targetId > 0
+                    ? "Attached reactive Callout to Sheet.\(targetId) (drag yellow diamond handle to retarget)"
+                    : "Inserted Callout Note (drag yellow diamond handle onto any shape)"
+            }
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    public func autoConnectSelected(direction: String, undoManager: UndoManager? = nil) {
+        let srcId = selectedShapeIds.first ?? selectedShapeId
+        guard srcId > 0 else { return }
+        do {
+            let targetId = try core.autoConnect(pageId: activePageId, sourceShapeId: srcId, direction: direction)
+            if targetId > 0 {
+                selectedShapeId = targetId
+                selectedShapeIds = [targetId]
+                core.setSelectionIds([targetId])
+                registerJournalUndoStep(actionName: "AutoConnect Shape", undoManager: undoManager)
+                reloadSelectedShapeSheetCells()
+                syncSelectedShapeMetadataFromCore()
+                core.renderViewportFrame()
+                statusMessage = "AutoConnected \(direction.capitalized) to Sheet.\(targetId)"
+            }
+        } catch {
+            statusMessage = error.localizedDescription
         }
     }
 }

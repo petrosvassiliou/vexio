@@ -2169,7 +2169,187 @@ pub fn tessellate_selection_handles(
         indices: knob_buf.indices,
     });
 
+    // Yellow diamond `Controls.*` handles (`#FACC15` gold fill + `#B45309` amber border + drop shadow).
+    if !visual.control_handles.is_empty() {
+        let ctrl_r = (6.2 * inv_ppi) as f32;
+        let ctrl_outer = ctrl_r + (1.7 * inv_ppi) as f32;
+        let sh_off = (1.1 * inv_ppi) as f32;
+        let ctrl_shadow = [0.06, 0.09, 0.16, 0.24];
+        let ctrl_border = [0.706, 0.325, 0.035, 1.0]; // #B45309 rich amber border
+        let ctrl_fill = [0.980, 0.800, 0.082, 1.0]; // #FACC15 unmistakable Visio yellow diamond
+        for ch in &visual.control_handles {
+            let cx = ch.pos_page_in[0] as f32;
+            let cy = ch.pos_page_in[1] as f32;
+            mesh.push_quad_points(
+                [
+                    [cx + sh_off * 0.4, cy - sh_off + ctrl_outer],
+                    [cx + sh_off * 0.4 + ctrl_outer, cy - sh_off],
+                    [cx + sh_off * 0.4, cy - sh_off - ctrl_outer],
+                    [cx + sh_off * 0.4 - ctrl_outer, cy - sh_off],
+                ],
+                ctrl_shadow,
+                [PRIM_FLAG_OVERLAY_UI, 0.0],
+            );
+            mesh.push_quad_points(
+                [
+                    [cx, cy + ctrl_outer],
+                    [cx + ctrl_outer, cy],
+                    [cx, cy - ctrl_outer],
+                    [cx - ctrl_outer, cy],
+                ],
+                ctrl_border,
+                [PRIM_FLAG_OVERLAY_UI, 0.0],
+            );
+            mesh.push_quad_points(
+                [
+                    [cx, cy + ctrl_r],
+                    [cx + ctrl_r, cy],
+                    [cx, cy - ctrl_r],
+                    [cx - ctrl_r, cy],
+                ],
+                ctrl_fill,
+                [PRIM_FLAG_OVERLAY_UI, 0.0],
+            );
+        }
+    }
+
     mesh
+}
+
+/// Cardinal Visio AutoConnect quick-stamp & link directions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub enum AutoConnectDir {
+    North,
+    East,
+    South,
+    West,
+}
+
+impl AutoConnectDir {
+    pub const ALL: [Self; 4] = [Self::North, Self::East, Self::South, Self::West];
+
+    pub fn from_slug(s: &str) -> Option<Self> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "n" | "north" | "up" | "top" => Some(Self::North),
+            "e" | "east" | "right" => Some(Self::East),
+            "s" | "south" | "down" | "bottom" => Some(Self::South),
+            "w" | "west" | "left" => Some(Self::West),
+            _ => None,
+        }
+    }
+
+    pub fn slug(self) -> &'static str {
+        match self {
+            Self::North => "north",
+            Self::East => "east",
+            Self::South => "south",
+            Self::West => "west",
+        }
+    }
+}
+
+/// Compute the world/page-space center `(x_in, y_in)` and unit outward direction `(ux, uy)`
+/// of a Visio AutoConnect triangle for `tf` at `zoom_ppi`.
+/// `North` sits cleanly above the `28 dp` circular `↻` Rotate button (`50 dp` above top edge);
+/// `East`, `South`, and `West` sit `22 dp` outside their respective midpoint resize handles.
+pub fn autoconnect_arrow_center_in(
+    tf: &vexio_shapesheet::ShapeTransform2D,
+    dir: AutoConnectDir,
+    zoom_ppi: f64,
+) -> ([f64; 2], [f64; 2]) {
+    let ppi = zoom_ppi.max(1.0);
+    let side_off = 22.0 / ppi;
+    let north_off = 50.0 / ppi;
+    let (lx, ly, edge_lx, edge_ly) = match dir {
+        AutoConnectDir::North => (tf.width * 0.5, tf.height + north_off, tf.width * 0.5, tf.height),
+        AutoConnectDir::East => (tf.width + side_off, tf.height * 0.5, tf.width, tf.height * 0.5),
+        AutoConnectDir::South => (tf.width * 0.5, -side_off, tf.width * 0.5, 0.0),
+        AutoConnectDir::West => (-side_off, tf.height * 0.5, 0.0, tf.height * 0.5),
+    };
+    let center: [f64; 2] = tf.local_to_parent(lx, ly).into();
+    let edge: [f64; 2] = tf.local_to_parent(edge_lx, edge_ly).into();
+    let dx = center[0] - edge[0];
+    let dy = center[1] - edge[1];
+    let len = dx.hypot(dy);
+    let unit = if len > 1e-9 {
+        [dx / len, dy / len]
+    } else {
+        match dir {
+            AutoConnectDir::North => [0.0, 1.0],
+            AutoConnectDir::East => [1.0, 0.0],
+            AutoConnectDir::South => [0.0, -1.0],
+            AutoConnectDir::West => [-1.0, 0.0],
+        }
+    };
+    (center, unit)
+}
+
+/// Tessellate the 4 outward-pointing Visio AutoConnect directional triangles around a selected 2D shape.
+pub fn tessellate_autoconnect_triangles(
+    visual: &EvaluatedShapeVisual,
+    zoom_ppi: f64,
+    hovered_dir: Option<AutoConnectDir>,
+) -> TessellatedMesh {
+    if !matches!(visual.kind, ShapeKind::Shape2D | ShapeKind::Group) || visual.is_swimlane {
+        return TessellatedMesh::new();
+    }
+    let ppi = zoom_ppi.max(1.0);
+    let inv_ppi = 1.0 / ppi;
+    let tol = (0.25 * inv_ppi).clamp(0.00015, 0.015) as f32;
+    let mut lyon_buf: VertexBuffers<GpuVertex, u32> = VertexBuffers::new();
+    let mut fill_tess = FillTessellator::new();
+    let mut stroke_tess = StrokeTessellator::new();
+
+    for dir in AutoConnectDir::ALL {
+        let is_hovered = hovered_dir == Some(dir);
+        let (c, u) = autoconnect_arrow_center_in(&visual.transform, dir, ppi);
+        let scale = if is_hovered { 1.22 } else { 1.0 };
+        let fwd = 5.6 * scale * inv_ppi;
+        let back = 4.2 * scale * inv_ppi;
+        let wing = 5.4 * scale * inv_ppi;
+        let nx = -u[1];
+        let ny = u[0];
+
+        let tip = [c[0] + u[0] * fwd, c[1] + u[1] * fwd];
+        let wl = [c[0] - u[0] * back + nx * wing, c[1] - u[1] * back + ny * wing];
+        let wr = [c[0] - u[0] * back - nx * wing, c[1] - u[1] * back - ny * wing];
+
+        let mut tb = Path::builder();
+        tb.begin(point(tip[0] as f32, tip[1] as f32));
+        tb.line_to(point(wl[0] as f32, wl[1] as f32));
+        tb.line_to(point(wr[0] as f32, wr[1] as f32));
+        tb.end(true);
+        let tri_path = tb.build();
+
+        let fill_col = if is_hovered {
+            [0.145, 0.388, 0.922, 0.98] // Solid royal blue when hovered
+        } else {
+            [0.859, 0.918, 0.996, 0.94] // Crisp #DBEAFE Visio AutoConnect light blue
+        };
+        let border_col = [0.114, 0.306, 0.847, 1.0]; // #1D4ED8 border
+
+        let _ = fill_tess.tessellate_path(
+            &tri_path,
+            &FillOptions::tolerance(tol),
+            &mut BuffersBuilder::new(&mut lyon_buf, |v: FillVertex| {
+                let p = v.position();
+                GpuVertex::new([p.x, p.y], fill_col, [PRIM_FLAG_OVERLAY_UI, 0.0])
+            }),
+        );
+        let _ = stroke_tess.tessellate_path(
+            &tri_path,
+            &StrokeOptions::tolerance(tol).with_line_width((1.35 * inv_ppi) as f32),
+            &mut BuffersBuilder::new(&mut lyon_buf, |v: StrokeVertex| {
+                let p = v.position();
+                GpuVertex::new([p.x, p.y], border_col, [PRIM_FLAG_OVERLAY_UI, 0.0])
+            }),
+        );
+    }
+
+    TessellatedMesh {
+        vertices: lyon_buf.vertices,
+        indices: lyon_buf.indices,
+    }
 }
 
 /// Tessellate a dashed Visio multi-selection group bounding frame + 8 outer resize grips.
@@ -2257,6 +2437,12 @@ pub struct InteractiveCanvasOverlay {
     pub connector_preview_in: Option<([f64; 2], [f64; 2])>,
     /// Per-connector `(begin_glued, end_glued)` state for selected `Connector1D` shapes.
     pub glued_connector_ends: BTreeMap<u64, (bool, bool)>,
+    /// Hovered AutoConnect directional triangle `(shape_id, dir)` in Pointer mode.
+    #[serde(default)]
+    pub hovered_autoconnect: Option<(u64, AutoConnectDir)>,
+    /// Target Container or Swimlane bounding box `(min_in, max_in)` illuminated while dragging shapes into it.
+    #[serde(default)]
+    pub container_drop_target_in: Option<([f64; 2], [f64; 2])>,
 }
 
 /// Tessellate transient interactive overlays (rubber-band marquee, smart alignment & equal-spacing
@@ -2269,6 +2455,29 @@ pub fn tessellate_interactive_overlay(
     let inv_ppi = 1.0 / ppi;
     let tol = (0.3 * inv_ppi).clamp(0.0002, 0.02) as f32;
     let mut mesh = TessellatedMesh::new();
+
+    // 0. Container / Swimlane Drop-Target Glow Border when dragging member shapes over it!
+    if let Some((mn, mx)) = overlay.container_drop_target_in {
+        let pad = (2.0 * inv_ppi) as f32;
+        let x0 = (mn[0].min(mx[0]) as f32) - pad;
+        let y0 = (mn[1].min(mx[1]) as f32) - pad;
+        let x1 = (mn[0].max(mx[0]) as f32) + pad;
+        let y1 = (mn[1].max(mx[1]) as f32) + pad;
+        let glow_fill = [0.063, 0.725, 0.506, 0.09]; // Soft emerald container highlight
+        let outer_glow = [0.063, 0.725, 0.506, 0.32];
+        let crisp_ring = [0.020, 0.588, 0.412, 0.96]; // #059669 crisp Visio container target border
+        let gw = (4.5 * inv_ppi) as f32;
+        let bw = (2.1 * inv_ppi) as f32;
+        mesh.push_quad([x0, y0], [x1, y1], glow_fill, [PRIM_FLAG_OVERLAY_UI, 0.0]);
+        mesh.push_quad([x0 - gw, y0 - gw], [x1 + gw, y0 + gw], outer_glow, [PRIM_FLAG_OVERLAY_UI, 0.0]);
+        mesh.push_quad([x0 - gw, y1 - gw], [x1 + gw, y1 + gw], outer_glow, [PRIM_FLAG_OVERLAY_UI, 0.0]);
+        mesh.push_quad([x0 - gw, y0], [x0 + gw, y1], outer_glow, [PRIM_FLAG_OVERLAY_UI, 0.0]);
+        mesh.push_quad([x1 - gw, y0], [x1 + gw, y1], outer_glow, [PRIM_FLAG_OVERLAY_UI, 0.0]);
+        mesh.push_quad([x0, y0], [x1, y0 + bw], crisp_ring, [PRIM_FLAG_OVERLAY_UI, 0.0]);
+        mesh.push_quad([x0, y1 - bw], [x1, y1], crisp_ring, [PRIM_FLAG_OVERLAY_UI, 0.0]);
+        mesh.push_quad([x0, y0], [x0 + bw, y1], crisp_ring, [PRIM_FLAG_OVERLAY_UI, 0.0]);
+        mesh.push_quad([x1 - bw, y0], [x1, y1], crisp_ring, [PRIM_FLAG_OVERLAY_UI, 0.0]);
+    }
 
     // 1. Rubber-band Marquee Selection Box
     if let Some((mn, mx)) = overlay.marquee_rect_in {

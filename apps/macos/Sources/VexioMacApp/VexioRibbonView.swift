@@ -915,6 +915,15 @@ public struct VexioHeaderAndRibbonBar: View {
                     ribbonCompactButton("character.textbox", "Insert Text Box") {
                         session.insertTextBoxAndBeginEditing(atCanvasInches: CGPoint(x: 4.5, y: 4.5), undoManager: undoManager)
                     }
+                    ribbonCompactButton("macwindow", "Container") {
+                        session.insertContainerBox(undoManager: undoManager)
+                    }
+                    ribbonCompactButton("rectangle.split.1x2", "Swimlanes") {
+                        session.insertSwimlanePool(undoManager: undoManager)
+                    }
+                    ribbonCompactButton("bubble.left", "Callout") {
+                        session.attachCalloutNote(undoManager: undoManager)
+                    }
                     ribbonCompactButton("rectangle.3.group", "Subprocess") {
                         session.createSubprocessDrilldown(undoManager: undoManager)
                     }

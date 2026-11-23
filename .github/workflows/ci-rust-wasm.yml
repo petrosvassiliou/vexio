@@ -69,16 +69,7 @@ jobs:
 
       - name: Export deterministic built-in .vssx stencils
         run: |
-          if [ "$PWD" != "/home/antigravity" ] && [ ! -w "/home/antigravity" ]; then
-            sudo mkdir -p /home/antigravity/stencils /home/antigravity/apps/chromeos-pwa/public/stencils
-            sudo chown -R "$(id -u):$(id -g)" /home/antigravity
-          fi
           cargo run -p vexio-core --example export_builtin_stencils
-          if [ "$PWD" != "/home/antigravity" ]; then
-            mkdir -p stencils apps/chromeos-pwa/public/stencils
-            cp -f /home/antigravity/stencils/*.vssx stencils/
-            cp -f /home/antigravity/apps/chromeos-pwa/public/stencils/*.vssx apps/chromeos-pwa/public/stencils/
-          fi
           ls -lh stencils/*.vssx apps/chromeos-pwa/public/stencils/*.vssx
 
       - name: Compile vexio-core for wasm32-unknown-unknown with SIMD128

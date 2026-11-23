@@ -56,6 +56,9 @@ export interface EngineShapeSummary {
   linePattern?: number;
   subprocessPage: string | null;
   screentip: string | null;
+  isContainer?: boolean;
+  isSwimlane?: boolean;
+  containerMembers?: number[];
   controlHandles: ControlHandleDto[];
   cells: Array<{ name: string; formula: string; value: string; guarded: boolean }>;
 }
@@ -235,6 +238,7 @@ interface WasmSessionInstance {
   insert_container(page_id: number, title: string, member_ids: Uint32Array): number;
   insert_callout(page_id: number, target_shape_id: number, text: string): number;
   insert_swimlanes(page_id: number, lanes_semicolon: string): number;
+  auto_connect(page_id: number, source_shape_id: number, dir: string): number;
   insert_architectural_room(page_id: number, room_name: string): number;
   insert_rack_with_equipment(page_id: number): number;
   import_org_chart_csv(page_id: number, csv_text: string): number;
@@ -1011,9 +1015,19 @@ self.onmessage = async (ev: MessageEvent) => {
         break;
       }
       case 'insertSwimlanes': {
-        session.insert_swimlanes(activePageId, payload.lanes);
+        const count = session.insert_swimlanes(activePageId, String(payload.lanes ?? ''));
         const wal = session.export_wal();
-        self.postMessage({ id, ok: true, wal, snapshot: buildSnapshot(session) });
+        self.postMessage({ id, ok: true, count, wal, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'autoConnect': {
+        const targetShapeId = session.auto_connect(
+          activePageId,
+          Number(payload.sourceShapeId ?? 0),
+          String(payload.dir ?? 'east')
+        );
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, targetShapeId, wal, snapshot: buildSnapshot(session) });
         break;
       }
       case 'insertRoom': {

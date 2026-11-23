@@ -450,7 +450,74 @@ async function main() {
   assert.equal(v02.move_connector_endpoint_with_port(1, c02, false, 9.25, 4.5, g3, ''), true);
   assert.equal(v02.drag_connector_segment(1, c02, 1, 5.5), true);
 
-  console.log('  ✓ Phase 7 + Workstation UX + v0.2.0-alpha (Equal-Spacing Smart Guides, Distribute, Group/Ungroup, Port Glue, Segment Drag & CRDT) verified.');
+  // v0.3.0-alpha Pillar #3 WASM Verification:
+  // Standalone Container + Drag-in enrollment + Container-moves-members + Swimlanes + Reactive Callout Re-Tether + AutoConnect
+  const v03 = new wasmMod.WasmVexioSession('v0.3.0 Pillar 3 WASM');
+  const stepA = v03.draw_primitive_2d(1, 'round_rect', 1.2, 4.0, 2.8, 5.0);
+  const contId = v03.insert_container(1, 'Order Domain', new Uint32Array([]));
+  assert(contId > 0, 'insert_container([]) must create a standalone interactive Container');
+  let v03State = JSON.parse(v03.get_state_json(1));
+  const contBefore = v03State.shapes.find((s) => s.id === contId);
+  assert.equal(contBefore.isContainer, true, 'WasmShapeInfo must flag isContainer=true');
+  assert.deepEqual(contBefore.containerMembers, [], 'Standalone Container starts with 0 members');
+
+  // Move stepA into contId -> auto-enrolls in containerMembers!
+  const stepABefore = v03State.shapes.find((s) => s.id === stepA);
+  assert(
+    v03.move_shapes_delta(
+      1,
+      new Uint32Array([stepA]),
+      contBefore.pinX - stepABefore.pinX,
+      contBefore.pinY - stepABefore.pinY
+    ) >= 1
+  );
+  v03State = JSON.parse(v03.get_state_json(1));
+  assert(
+    v03State.shapes.find((s) => s.id === contId).containerMembers.includes(stepA),
+    'Moving shape inside Container in WASM must auto-enroll it in containerMembers'
+  );
+
+  // AutoConnect East from stepA -> stamps & wires stepB and inherits Container membership!
+  const stepB = v03.auto_connect(1, stepA, 'east');
+  assert(stepB > 0 && stepB !== stepA, 'WASM auto_connect(east) must stamp & wire a new step');
+  v03State = JSON.parse(v03.get_state_json(1));
+  assert(
+    v03State.shapes.find((s) => s.id === contId).containerMembers.includes(stepB),
+    'AutoConnected step inside Container must inherit Container membership'
+  );
+
+  // Moving Container moves both stepA and stepB synchronously!
+  const stepBXBefore = v03State.shapes.find((s) => s.id === stepB).pinX;
+  assert(v03.move_shapes_delta(1, new Uint32Array([contId]), 1.25, 0.0) >= 3);
+  v03State = JSON.parse(v03.get_state_json(1));
+  assert(
+    Math.abs(v03State.shapes.find((s) => s.id === stepB).pinX - (stepBXBefore + 1.25)) < 1e-3,
+    'Moving Container in WASM must translate all member shapes synchronously'
+  );
+
+  // Attach Callout to stepA, then drag yellow Controls.Row_1 handle onto stepB -> re-tethers!
+  const callId = v03.insert_callout(1, stepA, 'P99 < 25ms');
+  assert(callId > 0);
+  const stepBNow = v03State.shapes.find((s) => s.id === stepB);
+  assert.equal(v03.move_control_handle(1, callId, 'Row_1', stepBNow.pinX, stepBNow.pinY), true);
+  v03State = JSON.parse(v03.get_state_json(1));
+  const callCtrlFormula =
+    v03State.shapes
+      .find((s) => s.id === callId)
+      .cells.find((c) => c.name.toLowerCase() === 'controls.row_1.x')?.formula ?? '';
+  assert(
+    callCtrlFormula.includes(`Sheet.${stepB}!PinX`),
+    `Expected WASM Callout leader to re-tether to Sheet.${stepB}, got ${callCtrlFormula}`
+  );
+
+  // Swimlanes: 3-lane pool then contiguous Lane 4 append!
+  const swimPage = v03.add_page('Swimlanes');
+  assert.equal(v03.insert_swimlanes(swimPage, ''), 3);
+  assert.equal(v03.insert_swimlanes(swimPage, ''), 1);
+  const swimState = JSON.parse(v03.get_state_json(swimPage));
+  assert.equal(swimState.shapes.filter((s) => s.isSwimlane).length, 4);
+
+  console.log('  ✓ Phase 7 + Workstation UX + v0.2.0-alpha + v0.3.0-alpha Pillar #3 (AutoConnect, Containers, Swimlanes & Yellow Controls) verified.');
 
 
   console.log('=== [6/6] Verifying Firebase Auth, Version History & Collab CRDT Security Rules ===');

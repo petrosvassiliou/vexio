@@ -701,5 +701,27 @@ class NativeBridgePacketTest {
         assertEquals(4, vm.uiState.value.stencilMasters.size)
         assertEquals("RGB(239,246,255)", vm.uiState.value.stencilMasters.first { it.title == "User Task" }.fillFormula)
     }
+
+    @Test
+    fun v030Pillar3ContainersSwimlanesCalloutsControlHandlesAndAutoConnectWork() {
+        val vm = VexioSessionViewModel()
+        vm.setSelectionIds(listOf(1L))
+
+        val contId = vm.insertContainer("VPC Zone")
+        assertTrue(contId > 0L)
+        assertEquals(listOf(contId), vm.uiState.value.selectedShapeIds)
+
+        val lanes = vm.insertSwimlanes("")
+        assertEquals(3, lanes)
+
+        val calloutId = vm.attachCallout("SLA < 10ms")
+        assertTrue(calloutId > contId)
+        assertEquals(listOf(calloutId), vm.uiState.value.selectedShapeIds)
+        assertTrue(vm.dragControlHandle(calloutId, "Row_1", 3.5, 4.2))
+
+        val nextStepId = vm.autoConnectSelected("east")
+        assertTrue(nextStepId > calloutId)
+        assertEquals(listOf(nextStepId), vm.uiState.value.selectedShapeIds)
+    }
 }
 

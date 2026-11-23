@@ -1679,6 +1679,21 @@ private fun ClassicVisioM3Ribbon(
                                 onClick = { viewModel.selectTool(VexioTool.TEXT_BLOCK) }
                             )
                             ExpressivePlan2ActionPill(
+                                label = "+ Container",
+                                selected = false,
+                                onClick = { viewModel.insertContainer() }
+                            )
+                            ExpressivePlan2ActionPill(
+                                label = "+ Swimlanes",
+                                selected = false,
+                                onClick = { viewModel.insertSwimlanes() }
+                            )
+                            ExpressivePlan2ActionPill(
+                                label = "+ Callout",
+                                selected = false,
+                                onClick = { viewModel.attachCallout() }
+                            )
+                            ExpressivePlan2ActionPill(
                                 label = "Subprocess (+)",
                                 selected = false,
                                 onClick = { viewModel.createOrLinkSubprocess() }

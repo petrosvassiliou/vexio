@@ -1259,6 +1259,7 @@ class VexioChromeOsApp {
         origAngleDeg?: number;
         resizeHandle?: ResizeHandleDir;
         controlRowName?: string;
+        autoConnectDir?: string;
         geomIndex?: number;
         vertexRowIx?: number;
         freeformPoints?: Array<[number, number]>;
@@ -2633,7 +2634,7 @@ class VexioChromeOsApp {
           <span class="ribbon-group-label">Diagram Structure</span>
           <button class="m3-btn tonal" id="btn-ins-container">Container Box</button>
           <button class="m3-btn tonal" id="btn-ins-swimlanes">Swimlanes</button>
-          <button class="m3-btn" id="btn-ins-callout" ${this.primarySelectedId ? '' : 'disabled'}>Callout Note</button>
+          <button class="m3-btn tonal" id="btn-ins-callout">Callout Note</button>
           <button class="m3-btn" id="btn-ins-image">Image...</button>
           <button class="m3-btn" id="btn-ins-ctrl-handle" ${this.primarySelectedId ? '' : 'disabled'}>Control Handle</button>
           <button class="m3-btn" id="btn-open-link-modal" ${this.primarySelectedId ? '' : 'disabled'}>Hyperlink...</button>
@@ -2801,20 +2802,64 @@ class VexioChromeOsApp {
       }
     }
 
-    // Visio AutoConnect outward quick-connect diamonds 18px outside N/S/E/W on primary selected shape (never overlapping resize handles!)
+    // Visio AutoConnect outward directional triangles on primary selected 2D shape (`North` cleanly above `28px` Rotate button!)
     if (this.activeTool === 'pointer' && this.selectedShapeIds.length === 1) {
-      const selSh = snap.shapes.find((s) => s.id === this.selectedShapeIds[0] && s.kind !== 'Connector1D');
+      const selSh = snap.shapes.find(
+        (s) => s.id === this.selectedShapeIds[0] && s.kind !== 'Connector1D' && !s.isSwimlane
+      );
       if (selSh) {
-        const offsetIn = 18 / ppi;
-        const autoDirs: Array<[number, number, number, number, string]> = [
-          [selSh.pinX, selSh.pinY + selSh.height * 0.5 + offsetIn, selSh.pinX, selSh.pinY + selSh.height * 0.5, 'North'],
-          [selSh.pinX + selSh.width * 0.5 + offsetIn, selSh.pinY, selSh.pinX + selSh.width * 0.5, selSh.pinY, 'East'],
-          [selSh.pinX, selSh.pinY - selSh.height * 0.5 - offsetIn, selSh.pinX, selSh.pinY - selSh.height * 0.5, 'South'],
-          [selSh.pinX - selSh.width * 0.5 - offsetIn, selSh.pinY, selSh.pinX - selSh.width * 0.5, selSh.pinY, 'West'],
+        const sideOffIn = 22 / ppi;
+        const northOffIn = 50 / ppi;
+        const angRad = ((selSh.angleDeg || 0) * Math.PI) / 180;
+        const cosA = Math.cos(angRad);
+        const sinA = Math.sin(angRad);
+        const toPage = (dx: number, dy: number): [number, number] => [
+          selSh.pinX + dx * cosA - dy * sinA,
+          selSh.pinY + dx * sinA + dy * cosA,
         ];
-        for (const [ax, ay, portX, portY, label] of autoDirs) {
+        const hw = selSh.width * 0.5;
+        const hh = selSh.height * 0.5;
+        const autoDirs: Array<{
+          dir: string;
+          label: string;
+          arrowPt: [number, number];
+          portPt: [number, number];
+          rotDeg: number;
+        }> = [
+          {
+            dir: 'north',
+            label: 'North',
+            arrowPt: toPage(0, hh + northOffIn),
+            portPt: toPage(0, hh),
+            rotDeg: -(selSh.angleDeg || 0),
+          },
+          {
+            dir: 'east',
+            label: 'East',
+            arrowPt: toPage(hw + sideOffIn, 0),
+            portPt: toPage(hw, 0),
+            rotDeg: 90 - (selSh.angleDeg || 0),
+          },
+          {
+            dir: 'south',
+            label: 'South',
+            arrowPt: toPage(0, -(hh + sideOffIn)),
+            portPt: toPage(0, -hh),
+            rotDeg: 180 - (selSh.angleDeg || 0),
+          },
+          {
+            dir: 'west',
+            label: 'West',
+            arrowPt: toPage(-(hw + sideOffIn), 0),
+            portPt: toPage(-hw, 0),
+            rotDeg: 270 - (selSh.angleDeg || 0),
+          },
+        ];
+        for (const item of autoDirs) {
+          const [ax, ay] = item.arrowPt;
+          const [portX, portY] = item.portPt;
           dots.push(
-            `<div class="autoconnect-arrow" data-port-shape="${selSh.id}" data-port-x="${portX.toFixed(4)}" data-port-y="${portY.toFixed(4)}" style="left:${(ax * ppi).toFixed(1)}px;top:${((snap.pageHeightIn - ay) * ppi).toFixed(1)}px" title="Drag ${label} AutoConnect to link shapes"></div>`
+            `<div class="autoconnect-arrow" data-autoconnect-dir="${item.dir}" data-port-shape="${selSh.id}" data-port-x="${portX.toFixed(4)}" data-port-y="${portY.toFixed(4)}" style="left:${(ax * ppi).toFixed(1)}px;top:${((snap.pageHeightIn - ay) * ppi).toFixed(1)}px;transform:translate(-50%,-50%) rotate(${item.rotDeg.toFixed(1)}deg)" title="Click to AutoConnect ${item.label} • Drag to Connect"><svg width="13" height="13" viewBox="0 0 14 14" style="pointer-events:none"><polygon points="7,1.4 12.6,11.6 1.4,11.6" fill="currentColor" stroke="#1d4ed8" stroke-width="1.35" stroke-linejoin="round"/></svg></div>`
           );
         }
       }
@@ -5147,28 +5192,33 @@ class VexioChromeOsApp {
 
     document.getElementById('btn-ins-container')?.addEventListener('click', async () => {
       const res = await this.callEngine('insertContainer', {
-        title: 'Subsystem Container',
+        title: 'Container',
         memberIds: this.selectedShapeIds,
       });
       this.persistMutationSideEffects(res.wal);
       this.snapshot = res.snapshot;
+      if (res.containerId > 0) {
+        this.setSingleSelection(res.containerId);
+      }
       this.render();
     });
 
     document.getElementById('btn-ins-callout')?.addEventListener('click', async () => {
-      if (!this.primarySelectedId) return;
       const res = await this.callEngine('insertCallout', {
-        targetShapeId: this.primarySelectedId,
-        text: 'SLA < 50ms',
+        targetShapeId: this.primarySelectedId ?? 0,
+        text: 'Callout Note',
       });
       this.persistMutationSideEffects(res.wal);
       this.snapshot = res.snapshot;
+      if (res.calloutId > 0) {
+        this.setSingleSelection(res.calloutId);
+      }
       this.render();
     });
 
     document.getElementById('btn-ins-swimlanes')?.addEventListener('click', async () => {
       const res = await this.callEngine('insertSwimlanes', {
-        lanes: 'Customer Portal;Order Service;Fulfillment Warehouse',
+        lanes: '',
       });
       this.persistMutationSideEffects(res.wal);
       this.snapshot = res.snapshot;
@@ -6291,11 +6341,14 @@ class VexioChromeOsApp {
           host.setPointerCapture(ev.pointerId);
           const px = Number(portEl?.dataset.portX ?? ptIn[0]);
           const py = Number(portEl?.dataset.portY ?? ptIn[1]);
+          const acDir = portEl?.dataset.autoconnectDir;
           this.dragState = {
             mode: 'connect',
-            startPageIn: [px, py],
+            startPageIn: acDir ? ptIn : [px, py],
             curPageIn: ptIn,
             shapeId: Number(portShapeAttr),
+            origPin: [px, py],
+            autoConnectDir: acDir,
           };
           return;
         }
@@ -6570,7 +6623,8 @@ class VexioChromeOsApp {
             }
           }
           const endPt: [number, number] = nearPort ? [nearPort.xIn, nearPort.yIn] : ptIn;
-          overlay.innerHTML = `${targetRing}<line x1="${sx(this.dragState.startPageIn[0])}" y1="${sy(this.dragState.startPageIn[1])}" x2="${sx(endPt[0])}" y2="${sy(endPt[1])}" stroke="#10b981" stroke-width="2.5" stroke-dasharray="6,4"/>`;
+          const lineStart = this.dragState.origPin ?? this.dragState.startPageIn;
+          overlay.innerHTML = `${targetRing}<line x1="${sx(lineStart[0])}" y1="${sy(lineStart[1])}" x2="${sx(endPt[0])}" y2="${sy(endPt[1])}" stroke="#10b981" stroke-width="2.5" stroke-dasharray="6,4"/>`;
         } else if (this.dragState.mode === 'rotate' && this.dragState.origPin && this.dragState.origSize) {
           const [cx, cy] = this.dragState.origPin;
           const [w, h] = this.dragState.origSize;
@@ -6662,9 +6716,49 @@ class VexioChromeOsApp {
                   .join('')
               : '';
 
+            // Container / Swimlane emerald drop-target glow + Container member ghost outlines
+            let containerGlowSvg = '';
+            if (!sh.isSwimlane) {
+              const movingSet = new Set(this.selectedShapeIds);
+              let bestTarget: { id: number; area: number; x0: number; y0: number; w: number; h: number } | null = null;
+              for (const cand of this.snapshot.shapes) {
+                if (movingSet.has(cand.id) || (!cand.isContainer && !cand.isSwimlane)) continue;
+                const x0 = cand.pinX - cand.width * 0.5;
+                const x1 = cand.pinX + cand.width * 0.5;
+                const y0 = cand.pinY - cand.height * 0.5;
+                const y1 = cand.pinY + cand.height * 0.5;
+                if (drawX >= x0 - 0.14 && drawX <= x1 + 0.14 && drawY >= y0 - 0.14 && drawY <= y1 + 0.14) {
+                  const area = Math.max(0.1, cand.width) * Math.max(0.1, cand.height);
+                  if (!bestTarget || area < bestTarget.area) {
+                    bestTarget = { id: cand.id, area, x0, y0: y1, w: cand.width, h: cand.height };
+                  }
+                }
+              }
+              if (bestTarget) {
+                const gx = sx(bestTarget.x0) - 3;
+                const gy = sy(bestTarget.y0) - 3;
+                const gw = bestTarget.w * ppi + 6;
+                const gh = bestTarget.h * ppi + 6;
+                containerGlowSvg = `<rect x="${gx.toFixed(1)}" y="${gy.toFixed(1)}" width="${gw.toFixed(1)}" height="${gh.toFixed(1)}" rx="8" fill="rgba(16,185,129,0.10)" stroke="#059669" stroke-width="3"/>`;
+              }
+            }
+
+            let memberPreviewSvg = '';
+            if (sh.isContainer && sh.containerMembers && sh.containerMembers.length > 0) {
+              const effDx = drawX - this.dragState.origPin[0];
+              const effDy = drawY - this.dragState.origPin[1];
+              for (const mid of sh.containerMembers) {
+                const msh = this.snapshot.shapes.find((s) => s.id === mid);
+                if (!msh) continue;
+                memberPreviewSvg += `<rect x="${sx(msh.pinX + effDx - msh.width * 0.5)}" y="${sy(msh.pinY + effDy + msh.height * 0.5)}" width="${msh.width * ppi}" height="${msh.height * ppi}" fill="rgba(37,99,235,0.06)" stroke="#3b82f6" stroke-dasharray="3,3" stroke-width="1.4"/>`;
+              }
+            }
+
             overlay.innerHTML = `
+              ${containerGlowSvg}
               ${guideSvg}
               <rect x="${sx(drawX - sh.width * 0.5)}" y="${sy(drawY + sh.height * 0.5)}" width="${sh.width * ppi}" height="${sh.height * ppi}" fill="rgba(37,99,235,0.1)" stroke="#2563eb" stroke-dasharray="4,3" stroke-width="2"/>
+              ${memberPreviewSvg}
             `;
           }
         }
@@ -6806,10 +6900,44 @@ class VexioChromeOsApp {
           const to2D = nearPort ? nearPort.shapeId : this.hitTestSnapshotSync(ptIn[0], ptIn[1], true);
           const fromId = st.shapeId ?? 0;
           const dist = Math.hypot(ptIn[0] - st.startPageIn[0], ptIn[1] - st.startPageIn[1]);
-          if ((fromId > 0 && to2D > 0 && fromId !== to2D) || dist > 0.12) {
+          const portOrigin = st.origPin ?? st.startPageIn;
+          if (st.autoConnectDir && dist <= 0.12 && fromId > 0) {
+            // One-click Visio AutoConnect: stamp & wire next shape in `autoConnectDir` (or link aligned neighbor)!
+            const acRes = await this.callEngine('autoConnect', {
+              sourceShapeId: fromId,
+              dir: st.autoConnectDir,
+            });
+            this.persistMutationSideEffects(acRes.wal);
+            this.snapshot = acRes.snapshot;
+            if (acRes.targetShapeId > 0) {
+              this.setSingleSelection(acRes.targetShapeId);
+            }
+          } else if (st.autoConnectDir && dist > 0.12 && fromId > 0 && (to2D === 0 || to2D === fromId)) {
+            // Dragged AutoConnect onto empty canvas -> stamp a connected Process step at drop location!
+            const pRes = await this.callEngine('drawPrimitive', {
+              kind: 'round_rect',
+              x1: ptIn[0] - 0.8,
+              y1: ptIn[1] - 0.45,
+              x2: ptIn[0] + 0.8,
+              y2: ptIn[1] + 0.45,
+            });
+            if (pRes.shapeId > 0) {
+              const cRes = await this.callEngine('connectPointsOrShapes', {
+                x1: portOrigin[0],
+                y1: portOrigin[1],
+                x2: ptIn[0],
+                y2: ptIn[1],
+                fromId,
+                toId: pRes.shapeId,
+              });
+              this.persistMutationSideEffects(cRes.wal);
+              this.snapshot = cRes.snapshot;
+              this.setSingleSelection(pRes.shapeId);
+            }
+          } else if ((fromId > 0 && to2D > 0 && fromId !== to2D) || dist > 0.12) {
             const res = await this.callEngine('connectPointsOrShapes', {
-              x1: st.startPageIn[0],
-              y1: st.startPageIn[1],
+              x1: portOrigin[0],
+              y1: portOrigin[1],
               x2: nearPort ? nearPort.xIn : ptIn[0],
               y2: nearPort ? nearPort.yIn : ptIn[1],
               fromId,

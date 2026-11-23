@@ -2191,31 +2191,59 @@ void MainWindow::OnAutoLayoutQuickClick(IInspectable const&, RoutedEventArgs con
 
 void MainWindow::OnInsertContainerClick(IInspectable const&, RoutedEventArgs const&) {
     if (!m_doc) return;
-    const auto res = m_doc.DropStencil(m_activePageId, "Callouts, Notes & Containers", "Section Container", 5.50, 4.25);
+    const auto ids = ResolveTargetSelectionIds();
+    const auto res = m_doc.InsertContainer(m_activePageId, "Container", ids);
     if (res.ok()) {
         m_selectedShapeId = *res.value;
+        m_selectedShapeIds = {m_selectedShapeId};
+        if (m_viewport) {
+            (void)m_viewport.SetSelection(m_doc, m_selectedShapeIds);
+        }
         MarkDocumentDirty(true);
         PresentViewportFrame();
+        SyncInspectorFromShapeSheet();
+        RefreshShapeSheetSectionRows();
+        ShowBanner(
+            InfoBarSeverity::Success,
+            L"Container Inserted",
+            ids.empty()
+                ? L"Drag shapes inside the Container to enroll members automatically."
+                : std::format(L"Enclosed {} shape(s) inside live Container.", ids.size()));
     }
 }
 
 void MainWindow::OnInsertSwimlaneClick(IInspectable const&, RoutedEventArgs const&) {
     if (!m_doc) return;
-    const auto res = m_doc.DropStencil(m_activePageId, "Cross-Functional Swimlanes", "Horizontal Swimlane", 5.50, 4.25);
+    const auto res = m_doc.InsertSwimlanes(m_activePageId, "");
     if (res.ok()) {
-        m_selectedShapeId = *res.value;
         MarkDocumentDirty(true);
         PresentViewportFrame();
+        ShowBanner(
+            InfoBarSeverity::Success,
+            L"Cross-Functional Swimlanes",
+            *res.value > 1
+                ? std::format(L"Created {}-lane Cross-Functional Swimlane pool.", *res.value)
+                : L"Appended contiguous Swimlane band below existing pool.");
     }
 }
 
 void MainWindow::OnInsertCalloutClick(IInspectable const&, RoutedEventArgs const&) {
     if (!m_doc) return;
-    const auto res = m_doc.DropStencil(m_activePageId, "Callouts, Notes & Containers", "Callout Bubble", 6.25, 6.25);
+    const auto res = m_doc.AttachCallout(m_activePageId, m_selectedShapeId, "Callout Note");
     if (res.ok()) {
         m_selectedShapeId = *res.value;
+        m_selectedShapeIds = {m_selectedShapeId};
+        if (m_viewport) {
+            (void)m_viewport.SetSelection(m_doc, m_selectedShapeIds);
+        }
         MarkDocumentDirty(true);
         PresentViewportFrame();
+        SyncInspectorFromShapeSheet();
+        RefreshShapeSheetSectionRows();
+        ShowBanner(
+            InfoBarSeverity::Success,
+            L"Callout Attached",
+            L"Drag the yellow Controls.Row_1 diamond handle to retarget the Callout leader line.");
     }
 }
 

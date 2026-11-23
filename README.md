@@ -6,18 +6,18 @@ Every parser, reactive ShapeSheet formula, layout router, CAD translator, valida
 
 ---
 
-## Download Installers (`v0.1.0-alpha`)
+## Download Installers (`v0.2.1-alpha`)
 
-All compiled native installers are published on the [**`v0.1.0-alpha` Releases Page**](https://github.com/petrosvassiliou/vexio/releases/tag/v0.1.0-alpha):
+All compiled native installers are published on the [**`v0.2.1-alpha` Releases Page**](https://github.com/petrosvassiliou/vexio/releases/tag/v0.2.1-alpha):
 
 | Platform | Architecture | Direct Installer Download |
 | :--- | :--- | :--- |
-| **Windows 11 Native** (`WinUI 3 + DirectX 12`) | `x64` | [**`Vexio-Windows-v0.1.0-alpha-x64.msix`**](https://github.com/petrosvassiliou/vexio/releases/download/v0.1.0-alpha/Vexio-Windows-v0.1.0-alpha-x64.msix) |
-| **Windows 11 Native** (`WinUI 3 + DirectX 12`) | `ARM64` | [**`Vexio-Windows-v0.1.0-alpha-arm64.msix`**](https://github.com/petrosvassiliou/vexio/releases/download/v0.1.0-alpha/Vexio-Windows-v0.1.0-alpha-arm64.msix) |
-| **macOS 15+ Native** (`Swift 6 Liquid Glass + Metal`) | `Universal2` (`Apple Silicon + Intel`) | [**`Vexio-v0.1.0-alpha-Universal2.dmg`**](https://github.com/petrosvassiliou/vexio/releases/download/v0.1.0-alpha/Vexio-v0.1.0-alpha-Universal2.dmg) |
-| **Android & Googlebook OS** (`Compose M3E + Vulkan`) | `arm64-v8a` + `x86_64` APK | [**`Vexio-Android-Googlebook-v0.1.0-alpha.apk`**](https://github.com/petrosvassiliou/vexio/releases/download/v0.1.0-alpha/Vexio-Android-Googlebook-v0.1.0-alpha.apk) |
-| **Android & Googlebook OS** (`Play App Bundle`) | `arm64-v8a` + `x86_64` AAB | [**`Vexio-Android-Googlebook-v0.1.0-alpha.aab`**](https://github.com/petrosvassiliou/vexio/releases/download/v0.1.0-alpha/Vexio-Android-Googlebook-v0.1.0-alpha.aab) |
-| **ChromeOS Offline-First PWA** | Live Web + Offline Bundle | [**Launch Live App**](https://vexio-chromeos-suite.web.app) · [**`Vexio-ChromeOS-PWA-v0.1.0-alpha.zip`**](https://github.com/petrosvassiliou/vexio/releases/download/v0.1.0-alpha/Vexio-ChromeOS-PWA-v0.1.0-alpha.zip) |
+| **Windows 11 Native** (`WinUI 3 + DirectX 12`) | `x64` | [**`Vexio-Windows-v0.2.1-alpha-x64.msix`**](https://github.com/petrosvassiliou/vexio/releases/download/v0.2.1-alpha/Vexio-Windows-v0.2.1-alpha-x64.msix) |
+| **Windows 11 Native** (`WinUI 3 + DirectX 12`) | `ARM64` | [**`Vexio-Windows-v0.2.1-alpha-arm64.msix`**](https://github.com/petrosvassiliou/vexio/releases/download/v0.2.1-alpha/Vexio-Windows-v0.2.1-alpha-arm64.msix) |
+| **macOS 15+ Native** (`Swift 6 Liquid Glass + Metal`) | `Universal2` (`Apple Silicon + Intel`) | [**`Vexio-v0.2.1-alpha-Universal2.dmg`**](https://github.com/petrosvassiliou/vexio/releases/download/v0.2.1-alpha/Vexio-v0.2.1-alpha-Universal2.dmg) |
+| **Android & Googlebook OS** (`Compose M3E + Vulkan`) | `arm64-v8a` + `x86_64` APK | [**`Vexio-Android-Googlebook-v0.2.1-alpha.apk`**](https://github.com/petrosvassiliou/vexio/releases/download/v0.2.1-alpha/Vexio-Android-Googlebook-v0.2.1-alpha.apk) |
+| **Android & Googlebook OS** (`Play App Bundle`) | `arm64-v8a` + `x86_64` AAB | [**`Vexio-Android-Googlebook-v0.2.1-alpha.aab`**](https://github.com/petrosvassiliou/vexio/releases/download/v0.2.1-alpha/Vexio-Android-Googlebook-v0.2.1-alpha.aab) |
+| **ChromeOS Offline-First PWA** | Live Web + Offline Bundle | [**Launch Live App**](https://vexio-chromeos-suite.web.app) · [**`Vexio-ChromeOS-PWA-v0.2.1-alpha.zip`**](https://github.com/petrosvassiliou/vexio/releases/download/v0.2.1-alpha/Vexio-ChromeOS-PWA-v0.2.1-alpha.zip) |
 
 ---
 
@@ -101,8 +101,8 @@ Zero warnings and 100% passing unit, formula, CAD, routing, validation, and Open
 RUSTFLAGS="-D warnings" cargo test --workspace
 ```
 
-### 2. Regenerate Deterministic Built-In `.vssx` Stencil Packs (12 Domain Libraries)
-Exports all 12 IP-clean `.vssx` stencil packs (`basic_flowchart`, `bpmn_2_0`, `uml_2_5`, `network_rack_equipment`, `floor_plan_p_id_vsm`, `cloud_architecture_aws_gcp_azure`, `electrical_electronic_ieee_iec`, `ui_application_wireframes`, `organization_chart`, `project_schedule_gantt_timeline`, `value_stream_mapping_lean_vsm`, `database_crow_s_foot_idef1x`) to `stencils/` and `apps/chromeos-pwa/public/stencils/`:
+### 2. Regenerate Deterministic Built-In `.vssx` Stencil Packs (22 Domain Libraries / 520+ Shapes)
+Exports all 22 IP-clean `.vssx` stencil packs (520+ multi-color vector shapes across Flowchart, BPMN 2.0, UML 2.5, M365, Azure, AWS/GCP, Servers/AD, Power Platform, Network/Rack, Floor Plans/P&ID, Electrical IEEE/IEC, Wireframes, Org Charts, Gantt/Timeline, Lean VSM, Database Crow's Foot/IDEF1X, Callouts/Containers, and Swimlanes) to `stencils/` and `apps/chromeos-pwa/public/stencils/`:
 ```bash
 cargo run -p vexio-core --example export_builtin_stencils
 ```

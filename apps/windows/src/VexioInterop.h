@@ -1068,6 +1068,98 @@ public:
         return vexio_doc_drag_connector_segment(m_ptr, pageId, shapeId, segIndex, coordIn);
     }
 
+    [[nodiscard]] VexioResult<uint64_t> InsertContainer(
+        uint32_t pageId,
+        std::string_view titleUtf8,
+        std::span<const uint64_t> memberIds)
+    {
+        if (m_ptr == nullptr) {
+            return VexioResult<uint64_t>{VEXIO_ERR_INVALID_ARG, std::nullopt};
+        }
+        const std::string title{titleUtf8.empty() ? "Container" : titleUtf8};
+        uint64_t cid = 0;
+        const VexioStatus status = vexio_doc_insert_container(
+            m_ptr,
+            pageId,
+            title.c_str(),
+            memberIds.empty() ? nullptr : memberIds.data(),
+            memberIds.size(),
+            &cid);
+        if (status != VEXIO_OK) {
+            return VexioResult<uint64_t>{status, std::nullopt};
+        }
+        return VexioResult<uint64_t>{VEXIO_OK, cid};
+    }
+
+    [[nodiscard]] VexioResult<uint32_t> InsertSwimlanes(
+        uint32_t pageId,
+        std::string_view lanesSemicolonUtf8 = {})
+    {
+        if (m_ptr == nullptr) {
+            return VexioResult<uint32_t>{VEXIO_ERR_INVALID_ARG, std::nullopt};
+        }
+        const std::string lanes{lanesSemicolonUtf8};
+        uint32_t outCount = 0;
+        const VexioStatus status = vexio_doc_insert_swimlanes(
+            m_ptr, pageId, lanes.c_str(), &outCount);
+        if (status != VEXIO_OK) {
+            return VexioResult<uint32_t>{status, std::nullopt};
+        }
+        return VexioResult<uint32_t>{VEXIO_OK, outCount};
+    }
+
+    [[nodiscard]] VexioResult<uint64_t> AttachCallout(
+        uint32_t pageId,
+        uint64_t targetShapeId,
+        std::string_view textUtf8)
+    {
+        if (m_ptr == nullptr) {
+            return VexioResult<uint64_t>{VEXIO_ERR_INVALID_ARG, std::nullopt};
+        }
+        const std::string text{textUtf8.empty() ? "Callout Note" : textUtf8};
+        uint64_t cid = 0;
+        const VexioStatus status = vexio_doc_attach_callout(
+            m_ptr, pageId, targetShapeId, text.c_str(), &cid);
+        if (status != VEXIO_OK) {
+            return VexioResult<uint64_t>{status, std::nullopt};
+        }
+        return VexioResult<uint64_t>{VEXIO_OK, cid};
+    }
+
+    [[nodiscard]] VexioResult<uint64_t> AutoConnect(
+        uint32_t pageId,
+        uint64_t sourceShapeId,
+        std::string_view dirUtf8)
+    {
+        if (m_ptr == nullptr || sourceShapeId == 0 || dirUtf8.empty()) {
+            return VexioResult<uint64_t>{VEXIO_ERR_INVALID_ARG, std::nullopt};
+        }
+        const std::string dir{dirUtf8};
+        uint64_t targetId = 0;
+        uint64_t connId = 0;
+        const VexioStatus status = vexio_doc_auto_connect(
+            m_ptr, pageId, sourceShapeId, dir.c_str(), &targetId, &connId);
+        if (status != VEXIO_OK) {
+            return VexioResult<uint64_t>{status, std::nullopt};
+        }
+        return VexioResult<uint64_t>{VEXIO_OK, targetId};
+    }
+
+    [[nodiscard]] VexioStatus DragControlHandle(
+        uint32_t pageId,
+        uint64_t shapeId,
+        std::string_view rowNameUtf8,
+        double pageXIn,
+        double pageYIn)
+    {
+        if (m_ptr == nullptr || shapeId == 0 || rowNameUtf8.empty()) {
+            return VEXIO_ERR_INVALID_ARG;
+        }
+        const std::string row{rowNameUtf8};
+        return vexio_doc_drag_control_handle(
+            m_ptr, pageId, shapeId, row.c_str(), pageXIn, pageYIn);
+    }
+
 private:
     VexioDoc* m_ptr{nullptr};
 };

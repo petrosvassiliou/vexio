@@ -18,13 +18,14 @@ pub use pipeline::{
 };
 pub use spatial::{SpatialEntry, SpatialIndex};
 pub use tessellate::{
-    compute_visual_content_hash, emit_lod_bounding_quad, extract_connector_polyline_in,
+    autoconnect_arrow_center_in, compute_visual_content_hash, emit_lod_bounding_quad,
+    extract_connector_polyline_in, tessellate_autoconnect_triangles,
     tessellate_connector_1d_handles, tessellate_ink_stroke, tessellate_interactive_overlay,
     tessellate_multi_selection_frame, tessellate_ruler_and_grid_ticks,
     tessellate_selection_handles, tessellate_shape, tessellate_shape_full,
-    visio_arrow_size_scale, GpuVertex, InteractiveCanvasOverlay, MeshCache, SmartGuideLine,
-    TessellatedMesh, PRIM_FLAG_MARKUP_INK, PRIM_FLAG_OVERLAY_UI, PRIM_FLAG_PAGE_GRID,
-    PRIM_FLAG_SHAPE, PRIM_FLAG_TEXT_GLYPH,
+    visio_arrow_size_scale, AutoConnectDir, GpuVertex, InteractiveCanvasOverlay, MeshCache,
+    SmartGuideLine, TessellatedMesh, PRIM_FLAG_MARKUP_INK, PRIM_FLAG_OVERLAY_UI,
+    PRIM_FLAG_PAGE_GRID, PRIM_FLAG_SHAPE, PRIM_FLAG_TEXT_GLYPH,
 };
 pub use ttf_shaper::{
     measure_text_width_in, register_font_bytes, shape_line_to_pdf_contours, PdfContourOp,
@@ -113,6 +114,8 @@ mod tests {
             text_bg_color: None,
             foreign_media: None,
             connection_points: Vec::new(),
+            control_handles: Vec::new(),
+            is_swimlane: false,
         }
     }
 
@@ -311,6 +314,8 @@ mod tests {
             text_bg_color: None,
             foreign_media: None,
             connection_points: Vec::new(),
+            control_handles: Vec::new(),
+            is_swimlane: false,
         };
 
         let mesh = tessellate_shape(&complex_visual, 96.0);

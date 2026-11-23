@@ -353,8 +353,31 @@ impl DocumentSession {
             Some(Unit::Inch),
         );
 
-        self.journal
-            .execute(&mut self.doc, DocCommand::AddShape { page_id, shape })?;
+        let has_containers_or_lanes = self.doc.page(page_id).is_some_and(|p| {
+            p.shapes.iter().any(|s| {
+                crate::containers::is_container_shape(s) || crate::containers::is_swimlane_shape(s)
+            })
+        });
+        if has_containers_or_lanes
+            && !crate::containers::is_container_shape(&shape)
+            && !crate::containers::is_swimlane_shape(&shape)
+        {
+            self.journal
+                .record_mutation(&mut self.doc, "Drop Stencil Shape", |doc| {
+                    if let Some(p) = doc.page_mut(page_id) {
+                        p.shapes.push(shape.clone());
+                    }
+                    ReactiveEngine::recalculate_document(doc);
+                    crate::containers::reconcile_containers_and_swimlanes_after_move(
+                        doc,
+                        page_id,
+                        &[assigned_root_id],
+                    );
+                });
+        } else {
+            self.journal
+                .execute(&mut self.doc, DocCommand::AddShape { page_id, shape })?;
+        }
         Ok(assigned_root_id)
     }
 
@@ -831,19 +854,35 @@ impl DocumentSession {
 
         match k.as_str() {
             "round_rect" | "rounded_rect" | "rounded" => {
-                sh.sheet
-                    .set_formula("Rounding", "0.14 in", Some(Unit::Inch));
+                sh.sheet.add_control(vexio_shapesheet::ControlRow {
+                    name: "Row_1".into(),
+                    x: "=Width*0.16".into(),
+                    y: "=Height".into(),
+                    x_dyn: "=Controls.Row_1.X".into(),
+                    y_dyn: "=Controls.Row_1.Y".into(),
+                    x_con: "0".into(),
+                    y_con: "0".into(),
+                    can_glue: false,
+                    prompt: "Drag Yellow Handle to Adjust Corner Rounding".into(),
+                });
+                sh.sheet.set_formula(
+                    "Rounding",
+                    "=BOUND(Controls.Row_1.X, 0, FALSE, 0.02 in, MIN(Width, Height)*0.48)",
+                    Some(Unit::Inch),
+                );
+                let r_expr = "BOUND(Controls.Row_1.X, 0, FALSE, 0.02 in, MIN(Width, Height)*0.48)";
+                let bow_expr = format!("=-0.41421356 * ({r_expr})");
                 let mut g = GeometrySection::new(1);
                 g.rows = vec![
-                    GeometryRow::move_to(1, "Width*0.12", "0 in"),
-                    GeometryRow::line_to(2, "Width*0.88", "0 in"),
-                    GeometryRow::arc_to(3, "Width", "Height*0.12", "-0.04 in"),
-                    GeometryRow::line_to(4, "Width", "Height*0.88"),
-                    GeometryRow::arc_to(5, "Width*0.88", "Height", "-0.04 in"),
-                    GeometryRow::line_to(6, "Width*0.12", "Height"),
-                    GeometryRow::arc_to(7, "0 in", "Height*0.88", "-0.04 in"),
-                    GeometryRow::line_to(8, "0 in", "Height*0.12"),
-                    GeometryRow::arc_to(9, "Width*0.12", "0 in", "-0.04 in"),
+                    GeometryRow::move_to(1, format!("={r_expr}"), "0 in"),
+                    GeometryRow::line_to(2, format!("=Width - ({r_expr})"), "0 in"),
+                    GeometryRow::arc_to(3, "Width", format!("={r_expr}"), &bow_expr),
+                    GeometryRow::line_to(4, "Width", format!("=Height - ({r_expr})")),
+                    GeometryRow::arc_to(5, format!("=Width - ({r_expr})"), "Height", &bow_expr),
+                    GeometryRow::line_to(6, format!("={r_expr}"), "Height"),
+                    GeometryRow::arc_to(7, "0 in", format!("=Height - ({r_expr})"), &bow_expr),
+                    GeometryRow::line_to(8, "0 in", format!("={r_expr}")),
+                    GeometryRow::arc_to(9, format!("={r_expr}"), "0 in", &bow_expr),
                 ];
                 sh.sheet.add_geometry(g);
             }
@@ -1198,7 +1237,8 @@ impl DocumentSession {
     }
 
     /// Translate one or more selected shapes by `(dx_in, dy_in)` in a single undoable transaction,
-    /// respecting `LockMoveX`, `LockMoveY`, and `GUARD` expressions, then re-routing attached connectors.
+    /// moving enclosed Container/Swimlane members synchronously, reconciling drop-into/out-of
+    /// Container membership & Swimlane metadata, and re-routing attached connectors.
     pub fn move_shapes_delta(
         &mut self,
         page_id: u32,
@@ -1209,118 +1249,132 @@ impl DocumentSession {
         if shape_ids.is_empty() || (dx_in.abs() < 1e-7 && dy_in.abs() < 1e-7) {
             return Ok(0);
         }
-        let id_set: std::collections::BTreeSet<u64> = shape_ids.iter().copied().collect();
+        let expanded_ids = crate::containers::expand_move_set_with_container_and_swimlane_members(
+            &self.doc,
+            page_id,
+            shape_ids,
+        );
+        let id_set: std::collections::BTreeSet<u64> = expanded_ids.into_iter().collect();
+        let root_ids: Vec<u64> = shape_ids.to_vec();
         let mut moved = 0usize;
         self.journal
             .record_mutation(&mut self.doc, "Move Shapes", |doc| {
-                let Some(page) = doc.page_mut(page_id) else {
-                    return;
-                };
-                let connects_snap = page.connects.clone();
-                for sh in &mut page.shapes {
-                    if !id_set.contains(&sh.id) {
-                        continue;
-                    }
-                    let lock_x = sh.sheet.get_bool("LockMoveX").unwrap_or(false);
-                    let lock_y = sh.sheet.get_bool("LockMoveY").unwrap_or(false);
-                    let eff_dx = if lock_x { 0.0 } else { dx_in };
-                    let eff_dy = if lock_y { 0.0 } else { dy_in };
-                    if eff_dx.abs() < 1e-7 && eff_dy.abs() < 1e-7 {
-                        continue;
-                    }
-                    if sh.kind == ShapeKind::Connector1D {
-                        let beg_glued = connects_snap.iter().any(|c| {
-                            c.connector_shape_id == sh.id
-                                && c.from_cell.to_ascii_lowercase().starts_with("begin")
-                        });
-                        let end_glued = connects_snap.iter().any(|c| {
-                            c.connector_shape_id == sh.id
-                                && !c.from_cell.to_ascii_lowercase().starts_with("begin")
-                        });
-                        if !beg_glued {
-                            let bx = sh.sheet.get_f64("BeginX").unwrap_or(0.0) + eff_dx;
-                            let by = sh.sheet.get_f64("BeginY").unwrap_or(0.0) + eff_dy;
-                            let _ = sh.sheet.try_set_formula_respecting_guard(
-                                "BeginX",
-                                format!("{} in", format_clean_f64(bx)),
-                                false,
-                            );
-                            let _ = sh.sheet.try_set_formula_respecting_guard(
-                                "BeginY",
-                                format!("{} in", format_clean_f64(by)),
-                                false,
-                            );
+                {
+                    let Some(page) = doc.page_mut(page_id) else {
+                        return;
+                    };
+                    let connects_snap = page.connects.clone();
+                    for sh in &mut page.shapes {
+                        if !id_set.contains(&sh.id) {
+                            continue;
                         }
-                        if !end_glued {
-                            let ex = sh.sheet.get_f64("EndX").unwrap_or(1.0) + eff_dx;
-                            let ey = sh.sheet.get_f64("EndY").unwrap_or(0.0) + eff_dy;
-                            let _ = sh.sheet.try_set_formula_respecting_guard(
-                                "EndX",
-                                format!("{} in", format_clean_f64(ex)),
-                                false,
-                            );
-                            let _ = sh.sheet.try_set_formula_respecting_guard(
-                                "EndY",
-                                format!("{} in", format_clean_f64(ey)),
-                                false,
-                            );
+                        let lock_x = sh.sheet.get_bool("LockMoveX").unwrap_or(false);
+                        let lock_y = sh.sheet.get_bool("LockMoveY").unwrap_or(false);
+                        let eff_dx = if lock_x { 0.0 } else { dx_in };
+                        let eff_dy = if lock_y { 0.0 } else { dy_in };
+                        if eff_dx.abs() < 1e-7 && eff_dy.abs() < 1e-7 {
+                            continue;
                         }
-                        if let Some(mc) = sh.sheet.get_f64("User.MidCoord") {
-                            let axis = sh
-                                .sheet
-                                .get_f64("User.MidAxis")
-                                .map(|v| v.round() as i32)
-                                .unwrap_or(0);
-                            let delta = if axis == 1 {
-                                eff_dx
-                            } else if axis == 2 {
-                                eff_dy
-                            } else {
-                                0.0
-                            };
-                            if delta.abs() > 1e-7 {
-                                sh.sheet.set_formula(
-                                    "User.MidCoord",
-                                    format!("{} in", format_clean_f64(mc + delta)),
-                                    Some(Unit::Inch),
+                        if sh.kind == ShapeKind::Connector1D {
+                            let beg_glued = connects_snap.iter().any(|c| {
+                                c.connector_shape_id == sh.id
+                                    && c.from_cell.to_ascii_lowercase().starts_with("begin")
+                            });
+                            let end_glued = connects_snap.iter().any(|c| {
+                                c.connector_shape_id == sh.id
+                                    && !c.from_cell.to_ascii_lowercase().starts_with("begin")
+                            });
+                            if !beg_glued {
+                                let bx = sh.sheet.get_f64("BeginX").unwrap_or(0.0) + eff_dx;
+                                let by = sh.sheet.get_f64("BeginY").unwrap_or(0.0) + eff_dy;
+                                let _ = sh.sheet.try_set_formula_respecting_guard(
+                                    "BeginX",
+                                    format!("{} in", format_clean_f64(bx)),
+                                    false,
+                                );
+                                let _ = sh.sheet.try_set_formula_respecting_guard(
+                                    "BeginY",
+                                    format!("{} in", format_clean_f64(by)),
+                                    false,
                                 );
                             }
-                        }
-                        moved += 1;
-                    } else {
-                        let px = sh.sheet.get_f64("PinX").unwrap_or(0.0) + eff_dx;
-                        let py = sh.sheet.get_f64("PinY").unwrap_or(0.0) + eff_dy;
-                        let mut changed = false;
-                        if eff_dx.abs() > 1e-7
-                            && sh
-                                .sheet
-                                .try_set_formula_respecting_guard(
-                                    "PinX",
-                                    format!("{} in", format_clean_f64(px)),
+                            if !end_glued {
+                                let ex = sh.sheet.get_f64("EndX").unwrap_or(1.0) + eff_dx;
+                                let ey = sh.sheet.get_f64("EndY").unwrap_or(0.0) + eff_dy;
+                                let _ = sh.sheet.try_set_formula_respecting_guard(
+                                    "EndX",
+                                    format!("{} in", format_clean_f64(ex)),
                                     false,
-                                )
-                                .is_ok()
-                        {
-                            changed = true;
-                        }
-                        if eff_dy.abs() > 1e-7
-                            && sh
-                                .sheet
-                                .try_set_formula_respecting_guard(
-                                    "PinY",
-                                    format!("{} in", format_clean_f64(py)),
+                                );
+                                let _ = sh.sheet.try_set_formula_respecting_guard(
+                                    "EndY",
+                                    format!("{} in", format_clean_f64(ey)),
                                     false,
-                                )
-                                .is_ok()
-                        {
-                            changed = true;
-                        }
-                        if changed {
+                                );
+                            }
+                            if let Some(mc) = sh.sheet.get_f64("User.MidCoord") {
+                                let axis = sh
+                                    .sheet
+                                    .get_f64("User.MidAxis")
+                                    .map(|v| v.round() as i32)
+                                    .unwrap_or(0);
+                                let delta = if axis == 1 {
+                                    eff_dx
+                                } else if axis == 2 {
+                                    eff_dy
+                                } else {
+                                    0.0
+                                };
+                                if delta.abs() > 1e-7 {
+                                    sh.sheet.set_formula(
+                                        "User.MidCoord",
+                                        format!("{} in", format_clean_f64(mc + delta)),
+                                        Some(Unit::Inch),
+                                    );
+                                }
+                            }
                             moved += 1;
+                        } else {
+                            let px = sh.sheet.get_f64("PinX").unwrap_or(0.0) + eff_dx;
+                            let py = sh.sheet.get_f64("PinY").unwrap_or(0.0) + eff_dy;
+                            let mut changed = false;
+                            if eff_dx.abs() > 1e-7
+                                && sh
+                                    .sheet
+                                    .try_set_formula_respecting_guard(
+                                        "PinX",
+                                        format!("{} in", format_clean_f64(px)),
+                                        false,
+                                    )
+                                    .is_ok()
+                            {
+                                changed = true;
+                            }
+                            if eff_dy.abs() > 1e-7
+                                && sh
+                                    .sheet
+                                    .try_set_formula_respecting_guard(
+                                        "PinY",
+                                        format!("{} in", format_clean_f64(py)),
+                                        false,
+                                    )
+                                    .is_ok()
+                            {
+                                changed = true;
+                            }
+                            if changed {
+                                moved += 1;
+                            }
                         }
                     }
                 }
                 if moved > 0 {
+                    ReactiveEngine::recalculate_document(doc);
+                    crate::containers::reconcile_containers_and_swimlanes_after_move(
+                        doc,
+                        page_id,
+                        &root_ids,
+                    );
                     route_page_connectors(doc, page_id);
                 }
             });
@@ -3000,6 +3054,510 @@ impl DocumentSession {
                 route_page_connectors(doc, page_id);
             });
         Ok(())
+    }
+
+    // =========================================================================
+    // v0.3.0-alpha Pillar #3: Containers, Swimlanes, Callouts, Controls & AutoConnect
+    // =========================================================================
+
+    /// Insert a Visio Container enclosing `member_ids` (or a standalone interactive Container if `member_ids` is empty).
+    pub fn insert_container(
+        &mut self,
+        page_id: u32,
+        title: &str,
+        member_ids: &[u64],
+    ) -> Result<u64, CoreError> {
+        if self.doc.page(page_id).is_none() {
+            return Err(CoreError::Journal(JournalError::PageNotFound(page_id)));
+        }
+        let clean_title = if title.trim().is_empty() {
+            "Container"
+        } else {
+            title.trim()
+        };
+        let filtered: Vec<u64> = if let Some(page) = self.doc.page(page_id) {
+            member_ids
+                .iter()
+                .copied()
+                .filter(|&id| {
+                    page.find_shape(id).is_some_and(|sh| {
+                        sh.kind != ShapeKind::Connector1D
+                            && !crate::containers::is_swimlane_shape(sh)
+                            && !crate::containers::is_container_shape(sh)
+                    })
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
+        let mut created_id = 0u64;
+        self.journal
+            .record_mutation(&mut self.doc, "Insert Container", |doc| {
+                created_id =
+                    crate::containers::create_container(doc, page_id, clean_title, &filtered, 0.35)
+                        .unwrap_or(0);
+            });
+        if created_id == 0 {
+            return Err(CoreError::Journal(JournalError::PageNotFound(page_id)));
+        }
+        Ok(created_id)
+    }
+
+    /// Build a Cross-Functional Swimlane pool (or append a contiguous lane below existing swimlanes).
+    pub fn insert_swimlanes(
+        &mut self,
+        page_id: u32,
+        lanes_semicolon: &str,
+    ) -> Result<Vec<u64>, CoreError> {
+        if self.doc.page(page_id).is_none() {
+            return Err(CoreError::Journal(JournalError::PageNotFound(page_id)));
+        }
+        let parsed: Vec<&str> = lanes_semicolon
+            .split(';')
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .collect();
+        let mut created = Vec::new();
+        self.journal
+            .record_mutation(&mut self.doc, "Insert Cross-Functional Swimlanes", |doc| {
+                created = crate::containers::insert_or_append_swimlanes(doc, page_id, &parsed);
+            });
+        Ok(created)
+    }
+
+    /// Attach a reactive Visio Callout annotation tethered to `target_shape_id` via `Controls.Row_1`
+    /// (or place a standalone Callout if `target_shape_id == 0`).
+    pub fn insert_callout(
+        &mut self,
+        page_id: u32,
+        target_shape_id: u64,
+        text: &str,
+    ) -> Result<u64, CoreError> {
+        if self.doc.page(page_id).is_none() {
+            return Err(CoreError::Journal(JournalError::PageNotFound(page_id)));
+        }
+        let valid_target = self
+            .doc
+            .page(page_id)
+            .and_then(|p| p.find_shape(target_shape_id))
+            .map(|s| s.id)
+            .unwrap_or(0);
+        let clean_text = if text.trim().is_empty() {
+            "Callout Note"
+        } else {
+            text.trim()
+        };
+        let mut created_id = 0u64;
+        self.journal
+            .record_mutation(&mut self.doc, "Attach Callout", |doc| {
+                created_id = crate::containers::attach_callout(
+                    doc,
+                    page_id,
+                    valid_target,
+                    clean_text,
+                    1.55,
+                    1.05,
+                )
+                .unwrap_or(0);
+            });
+        if created_id == 0 {
+            return Err(CoreError::Journal(JournalError::PageNotFound(page_id)));
+        }
+        Ok(created_id)
+    }
+
+    /// Drag a yellow diamond `Controls.*` handle in page inches with Undo/Redo journaling.
+    /// When dragging `Row_1` of a Callout (`msvStructureType == "Callout"`) onto another 2D shape,
+    /// automatically re-tethers the Callout's reactive leader formula (`=Sheet.N!PinX - PinX + LocPinX`)!
+    pub fn drag_control_handle(
+        &mut self,
+        page_id: u32,
+        shape_id: u64,
+        row_name: &str,
+        page_x_in: f64,
+        page_y_in: f64,
+    ) -> Result<bool, CoreError> {
+        if !page_x_in.is_finite() || !page_y_in.is_finite() {
+            return Ok(false);
+        }
+        if self
+            .doc
+            .page(page_id)
+            .and_then(|p| p.find_shape(shape_id))
+            .is_none()
+        {
+            return Err(CoreError::Journal(JournalError::ShapeNotFound(shape_id)));
+        }
+
+        let clean_row = row_name
+            .trim()
+            .strip_prefix("Controls.")
+            .or_else(|| row_name.trim().strip_prefix("controls."))
+            .unwrap_or(row_name.trim())
+            .to_string();
+
+        let is_callout_leader = self
+            .doc
+            .page(page_id)
+            .and_then(|p| p.find_shape(shape_id))
+            .is_some_and(|sh| {
+                crate::containers::is_callout_shape(sh) && clean_row.eq_ignore_ascii_case("Row_1")
+            });
+
+        let retether_target = if is_callout_leader {
+            let visuals = ReactiveEngine::evaluate_page_visuals(&self.doc, page_id);
+            let index = vexio_render::SpatialIndex::build(&visuals);
+            index
+                .hit_test_visuals(&visuals, page_x_in, page_y_in, 0.08)
+                .into_iter()
+                .find(|&cand_id| {
+                    cand_id != shape_id
+                        && self
+                            .doc
+                            .page(page_id)
+                            .and_then(|p| p.find_shape(cand_id))
+                            .is_some_and(|cand| {
+                                matches!(cand.kind, ShapeKind::Shape2D | ShapeKind::Group)
+                                    && !crate::containers::is_swimlane_shape(cand)
+                                    && !crate::containers::is_callout_shape(cand)
+                            })
+                })
+        } else {
+            None
+        };
+
+        let mut ok = false;
+        self.journal
+            .record_mutation(&mut self.doc, "Adjust Control Handle", |doc| {
+                if let Some(tid) = retether_target {
+                    if let Some(sh) = doc.page_mut(page_id).and_then(|p| p.find_shape_mut(shape_id))
+                    {
+                        let fx = format!("=Sheet.{tid}!PinX - PinX + LocPinX");
+                        let fy = format!("=Sheet.{tid}!PinY - PinY + LocPinY");
+                        sh.sheet.set_user_cell(
+                            "msvCalloutTargetSheet",
+                            format!("{tid}"),
+                            "Target Shape ID",
+                        );
+                        sh.sheet
+                            .set_formula("Controls.Row_1", fx.clone(), Some(Unit::Inch));
+                        sh.sheet
+                            .set_formula("Controls.Row_1.X", fx.clone(), Some(Unit::Inch));
+                        sh.sheet
+                            .set_formula("Controls.Row_1.Y", fy.clone(), Some(Unit::Inch));
+                        sh.sheet
+                            .set_formula("Controls.Row_1.XDyn", fx, Some(Unit::Inch));
+                        sh.sheet
+                            .set_formula("Controls.Row_1.YDyn", fy, Some(Unit::Inch));
+                        ok = true;
+                    }
+                    ReactiveEngine::recalculate_document(doc);
+                } else {
+                    ok = crate::boolean_ops::move_control_handle(
+                        doc,
+                        page_id,
+                        shape_id,
+                        &clean_row,
+                        page_x_in,
+                        page_y_in,
+                    );
+                }
+            });
+        Ok(ok)
+    }
+
+    /// Visio One-Click AutoConnect (`North`, `East`, `South`, `West`):
+    /// - If an existing non-container 2D shape already sits aligned within `[0.15 in .. 2.35 in]`
+    ///   in `dir`, wires a dynamic routed connector directly to that neighbor!
+    /// - Otherwise, stamps a clean connected step shape `1.15 in` beyond `source_shape_id`'s edge in `dir`,
+    ///   wires an orthogonal `Connector1D` port-to-port, reconciles Container/Swimlane membership & bounds,
+    ///   and returns `(target_shape_id, connector_shape_id)`.
+    pub fn auto_connect_shape(
+        &mut self,
+        page_id: u32,
+        source_shape_id: u64,
+        dir: vexio_render::AutoConnectDir,
+    ) -> Result<(u64, u64), CoreError> {
+        let Some(src_snapshot) = self
+            .doc
+            .page(page_id)
+            .and_then(|p| p.find_shape(source_shape_id))
+            .cloned()
+        else {
+            return Err(CoreError::Journal(JournalError::ShapeNotFound(
+                source_shape_id,
+            )));
+        };
+
+        let visuals = ReactiveEngine::evaluate_page_visuals(&self.doc, page_id);
+        let src_vis = visuals.iter().find(|v| v.shape_id == source_shape_id);
+        let src_px = src_snapshot.sheet.get_f64("PinX").unwrap_or(3.0);
+        let src_py = src_snapshot.sheet.get_f64("PinY").unwrap_or(4.0);
+        let src_w = src_snapshot.sheet.get_f64("Width").unwrap_or(1.6).abs().max(0.4);
+        let src_h = src_snapshot.sheet.get_f64("Height").unwrap_or(0.95).abs().max(0.4);
+        let (src_min, src_max) = src_vis
+            .map(|v| (v.aabb_min, v.aabb_max))
+            .unwrap_or(([src_px - src_w * 0.5, src_py - src_h * 0.5], [src_px + src_w * 0.5, src_py + src_h * 0.5]));
+
+        // 1. Check for an existing aligned 2D neighbor in `dir` within `[0.12 in .. 2.35 in]`
+        let mut best_neighbor: Option<(f64, u64)> = None;
+        if let Some(page) = self.doc.page(page_id) {
+            for cand in &page.shapes {
+                if cand.id == source_shape_id
+                    || !matches!(cand.kind, ShapeKind::Shape2D | ShapeKind::Group)
+                    || crate::containers::is_container_shape(cand)
+                    || crate::containers::is_swimlane_shape(cand)
+                    || crate::containers::is_callout_shape(cand)
+                {
+                    continue;
+                }
+                let cpx = cand.sheet.get_f64("PinX").unwrap_or(0.0);
+                let cpy = cand.sheet.get_f64("PinY").unwrap_or(0.0);
+                let cw = cand.sheet.get_f64("Width").unwrap_or(1.0).abs();
+                let ch = cand.sheet.get_f64("Height").unwrap_or(1.0).abs();
+                let cmn = [cpx - cw * 0.5, cpy - ch * 0.5];
+                let cmx = [cpx + cw * 0.5, cpy + ch * 0.5];
+
+                let (gap, lat_off, max_lat) = match dir {
+                    vexio_render::AutoConnectDir::East => (
+                        cmn[0] - src_max[0],
+                        (cpy - src_py).abs(),
+                        src_h.max(ch) * 0.7,
+                    ),
+                    vexio_render::AutoConnectDir::West => (
+                        src_min[0] - cmx[0],
+                        (cpy - src_py).abs(),
+                        src_h.max(ch) * 0.7,
+                    ),
+                    vexio_render::AutoConnectDir::North => (
+                        cmn[1] - src_max[1],
+                        (cpx - src_px).abs(),
+                        src_w.max(cw) * 0.7,
+                    ),
+                    vexio_render::AutoConnectDir::South => (
+                        src_min[1] - cmx[1],
+                        (cpx - src_px).abs(),
+                        src_w.max(cw) * 0.7,
+                    ),
+                };
+
+                if (0.12..=2.35).contains(&gap) && lat_off <= max_lat {
+                    let already_linked = page.connects.iter().any(|c1| {
+                        c1.target_shape_id == source_shape_id
+                            && page.connects.iter().any(|c2| {
+                                c2.connector_shape_id == c1.connector_shape_id
+                                    && c2.target_shape_id == cand.id
+                            })
+                    });
+                    if !already_linked {
+                        let score = gap + lat_off * 0.5;
+                        if best_neighbor.is_none_or(|(b, _)| score < b) {
+                            best_neighbor = Some((score, cand.id));
+                        }
+                    }
+                }
+            }
+        }
+
+        if let Some((_, existing_id)) = best_neighbor {
+            let cid = self.connect_shapes(page_id, source_shape_id, existing_id)?;
+            return Ok((existing_id, cid));
+        }
+
+        // 2. Stamp a new connected step shape `1.15 in` beyond `source_shape_id` in `dir`!
+        let clone_source = !crate::containers::is_container_shape(&src_snapshot)
+            && !crate::containers::is_swimlane_shape(&src_snapshot)
+            && !crate::containers::is_callout_shape(&src_snapshot)
+            && src_w <= 3.2
+            && src_h <= 2.4;
+        let new_w = if clone_source { src_w.clamp(0.75, 2.4) } else { 1.6 };
+        let new_h = if clone_source { src_h.clamp(0.55, 1.5) } else { 0.95 };
+        let gap_in = 1.15;
+
+        let (mut dst_x, mut dst_y) = match dir {
+            vexio_render::AutoConnectDir::East => (src_max[0] + gap_in + new_w * 0.5, src_py),
+            vexio_render::AutoConnectDir::West => (src_min[0] - gap_in - new_w * 0.5, src_py),
+            vexio_render::AutoConnectDir::North => (src_px, src_max[1] + gap_in + new_h * 0.5),
+            vexio_render::AutoConnectDir::South => (src_px, src_min[1] - gap_in - new_h * 0.5),
+        };
+        dst_x = dst_x.max(new_w * 0.5 + 0.25);
+        dst_y = dst_y.max(new_h * 0.5 + 0.25);
+
+        // Pre-discover any Container enclosing `source_shape_id` so the AutoConnected step automatically joins it!
+        let source_containers: Vec<u64> = self
+            .doc
+            .page(page_id)
+            .map(|p| {
+                p.shapes
+                    .iter()
+                    .filter(|s| {
+                        crate::containers::is_container_shape(s)
+                            && crate::containers::parse_container_members(s)
+                                .contains(&source_shape_id)
+                    })
+                    .map(|s| s.id)
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        let mut out_pair = (0u64, 0u64);
+        self.journal
+            .record_mutation(&mut self.doc, "AutoConnect Shape", |doc| {
+                // Auto-expand page width/height if stamping past top/right margins
+                if let Some(page) = doc.page_mut(page_id) {
+                    let req_pw = dst_x + new_w * 0.5 + 0.6;
+                    let req_ph = dst_y + new_h * 0.5 + 0.6;
+                    if req_pw > page.width_in() {
+                        page.page_sheet.set_formula(
+                            "PageWidth",
+                            format!("{} in", format_clean_f64(req_pw)),
+                            Some(Unit::Inch),
+                        );
+                    }
+                    if req_ph > page.height_in() {
+                        page.page_sheet.set_formula(
+                            "PageHeight",
+                            format!("{} in", format_clean_f64(req_ph)),
+                            Some(Unit::Inch),
+                        );
+                    }
+                }
+
+                let (new_sid, conn_id) = {
+                    let Some(page) = doc.page_mut(page_id) else {
+                        return;
+                    };
+                    let mut alloc_id = page.next_shape_id();
+                    let step_num = page
+                        .shapes
+                        .iter()
+                        .filter(|s| {
+                            s.kind == ShapeKind::Shape2D
+                                && !crate::containers::is_container_shape(s)
+                                && !crate::containers::is_swimlane_shape(s)
+                        })
+                        .count()
+                        + 1;
+
+                    let mut new_sh = if clone_source && src_snapshot.children.is_empty() {
+                        let mut c = src_snapshot.clone();
+                        let root_id = remap_dropped_shape_subtree(&mut c, &mut alloc_id);
+                        c.name = format!("Process.{root_id}");
+                        c.name_u = c.name.clone();
+                        c.text = format!("Step {step_num}");
+                        c.sheet.set_formula(
+                            "Width",
+                            format!("{} in", format_clean_f64(new_w)),
+                            Some(Unit::Inch),
+                        );
+                        c.sheet.set_formula(
+                            "Height",
+                            format!("{} in", format_clean_f64(new_h)),
+                            Some(Unit::Inch),
+                        );
+                        c
+                    } else {
+                        let sid = alloc_id;
+                        alloc_id += 1;
+                        let mut s = VisioShape::new_rect(
+                            sid,
+                            format!("Process.{sid}"),
+                            dst_x,
+                            dst_y,
+                            new_w,
+                            new_h,
+                        );
+                        s.text = format!("Step {step_num}");
+                        s.sheet
+                            .set_formula("FillForegnd", "=RGB(239,246,255)", Some(Unit::Color));
+                        s.sheet
+                            .set_formula("LineColor", "=RGB(37,99,235)", Some(Unit::Color));
+                        s.sheet
+                            .set_formula("LineWeight", "1.25 pt", Some(Unit::Point));
+                        s.sheet
+                            .set_formula("Rounding", "0.08 in", Some(Unit::Inch));
+                        s
+                    };
+                    new_sh.sheet.set_formula(
+                        "PinX",
+                        format!("{} in", format_clean_f64(dst_x)),
+                        Some(Unit::Inch),
+                    );
+                    new_sh.sheet.set_formula(
+                        "PinY",
+                        format!("{} in", format_clean_f64(dst_y)),
+                        Some(Unit::Inch),
+                    );
+                    attach_cardinal_ports_to_shape(&mut new_sh);
+                    let new_sid = new_sh.id;
+                    page.shapes.push(new_sh);
+
+                    let conn_id = alloc_id.max(page.next_shape_id());
+                    let mut conn = VisioShape::new_connector(
+                        conn_id,
+                        format!("Dynamic connector.{conn_id}"),
+                        src_px,
+                        src_py,
+                        dst_x,
+                        dst_y,
+                    );
+                    conn.sheet
+                        .set_formula("EndArrow", "4", Some(Unit::Number));
+                    conn.sheet
+                        .set_formula("LineColor", "=RGB(51,65,85)", Some(Unit::Color));
+                    conn.sheet
+                        .set_formula("LineWeight", "1.25 pt", Some(Unit::Point));
+                    page.shapes.push(conn);
+
+                    page.connects.push(GlueEndpoint {
+                        connector_shape_id: conn_id,
+                        from_cell: "BeginX".into(),
+                        target_shape_id: source_shape_id,
+                        to_cell: "PinX".into(),
+                        is_dynamic: true,
+                    });
+                    page.connects.push(GlueEndpoint {
+                        connector_shape_id: conn_id,
+                        from_cell: "EndX".into(),
+                        target_shape_id: new_sid,
+                        to_cell: "PinX".into(),
+                        is_dynamic: true,
+                    });
+
+                    // Inherit source Container membership if `source_shape_id` belonged to a Container
+                    for &cid in &source_containers {
+                        if let Some(cont_sh) = page.find_shape_mut(cid) {
+                            let mut members = crate::containers::parse_container_members(cont_sh);
+                            if !members.contains(&new_sid) {
+                                members.push(new_sid);
+                                crate::containers::set_container_members(cont_sh, &members);
+                            }
+                        }
+                    }
+
+                    (new_sid, conn_id)
+                };
+
+                ReactiveEngine::recalculate_document(doc);
+                for &cid in &source_containers {
+                    crate::containers::refit_container(
+                        doc,
+                        page_id,
+                        cid,
+                        0.35,
+                        crate::containers::ContainerResizeMode::ExpandOnly,
+                    );
+                }
+                crate::containers::reconcile_containers_and_swimlanes_after_move(
+                    doc,
+                    page_id,
+                    &[new_sid],
+                );
+                route_page_connectors(doc, page_id);
+                out_pair = (new_sid, conn_id);
+            });
+
+        Ok(out_pair)
     }
 }
 

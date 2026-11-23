@@ -7,8 +7,9 @@ pub mod sections;
 pub mod units;
 
 pub use dag::{
-    EvaluatedConnectionPort, EvaluatedGeometryPath, EvaluatedGradientStop, EvaluatedPathVerb,
-    EvaluatedShapeVisual, GlobalCellId, PendingSetf, ReactiveEngine, ShapeTransform2D, SheetKey,
+    EvaluatedConnectionPort, EvaluatedControlHandle, EvaluatedGeometryPath, EvaluatedGradientStop,
+    EvaluatedPathVerb, EvaluatedShapeVisual, GlobalCellId, PendingSetf, ReactiveEngine,
+    ShapeTransform2D, SheetKey,
 };
 pub use model::{
     CommentAnnotation, DocumentProperties, ForeignMediaData, GlueEndpoint, HeaderFooter, LayerDef,

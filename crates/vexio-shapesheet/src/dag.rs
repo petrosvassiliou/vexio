@@ -147,6 +147,14 @@ pub struct EvaluatedConnectionPort {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EvaluatedControlHandle {
+    pub name: String,
+    pub pos_page_in: [f64; 2],
+    pub can_glue: bool,
+    pub prompt: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct EvaluatedShapeVisual {
     pub shape_id: u64,
     pub kind: ShapeKind,
@@ -198,6 +206,10 @@ pub struct EvaluatedShapeVisual {
     pub foreign_media: Option<ForeignMediaData>,
     #[serde(default)]
     pub connection_points: Vec<EvaluatedConnectionPort>,
+    #[serde(default)]
+    pub control_handles: Vec<EvaluatedControlHandle>,
+    #[serde(default)]
+    pub is_swimlane: bool,
 }
 
 fn default_arrow_size() -> u8 {
@@ -2872,6 +2884,46 @@ fn collect_shape_visuals(
         }
     }
 
+    let mut control_handles: Vec<EvaluatedControlHandle> = Vec::new();
+    if matches!(shape.kind, ShapeKind::Shape2D | ShapeKind::Group) && parent_tf.is_none() {
+        let ctrl_rows = if !ss.controls.is_empty() {
+            &ss.controls
+        } else if let Some(ms) = master_shape.filter(|m| !m.sheet.controls.is_empty()) {
+            &ms.sheet.controls
+        } else {
+            &ss.controls
+        };
+        for ctrl in ctrl_rows {
+            let xk = format!("Controls.{}.X", ctrl.name);
+            let yk = format!("Controls.{}.Y", ctrl.name);
+            let bk = format!("Controls.{}", ctrl.name);
+            let lx = ss
+                .get_f64(&xk)
+                .or_else(|| ss.get_f64(&bk))
+                .or_else(|| master_shape.and_then(|ms| ms.sheet.get_f64(&xk)))
+                .unwrap_or(w * 0.5);
+            let ly = ss
+                .get_f64(&yk)
+                .or_else(|| master_shape.and_then(|ms| ms.sheet.get_f64(&yk)))
+                .unwrap_or(h * 0.5);
+            let (wx, wy) = world_tf.local_to_parent(lx, ly);
+            if wx.is_finite() && wy.is_finite() {
+                control_handles.push(EvaluatedControlHandle {
+                    name: ctrl.name.clone(),
+                    pos_page_in: [wx, wy],
+                    can_glue: ctrl.can_glue,
+                    prompt: ctrl.prompt.clone(),
+                });
+            }
+        }
+    }
+
+    let is_swimlane = ss.get_f64("User.visSwimlane").unwrap_or(0.0) > 0.5
+        || master_shape
+            .and_then(|ms| ms.sheet.get_f64("User.visSwimlane"))
+            .unwrap_or(0.0)
+            > 0.5;
+
     let end_arrow_size = ss
         .get_f64("EndArrowSize")
         .unwrap_or(2.0)
@@ -2937,6 +2989,8 @@ fn collect_shape_visuals(
         text_bg_color,
         foreign_media,
         connection_points,
+        control_handles,
+        is_swimlane,
     });
 
     if !shape.children.is_empty() {

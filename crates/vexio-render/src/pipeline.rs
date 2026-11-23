@@ -4,10 +4,10 @@
 
 use crate::spatial::SpatialIndex;
 use crate::tessellate::{
-    tessellate_connector_1d_handles, tessellate_ink_stroke, tessellate_interactive_overlay,
-    tessellate_multi_selection_frame, tessellate_ruler_and_grid_ticks,
-    tessellate_selection_handles, GpuVertex, InteractiveCanvasOverlay, MeshCache, TessellatedMesh,
-    PRIM_FLAG_PAGE_GRID, PRIM_FLAG_SHAPE,
+    tessellate_autoconnect_triangles, tessellate_connector_1d_handles, tessellate_ink_stroke,
+    tessellate_interactive_overlay, tessellate_multi_selection_frame,
+    tessellate_ruler_and_grid_ticks, tessellate_selection_handles, GpuVertex,
+    InteractiveCanvasOverlay, MeshCache, TessellatedMesh, PRIM_FLAG_PAGE_GRID, PRIM_FLAG_SHAPE,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -420,6 +420,12 @@ pub fn build_page_scene_mesh_with_overlay(
                     ));
                 } else {
                     scene.append(&tessellate_selection_handles(vis, ui_ppi));
+                    if selected_shapes.len() == 1 {
+                        let hov_dir = overlay
+                            .and_then(|ov| ov.hovered_autoconnect)
+                            .and_then(|(hid, dir)| (hid == vis.shape_id).then_some(dir));
+                        scene.append(&tessellate_autoconnect_triangles(vis, ui_ppi, hov_dir));
+                    }
                     union_min[0] = union_min[0].min(vis.aabb_min[0]);
                     union_min[1] = union_min[1].min(vis.aabb_min[1]);
                     union_max[0] = union_max[0].max(vis.aabb_max[0]);

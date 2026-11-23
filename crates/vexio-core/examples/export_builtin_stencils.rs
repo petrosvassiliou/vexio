@@ -1,6 +1,6 @@
 //! Generates Vexio's built-in IP-clean OpenXML `.vssx` Stencil Packs onto disk
-//! for native platforms (`/home/antigravity/stencils/`) and ChromeOS PWA offline precaching
-//! (`/home/antigravity/apps/chromeos-pwa/public/stencils/`).
+//! for native platforms (`stencils/`) and ChromeOS PWA offline precaching
+//! (`apps/chromeos-pwa/public/stencils/`).
 
 use std::fs;
 use std::path::Path;
@@ -26,11 +26,15 @@ fn slugify(title: &str) -> String {
 }
 
 fn main() {
+    let repo_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(|p| p.parent())
+        .expect("resolve workspace root from CARGO_MANIFEST_DIR");
     let dirs = [
-        Path::new("/home/antigravity/stencils"),
-        Path::new("/home/antigravity/apps/chromeos-pwa/public/stencils"),
+        repo_root.join("stencils"),
+        repo_root.join("apps/chromeos-pwa/public/stencils"),
     ];
-    for d in dirs {
+    for d in &dirs {
         fs::create_dir_all(d).expect("create stencil output dir");
     }
 
@@ -41,7 +45,7 @@ fn main() {
         doc.masters = pack.masters;
         let bytes = write_vsdx(&doc, VsdxPackageKind::Stencil).expect("encode .vssx stencil");
         let file_name = format!("{}.vssx", slugify(&pack.title));
-        for d in dirs {
+        for d in &dirs {
             fs::write(d.join(&file_name), &bytes).expect("write .vssx file");
         }
         println!("Exported {} ({} bytes)", file_name, bytes.len());

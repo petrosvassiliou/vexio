@@ -1987,11 +1987,22 @@ fn make_stencil_pack(
                 sh.sheet.add_geometry(fold);
             }
             "CalloutBubble" => {
+                sh.sheet.add_control(vexio_shapesheet::ControlRow {
+                    name: "Row_1".into(),
+                    x: "=Width*0.14".into(),
+                    y: "0 in".into(),
+                    x_dyn: "=Controls.Row_1.X".into(),
+                    y_dyn: "=Controls.Row_1.Y".into(),
+                    x_con: "0".into(),
+                    y_con: "0".into(),
+                    can_glue: true,
+                    prompt: "Drag Callout Tail Tip".into(),
+                });
                 let mut g = GeometrySection::new(1);
                 g.rows = vec![
                     GeometryRow::move_to(1, "0 in", "=Height*0.24"),
                     GeometryRow::line_to(2, "=Width*0.24", "=Height*0.24"),
-                    GeometryRow::line_to(3, "=Width*0.14", "0 in"),
+                    GeometryRow::line_to(3, "=Controls.Row_1.X", "=Controls.Row_1.Y"),
                     GeometryRow::line_to(4, "=Width*0.44", "=Height*0.24"),
                     GeometryRow::line_to(5, "=Width", "=Height*0.24"),
                     GeometryRow::line_to(6, "=Width", "=Height"),
@@ -3253,9 +3264,51 @@ fn apply_domain_master_styling_and_details(
             sh.sheet.add_geometry(detail);
         }
         "callout_container" => {
+            sh.sheet
+                .set_user_cell("msvStructureType", "\"Container\"", "Structure Type");
+            sh.sheet
+                .set_user_cell("msvContainerMembers", "\"\"", "Member IDs");
+            sh.sheet
+                .set_formula("VerticalAlign", "0", Some(Unit::Number));
+            sh.sheet
+                .set_formula("Para.HorzAlign", "0", Some(Unit::Number));
+            sh.sheet
+                .set_formula("Char.Style", "1", Some(Unit::Number));
             detail.rows = vec![
                 GeometryRow::move_to(1, "0 in", "=Height*0.80"),
                 GeometryRow::line_to(2, "=Width", "=Height*0.80"),
+            ];
+            sh.sheet.add_geometry(detail);
+        }
+        "callout_dashed_group" => {
+            sh.sheet
+                .set_user_cell("msvStructureType", "\"Container\"", "Structure Type");
+            sh.sheet
+                .set_user_cell("msvContainerMembers", "\"\"", "Member IDs");
+            sh.sheet
+                .set_formula("VerticalAlign", "0", Some(Unit::Number));
+        }
+        "callout_leader" => {
+            sh.sheet
+                .set_user_cell("msvStructureType", "\"Callout\"", "Structure Type");
+            sh.sheet.add_control(vexio_shapesheet::ControlRow {
+                name: "Row_1".into(),
+                x: "-0.45 in".into(),
+                y: "-0.35 in".into(),
+                x_dyn: "-0.45 in".into(),
+                y_dyn: "-0.35 in".into(),
+                x_con: "0".into(),
+                y_con: "0".into(),
+                can_glue: true,
+                prompt: "Drag Callout Leader Tip".into(),
+            });
+            detail.rows = vec![
+                GeometryRow::move_to(
+                    1,
+                    "=BOUND(Controls.Row_1.X, 0, FALSE, 0 in, Width)",
+                    "=BOUND(Controls.Row_1.Y, 0, FALSE, 0 in, Height)",
+                ),
+                GeometryRow::line_to(2, "=Controls.Row_1.X", "=Controls.Row_1.Y"),
             ];
             sh.sheet.add_geometry(detail);
         }
@@ -3266,7 +3319,11 @@ fn apply_domain_master_styling_and_details(
             ];
             sh.sheet.add_geometry(detail);
         }
-        "swimlane_horiz" => {
+        "swimlane_horiz" | "swim_shared" | "swim_external" | "swim_system" => {
+            sh.sheet
+                .set_user_cell("msvStructureType", "\"Container\"", "Swimlane Container");
+            sh.sheet
+                .set_user_cell("visSwimlane", "1", "Cross-Functional Swimlane");
             detail.rows = vec![
                 GeometryRow::move_to(1, "=Width*0.14", "0 in"),
                 GeometryRow::line_to(2, "=Width*0.14", "=Height"),
@@ -3274,6 +3331,10 @@ fn apply_domain_master_styling_and_details(
             sh.sheet.add_geometry(detail);
         }
         "swimlane_vert" => {
+            sh.sheet
+                .set_user_cell("msvStructureType", "\"Container\"", "Swimlane Container");
+            sh.sheet
+                .set_user_cell("visSwimlane", "1", "Cross-Functional Swimlane");
             detail.rows = vec![
                 GeometryRow::move_to(1, "0 in", "=Height*0.84"),
                 GeometryRow::line_to(2, "=Width", "=Height*0.84"),

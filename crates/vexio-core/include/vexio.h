@@ -136,6 +136,13 @@ bool        vexio_viewport_get_smart_guides(const VexioViewport* vp);
 VexioStatus vexio_viewport_get_selection_json(const VexioViewport* vp, VexioOwnedBuffer* out_json);
 VexioStatus vexio_viewport_set_selection(VexioViewport* vp, const VexioDoc* doc, const uint64_t* shape_ids_ptr, size_t shape_ids_len);
 
+/* v0.3.0-alpha: Interactive Containers, Swimlanes, Callouts, Yellow Control Handles & AutoConnect */
+VexioStatus vexio_doc_insert_container(VexioDoc* doc, uint32_t page_id, const char* title_utf8, const uint64_t* member_ids_ptr, size_t member_ids_len, uint64_t* out_container_id);
+VexioStatus vexio_doc_insert_swimlanes(VexioDoc* doc, uint32_t page_id, const char* lanes_semicolon_utf8, uint32_t* out_lane_count);
+VexioStatus vexio_doc_attach_callout(VexioDoc* doc, uint32_t page_id, uint64_t target_shape_id, const char* text_utf8, uint64_t* out_callout_id);
+VexioStatus vexio_doc_auto_connect(VexioDoc* doc, uint32_t page_id, uint64_t source_shape_id, const char* dir_utf8, uint64_t* out_target_shape_id, uint64_t* out_conn_id);
+VexioStatus vexio_doc_drag_control_handle(VexioDoc* doc, uint32_t page_id, uint64_t shape_id, const char* row_name_utf8, double page_x_in, double page_y_in);
+
 #ifdef __cplusplus
 }
 #endif

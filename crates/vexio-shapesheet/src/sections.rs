@@ -504,6 +504,26 @@ impl ShapeSheet {
                     row.value = formula_str.to_string();
                 }
             }
+        } else if let Some(ctrl_rest) = key.strip_prefix("controls.") {
+            let (row_key, sub) = match ctrl_rest.split_once('.') {
+                Some((r, s)) => (r, s),
+                None => (ctrl_rest, "x"),
+            };
+            if let Some(ctrl) = self
+                .controls
+                .iter_mut()
+                .find(|c| c.name.eq_ignore_ascii_case(row_key))
+            {
+                match sub {
+                    "x" => ctrl.x = formula_str.to_string(),
+                    "y" => ctrl.y = formula_str.to_string(),
+                    "xdyn" => ctrl.x_dyn = formula_str.to_string(),
+                    "ydyn" => ctrl.y_dyn = formula_str.to_string(),
+                    "xcon" => ctrl.x_con = formula_str.to_string(),
+                    "ycon" => ctrl.y_con = formula_str.to_string(),
+                    _ => {}
+                }
+            }
         }
     }
 
@@ -799,6 +819,15 @@ pub fn default_unit_for_cell(canonical_key: &str) -> Option<Unit> {
             Some(Unit::Color)
         }
         k if k.ends_with(".lineweight") => Some(Unit::Point),
+        k if k.starts_with("controls.")
+            && (!k["controls.".len()..].contains('.')
+                || k.ends_with(".x")
+                || k.ends_with(".y")
+                || k.ends_with(".xdyn")
+                || k.ends_with(".ydyn")) =>
+        {
+            Some(Unit::Inch)
+        }
         _ => None,
     }
 }

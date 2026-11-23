@@ -481,6 +481,47 @@ object NativeBridge {
         docPtr: Long,
         shapeIds: LongArray
     ): Boolean
+
+    @JvmStatic
+    external fun nativeInsertContainer(
+        docPtr: Long,
+        pageId: Int,
+        title: String,
+        memberIds: LongArray
+    ): Long
+
+    @JvmStatic
+    external fun nativeInsertSwimlanes(
+        docPtr: Long,
+        pageId: Int,
+        lanesSemicolon: String
+    ): Int
+
+    @JvmStatic
+    external fun nativeAttachCallout(
+        docPtr: Long,
+        pageId: Int,
+        targetShapeId: Long,
+        text: String
+    ): Long
+
+    @JvmStatic
+    external fun nativeAutoConnect(
+        docPtr: Long,
+        pageId: Int,
+        sourceShapeId: Long,
+        dir: String
+    ): Long
+
+    @JvmStatic
+    external fun nativeDragControlHandle(
+        docPtr: Long,
+        pageId: Int,
+        shapeId: Long,
+        rowName: String,
+        pageXIn: Double,
+        pageYIn: Double
+    ): Boolean
 }
 
 /**
@@ -4373,6 +4414,190 @@ class VexioSessionViewModel(
                     isDirty = true,
                     canUndo = true,
                     statusBanner = "Adjusted orthogonal connector segment #$segIndex"
+                )
+            }
+        }
+        return ok
+    }
+
+    @Synchronized
+    fun insertContainer(title: String = "Container"): Long {
+        val cur = _uiState.value
+        val members = cur.selectedShapeIds.filter { it > 0L }.distinct()
+        val cid = if (NativeBridge.isNativeAvailable && docPtr != 0L) {
+            val id = NativeBridge.nativeInsertContainer(
+                docPtr = docPtr,
+                pageId = resolveNativePageId(cur.activePageId),
+                title = title,
+                memberIds = members.toLongArray()
+            )
+            if (id > 0L && viewportPtr != 0L) {
+                NativeBridge.nativeSetSelectionIds(viewportPtr, docPtr, longArrayOf(id))
+            }
+            refreshSelectedShapeFormulas()
+            presentViewportOrFallback()
+            id
+        } else {
+            nextSyntheticShapeId++
+        }
+        if (cid > 0L) {
+            _uiState.update {
+                it.copy(
+                    selectedShapeId = cid,
+                    selectedShapeIds = listOf(cid),
+                    selectedShapeName = "Container.$cid",
+                    isDirty = true,
+                    canUndo = true,
+                    statusBanner = if (members.isEmpty()) {
+                        "Inserted Container.$cid (drag shapes inside to enroll)"
+                    } else {
+                        "Enclosed ${members.size} shape(s) inside Container.$cid"
+                    }
+                )
+            }
+        }
+        return cid
+    }
+
+    @Synchronized
+    fun insertSwimlanes(lanesSemicolon: String = ""): Int {
+        val cur = _uiState.value
+        val laneCount = if (NativeBridge.isNativeAvailable && docPtr != 0L) {
+            val c = NativeBridge.nativeInsertSwimlanes(
+                docPtr = docPtr,
+                pageId = resolveNativePageId(cur.activePageId),
+                lanesSemicolon = lanesSemicolon
+            )
+            presentViewportOrFallback()
+            c
+        } else {
+            val parsed = lanesSemicolon.split(';').map { it.trim() }.filter { it.isNotEmpty() }
+            if (parsed.isEmpty()) 3 else parsed.size
+        }
+        if (laneCount > 0) {
+            _uiState.update {
+                it.copy(
+                    isDirty = true,
+                    canUndo = true,
+                    statusBanner = if (laneCount > 1) {
+                        "Inserted $laneCount-lane Cross-Functional Swimlane pool"
+                    } else {
+                        "Appended contiguous Cross-Functional Swimlane band"
+                    }
+                )
+            }
+        }
+        return laneCount
+    }
+
+    @Synchronized
+    fun attachCallout(text: String = "Callout Note"): Long {
+        val cur = _uiState.value
+        val targetId = cur.selectedShapeIds.firstOrNull { it > 0L } ?: cur.selectedShapeId.coerceAtLeast(0L)
+        val cid = if (NativeBridge.isNativeAvailable && docPtr != 0L) {
+            val id = NativeBridge.nativeAttachCallout(
+                docPtr = docPtr,
+                pageId = resolveNativePageId(cur.activePageId),
+                targetShapeId = targetId,
+                text = text
+            )
+            if (id > 0L && viewportPtr != 0L) {
+                NativeBridge.nativeSetSelectionIds(viewportPtr, docPtr, longArrayOf(id))
+            }
+            refreshSelectedShapeFormulas()
+            presentViewportOrFallback()
+            id
+        } else {
+            nextSyntheticShapeId++
+        }
+        if (cid > 0L) {
+            _uiState.update {
+                it.copy(
+                    selectedShapeId = cid,
+                    selectedShapeIds = listOf(cid),
+                    selectedShapeName = "Callout.$cid",
+                    isDirty = true,
+                    canUndo = true,
+                    statusBanner = if (targetId > 0L) {
+                        "Attached Callout.$cid to Sheet.$targetId (drag yellow handle to retarget)"
+                    } else {
+                        "Inserted Callout.$cid (drag yellow handle onto any shape)"
+                    }
+                )
+            }
+        }
+        return cid
+    }
+
+    @Synchronized
+    fun autoConnectSelected(direction: String): Long {
+        val cur = _uiState.value
+        val srcId = cur.selectedShapeIds.firstOrNull { it > 0L } ?: cur.selectedShapeId
+        if (srcId <= 0L) return 0L
+        val cleanDir = direction.trim().lowercase(Locale.US)
+        if (cleanDir !in setOf("n", "north", "e", "east", "s", "south", "w", "west")) return 0L
+        val targetId = if (NativeBridge.isNativeAvailable && docPtr != 0L) {
+            val tid = NativeBridge.nativeAutoConnect(
+                docPtr = docPtr,
+                pageId = resolveNativePageId(cur.activePageId),
+                sourceShapeId = srcId,
+                dir = cleanDir
+            )
+            if (tid > 0L && viewportPtr != 0L) {
+                NativeBridge.nativeSetSelectionIds(viewportPtr, docPtr, longArrayOf(tid))
+            }
+            refreshSelectedShapeFormulas()
+            presentViewportOrFallback()
+            tid
+        } else {
+            nextSyntheticShapeId++
+        }
+        if (targetId > 0L) {
+            _uiState.update {
+                it.copy(
+                    selectedShapeId = targetId,
+                    selectedShapeIds = listOf(targetId),
+                    selectedShapeName = "Process.$targetId",
+                    isDirty = true,
+                    canUndo = true,
+                    statusBanner = "AutoConnected ($cleanDir) from Sheet.$srcId to Sheet.$targetId"
+                )
+            }
+        }
+        return targetId
+    }
+
+    @Synchronized
+    fun dragControlHandle(
+        shapeId: Long,
+        rowName: String = "Row_1",
+        pageXIn: Double,
+        pageYIn: Double
+    ): Boolean {
+        if (shapeId <= 0L || rowName.isBlank() || !pageXIn.isFinite() || !pageYIn.isFinite()) return false
+        val ok = if (NativeBridge.isNativeAvailable && docPtr != 0L) {
+            val moved = NativeBridge.nativeDragControlHandle(
+                docPtr = docPtr,
+                pageId = resolveNativePageId(_uiState.value.activePageId),
+                shapeId = shapeId,
+                rowName = rowName,
+                pageXIn = pageXIn,
+                pageYIn = pageYIn
+            )
+            if (moved) {
+                refreshSelectedShapeFormulas()
+                presentViewportOrFallback()
+            }
+            moved
+        } else {
+            true
+        }
+        if (ok) {
+            _uiState.update {
+                it.copy(
+                    isDirty = true,
+                    canUndo = true,
+                    statusBanner = "Adjusted Controls.$rowName on Sheet.$shapeId"
                 )
             }
         }
