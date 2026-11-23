@@ -13,8 +13,8 @@ pub use pipeline::{
     build_page_scene_mesh, build_page_scene_mesh_with_overlay, prepare_visible_shape_batch,
     render_page_rgba_auto, render_page_software_rgba, render_page_software_rgba_with_camera,
     render_page_software_rgba_with_overlay, render_page_software_rgba_with_selection,
-    CameraUniform, FrameStats, RenderError, ViewportCamera, WgpuCanvasRenderer,
-    CANVAS_WGSL_SOURCE,
+    render_shapes_transparent_rgba, CameraUniform, FrameStats, RenderError, ViewportCamera,
+    WgpuCanvasRenderer, CANVAS_WGSL_SOURCE,
 };
 pub use spatial::{SpatialEntry, SpatialIndex};
 pub use tessellate::{

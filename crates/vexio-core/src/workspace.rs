@@ -81,6 +81,50 @@ fn attach_cardinal_ports_to_shape(sh: &mut VisioShape) {
     sh.sheet.sync_all_sections_to_cells();
 }
 
+fn scale_physical_master_subtree(node: &mut VisioShape, scale: f64, is_root: bool) {
+    let scale_cell_if_literal = |sheet: &mut vexio_shapesheet::ShapeSheet, key: &str| {
+        if let Some(cell) = sheet.get_cell(key) {
+            let f_low = cell.formula.to_ascii_lowercase();
+            if !f_low.contains("width") && !f_low.contains("height") && !f_low.contains("sheet.") {
+                if let Some(v) = sheet.get_f64(key) {
+                    if v.is_finite() {
+                        sheet.set_formula(
+                            key,
+                            format!("{} in", format_clean_f64(v * scale)),
+                            Some(Unit::Inch),
+                        );
+                    }
+                }
+            }
+        }
+    };
+    scale_cell_if_literal(&mut node.sheet, "Width");
+    scale_cell_if_literal(&mut node.sheet, "Height");
+    if !is_root {
+        scale_cell_if_literal(&mut node.sheet, "PinX");
+        scale_cell_if_literal(&mut node.sheet, "PinY");
+        scale_cell_if_literal(&mut node.sheet, "LocPinX");
+        scale_cell_if_literal(&mut node.sheet, "LocPinY");
+    }
+    let geom_keys: Vec<String> = node
+        .sheet
+        .cells
+        .keys()
+        .filter(|k| {
+            k.starts_with("Geometry")
+                && (k.contains(".X") || k.contains(".Y"))
+                && !k.ends_with("Type")
+        })
+        .cloned()
+        .collect();
+    for gk in geom_keys {
+        scale_cell_if_literal(&mut node.sheet, &gk);
+    }
+    for child in &mut node.children {
+        scale_physical_master_subtree(child, scale, false);
+    }
+}
+
 fn remap_dropped_shape_subtree(root: &mut VisioShape, alloc_id: &mut u64) -> u64 {
     fn assign_ids(node: &mut VisioShape, alloc_id: &mut u64, id_map: &mut std::collections::BTreeMap<u64, u64>, depth: u8) {
         let old_id = node.id;
@@ -339,8 +383,28 @@ impl DocumentSession {
         let assigned_root_id = remap_dropped_shape_subtree(&mut shape, &mut alloc_id);
         shape.name = format!("{master_name}.{assigned_root_id}");
         shape.name_u = shape.name.clone();
-        if shape.text.is_empty() && shape.children.is_empty() {
+        let hide_txt = shape.sheet.get_bool("HideText").unwrap_or(false);
+        if shape.text.is_empty() && shape.children.is_empty() && !hide_txt {
             shape.text = master_name.to_string();
+            if shape.sheet.get_cell("TxtPinY").is_none() {
+                crate::visio_artwork::apply_visio_below_icon_caption(&mut shape);
+            }
+        }
+        let is_unscaled_page = self.doc.page(page_id).is_some_and(|p| {
+            let ps = p.page_sheet.get_f64("PageScale").unwrap_or(1.0).abs().max(1e-6);
+            let ds = p.page_sheet.get_f64("DrawingScale").unwrap_or(1.0).abs().max(1e-6);
+            ((ds / ps) - 1.0).abs() < 1e-3
+        });
+        if is_unscaled_page
+            && !crate::containers::is_container_shape(&shape)
+            && !crate::containers::is_swimlane_shape(&shape)
+        {
+            let orig_w = shape.sheet.get_f64("Width").unwrap_or(1.5).abs();
+            let orig_h = shape.sheet.get_f64("Height").unwrap_or(1.0).abs();
+            if orig_w > 11.5 || orig_h > 11.5 {
+                let fit_scale = (2.60 / orig_w.max(0.1)).min(2.60 / orig_h.max(0.1));
+                scale_physical_master_subtree(&mut shape, fit_scale, true);
+            }
         }
         shape.sheet.set_formula(
             "PinX",
@@ -477,20 +541,182 @@ impl DocumentSession {
     /// Import an external Microsoft Visio `.vssx`, `.vssm`, `.vss`, `.vsdx`, or `.vdx` stencil package
     /// directly into the active session's stencil catalog with lossless geometry, `ForeignData` SVGs/PNGs,
     /// proportional resizing, and rendered SVG thumbnails!
-    pub fn import_stencil_package(
+    /// Unpacks and imports a single stencil file (`.vssx`, `.vssm`, `.vss`, `.vsdx`, `.vsd`, `.vdx`, `.svg`, `.png`)
+    /// OR a multi-file `.zip` stencil/icon archive (`Azure_Public_Service_Icons_V25.zip`,
+    /// `2024-microsoft-365-content-icons.zip`, `Visio-Cisco-Stencils-US-V1.zip`, `NetEquip.zip`),
+    /// returning one `(pack_title, previews)` entry per discovered stencil pack.
+    pub fn import_stencil_archive_packs(
         &mut self,
         file_name: &str,
         bytes: &[u8],
-    ) -> Result<(String, Vec<crate::domains::StencilMasterPreview>), CoreError> {
+    ) -> Result<Vec<(String, Vec<crate::domains::StencilMasterPreview>)>, CoreError> {
         let ext = file_name
             .rsplit('.')
             .next()
             .unwrap_or("vssx")
             .trim()
             .to_ascii_lowercase();
-        let imported_doc = match ext.as_str() {
+
+        if ext == "svg" || ext == "png" {
+            let stem = clean_stencil_stem(file_name);
+            let pack_title = "Imported Vector Icons".to_string();
+            let master = build_foreign_icon_master(1, &stem, &pack_title, &ext, bytes);
+            let previews = self.register_imported_masters_pack(&pack_title, vec![master], &[], &[]);
+            return Ok(vec![(pack_title, previews)]);
+        }
+
+        if ext == "zip" {
+            return self.import_zip_stencil_bundle(file_name, bytes);
+        }
+
+        self.import_single_stencil_doc_pack(file_name, &ext, bytes)
+            .map(|res| vec![res])
+    }
+
+    pub fn import_stencil_package(
+        &mut self,
+        file_name: &str,
+        bytes: &[u8],
+    ) -> Result<(String, Vec<crate::domains::StencilMasterPreview>), CoreError> {
+        let mut packs = self.import_stencil_archive_packs(file_name, bytes)?;
+        if packs.is_empty() {
+            return Err(CoreError::UnsupportedExtension(file_name.to_string()));
+        }
+        if packs.len() == 1 {
+            Ok(packs.remove(0))
+        } else {
+            let first_title = packs[0].0.clone();
+            let mut combined = Vec::new();
+            for (_, mut p) in packs {
+                combined.append(&mut p);
+            }
+            Ok((first_title, combined))
+        }
+    }
+
+    fn import_zip_stencil_bundle(
+        &mut self,
+        zip_file_name: &str,
+        bytes: &[u8],
+    ) -> Result<Vec<(String, Vec<crate::domains::StencilMasterPreview>)>, CoreError> {
+        use std::io::{Cursor, Read};
+        let mut archive = zip::ZipArchive::new(Cursor::new(bytes))
+            .map_err(|e| CoreError::Vsdx(vexio_vsdx::VsdxError::Zip(e)))?;
+
+        // Check whether this `.zip` is actually an OpenXML `.vssx` / `.vsdx` renamed to `.zip`!
+        let has_visio_opc = (0..archive.len()).any(|i| {
+            archive
+                .by_index(i)
+                .map(|f| f.name().eq_ignore_ascii_case("visio/document.xml"))
+                .unwrap_or(false)
+        });
+        if has_visio_opc {
+            let fallback_name = format!("{}.vssx", clean_stencil_stem(zip_file_name));
+            let single = self.import_single_stencil_doc_pack(&fallback_name, "vssx", bytes)?;
+            return Ok(vec![single]);
+        }
+
+        let mut entry_names = Vec::with_capacity(archive.len());
+        for i in 0..archive.len() {
+            if let Ok(f) = archive.by_index(i) {
+                if !f.is_dir() && !f.name().contains("__MACOSX") {
+                    entry_names.push((i, f.name().replace('\\', "/")));
+                }
+            }
+        }
+
+        // In Microsoft's `2024-microsoft-365-content-icons.zip`, each color family has 3 subfolders:
+        // `Dark Blue Icon`, `Light Blue Icon`, and `Grey & Blue Icon` (the canonical 2-tone icon!).
+        // If `Grey &` folders exist, skip duplicate monochrome `Dark ` / `Light ` variants!
+        let has_two_tone_grey = entry_names
+            .iter()
+            .any(|(_, p)| p.contains("Grey &") || p.contains("Grey and"));
+
+        let mut results: Vec<(String, Vec<crate::domains::StencilMasterPreview>)> = Vec::new();
+        let mut svg_groups: std::collections::BTreeMap<String, Vec<(String, String, Vec<u8>)>> =
+            std::collections::BTreeMap::new();
+        let zip_stem = clean_stencil_stem(zip_file_name);
+
+        for (idx, norm_path) in entry_names {
+            let file_only = norm_path.rsplit('/').next().unwrap_or(&norm_path);
+            if file_only.starts_with('.') {
+                continue;
+            }
+            let item_ext = file_only
+                .rsplit('.')
+                .next()
+                .unwrap_or("")
+                .trim()
+                .to_ascii_lowercase();
+
+            if matches!(
+                item_ext.as_str(),
+                "vssx" | "vssm" | "vstx" | "vsdx" | "vss" | "vsd" | "vst" | "vdx"
+            ) {
+                let mut buf = Vec::new();
+                if let Ok(mut zf) = archive.by_index(idx) {
+                    if zf.read_to_end(&mut buf).is_ok() && !buf.is_empty() {
+                        if let Ok(pack) = self.import_single_stencil_doc_pack(file_only, &item_ext, &buf) {
+                            if !pack.1.is_empty() {
+                                results.push(pack);
+                            }
+                        }
+                    }
+                }
+            } else if item_ext == "svg" {
+                if has_two_tone_grey
+                    && (norm_path.contains("Dark Blue Icon")
+                        || norm_path.contains("Light Blue Icon")
+                        || norm_path.contains("Dark Purple Icon")
+                        || norm_path.contains("Light Purple Icon"))
+                {
+                    continue;
+                }
+                let mut buf = Vec::new();
+                if let Ok(mut zf) = archive.by_index(idx) {
+                    if zf.read_to_end(&mut buf).is_ok() && !buf.is_empty() {
+                        let cat_title = derive_svg_zip_category(&zip_stem, &norm_path);
+                        let icon_name = clean_icon_display_name(file_only);
+                        svg_groups
+                            .entry(cat_title)
+                            .or_default()
+                            .push((icon_name, item_ext, buf));
+                    }
+                }
+            }
+        }
+
+        for (cat_title, mut icons) in svg_groups {
+            icons.sort_by(|a, b| a.0.cmp(&b.0));
+            icons.dedup_by(|a, b| a.0.eq_ignore_ascii_case(&b.0));
+            let mut masters = Vec::with_capacity(icons.len());
+            for (i, (icon_name, item_ext, data)) in icons.into_iter().enumerate() {
+                masters.push(build_foreign_icon_master(
+                    (i + 1) as u32,
+                    &icon_name,
+                    &cat_title,
+                    &item_ext,
+                    &data,
+                ));
+            }
+            if !masters.is_empty() {
+                let previews = self.register_imported_masters_pack(&cat_title, masters, &[], &[]);
+                results.push((cat_title, previews));
+            }
+        }
+
+        Ok(results)
+    }
+
+    fn import_single_stencil_doc_pack(
+        &mut self,
+        file_name: &str,
+        ext: &str,
+        bytes: &[u8],
+    ) -> Result<(String, Vec<crate::domains::StencilMasterPreview>), CoreError> {
+        let imported_doc = match ext {
             "vss" | "vsd" | "vst" | "vdx" | "vdw" => {
-                vexio_vsd_legacy::read_legacy_auto(bytes, &ext)?
+                vexio_vsd_legacy::read_legacy_auto(bytes, ext)?
             }
             _ => {
                 let (d, _) = read_vsdx(bytes)?;
@@ -498,20 +724,7 @@ impl DocumentSession {
             }
         };
 
-        let stem = file_name
-            .rsplit(['/', '\\'])
-            .next()
-            .unwrap_or(file_name)
-            .split('.')
-            .next()
-            .unwrap_or("Imported Stencil")
-            .trim();
-        let pack_title = if stem.is_empty() {
-            "Imported Visio Stencil".to_string()
-        } else {
-            stem.replace(['_', '-'], " ")
-        };
-
+        let pack_title = clean_stencil_stem(file_name);
         let imported_styles = imported_doc.styles.clone();
         let imported_themes = imported_doc.themes.clone();
         let mut masters = imported_doc.masters;
@@ -546,9 +759,10 @@ impl DocumentSession {
                 }
             }
         } else {
-            // Retain non-empty masters; if a drawing `.vsdx` has both 2D/Group masters and pure 1D connector masters,
-            // prefer 2D/Group/Foreign masters when present so Stencil Navigator shows placeable shapes cleanly.
             masters.retain(|m| !m.shapes.is_empty());
+            if masters.iter().any(|m| !m.name.starts_with("More Shapes")) {
+                masters.retain(|m| !m.name.starts_with("More Shapes"));
+            }
             if masters
                 .iter()
                 .any(|m| m.shapes.first().is_some_and(|s| s.kind != ShapeKind::Connector1D))
@@ -557,7 +771,22 @@ impl DocumentSession {
             }
         }
 
-        // Normalize imported masters for smooth center-pinned 8-handle resizing, rotation, and cardinal ports
+        let previews = self.register_imported_masters_pack(
+            &pack_title,
+            masters,
+            &imported_styles,
+            &imported_themes,
+        );
+        Ok((pack_title, previews))
+    }
+
+    fn register_imported_masters_pack(
+        &mut self,
+        pack_title: &str,
+        mut masters: Vec<vexio_shapesheet::VisioMaster>,
+        imported_styles: &[vexio_shapesheet::StyleSheetDef],
+        imported_themes: &[vexio_shapesheet::ThemeDef],
+    ) -> Vec<crate::domains::StencilMasterPreview> {
         for m in &mut masters {
             for s in &mut m.shapes {
                 s.sheet.set_formula("LocPinX", "=Width*0.5", Some(Unit::Inch));
@@ -574,10 +803,10 @@ impl DocumentSession {
         let preview_h_in = 1.00;
         let mut mini_doc = VisioDocument::new_blank("ImportedStencilPreview");
         if !imported_styles.is_empty() {
-            mini_doc.styles = imported_styles;
+            mini_doc.styles = imported_styles.to_vec();
         }
         if !imported_themes.is_empty() {
-            mini_doc.themes = imported_themes;
+            mini_doc.themes = imported_themes.to_vec();
         }
         if let Some(page) = mini_doc.page_mut(1) {
             page.page_sheet.set_formula("PageWidth", "1.5 in", Some(Unit::Inch));
@@ -596,9 +825,8 @@ impl DocumentSession {
                 page.shapes.clear();
                 if let Some(tpl) = m.shapes.first() {
                     let mut sh = tpl.clone();
-                    // Keep `sh.id = tpl.id` so Group Master sub-shapes never collide with `sh.id`
-                    // and internal `Sheet.<root_id>!` formulas inside `sh.children` continue to resolve!
                     sh.text.clear();
+                    clear_subtree_preview_text(&mut sh);
                     orig_w = sh
                         .sheet
                         .get_f64("Width")
@@ -645,27 +873,29 @@ impl DocumentSession {
             }
             ReactiveEngine::recalculate_document(&mut mini_doc);
             let svg = export_page_svg(&mini_doc, 1);
+            let png_data_url = crate::domains::render_stencil_preview_png_data_url(&mini_doc, 1);
             previews.push(crate::domains::StencilMasterPreview {
                 name: m.name.clone(),
                 prompt: m.prompt.clone(),
-                category: pack_title.clone(),
+                category: pack_title.to_string(),
                 width_in: orig_w,
                 height_in: orig_h,
                 fill_formula,
                 line_formula,
                 svg,
+                png_data_url,
             });
         }
 
         let new_pack = StencilPack {
-            title: pack_title.clone(),
-            category: pack_title.clone(),
+            title: pack_title.to_string(),
+            category: pack_title.to_string(),
             masters,
         };
         if let Some(existing) = self
             .builtin_stencils
             .iter_mut()
-            .find(|p| p.title.eq_ignore_ascii_case(&pack_title))
+            .find(|p| p.title.eq_ignore_ascii_case(pack_title))
         {
             *existing = new_pack;
         } else {
@@ -673,9 +903,9 @@ impl DocumentSession {
         }
 
         self.imported_stencil_previews
-            .insert(pack_title.clone(), previews.clone());
+            .insert(pack_title.to_string(), previews.clone());
 
-        Ok((pack_title, previews))
+        previews
     }
 
     /// Draw a straight 1D Line segment (`EndArrow = 0`, `ShapeRouteStyle = 1`).
@@ -3625,5 +3855,158 @@ pub fn resolve_page_preset_dimensions_in(
         Some((long_in, short_in, unit))
     } else {
         Some((short_in, long_in, unit))
+    }
+}
+
+fn clean_stencil_stem(file_name: &str) -> String {
+    let base = file_name.rsplit(['/', '\\']).next().unwrap_or(file_name);
+    let stem = base.rsplit_once('.').map(|(s, _)| s).unwrap_or(base).trim();
+    let cleaned = stem
+        .trim_start_matches("MIS ")
+        .replace(['_', '-'], " ")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    if cleaned.is_empty() {
+        "Imported Visio Stencil".to_string()
+    } else {
+        cleaned
+    }
+}
+
+fn clean_icon_display_name(file_name: &str) -> String {
+    let stem = file_name
+        .rsplit_once('.')
+        .map(|(s, _)| s)
+        .unwrap_or(file_name)
+        .trim();
+    // Strip Azure Architecture Center numeric prefix (`00028-icon-service-Batch-AI` -> `Batch AI`)
+    let without_azure_prefix = if let Some((_, rest)) = stem.split_once("-icon-service-") {
+        rest
+    } else if let Some((_, rest)) = stem.split_once("-icon-") {
+        rest
+    } else {
+        stem
+    };
+    let cleaned = without_azure_prefix
+        .replace(['_', '-'], " ")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    if cleaned.is_empty() {
+        "Icon".to_string()
+    } else {
+        cleaned
+    }
+}
+
+fn title_case_words(raw: &str) -> String {
+    raw.split_whitespace()
+        .map(|w| {
+            if w.len() <= 3 && w.chars().all(|c| c.is_ascii_alphabetic())
+                && matches!(w.to_ascii_lowercase().as_str(), "ai" | "ml" | "iot" | "web" | "sql" | "api" | "vm")
+            {
+                w.to_ascii_uppercase()
+            } else {
+                let mut chs = w.chars();
+                match chs.next() {
+                    Some(first) => format!("{}{}", first.to_uppercase(), chs.as_str()),
+                    None => String::new(),
+                }
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn derive_svg_zip_category(zip_stem: &str, norm_path: &str) -> String {
+    let parts: Vec<&str> = norm_path
+        .split('/')
+        .filter(|s| !s.is_empty())
+        .collect();
+    if parts.len() <= 1 {
+        return zip_stem.to_string();
+    }
+    let dir_parts = &parts[..parts.len() - 1];
+    // Azure Icons: `Azure_Public_Service_Icons/Icons/networking/...` -> `Azure Icons — Networking`
+    if norm_path.to_ascii_lowercase().contains("azure_public_service_icons") {
+        if let Some(last_dir) = dir_parts.last() {
+            return format!("Azure Icons — {}", title_case_words(&last_dir.replace(['_', '-'], " ")));
+        }
+    }
+    // M365 Content Icons: `Microsoft Blue/48x48 Grey & Blue Icon/...` -> `M365 Icons — Microsoft Blue`
+    let meaningful = dir_parts
+        .iter()
+        .rev()
+        .find(|d| {
+            let l = d.to_ascii_lowercase();
+            !l.contains("48x48") && !l.contains("svg") && l != "icons"
+        })
+        .or_else(|| dir_parts.last())
+        .copied()
+        .unwrap_or(zip_stem);
+    let nice = title_case_words(&meaningful.replace(['_', '-'], " "));
+    if zip_stem.to_ascii_lowercase().contains("microsoft 365") || zip_stem.to_ascii_lowercase().contains("office") {
+        format!("M365 Icons — {nice}")
+    } else {
+        nice
+    }
+}
+
+fn build_foreign_icon_master(
+    id: u32,
+    name: &str,
+    pack_title: &str,
+    ext: &str,
+    bytes: &[u8],
+) -> vexio_shapesheet::VisioMaster {
+    let mut sh = VisioShape::new_rect(1, name, 0.45, 0.45, 0.90, 0.90);
+    sh.kind = ShapeKind::ForeignObject;
+    sh.sheet.geometries.clear();
+    let mut frame = vexio_shapesheet::GeometrySection::rectangle(1);
+    frame.no_fill = "TRUE".into();
+    frame.no_line = "TRUE".into();
+    sh.sheet.add_geometry(frame);
+    sh.sheet
+        .set_formula("FillPattern", "0", Some(Unit::Number));
+    sh.sheet
+        .set_formula("LinePattern", "0", Some(Unit::Number));
+    if ext.eq_ignore_ascii_case("svg") {
+        sh.sheet
+            .set_user_cell("ForeignSvgPrimary", "TRUE", "Primary SVG Icon");
+    }
+    sh.foreign_data = Some(vexio_shapesheet::ForeignMediaData {
+        media_type: if ext.eq_ignore_ascii_case("png") {
+            "PNG".into()
+        } else {
+            "SVG".into()
+        },
+        rel_id: None,
+        data: bytes.to_vec(),
+    });
+    crate::visio_artwork::apply_visio_below_icon_caption(&mut sh);
+    sh.sheet.sync_all_sections_to_cells();
+    vexio_shapesheet::VisioMaster {
+        id,
+        name: name.to_string(),
+        name_u: name.to_string(),
+        base_id: format!("{{ICON-{id:05}}}"),
+        unique_id: format!("{{ICON-U-{id:05}}}"),
+        prompt: format!("{pack_title}: {name}"),
+        icon_bytes: None,
+        page_sheet: vexio_shapesheet::ShapeSheet::new(),
+        shapes: vec![sh],
+    }
+}
+
+fn clear_subtree_preview_text(sh: &mut VisioShape) {
+    // Only clear external label subshapes that have no geometry (`FillPattern=0 && LinePattern=0`) so icon badges (`T`, `S`, `E`) remain intact!
+    for child in &mut sh.children {
+        let fp = child.sheet.get_f64("FillPattern").unwrap_or(1.0).round() as i32;
+        let lp = child.sheet.get_f64("LinePattern").unwrap_or(1.0).round() as i32;
+        if fp == 0 && lp == 0 && child.foreign_data.is_none() && child.children.is_empty() && child.text.len() > 2 {
+            child.text.clear();
+        }
+        clear_subtree_preview_text(child);
     }
 }

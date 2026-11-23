@@ -1467,14 +1467,45 @@ pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeImportStenc
         };
         // SAFETY: `doc_ptr` verified non-zero handle.
         let doc = unsafe { &mut *(doc_ptr as *mut VexioDoc) };
-        let json = match doc.session.import_stencil_package(&fname, &raw) {
-            Ok((pack_title, masters)) => serde_json::json!({
-                "packTitle": pack_title,
-                "masters": masters,
-            })
-            .to_string(),
+        let json = match doc.session.import_stencil_archive_packs(&fname, &raw) {
+            Ok(packs) => {
+                let first_title = packs
+                    .first()
+                    .map(|(t, _)| t.clone())
+                    .unwrap_or_else(|| "Imported Visio Stencil".into());
+                let mut all_masters = Vec::new();
+                let mut packs_json = Vec::with_capacity(packs.len());
+                for (pt, pv) in packs {
+                    packs_json.push(serde_json::json!({
+                        "packTitle": pt,
+                        "masters": pv,
+                    }));
+                    all_masters.extend(pv);
+                }
+                serde_json::json!({
+                    "packTitle": first_title,
+                    "masters": all_masters,
+                    "packs": packs_json,
+                })
+                .to_string()
+            }
             Err(_) => "{}".to_string(),
         };
+        env.new_string(json)
+            .map(|s| s.into_raw())
+            .unwrap_or(std::ptr::null_mut())
+    }))
+    .unwrap_or(std::ptr::null_mut())
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeListOfficialStencilCatalogJson<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+) -> jstring {
+    catch_unwind(AssertUnwindSafe(|| {
+        let catalog = crate::domains::list_official_stencil_catalog();
+        let json = serde_json::to_string(&catalog).unwrap_or_else(|_| "[]".into());
         env.new_string(json)
             .map(|s| s.into_raw())
             .unwrap_or(std::ptr::null_mut())

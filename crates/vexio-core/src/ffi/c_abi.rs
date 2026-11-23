@@ -3128,15 +3128,32 @@ pub unsafe extern "C" fn vexio_doc_import_stencil_bytes(
             return VexioStatus::ErrInvalidArg;
         };
         let raw = unsafe { std::slice::from_raw_parts(bytes.ptr, bytes.len) };
-        match d.session.import_stencil_package(fname, raw) {
-            Ok((pack_title, previews)) => {
+        match d.session.import_stencil_archive_packs(fname, raw) {
+            Ok(packs) => {
                 set_last_ffi_error("");
-                let master_names: Vec<String> = previews.iter().map(|p| p.name.clone()).collect();
+                let first_title = packs
+                    .first()
+                    .map(|(t, _)| t.clone())
+                    .unwrap_or_else(|| "Imported Visio Stencil".into());
+                let mut all_previews = Vec::new();
+                let mut packs_json = Vec::with_capacity(packs.len());
+                for (pt, pv) in packs {
+                    let p_names: Vec<String> = pv.iter().map(|p| p.name.clone()).collect();
+                    packs_json.push(serde_json::json!({
+                        "packTitle": pt,
+                        "masterNames": p_names,
+                        "masters": pv,
+                        "previews": pv,
+                    }));
+                    all_previews.extend(pv);
+                }
+                let master_names: Vec<String> = all_previews.iter().map(|p| p.name.clone()).collect();
                 let payload = serde_json::json!({
-                    "packTitle": pack_title,
+                    "packTitle": first_title,
                     "masterNames": master_names,
-                    "masters": previews,
-                    "previews": previews,
+                    "masters": all_previews,
+                    "previews": all_previews,
+                    "packs": packs_json,
                 });
                 let json_bytes = serde_json::to_vec(&payload).unwrap_or_else(|_| b"{}".to_vec());
                 unsafe { *out_json = VexioOwnedBuffer::from_vec(json_bytes) };
@@ -3147,6 +3164,22 @@ pub unsafe extern "C" fn vexio_doc_import_stencil_bytes(
                 VexioStatus::ErrIoCorruptFormat
             }
         }
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_list_official_stencil_catalog_json(
+    out_json: *mut VexioOwnedBuffer,
+) -> VexioStatus {
+    catch_ffi_status(|| {
+        if out_json.is_null() {
+            return VexioStatus::ErrInvalidArg;
+        }
+        let catalog = crate::domains::list_official_stencil_catalog();
+        let json_bytes = serde_json::to_vec(&catalog).unwrap_or_else(|_| b"[]".to_vec());
+        // SAFETY: `out_json` verified non-null above.
+        unsafe { *out_json = VexioOwnedBuffer::from_vec(json_bytes) };
+        VexioStatus::Ok
     })
 }
 

@@ -144,6 +144,7 @@ interface WasmSessionInstance {
   list_builtin_stencils_json(): string;
   list_builtin_stencil_previews_json(): string;
   list_builtin_pack_order_json(): string;
+  list_official_stencil_catalog_json(): string;
   import_stencil_bytes(file_name: string, bytes: Uint8Array): string;
   load_starter_template(template_id: string): void;
   open_bytes(bytes: Uint8Array, ext: string): void;
@@ -435,7 +436,13 @@ self.onmessage = async (ev: MessageEvent) => {
           packTitle: res.packTitle,
           masterNames: res.masterNames,
           previews: res.previews,
+          packs: res.packs ?? [],
         });
+        break;
+      }
+      case 'listOfficialStencilCatalog': {
+        const catalog = JSON.parse(session.list_official_stencil_catalog_json());
+        self.postMessage({ id, ok: true, catalog });
         break;
       }
       case 'flushCrdtOps': {

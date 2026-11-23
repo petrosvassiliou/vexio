@@ -49,13 +49,15 @@ declare global {
 
 const VISIO_FILE_PICKER_TYPES = [
   {
-    description: 'Microsoft Visio, Metafile & CAD Drawings (.vsdx, .vsd, .vssx, .vstx, .vsdm, .dwg, .dxf, .emf, .wmf, .ldif)',
+    description: 'Microsoft Visio, Stencil Archives, Metafile & CAD Drawings (.vsdx, .vsd, .vssx, .vss, .zip, .svg, .dwg, .dxf)',
     accept: {
       'application/vnd.ms-visio.drawing.main+xml': ['.vsdx'],
       'application/vnd.ms-visio.drawing.macroEnabled.main+xml': ['.vsdm'],
       'application/vnd.ms-visio.stencil.main+xml': ['.vssx', '.vssm'],
       'application/vnd.ms-visio.template.main+xml': ['.vstx', '.vstm'],
       'application/vnd.visio': ['.vsd', '.vss', '.vst', '.vdx', '.vdw'],
+      'application/zip': ['.zip'],
+      'image/svg+xml': ['.svg'],
       'application/acad': ['.dwg'],
       'image/vnd.dxf': ['.dxf'],
       'image/x-emf': ['.emf'],
@@ -119,7 +121,7 @@ export async function openLocalDiagramFile(): Promise<OpenedLocalFile | null> {
   return new Promise((resolve) => {
     const input = document.createElement('input');
     input.type = 'file';
-    input.accept = '.vsdx,.vsdm,.vssx,.vssm,.vstx,.vstm,.vsd,.vss,.vst,.vdx,.vdw,.dwg,.dxf,.emf,.wmf,.ldif';
+    input.accept = '.vsdx,.vsdm,.vssx,.vssm,.vstx,.vstm,.vsd,.vss,.vst,.vdx,.vdw,.zip,.svg,.dwg,.dxf,.emf,.wmf,.ldif';
     input.onchange = async () => {
       const file = input.files?.[0];
       if (!file) {

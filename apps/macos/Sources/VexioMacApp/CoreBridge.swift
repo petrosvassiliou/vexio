@@ -325,6 +325,7 @@ public struct NativeStencilMasterPayload: Decodable, Sendable {
     public let fillFormula: String
     public let lineFormula: String
     public let svg: String
+    public let pngDataUrl: String?
 }
 
 public struct VexioStencilMaster: Identifiable, Equatable, Hashable, Sendable {
@@ -338,6 +339,7 @@ public struct VexioStencilMaster: Identifiable, Equatable, Hashable, Sendable {
     public let defaultFillFormula: String
     public let isGuardedAspect: Bool
     public let svgPreview: String
+    public let pngPreview: String
 
     public init(
         id: String,
@@ -349,7 +351,8 @@ public struct VexioStencilMaster: Identifiable, Equatable, Hashable, Sendable {
         defaultHeightFormula: String,
         defaultFillFormula: String,
         isGuardedAspect: Bool,
-        svgPreview: String = ""
+        svgPreview: String = "",
+        pngPreview: String = ""
     ) {
         self.id = id
         self.category = category
@@ -361,6 +364,7 @@ public struct VexioStencilMaster: Identifiable, Equatable, Hashable, Sendable {
         self.defaultFillFormula = defaultFillFormula
         self.isGuardedAspect = isGuardedAspect
         self.svgPreview = svgPreview
+        self.pngPreview = pngPreview
     }
 }
 
@@ -632,9 +636,26 @@ public struct InlineShapeTextEditContext: Equatable, Sendable {
     }
 }
 
+public struct ImportedStencilSubPackPayload: Decodable, Sendable {
+    public let packTitle: String
+    public let masters: [NativeStencilMasterPayload]
+}
+
 public struct ImportedStencilPackPayload: Decodable, Sendable {
     public let packTitle: String
     public let masters: [NativeStencilMasterPayload]
+    public let packs: [ImportedStencilSubPackPayload]?
+}
+
+public struct OfficialStencilCatalogEntry: Identifiable, Decodable, Equatable, Sendable {
+    public let id: String
+    public let title: String
+    public let vendor: String
+    public let categoryGroup: String
+    public let description: String
+    public let fileName: String
+    public let url: String
+    public let approxSizeKb: Int
 }
 
 // MARK: - Thread-Safe C-ABI Lifecycle Handle (VexioEngine*, VexioDoc*, VexioViewport*)
@@ -1760,6 +1781,16 @@ private final class NativeDocumentCore: @unchecked Sendable {
         }
         return Self.consumeOwnedBufferAsUTF8(outJSON)
     }
+
+    func listOfficialStencilCatalogJSON() -> String {
+        var outJSON = VexioOwnedBuffer(ptr: nil, len: 0, cap: 0)
+        let status = vexio_list_official_stencil_catalog_json(&outJSON)
+        if VexioBridgeError.from(status: status, context: "list_official_stencil_catalog") != nil {
+            vexio_buffer_free(outJSON)
+            return "[]"
+        }
+        return Self.consumeOwnedBufferAsUTF8(outJSON)
+    }
 }
 
 // MARK: - SwiftUI Color <-> Hex RGB Helpers for Native OS ColorPicker
@@ -2082,7 +2113,8 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
                         defaultHeightFormula: String(format: "%.3f in", item.heightIn),
                         defaultFillFormula: fillClean,
                         isGuardedAspect: false,
-                        svgPreview: item.svg
+                        svgPreview: item.svg,
+                        pngPreview: item.pngDataUrl ?? ""
                     )
                 )
             }
@@ -2092,6 +2124,7 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
             stencilCategories = orderedCategories
             stencilCatalog = flatMasters
         }
+        loadPersistedUserStencils()
     }
 
     nonisolated public func snapshot(contentType: UTType) throws -> VexioDocumentSnapshot {
@@ -3827,23 +3860,73 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
         statusMessage = "Renamed diagram to '\(stem)'"
     }
 
-    public func importVisioStencilFile(from url: URL) {
-        ensureStencilsLoadedIfNeeded()
-        let accessed = url.startAccessingSecurityScopedResource()
-        defer { if accessed { url.stopAccessingSecurityScopedResource() } }
-        do {
-            let bytes = try Data(contentsOf: url)
-            let jsonStr = try core.importStencilBytes(fileName: url.lastPathComponent, bytes: bytes)
-            guard let jsonData = jsonStr.data(using: .utf8),
-                  let imported = try? JSONDecoder().decode(ImportedStencilPackPayload.self, from: jsonData),
-                  !imported.masters.isEmpty
-            else {
-                statusMessage = "No stencil masters found in \(url.lastPathComponent)"
-                return
-            }
+    public static func persistedStencilsDirectoryURL() -> URL? {
+        guard let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
+            return nil
+        }
+        let dir = appSupport.appendingPathComponent("Vexio/Stencils", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
 
-            let pack = imported.packTitle
-            let mappedMasters: [VexioStencilMaster] = imported.masters.map { item in
+    public func listOfficialStencilCatalog() -> [OfficialStencilCatalogEntry] {
+        let raw = core.listOfficialStencilCatalogJSON()
+        guard let data = raw.data(using: .utf8),
+              let items = try? JSONDecoder().decode([OfficialStencilCatalogEntry].self, from: data)
+        else {
+            return []
+        }
+        return items
+    }
+
+    public func isOfficialStencilInstalled(_ entry: OfficialStencilCatalogEntry) -> Bool {
+        guard let dir = Self.persistedStencilsDirectoryURL() else { return false }
+        let fileURL = dir.appendingPathComponent(entry.fileName)
+        return FileManager.default.fileExists(atPath: fileURL.path)
+    }
+
+    private func loadPersistedUserStencils() {
+        guard let dir = Self.persistedStencilsDirectoryURL(),
+              let files = try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)
+        else { return }
+        let sorted = files.sorted { $0.lastPathComponent < $1.lastPathComponent }
+        for fileURL in sorted where !fileURL.lastPathComponent.hasPrefix(".") {
+            if let bytes = try? Data(contentsOf: fileURL), !bytes.isEmpty {
+                _ = try? importStencilDataInternal(fileName: fileURL.lastPathComponent, bytes: bytes, persistCopy: false, quiet: true)
+            }
+        }
+    }
+
+    @discardableResult
+    public func importStencilDataInternal(
+        fileName: String,
+        bytes: Data,
+        persistCopy: Bool,
+        quiet: Bool = false
+    ) throws -> Int {
+        ensureStencilsLoadedIfNeeded()
+        let jsonStr = try core.importStencilBytes(fileName: fileName, bytes: bytes)
+        guard let jsonData = jsonStr.data(using: .utf8),
+              let imported = try? JSONDecoder().decode(ImportedStencilPackPayload.self, from: jsonData),
+              !imported.masters.isEmpty
+        else {
+            if !quiet {
+                statusMessage = "No stencil masters found in \(fileName)"
+            }
+            return 0
+        }
+
+        let subPacks: [ImportedStencilSubPackPayload] = {
+            if let p = imported.packs, !p.isEmpty {
+                return p
+            }
+            return [ImportedStencilSubPackPayload(packTitle: imported.packTitle, masters: imported.masters)]
+        }()
+
+        var totalAdded = 0
+        for sub in subPacks.reversed() where !sub.masters.isEmpty {
+            let pack = sub.packTitle
+            let mappedMasters: [VexioStencilMaster] = sub.masters.map { item in
                 let fillClean = item.fillFormula.hasPrefix("=")
                     ? String(item.fillFormula.dropFirst())
                     : item.fillFormula
@@ -3857,17 +3940,60 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
                     defaultHeightFormula: String(format: "%.3f in", item.heightIn),
                     defaultFillFormula: fillClean,
                     isGuardedAspect: false,
-                    svgPreview: item.svg
+                    svgPreview: item.svg,
+                    pngPreview: item.pngDataUrl ?? ""
                 )
             }
-
+            totalAdded += mappedMasters.count
             stencilCatalog.removeAll { $0.category.caseInsensitiveCompare(pack) == .orderedSame }
             stencilCatalog.insert(contentsOf: mappedMasters, at: 0)
             if !stencilCategories.contains(where: { $0.caseInsensitiveCompare(pack) == .orderedSame }) {
                 stencilCategories.insert(pack, at: 0)
             }
+        }
+
+        if persistCopy, let dir = Self.persistedStencilsDirectoryURL() {
+            let safeName = URL(fileURLWithPath: fileName).lastPathComponent
+            if !safeName.isEmpty {
+                try? bytes.write(to: dir.appendingPathComponent(safeName), options: .atomic)
+            }
+        }
+
+        if !quiet {
             showStencilNavigator = true
-            statusMessage = "Imported \(mappedMasters.count) Visio stencil(s) into '\(pack)'"
+            statusMessage = "Imported \(totalAdded) Visio stencil(s) across \(subPacks.count) pack(s)"
+        }
+        return totalAdded
+    }
+
+    public func downloadOfficialStencilPack(_ entry: OfficialStencilCatalogEntry) async -> Bool {
+        guard let remoteURL = URL(string: entry.url) else {
+            statusMessage = "Invalid stencil URL for \(entry.title)"
+            return false
+        }
+        statusMessage = "Downloading '\(entry.title)'…"
+        do {
+            let (data, response) = try await URLSession.shared.data(from: remoteURL)
+            if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
+                statusMessage = "Download failed (HTTP \(http.statusCode)) for \(entry.title)"
+                return false
+            }
+            let count = try importStencilDataInternal(fileName: entry.fileName, bytes: data, persistCopy: true)
+            statusMessage = "Installed '\(entry.title)' (\(count) stencils)"
+            return count > 0
+        } catch {
+            statusMessage = "Download failed: \(error.localizedDescription)"
+            return false
+        }
+    }
+
+    public func importVisioStencilFile(from url: URL) {
+        ensureStencilsLoadedIfNeeded()
+        let accessed = url.startAccessingSecurityScopedResource()
+        defer { if accessed { url.stopAccessingSecurityScopedResource() } }
+        do {
+            let bytes = try Data(contentsOf: url)
+            _ = try importStencilDataInternal(fileName: url.lastPathComponent, bytes: bytes, persistCopy: true)
         } catch let bridgeErr as VexioBridgeError {
             lastBannerError = bridgeErr
             statusMessage = bridgeErr.localizedDescription

@@ -324,51 +324,70 @@ public struct LiquidGlassFloatingPalette: View {
 
 public struct StencilVectorPreviewCanvas: View {
     public let svgMarkup: String
+    public let pngDataUrl: String
     public let fallbackSymbol: String
 
-    public init(svgMarkup: String, fallbackSymbol: String) {
+    public init(svgMarkup: String, pngDataUrl: String = "", fallbackSymbol: String) {
         self.svgMarkup = svgMarkup
+        self.pngDataUrl = pngDataUrl
         self.fallbackSymbol = fallbackSymbol
     }
 
     public var body: some View {
-        let parsedShapes = Self.extractShapePaths(from: svgMarkup)
-        if parsedShapes.isEmpty {
-            Image(systemName: fallbackSymbol)
-                .font(.system(size: 21, weight: .regular))
-                .foregroundStyle(Color.accentColor)
-                .frame(maxWidth: .infinity, minHeight: 44)
+        if let nsImg = Self.decodePngDataUrl(pngDataUrl) {
+            Image(nsImage: nsImg)
+                .resizable()
+                .interpolation(.high)
+                .antialiased(true)
+                .scaledToFit()
+                .frame(maxWidth: .infinity, minHeight: 44, maxHeight: 46)
         } else {
-            Canvas { context, size in
-                let srcW: CGFloat = 144.0
-                let srcH: CGFloat = 96.0
-                let scale = min((size.width - 4.0) / srcW, (size.height - 4.0) / srcH)
-                let offsetX = (size.width - srcW * scale) * 0.5
-                let offsetY = (size.height - srcH * scale) * 0.5
+            let parsedShapes = Self.extractShapePaths(from: svgMarkup)
+            if parsedShapes.isEmpty {
+                Image(systemName: fallbackSymbol)
+                    .font(.system(size: 21, weight: .regular))
+                    .foregroundStyle(Color.accentColor)
+                    .frame(maxWidth: .infinity, minHeight: 44)
+            } else {
+                Canvas { context, size in
+                    let srcW: CGFloat = 144.0
+                    let srcH: CGFloat = 96.0
+                    let scale = min((size.width - 4.0) / srcW, (size.height - 4.0) / srcH)
+                    let offsetX = (size.width - srcW * scale) * 0.5
+                    let offsetY = (size.height - srcH * scale) * 0.5
 
-                var transform = CGAffineTransform(translationX: offsetX, y: offsetY)
-                transform = transform.scaledBy(x: scale, y: scale)
+                    var transform = CGAffineTransform(translationX: offsetX, y: offsetY)
+                    transform = transform.scaledBy(x: scale, y: scale)
 
-                for item in parsedShapes {
-                    let transformed = item.path.applying(transform)
-                    if let fill = item.fillColor {
-                        context.fill(transformed, with: .color(fill))
-                    }
-                    if let stroke = item.strokeColor {
-                        context.stroke(
-                            transformed,
-                            with: .color(stroke),
-                            style: StrokeStyle(
-                                lineWidth: max(item.strokeWidth * scale, 0.78),
-                                lineCap: .round,
-                                lineJoin: .round
+                    for item in parsedShapes {
+                        let transformed = item.path.applying(transform)
+                        if let fill = item.fillColor {
+                            context.fill(transformed, with: .color(fill), style: FillStyle(eoFill: true))
+                        }
+                        if let stroke = item.strokeColor {
+                            context.stroke(
+                                transformed,
+                                with: .color(stroke),
+                                style: StrokeStyle(
+                                    lineWidth: max(item.strokeWidth * scale, 0.78),
+                                    lineCap: .round,
+                                    lineJoin: .round
+                                )
                             )
-                        )
+                        }
                     }
                 }
+                .frame(maxWidth: .infinity, minHeight: 46, maxHeight: 46)
             }
-            .frame(maxWidth: .infinity, minHeight: 46, maxHeight: 46)
         }
+    }
+
+    private static func decodePngDataUrl(_ raw: String) -> NSImage? {
+        let prefix = "data:image/png;base64,"
+        guard raw.hasPrefix(prefix) else { return nil }
+        let b64 = String(raw.dropFirst(prefix.count))
+        guard let data = Data(base64Encoded: b64), !data.isEmpty else { return nil }
+        return NSImage(data: data)
     }
 
     private struct ParsedStencilPath {

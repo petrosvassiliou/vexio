@@ -827,6 +827,25 @@ fn render_single_shape_svg(
                         svg_txt,
                         &format!("vx-{ns_prefix}-{}-", vis.shape_id),
                     ) {
+                        let vb_nums: Vec<f64> = vb
+                            .split(|c: char| c.is_whitespace() || c == ',')
+                            .filter(|s| !s.is_empty())
+                            .filter_map(|s| s.parse::<f64>().ok())
+                            .collect();
+                        let (vb_x, vb_y, vb_w, vb_h) = if vb_nums.len() == 4 {
+                            (
+                                vb_nums[0],
+                                vb_nums[1],
+                                vb_nums[2].abs().max(1.0),
+                                vb_nums[3].abs().max(1.0),
+                            )
+                        } else {
+                            (0.0, 0.0, 64.0, 64.0)
+                        };
+                        let sx = box_w / vb_w;
+                        let sy = box_h / vb_h;
+                        let tx = box_left - vb_x * sx;
+                        let ty = box_top - vb_y * sy;
                         if angle_deg.abs() > 0.01 {
                             let _ = write!(
                                 body,
@@ -836,7 +855,7 @@ fn render_single_shape_svg(
                         }
                         let _ = writeln!(
                             body,
-                            "<svg x=\"{box_left:.1}\" y=\"{box_top:.1}\" width=\"{box_w:.1}\" height=\"{box_h:.1}\" viewBox=\"{vb}\" preserveAspectRatio=\"none\" overflow=\"visible\">{inner}</svg>"
+                            "<g transform=\"translate({tx:.2} {ty:.2}) scale({sx:.4} {sy:.4})\">{inner}</g>"
                         );
                         if angle_deg.abs() > 0.01 {
                             body.push_str("</g>");

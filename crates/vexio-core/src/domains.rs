@@ -1116,11 +1116,17 @@ pub fn build_all_builtin_stencils() -> Vec<StencilPack> {
             "Microsoft 365 & Office",
             "Microsoft 365",
             &[
+                ("Microsoft 365 Cloud (M365)", "Rectangle", 1.25, 0.78, "m365_cloud"),
                 ("Microsoft 365 Tenant", "Rectangle", 2.40, 1.50, "m365_tenant"),
-                ("Microsoft Teams", "Rectangle", 1.05, 1.05, "m365_teams"),
-                ("Exchange Online", "Rectangle", 1.05, 1.05, "m365_exchange"),
-                ("SharePoint Online", "Circle", 1.05, 1.05, "m365_sharepoint"),
-                ("OneDrive for Business", "Pill", 1.30, 0.90, "m365_onedrive"),
+                ("Microsoft Teams", "Rectangle", 0.90, 0.90, "m365_teams"),
+                ("Exchange Online", "Rectangle", 1.05, 0.85, "m365_exchange"),
+                ("Exchange Online Protection (EOP)", "Rectangle", 1.10, 0.90, "m365_eop"),
+                ("SharePoint Online", "Circle", 0.90, 0.90, "m365_sharepoint"),
+                ("OneDrive for Business", "Pill", 1.10, 0.80, "m365_onedrive"),
+                ("Microsoft Purview", "Hexagon", 1.05, 0.82, "m365_purview"),
+                ("Defender Endpoint Protection (DEP)", "Pentagon", 0.90, 0.90, "m365_dep"),
+                ("Universal Print", "Rectangle", 0.95, 0.95, "m365_universal_print"),
+                ("MS 365 Apps for Enterprise", "Rectangle", 0.90, 0.90, "m365_apps"),
                 ("Outlook Mail Flow", "Rectangle", 1.05, 1.05, "m365_outlook"),
                 ("Word Document", "FoldedNote", 1.05, 1.05, "office_word"),
                 ("Excel Workbook", "FoldedNote", 1.05, 1.05, "office_excel"),
@@ -1133,27 +1139,31 @@ pub fn build_all_builtin_stencils() -> Vec<StencilPack> {
                 ("Microsoft Copilot", "Hexagon", 1.05, 1.05, "m365_copilot"),
                 ("Microsoft Loop", "Rectangle", 1.05, 1.05, "m365_loop"),
                 ("Microsoft Forms", "Rectangle", 1.05, 1.05, "m365_forms"),
-                ("Microsoft Planner", "Rectangle", 1.05, 1.05, "m365_planner"),
+                ("Microsoft Planner", "Rectangle", 0.90, 0.90, "m365_planner"),
                 ("Microsoft To Do", "Rectangle", 1.05, 1.05, "m365_todo"),
                 ("Microsoft Stream", "Pill", 1.15, 0.95, "m365_stream"),
                 ("Microsoft Whiteboard", "Rectangle", 1.15, 1.00, "m365_whiteboard"),
                 ("Viva Engage", "Circle", 1.05, 1.05, "m365_viva"),
                 ("Viva Insights", "Hexagon", 1.05, 1.05, "m365_viva_insights"),
-                ("Microsoft Intune", "Rectangle", 1.05, 1.05, "m365_intune"),
+                ("Microsoft Intune / MDM", "Rectangle", 1.00, 0.95, "m365_intune"),
                 ("Defender for M365", "Pentagon", 1.05, 1.05, "m365_defender"),
-                ("Microsoft Purview", "Hexagon", 1.05, 1.05, "m365_purview"),
             ],
         ),
         make_stencil_pack(
             "Microsoft Servers & Active Directory",
             "Microsoft Servers",
             &[
+                ("Active Directory DC", "Triangle", 1.00, 0.92, "ms_ad_dc"),
+                ("Exchange Server", "Rectangle", 0.95, 1.00, "ms_exchange_srv"),
+                ("Microsoft Entra ID", "Diamond", 0.92, 0.92, "ms_entra_id"),
+                ("Entra Connect Sync", "Hexagon", 0.95, 1.00, "ms_entra_connect"),
+                ("System Center (SCCM / MECM)", "Hexagon", 0.95, 0.95, "ms_system_center"),
+                ("On-Premises Building", "Rectangle", 0.85, 1.05, "ms_onprem_building"),
+                ("Admin / User Device Stack", "Rectangle", 1.15, 0.85, "ms_device_stack"),
+                ("Windows 11 Enterprise", "Rectangle", 0.90, 0.90, "ms_win11_client"),
                 ("Windows Server", "Rectangle", 1.10, 1.30, "ms_win_server"),
                 ("Windows Server Core", "Rectangle", 1.10, 1.30, "ms_server_core"),
-                ("Active Directory DC", "Triangle", 1.10, 1.30, "ms_ad_dc"),
                 ("Read-Only DC (RODC)", "Triangle", 1.10, 1.30, "ms_rodc"),
-                ("Microsoft Entra ID", "Diamond", 1.05, 1.05, "ms_entra_id"),
-                ("Entra Connect Sync", "Hexagon", 1.05, 1.05, "ms_entra_connect"),
                 ("AD Forest / Domain Trust", "Pill", 1.60, 1.00, "ms_ad_trust"),
                 ("Organizational Unit (OU)", "Rectangle", 1.15, 1.00, "ms_ad_ou"),
                 ("Group Policy (GPO)", "FoldedNote", 1.05, 1.10, "ms_gpo"),
@@ -1166,26 +1176,25 @@ pub fn build_all_builtin_stencils() -> Vec<StencilPack> {
                 ("SQL Server Cluster", "Rectangle", 1.10, 1.30, "ms_sql_server"),
                 ("SQL Reporting (SSRS)", "FoldedNote", 1.10, 1.30, "ms_ssrs"),
                 ("SQL Integration (SSIS)", "Hexagon", 1.10, 1.30, "ms_ssis"),
-                ("Exchange Server", "Rectangle", 1.10, 1.30, "ms_exchange_srv"),
                 ("SharePoint Server", "Rectangle", 1.10, 1.30, "ms_sharepoint_srv"),
                 ("Hyper-V Host", "Cube3D", 1.10, 1.30, "ms_hyperv"),
                 ("Failover Cluster", "Rectangle", 1.25, 1.30, "ms_failover_cluster"),
-                ("System Center (MECM / SCOM)", "Hexagon", 1.10, 1.30, "ms_system_center"),
                 ("WSUS Patch Server", "Rectangle", 1.10, 1.30, "ms_wsus"),
-                ("Windows 11 Workstation", "Rectangle", 1.10, 1.05, "ms_win11_client"),
             ],
         ),
         make_stencil_pack(
             "Microsoft Azure & Hybrid Cloud",
             "Microsoft Azure",
             &[
+                ("Azure Sentinel", "Pentagon", 0.90, 0.95, "az_sentinel"),
+                ("Virtual Network (Netzwerk)", "Circle", 0.90, 0.90, "az_vnet_ring"),
                 ("Azure Subscription / RG", "Rectangle", 2.40, 1.50, "az_resource_group"),
                 ("Management Group", "Rectangle", 2.40, 1.50, "az_mgmt_group"),
                 ("Azure Virtual Machine", "Rectangle", 1.05, 1.05, "az_vm"),
                 ("VM Scale Set (VMSS)", "Rectangle", 1.05, 1.05, "az_vmss"),
                 ("Azure Kubernetes (AKS)", "Hexagon", 1.05, 1.05, "az_aks"),
                 ("Azure Container Apps", "Rectangle", 1.05, 1.05, "az_container_apps"),
-                ("Azure App Service", "Circle", 1.05, 1.05, "az_app_service"),
+                ("Azure App Service / Compute", "Circle", 0.92, 0.92, "az_app_service"),
                 ("Azure Functions", "Diamond", 1.05, 1.05, "az_functions"),
                 ("Azure Logic Apps", "Rectangle", 1.05, 1.05, "az_logic_apps"),
                 ("API Management (APIM)", "Octagon", 1.05, 1.05, "az_apim"),
@@ -1272,6 +1281,11 @@ pub fn build_all_builtin_stencils() -> Vec<StencilPack> {
             "Network & Rack Equipment",
             "Network",
             &[
+                ("Cloud / WAN Hub (Netze)", "Circle", 1.00, 1.00, "net_cloud_hub"),
+                ("Cisco Catalyst 48-Port Switch (1U)", "Rectangle", 1.90, 0.36, "rack_cisco_48p"),
+                ("Cisco ASR 1002 Edge Router (2U)", "Rectangle", 1.90, 0.62, "rack_cisco_asr2u"),
+                ("Panduit 24-Port Patch Panel (1U)", "Rectangle", 1.90, 0.36, "rack_panduit_24p"),
+                ("APC Smart-UPS Rackmount (2U)", "Rectangle", 1.90, 0.62, "rack_apc_ups2u"),
                 ("Enterprise Firewall", "Rectangle", 1.50, 0.95, "firewall"),
                 ("Next-Gen Firewall (NGFW)", "Rectangle", 1.50, 0.95, "net_ngfw"),
                 ("Web Application Firewall (WAF)", "Octagon", 1.45, 0.95, "net_waf"),
@@ -4831,6 +4845,164 @@ pub struct StencilMasterPreview {
     pub fill_formula: String,
     pub line_formula: String,
     pub svg: String,
+    #[serde(default)]
+    pub png_data_url: String,
+}
+
+/// Curated Official & Open Enterprise Stencil Archive entry for 1-click download & local persistence across all 4 OS shells.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OfficialStencilCatalogEntry {
+    pub id: String,
+    pub title: String,
+    pub vendor: String,
+    pub category_group: String,
+    pub description: String,
+    pub file_name: String,
+    pub url: String,
+    pub approx_size_kb: u32,
+}
+
+/// Returns the curated catalog of direct-HTTPS, zero-auth official & enterprise Visio stencil packages
+/// covering Microsoft 365 / Office (`id=35772` / `aka.ms/OfficeSymbols`), Azure (`aka.ms/AzureIcons`),
+/// Security/Purview/Entra/Sentinel, Active Directory, Cisco, and Scaled Rack Hardware (`id=4604` `NetEquip`).
+pub fn list_official_stencil_catalog() -> Vec<OfficialStencilCatalogEntry> {
+    vec![
+        OfficialStencilCatalogEntry {
+            id: "ms-office-365-vssx".into(),
+            title: "Microsoft 365, Office, Exchange & SharePoint (.vssx)".into(),
+            vendor: "Microsoft / MIS".into(),
+            category_group: "Microsoft 365 & Office".into(),
+            description: "113 native Visio .vssx masters for M365, Exchange, SharePoint, Teams, OneDrive, Planner, Word, Excel, Visio & Dynamics 365.".into(),
+            file_name: "Microsoft_365_and_Office_Stencils.vssx".into(),
+            url: "https://raw.githubusercontent.com/sandroasp/Microsoft-Integration-and-Azure-Stencils-Pack-for-Visio/master/Office%20365/MIS%20Office%2C%20Office%20365%20and%20Dynamics%20365.vssx".into(),
+            approx_size_kb: 4754,
+        },
+        OfficialStencilCatalogEntry {
+            id: "ms-365-official-icons-zip".into(),
+            title: "Official Microsoft 365 Content Icons (aka.ms/OfficeSymbols)".into(),
+            vendor: "Microsoft Official CDN".into(),
+            category_group: "Microsoft 365 & Office".into(),
+            description: "Official Microsoft Download Center two-tone SVG architecture symbols for Microsoft 365, Teams, SharePoint & Planner.".into(),
+            file_name: "2024-microsoft-365-content-icons.zip".into(),
+            url: "https://download.microsoft.com/download/2/F/3/2F346655-1F7E-4F5E-BE78-82DA3D507F3A/2024-microsoft-365-content-icons.zip".into(),
+            approx_size_kb: 696,
+        },
+        OfficialStencilCatalogEntry {
+            id: "ms-azure-core-vssx".into(),
+            title: "Microsoft Azure Core Architecture Stencils (.vssx)".into(),
+            vendor: "Microsoft / MIS".into(),
+            category_group: "Microsoft Azure".into(),
+            description: "220 native Visio .vssx masters for Azure Compute, Networking, App Services, Containers, VNet, Storage & Hybrid Cloud.".into(),
+            file_name: "Microsoft_Azure_Stencils.vssx".into(),
+            url: "https://raw.githubusercontent.com/sandroasp/Microsoft-Integration-and-Azure-Stencils-Pack-for-Visio/master/Azure/MIS%20Azure%20Stencils.vssx".into(),
+            approx_size_kb: 2080,
+        },
+        OfficialStencilCatalogEntry {
+            id: "ms-azure-official-v25-zip".into(),
+            title: "Official Azure Public Service Icons V25 (aka.ms/AzureIcons)".into(),
+            vendor: "Microsoft Azure Architecture Center".into(),
+            category_group: "Microsoft Azure".into(),
+            description: "721 official Microsoft Azure Architecture Center vector SVG icons organized into 21 Azure service stencil packs.".into(),
+            file_name: "Azure_Public_Service_Icons_V25.zip".into(),
+            url: "https://arch-center.azureedge.net/icons/Azure_Public_Service_Icons_V25.zip".into(),
+            approx_size_kb: 1021,
+        },
+        OfficialStencilCatalogEntry {
+            id: "ms-security-purview-vssx".into(),
+            title: "Microsoft Security, Purview, Entra & Sentinel (.vssx)".into(),
+            vendor: "Microsoft / MIS".into(),
+            category_group: "Security & Identity".into(),
+            description: "Native .vssx stencils for Microsoft Purview, Sentinel, Defender, Entra ID, Conditional Access, PIM/PAM & Security Center.".into(),
+            file_name: "Microsoft_Security_and_Governance.vssx".into(),
+            url: "https://raw.githubusercontent.com/sandroasp/Microsoft-Integration-and-Azure-Stencils-Pack-for-Visio/master/Security%20and%20Governance/MIS%20Security%20and%20Governance.vssx".into(),
+            approx_size_kb: 1468,
+        },
+        OfficialStencilCatalogEntry {
+            id: "ms-infra-ad-network-vssx".into(),
+            title: "Active Directory, Servers & Network Infrastructure (.vssx)".into(),
+            vendor: "Microsoft / MIS".into(),
+            category_group: "Servers & Infrastructure".into(),
+            description: "On-premises Active Directory, Domain Controllers, SCCM/MECM, Firewalls, Gateways, Routers, Switches & Hybrid Cloud topology.".into(),
+            file_name: "Microsoft_Infrastructure_and_Networking.vssx".into(),
+            url: "https://raw.githubusercontent.com/sandroasp/Microsoft-Integration-and-Azure-Stencils-Pack-for-Visio/master/Others/MIS%20Infrastructure%20and%20Networking%20Stencils.vssx".into(),
+            approx_size_kb: 1048,
+        },
+        OfficialStencilCatalogEntry {
+            id: "ms-devices-buildings-users-vssx".into(),
+            title: "Enterprise Devices, Laptops, Phones & Office Buildings (.vssx)".into(),
+            vendor: "Microsoft / MIS".into(),
+            category_group: "Servers & Infrastructure".into(),
+            description: "Visio .vssx stencils for Laptops, Mobile Phones, Workstations, Printers, MDM Devices & On-Premises Office Buildings.".into(),
+            file_name: "Microsoft_Devices_Stencils.vssx".into(),
+            url: "https://raw.githubusercontent.com/sandroasp/Microsoft-Integration-and-Azure-Stencils-Pack-for-Visio/master/Others/MIS%20Devices%20Stencils.vssx".into(),
+            approx_size_kb: 1093,
+        },
+        OfficialStencilCatalogEntry {
+            id: "ms-power-platform-pbi-vssx".into(),
+            title: "Power BI, Power Platform & Dynamics 365 (.vssx)".into(),
+            vendor: "Microsoft / MIS".into(),
+            category_group: "Data & Analytics".into(),
+            description: "Native .vssx stencils for Power BI, Power Apps, Power Automate, Dataverse, Copilot Studio & Microsoft Fabric.".into(),
+            file_name: "Microsoft_Power_Platform_Stencils.vssx".into(),
+            url: "https://raw.githubusercontent.com/sandroasp/Microsoft-Integration-and-Azure-Stencils-Pack-for-Visio/master/Power%20Platform/MIS%20Power%20Platform%20Stencils.vssx".into(),
+            approx_size_kb: 2264,
+        },
+        OfficialStencilCatalogEntry {
+            id: "cisco-enterprise-dc-zip".into(),
+            title: "Cisco Enterprise, Catalyst, Nexus & Data Center (.zip)".into(),
+            vendor: "Cisco / Xeeva".into(),
+            category_group: "Network & Rack Equipment".into(),
+            description: "Complete US-unit Cisco .vssx stencil suite (Routing, Switching, Data Center, Wireless, Security & Endpoints).".into(),
+            file_name: "Visio-Cisco-Stencils-US-V1.zip".into(),
+            url: "https://raw.githubusercontent.com/xeeva/Visio-Cisco/main/Visio-Cisco-Stencils-US-V1.zip".into(),
+            approx_size_kb: 6337,
+        },
+        OfficialStencilCatalogEntry {
+            id: "netequip-cisco-asr1000-vss".into(),
+            title: "NetEquip Hardware: Cisco ASR 1000 Series Front/Rear (.vss)".into(),
+            vendor: "NetEquip Archive (Cisco)".into(),
+            category_group: "Network & Rack Equipment".into(),
+            description: "Scale-accurate 19-inch rackmount front & rear EMF hardware stencils (ASR 1002, ASR 1004, ASR 1006) in legacy binary .vss format.".into(),
+            file_name: "Cisco_ASR_1000_Series.vss".into(),
+            url: "https://raw.githubusercontent.com/girlpunk/VisioStencils/master/Cisco/ASR%201000%20Series.vss".into(),
+            approx_size_kb: 612,
+        },
+        OfficialStencilCatalogEntry {
+            id: "netequip-panduit-racks-vss".into(),
+            title: "NetEquip Hardware: Panduit Patch Panels & Cable Mgmt (.vss)".into(),
+            vendor: "NetEquip Archive (Panduit)".into(),
+            category_group: "Network & Rack Equipment".into(),
+            description: "23 scale-accurate 19-inch Panduit patch panels, horizontal/vertical cable managers & fiber trays (.vss).".into(),
+            file_name: "Panduit_Rack_Hardware.vss".into(),
+            url: "https://raw.githubusercontent.com/girlpunk/VisioStencils/master/Panduit.vss".into(),
+            approx_size_kb: 272,
+        },
+        OfficialStencilCatalogEntry {
+            id: "netequip-apc-ups-pdu-vss".into(),
+            title: "NetEquip Hardware: APC Smart-UPS & Rack Power (.vss)".into(),
+            vendor: "NetEquip Archive (APC)".into(),
+            category_group: "Network & Rack Equipment".into(),
+            description: "Scale-accurate APC rackmount UPS, ATS, KVM & power distribution hardware stencils (.vss).".into(),
+            file_name: "APC_Rack_Equipment.vss".into(),
+            url: "https://raw.githubusercontent.com/girlpunk/VisioStencils/master/APC/APC.vss".into(),
+            approx_size_kb: 3601,
+        },
+    ]
+}
+
+/// Renders `page_id` of `mini_doc` to a 4x-RGSS anti-aliased transparent-background `data:image/png;base64,...` URI.
+pub fn render_stencil_preview_png_data_url(doc: &VisioDocument, page_id: u32) -> String {
+    use base64::Engine as _;
+    let w = 132u32;
+    let h = 88u32;
+    if let Ok(rgba) = vexio_render::render_shapes_transparent_rgba(doc, page_id, w, h) {
+        let png = crate::export_print::encode_rgba_to_png(w, h, &rgba, 96);
+        let b64 = base64::engine::general_purpose::STANDARD.encode(&png);
+        format!("data:image/png;base64,{b64}")
+    } else {
+        String::new()
+    }
 }
 
 /// Render every built-in stencil master across all 22 Visio, Microsoft, Server & Network categories into a crisp,
@@ -4910,6 +5082,7 @@ pub fn list_builtin_stencil_previews() -> BTreeMap<String, Vec<StencilMasterPrev
             }
             ReactiveEngine::recalculate_document(&mut mini_doc);
             let svg = crate::export_print::export_page_svg(&mini_doc, 1);
+            let png_data_url = render_stencil_preview_png_data_url(&mini_doc, 1);
             items.push(StencilMasterPreview {
                 name: master.name.clone(),
                 prompt: master.prompt.clone(),
@@ -4919,6 +5092,7 @@ pub fn list_builtin_stencil_previews() -> BTreeMap<String, Vec<StencilMasterPrev
                 fill_formula,
                 line_formula,
                 svg,
+                png_data_url,
             });
         }
         out.insert(pack.title, items);
@@ -4952,10 +5126,22 @@ mod stencil_preview_tests {
                     .find("data-shape-id=")
                     .unwrap_or_else(|| panic!("missing data-shape-id in {}:{}", pack_name, m.name));
                 let shape_body = &m.svg[grp_idx..];
-                let path_count = shape_body.matches("<path ").count();
+                let prim_count = shape_body.matches("<path ").count()
+                    + shape_body.matches("<rect ").count()
+                    + shape_body.matches("<circle ").count()
+                    + shape_body.matches("<ellipse ").count()
+                    + shape_body.matches("<polygon ").count()
+                    + shape_body.matches("<polyline ").count()
+                    + shape_body.matches("<line ").count();
                 assert!(
-                    path_count >= 1,
-                    "missing native-compatible <path> in {}:{} (macOS/Android/Windows require <path>)",
+                    prim_count >= 1,
+                    "missing SVG vector primitive in {}:{}",
+                    pack_name,
+                    m.name
+                );
+                assert!(
+                    m.png_data_url.starts_with("data:image/png;base64,"),
+                    "missing Retina PNG preview in {}:{}",
                     pack_name,
                     m.name
                 );
@@ -4965,13 +5151,17 @@ mod stencil_preview_tests {
                     pack_name,
                     m.name
                 );
+                let detail_score = prim_count
+                    + shape_body.matches("<stop ").count()
+                    + shape_body.matches(" C").count()
+                    + shape_body.matches(" L").count();
                 if pack_name.starts_with("Microsoft")
                     || pack_name.starts_with("Servers")
                     || pack_name.starts_with("Network")
                 {
                     assert!(
-                        path_count >= 3,
-                        "Stencil {}:{} must have rich multi-path 1:1 Visio detail (got {path_count})",
+                        detail_score >= 3,
+                        "Stencil {}:{} must have rich multi-element 1:1 Visio detail (got {detail_score})",
                         pack_name,
                         m.name
                     );

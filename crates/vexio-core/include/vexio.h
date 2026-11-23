@@ -89,6 +89,7 @@ VexioStatus vexio_doc_reorder_shapes(VexioDoc* doc, uint32_t page_id, const uint
 VexioStatus vexio_doc_set_shape_text(VexioDoc* doc, uint32_t page_id, uint64_t shape_id, const char* text_utf8);
 VexioStatus vexio_doc_transform_shape(VexioDoc* doc, uint32_t page_id, uint64_t shape_id, double pin_x_in, double pin_y_in, double width_in, double height_in, double angle_deg);
 VexioStatus vexio_doc_import_stencil_bytes(VexioDoc* doc, const char* file_name_utf8, VexioByteSlice bytes, VexioOwnedBuffer* out_json);
+VexioStatus vexio_list_official_stencil_catalog_json(VexioOwnedBuffer* out_json);
 VexioStatus vexio_doc_add_page(VexioDoc* doc, const char* name_utf8, uint32_t* out_page_id);
 VexioStatus vexio_doc_auto_layout(VexioDoc* doc, uint32_t page_id, const char* algo_utf8);
 VexioStatus vexio_doc_validate_json(const VexioDoc* doc, const char* ruleset_utf8, VexioOwnedBuffer* out_json);

@@ -5,7 +5,9 @@ import android.content.ClipData
 import android.content.ClipDescription
 import android.content.Context
 import android.content.Intent
+import android.graphics.BitmapFactory
 import android.net.Uri
+import android.util.Base64
 import android.view.DragEvent
 import android.view.GestureDetector
 import android.view.MotionEvent
@@ -589,6 +591,9 @@ fun GooglebookWorkstationScreen(
                             )
                         },
                         onImportStencilRequested = onImportStencilRequested,
+                        onOpenOfficialCatalogRequested = {
+                            viewModel.setOfficialStencilCatalogDialogVisible(true)
+                        },
                         onOpenNewWindowRequested = {
                             launchNewDocumentWindow(context, template = "blank")
                         }
@@ -851,6 +856,84 @@ fun GooglebookWorkstationScreen(
                 },
                 dismissButton = {
                     TextButton(onClick = viewModel::dismissUpdateDialog) {
+                        Text("Close")
+                    }
+                }
+            )
+        }
+
+        // Official & Enterprise Stencil Catalog Dialog (.vssx, .vss, .zip SVG)
+        if (uiState.showOfficialStencilCatalogDialog) {
+            AlertDialog(
+                onDismissRequest = { viewModel.setOfficialStencilCatalogDialogVisible(false) },
+                title = {
+                    Text("Official & Enterprise Stencil Catalog")
+                },
+                text = {
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 420.dp)
+                            .verticalScroll(rememberScrollState())
+                    ) {
+                        Text(
+                            text = "1-click download & local persistence across restarts (Microsoft 365, Azure V25, Cisco, Panduit, APC & NetEquip .vssx / .vss / .zip).",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        uiState.officialStencilCatalog.forEach { entry ->
+                            val isBusy = entry.id in uiState.downloadingStencilPackIds
+                            val isInstalled = entry.fileName in uiState.installedStencilFileNames
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = MaterialTheme.colorScheme.surfaceContainerLow,
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)
+                                ) {
+                                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                                        Text(
+                                            text = entry.title,
+                                            style = MaterialTheme.typography.labelLarge,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                        Text(
+                                            text = "${entry.fileName.substringAfterLast('.', "vssx").uppercase()} • ~${entry.approxSizeKb} KB • ${entry.vendor}",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                    FilledTonalButton(
+                                        enabled = !isBusy,
+                                        onClick = { viewModel.downloadOfficialStencilPack(entry) },
+                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                                    ) {
+                                        Text(
+                                            when {
+                                                isBusy -> "Installing…"
+                                                isInstalled -> "Installed ✓"
+                                                else -> "Install"
+                                            },
+                                            style = MaterialTheme.typography.labelSmall
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    FilledTonalButton(onClick = { viewModel.downloadAllOfficialStencilPacks() }) {
+                        Text("Install All Packs")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { viewModel.setOfficialStencilCatalogDialogVisible(false) }) {
                         Text("Close")
                     }
                 }
@@ -2573,6 +2656,7 @@ private fun StencilMasterDrawerPane(
     onSelectCategory: (String) -> Unit,
     onMasterClicked: (StencilMasterItem) -> Unit,
     onImportStencilRequested: () -> Unit = {},
+    onOpenOfficialCatalogRequested: () -> Unit = {},
     onOpenNewWindowRequested: () -> Unit
 ) {
     var searchQuery by remember { mutableStateOf("") }
@@ -2637,30 +2721,57 @@ private fun StencilMasterDrawerPane(
                 )
             }
 
-            // + Import Visio Stencil (.vssx / .vss / .vssm / .vsdx / .vdx) Button
-            FilledTonalButton(
-                onClick = onImportStencilRequested,
-                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
-                shape = RoundedCornerShape(10.dp),
-                colors = ButtonDefaults.filledTonalButtonColors(
-                    containerColor = MaterialTheme.colorScheme.secondaryContainer
-                ),
+            // + Import Visio Stencil (.vssx / .vss / .zip) + Official Stencil Packs Buttons
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 10.dp, vertical = 2.dp)
             ) {
-                Icon(
-                    imageVector = Icons.Default.FolderOpen,
-                    contentDescription = null,
-                    modifier = Modifier.size(15.dp)
-                )
-                Spacer(Modifier.width(6.dp))
-                Text(
-                    text = uiState.language.importStencilLabel,
-                    style = MaterialTheme.typography.labelSmall,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
+                FilledTonalButton(
+                    onClick = onImportStencilRequested,
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+                    shape = RoundedCornerShape(10.dp),
+                    colors = ButtonDefaults.filledTonalButtonColors(
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer
+                    ),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.FolderOpen,
+                        contentDescription = null,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Text(
+                        text = "+ Stencil",
+                        style = MaterialTheme.typography.labelSmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                FilledTonalButton(
+                    onClick = onOpenOfficialCatalogRequested,
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+                    shape = RoundedCornerShape(10.dp),
+                    colors = ButtonDefaults.filledTonalButtonColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer
+                    ),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Add,
+                        contentDescription = null,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Text(
+                        text = "Official Packs",
+                        style = MaterialTheme.typography.labelSmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
             }
 
             Spacer(Modifier.height(6.dp))
@@ -3032,6 +3143,17 @@ private fun DraggableStencilMasterCard(
 ) {
     var cardMenuExpanded by remember { mutableStateOf(false) }
     val primaryStroke = MaterialTheme.colorScheme.primary
+    val decodedPngPreview = remember(master.pngDataUrl) {
+        val prefix = "data:image/png;base64,"
+        if (master.pngDataUrl.startsWith(prefix)) {
+            runCatching {
+                val raw = Base64.decode(master.pngDataUrl.removePrefix(prefix), Base64.DEFAULT)
+                BitmapFactory.decodeByteArray(raw, 0, raw.size)?.asImageBitmap()
+            }.getOrNull()
+        } else {
+            null
+        }
+    }
     val parsedSvgDoc = remember(master.svgPreview, primaryStroke) {
         parseStencilSvgDoc(master.svgPreview, primaryStroke)
     }
@@ -3087,6 +3209,16 @@ private fun DraggableStencilMasterCard(
                     border = BorderStroke(1.dp, Color(0xFFCBD5E1)),
                     modifier = Modifier.size(width = 56.dp, height = 40.dp)
                 ) {
+                    if (decodedPngPreview != null) {
+                        Image(
+                            bitmap = decodedPngPreview,
+                            contentDescription = null,
+                            contentScale = ContentScale.Fit,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(3.dp)
+                        )
+                    } else {
                     val fillTint = primaryStroke.copy(alpha = 0.14f)
                     androidx.compose.foundation.Canvas(
                         modifier = Modifier
@@ -3203,6 +3335,7 @@ private fun DraggableStencilMasterCard(
                                 }
                             }
                         }
+                    }
                     }
                 }
                 Spacer(Modifier.width(10.dp))

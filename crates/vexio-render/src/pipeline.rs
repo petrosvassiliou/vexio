@@ -1418,6 +1418,37 @@ pub fn render_page_software_rgba_with_overlay(
     Ok(fb)
 }
 
+/// Deterministic 4x-RGSS software rasterizer producing a 100% transparent (`[0, 0, 0, 0]`) background
+/// with only the shapes on `page_id` (no page card quad, drop shadow, or grid). Ideal for Retina stencil icons.
+pub fn render_shapes_transparent_rgba(
+    doc: &VisioDocument,
+    page_id: u32,
+    width: u32,
+    height: u32,
+) -> Result<Vec<u8>, RenderError> {
+    if width == 0 || height == 0 {
+        return Err(RenderError::InvalidDimensions { width, height });
+    }
+    let page = doc.page(page_id).ok_or(RenderError::PageNotFound(page_id))?;
+    let pw = page.width_in().max(0.05);
+    let ph = page.height_in().max(0.05);
+    let mut camera = ViewportCamera::new(width, height, 1.0);
+    camera.center_x_in = pw * 0.5;
+    camera.center_y_in = ph * 0.5;
+    camera.zoom_ppi = ((width as f64) / pw).min((height as f64) / ph) * 0.94;
+
+    let visuals = ReactiveEngine::evaluate_page_visuals(doc, page_id);
+    let tol = (0.30 / camera.effective_ppi().max(1.0)).clamp(0.0005, 0.01) as f32;
+    let mut mesh = TessellatedMesh::new();
+    for vis in &visuals {
+        mesh.append(&crate::tessellate::tessellate_shape_full(vis, tol));
+    }
+
+    let mut fb = vec![0u8; (width as usize) * (height as usize) * 4];
+    rasterize_mesh_rgss4(&mesh, &camera, 0.0, &mut fb);
+    Ok(fb)
+}
+
 /// Render `page_id` to an `RGBA8` buffer (`width * height * 4`), automatically using hardware `wgpu`
 /// when an adapter is available and falling back seamlessly to deterministic 4x-RGSS software rendering.
 pub fn render_page_rgba_auto(
@@ -1634,36 +1665,31 @@ fn rasterize_mesh_rgss4(
         }
     }
 
-    // Resolve 4x MSAA sample buffer into tight RGBA8 output framebuffer.
+    // Resolve 4x MSAA sample buffer into tight straight-alpha RGBA8 output framebuffer
+    // using alpha-weighted RGB averaging so transparent (`[0,0,0,0]`) backgrounds have zero dark edge halos.
     for (px_slots, out_px) in msaa_buf.iter().zip(fb.chunks_exact_mut(4)) {
-        let r = (px_slots[0][0] as u32
-            + px_slots[1][0] as u32
-            + px_slots[2][0] as u32
-            + px_slots[3][0] as u32
-            + 2)
-            >> 2;
-        let g = (px_slots[0][1] as u32
-            + px_slots[1][1] as u32
-            + px_slots[2][1] as u32
-            + px_slots[3][1] as u32
-            + 2)
-            >> 2;
-        let b = (px_slots[0][2] as u32
-            + px_slots[1][2] as u32
-            + px_slots[2][2] as u32
-            + px_slots[3][2] as u32
-            + 2)
-            >> 2;
-        let a = (px_slots[0][3] as u32
-            + px_slots[1][3] as u32
-            + px_slots[2][3] as u32
-            + px_slots[3][3] as u32
-            + 2)
-            >> 2;
-        out_px[0] = r as u8;
-        out_px[1] = g as u8;
-        out_px[2] = b as u8;
-        out_px[3] = a as u8;
+        let a0 = px_slots[0][3] as u32;
+        let a1 = px_slots[1][3] as u32;
+        let a2 = px_slots[2][3] as u32;
+        let a3 = px_slots[3][3] as u32;
+        let sum_a = a0 + a1 + a2 + a3;
+        if sum_a == 0 {
+            out_px.copy_from_slice(&[0, 0, 0, 0]);
+        } else if sum_a == 255 * 4 {
+            out_px[0] = ((px_slots[0][0] as u32 + px_slots[1][0] as u32 + px_slots[2][0] as u32 + px_slots[3][0] as u32 + 2) >> 2) as u8;
+            out_px[1] = ((px_slots[0][1] as u32 + px_slots[1][1] as u32 + px_slots[2][1] as u32 + px_slots[3][1] as u32 + 2) >> 2) as u8;
+            out_px[2] = ((px_slots[0][2] as u32 + px_slots[1][2] as u32 + px_slots[2][2] as u32 + px_slots[3][2] as u32 + 2) >> 2) as u8;
+            out_px[3] = 255;
+        } else {
+            let sum_r = px_slots[0][0] as u32 * a0 + px_slots[1][0] as u32 * a1 + px_slots[2][0] as u32 * a2 + px_slots[3][0] as u32 * a3;
+            let sum_g = px_slots[0][1] as u32 * a0 + px_slots[1][1] as u32 * a1 + px_slots[2][1] as u32 * a2 + px_slots[3][1] as u32 * a3;
+            let sum_b = px_slots[0][2] as u32 * a0 + px_slots[1][2] as u32 * a1 + px_slots[2][2] as u32 * a2 + px_slots[3][2] as u32 * a3;
+            let half = sum_a / 2;
+            out_px[0] = ((sum_r + half) / sum_a).min(255) as u8;
+            out_px[1] = ((sum_g + half) / sum_a).min(255) as u8;
+            out_px[2] = ((sum_b + half) / sum_a).min(255) as u8;
+            out_px[3] = ((sum_a + 2) >> 2).min(255) as u8;
+        }
     }
 }
 

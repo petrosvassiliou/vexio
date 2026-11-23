@@ -717,6 +717,15 @@ public:
         return VexioResult<winrt::hstring>{VEXIO_OK, jsonBuf.ToWinRtString()};
     }
 
+    [[nodiscard]] static VexioResult<winrt::hstring> ListOfficialStencilCatalogJson() {
+        OwnedBufferGuard jsonBuf;
+        const VexioStatus status = vexio_list_official_stencil_catalog_json(jsonBuf.OutPtr());
+        if (status != VEXIO_OK) {
+            return VexioResult<winrt::hstring>{status, std::nullopt};
+        }
+        return VexioResult<winrt::hstring>{VEXIO_OK, jsonBuf.ToWinRtString()};
+    }
+
     [[nodiscard]] VexioStatus LoadStarterTemplate(std::string_view templateIdUtf8) {
         if (m_ptr == nullptr || templateIdUtf8.empty()) {
             return VEXIO_ERR_INVALID_ARG;

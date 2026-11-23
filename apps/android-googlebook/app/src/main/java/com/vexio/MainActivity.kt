@@ -101,6 +101,8 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
 
+        sessionViewModel.attachStencilStorageDirectory(java.io.File(filesDir, "stencils"))
+
         if (savedInstanceState == null) {
             handleIncomingLaunchIntent(intent)
             sessionViewModel.checkForUpdatesAsync(userInitiated = false)
@@ -185,6 +187,9 @@ class MainActivity : ComponentActivity() {
                 "application/vnd.ms-visio.stencil.macroEnabled.main+xml",
                 "application/vnd.ms-visio.drawing.main+xml",
                 "application/vnd.visio",
+                "application/zip",
+                "image/svg+xml",
+                "image/png",
                 "application/octet-stream",
                 "*/*"
             )

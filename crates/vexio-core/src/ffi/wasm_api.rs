@@ -708,20 +708,44 @@ impl WasmVexioSession {
             .is_ok()
     }
 
-    /// Import an external `.vssx`, `.vssm`, `.vss`, `.vsdx`, or `.vdx` Visio stencil file
-    /// directly into the Stencil Navigator with lossless geometry, `ForeignData`, and SVG thumbnails.
+    /// Import an external `.vssx`, `.vssm`, `.vss`, `.vsdx`, `.vdx`, `.svg`, or `.zip` Visio stencil archive
+    /// directly into the Stencil Navigator with lossless geometry, `ForeignData`, and Retina PNG/SVG thumbnails.
     pub fn import_stencil_bytes(&mut self, file_name: &str, bytes: &[u8]) -> Result<String, JsValue> {
-        let (pack_title, previews) = self
+        let packs = self
             .inner
-            .import_stencil_package(file_name, bytes)
+            .import_stencil_archive_packs(file_name, bytes)
             .map_err(|e| JsValue::from_str(&e.to_string()))?;
-        let master_names: Vec<String> = previews.iter().map(|p| p.name.clone()).collect();
+        let first_title = packs
+            .first()
+            .map(|(t, _)| t.clone())
+            .unwrap_or_else(|| "Imported Visio Stencil".into());
+        let mut all_previews = Vec::new();
+        let mut packs_json = Vec::with_capacity(packs.len());
+        for (pt, pv) in packs {
+            let p_names: Vec<String> = pv.iter().map(|p| p.name.clone()).collect();
+            packs_json.push(serde_json::json!({
+                "packTitle": pt,
+                "masterNames": p_names,
+                "masters": pv,
+                "previews": pv,
+            }));
+            all_previews.extend(pv);
+        }
+        let master_names: Vec<String> = all_previews.iter().map(|p| p.name.clone()).collect();
         let resp = serde_json::json!({
-            "packTitle": pack_title,
+            "packTitle": first_title,
             "masterNames": master_names,
-            "previews": previews,
+            "masters": all_previews,
+            "previews": all_previews,
+            "packs": packs_json,
         });
         Ok(serde_json::to_string(&resp).unwrap_or_else(|_| "{}".into()))
+    }
+
+    /// Returns the curated catalog of direct-HTTPS official & enterprise Visio stencil packages.
+    pub fn list_official_stencil_catalog_json(&self) -> String {
+        let catalog = crate::domains::list_official_stencil_catalog();
+        serde_json::to_string(&catalog).unwrap_or_else(|_| "[]".into())
     }
 
     /// Multi-shape Align (`left`, `center`, `right`, `top`, `middle`, `bottom`) and

@@ -37,6 +37,7 @@ struct StencilMasterDescriptor {
     std::string defaultFillFormula;
     std::string stereotypeOrRuleType;
     std::string svgMarkup;
+    std::string pngDataUrl;
 };
 
 struct PageTabModel {
@@ -327,6 +328,7 @@ struct MainWindow : MainWindowT<MainWindow> {
     void OnFlipVerticalClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
 
     void OnImportStencilClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
+    void OnOpenOfficialStencilCatalogClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
     void OnStencilDockDragOver(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::DragEventArgs const& e);
     void OnStencilDockDrop(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::DragEventArgs const& e);
 
@@ -395,6 +397,9 @@ private:
     winrt::fire_and_forget SaveDocumentAsync(bool forceSaveAs, std::string forcedExtensionUtf8 = {});
     winrt::fire_and_forget ImportVisioStencilPickerAsync();
     winrt::fire_and_forget ImportStencilStorageFileAsync(winrt::Windows::Storage::StorageFile file);
+    winrt::fire_and_forget ShowOfficialStencilCatalogDialogAsync();
+    void LoadPersistedUserStencils();
+    void PersistStencilBytesToLocalAppData(std::string_view fileNameUtf8, std::span<const uint8_t> bytes);
     winrt::fire_and_forget CheckForUpdatesAsync(bool userInitiated);
     winrt::fire_and_forget ImportDataVisualizerPickerAsync();
     winrt::fire_and_forget ExportDataVisualizerXlsxAsync();

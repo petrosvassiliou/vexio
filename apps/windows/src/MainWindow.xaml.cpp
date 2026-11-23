@@ -24,6 +24,47 @@ using namespace winrt::Microsoft::UI::Xaml::Shapes;
 
 namespace {
 
+[[nodiscard]] std::vector<uint8_t> DecodeBase64PngDataUrl(std::string_view dataUrl) {
+    constexpr std::string_view kPrefix = "data:image/png;base64,";
+    if (!dataUrl.starts_with(kPrefix)) {
+        return {};
+    }
+    const std::string_view b64 = dataUrl.substr(kPrefix.size());
+    std::vector<uint8_t> out;
+    out.reserve((b64.size() * 3) / 4);
+    uint32_t val = 0;
+    int32_t valb = -8;
+    for (unsigned char c : b64) {
+        int32_t d = -1;
+        if (c >= 'A' && c <= 'Z') d = c - 'A';
+        else if (c >= 'a' && c <= 'z') d = c - 'a' + 26;
+        else if (c >= '0' && c <= '9') d = c - '0' + 52;
+        else if (c == '+') d = 62;
+        else if (c == '/') d = 63;
+        else if (c == '=') break;
+        else continue;
+        val = (val << 6) + static_cast<uint32_t>(d);
+        valb += 6;
+        if (valb >= 0) {
+            out.push_back(static_cast<uint8_t>((val >> valb) & 0xFFu));
+            valb -= 8;
+        }
+    }
+    return out;
+}
+
+[[nodiscard]] std::filesystem::path GetLocalStencilsDirectory() {
+    wchar_t localAppData[MAX_PATH]{};
+    const DWORD len = ::GetEnvironmentVariableW(L"LOCALAPPDATA", localAppData, MAX_PATH);
+    std::filesystem::path base = (len > 0 && len < MAX_PATH)
+        ? std::filesystem::path{localAppData}
+        : std::filesystem::temp_directory_path();
+    std::filesystem::path dir = base / L"Vexio" / L"Stencils";
+    std::error_code ec{};
+    std::filesystem::create_directories(dir, ec);
+    return dir;
+}
+
 [[nodiscard]] std::string NormalizeExtensionWithoutDot(std::wstring_view pathOrExt) {
     std::filesystem::path p{pathOrExt};
     std::wstring ext = p.has_extension() ? p.extension().wstring() : std::wstring{pathOrExt};
@@ -121,6 +162,7 @@ MainWindow::MainWindow()
         PageTabModel{1u, L"Page-1", false, 7u}
     };
 
+    LoadPersistedUserStencils();
     InitializeStencilCatalog();
     InitializeExternalDataAndLayers();
     RefreshBaselineSnapshot();
@@ -780,6 +822,7 @@ void MainWindow::InitializeStencilCatalog() {
                         const double wIn = itemObj.GetNamedNumber(L"widthIn", 1.8);
                         const double hIn = itemObj.GetNamedNumber(L"heightIn", 1.0);
                         const hstring svgH = itemObj.GetNamedString(L"svg", L"");
+                        const hstring pngH = itemObj.GetNamedString(L"pngDataUrl", L"");
 
                         const std::string mNameUtf8 = vexio::win::ToUtf8(mNameH);
                         StencilMasterDescriptor desc{};
@@ -794,6 +837,7 @@ void MainWindow::InitializeStencilCatalog() {
                         desc.defaultFillFormula = "RGB(239,246,255)";
                         desc.stereotypeOrRuleType = mNameUtf8;
                         desc.svgMarkup = vexio::win::ToUtf8(svgH);
+                        desc.pngDataUrl = vexio::win::ToUtf8(pngH);
                         m_allMasters.push_back(std::move(desc));
                     }
                 };
@@ -937,13 +981,39 @@ void MainWindow::RefreshStencilList() {
         swatch.Background(SolidColorBrush{Windows::UI::ColorHelper::FromArgb(0xFF, 0xFF, 0xFF, 0xFF)});
         swatch.BorderBrush(SolidColorBrush{Windows::UI::ColorHelper::FromArgb(0xFF, 0xCB, 0xD5, 0xE1)});
         swatch.BorderThickness(Thickness{1, 1, 1, 1});
-        const std::wstring xamlBox = !xamlPaths.empty()
-            ? std::format(
-                L"<Viewbox xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\" Stretch=\"Uniform\" Margin=\"2\"><Canvas Width=\"144\" Height=\"96\">{}</Canvas></Viewbox>",
-                xamlPaths)
-            : L"<Path xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\" Data=\"M 4,6 L 32,6 L 32,20 L 4,20 Z\" Stretch=\"Uniform\" Stroke=\"#2563EB\" Fill=\"#EFF6FF\" StrokeThickness=\"1.6\" Margin=\"5,4,5,4\" />";
-        if (auto vectorPreview = Markup::XamlReader::Load(hstring{xamlBox}).try_as<UIElement>()) {
-            swatch.Child(vectorPreview);
+        bool loadedPngSwatch = false;
+        if (!master.pngDataUrl.empty()) {
+            const auto pngBytes = DecodeBase64PngDataUrl(master.pngDataUrl);
+            if (!pngBytes.empty()) {
+                try {
+                    InMemoryRandomAccessStream memStream{};
+                    DataWriter writer{memStream};
+                    writer.WriteBytes(pngBytes);
+                    (void)writer.StoreAsync();
+                    writer.DetachStream();
+                    memStream.Seek(0);
+                    BitmapImage bmp{};
+                    bmp.SetSource(memStream);
+                    Image img{};
+                    img.Source(bmp);
+                    img.Stretch(Stretch::Uniform);
+                    img.Margin(Thickness{2, 2, 2, 2});
+                    swatch.Child(img);
+                    loadedPngSwatch = true;
+                } catch (...) {
+                    loadedPngSwatch = false;
+                }
+            }
+        }
+        if (!loadedPngSwatch) {
+            const std::wstring xamlBox = !xamlPaths.empty()
+                ? std::format(
+                    L"<Viewbox xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\" Stretch=\"Uniform\" Margin=\"2\"><Canvas Width=\"144\" Height=\"96\">{}</Canvas></Viewbox>",
+                    xamlPaths)
+                : L"<Path xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\" Data=\"M 4,6 L 32,6 L 32,20 L 4,20 Z\" Stretch=\"Uniform\" Stroke=\"#2563EB\" Fill=\"#EFF6FF\" StrokeThickness=\"1.6\" Margin=\"5,4,5,4\" />";
+            if (auto vectorPreview = Markup::XamlReader::Load(hstring{xamlBox}).try_as<UIElement>()) {
+                swatch.Child(vectorPreview);
+            }
         }
         Grid::SetColumn(swatch, 0);
 
@@ -2767,6 +2837,7 @@ void MainWindow::OnNewBpmnTemplateClick(IInspectable const&, RoutedEventArgs con
     m_currentStorageFile = nullptr;
     m_documentDisplayName = L"Order_Fulfillment_BPMN2.vsdx";
     ValidationRuleSetCombo().SelectedIndex(0);
+    LoadPersistedUserStencils();
     InitializeStencilCatalog();
     RefreshStencilList();
     RefreshBaselineSnapshot();
@@ -2788,6 +2859,7 @@ void MainWindow::OnNewUmlTemplateClick(IInspectable const&, RoutedEventArgs cons
     m_currentStorageFile = nullptr;
     m_documentDisplayName = L"Service_Domain_UML25.vsdx";
     ValidationRuleSetCombo().SelectedIndex(1);
+    LoadPersistedUserStencils();
     InitializeStencilCatalog();
     RefreshStencilList();
     RefreshBaselineSnapshot();
@@ -2809,6 +2881,7 @@ void MainWindow::OnNewCadFloorPlanClick(IInspectable const&, RoutedEventArgs con
     m_currentStorageFile = nullptr;
     m_documentDisplayName = L"FloorPlan_Level1.vsdx";
     DrawingScaleCombo().SelectedIndex(1);
+    LoadPersistedUserStencils();
     InitializeStencilCatalog();
     RefreshStencilList();
     RefreshBaselineSnapshot();
@@ -3983,6 +4056,7 @@ void MainWindow::CreateNewBlankWithPreset(
         ? L"Scale: 1:1 • Units: Millimeters"
         : L"Scale: 1:1 • Units: Inches");
 
+    LoadPersistedUserStencils();
     InitializeStencilCatalog();
     RefreshStencilList();
     RefreshBaselineSnapshot();
@@ -4308,18 +4382,194 @@ void MainWindow::OnFlipVerticalClick(IInspectable const&, RoutedEventArgs const&
 }
 
 // ===========================================================================
-// Import Visio Stencils (.vssx, .vss, .vssm, .vsdx, .vstx, .vdx)
+// Import Visio Stencils (.vssx, .vss, .vssm, .zip, .svg, .vsdx, .vstx, .vdx)
 // ===========================================================================
+void MainWindow::LoadPersistedUserStencils() {
+    if (!m_doc) return;
+    std::error_code ec{};
+    const auto dir = GetLocalStencilsDirectory();
+    if (!std::filesystem::exists(dir, ec)) return;
+    std::vector<std::filesystem::path> files;
+    for (auto const& entry : std::filesystem::directory_iterator(dir, ec)) {
+        if (entry.is_regular_file(ec)) {
+            files.push_back(entry.path());
+        }
+    }
+    std::sort(files.begin(), files.end());
+    for (auto const& path : files) {
+        std::ifstream ifs{path, std::ios::binary | std::ios::ate};
+        if (!ifs) continue;
+        const auto sz = ifs.tellg();
+        if (sz <= 0) continue;
+        ifs.seekg(0, std::ios::beg);
+        std::vector<uint8_t> buf(static_cast<size_t>(sz));
+        if (ifs.read(reinterpret_cast<char*>(buf.data()), sz)) {
+            const std::string fname = vexio::win::ToUtf8(path.filename().wstring());
+            (void)m_doc.ImportStencilBytes(fname, buf);
+        }
+    }
+}
+
+void MainWindow::PersistStencilBytesToLocalAppData(std::string_view fileNameUtf8, std::span<const uint8_t> bytes) {
+    if (bytes.empty()) return;
+    std::string safeName{fileNameUtf8};
+    for (char& c : safeName) {
+        if (!(std::isalnum(static_cast<unsigned char>(c)) || c == '.' || c == '-' || c == '_' || c == ' ')) {
+            c = '_';
+        }
+    }
+    if (safeName.empty()) {
+        safeName = "Custom_Stencil.vssx";
+    }
+    const auto outPath = GetLocalStencilsDirectory() / vexio::win::ToHString(safeName).c_str();
+    std::ofstream ofs{outPath, std::ios::binary | std::ios::trunc};
+    if (ofs) {
+        ofs.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+    }
+}
+
 void MainWindow::OnImportStencilClick(IInspectable const&, RoutedEventArgs const&) {
     CloseBackstageOverlay();
     ImportVisioStencilPickerAsync();
+}
+
+void MainWindow::OnOpenOfficialStencilCatalogClick(IInspectable const&, RoutedEventArgs const&) {
+    CloseBackstageOverlay();
+    ShowOfficialStencilCatalogDialogAsync();
+}
+
+fire_and_forget MainWindow::ShowOfficialStencilCatalogDialogAsync() {
+    if (!m_doc || !RootWorkstationGrid().XamlRoot()) co_return;
+
+    struct CatalogRow {
+        std::wstring title;
+        std::wstring vendor;
+        std::wstring categoryGroup;
+        std::string fileNameUtf8;
+        std::wstring url;
+        int32_t approxSizeKb{0};
+    };
+    std::vector<CatalogRow> catalogRows;
+    const auto catJson = vexio::win::DocHandle::ListOfficialStencilCatalogJson();
+    if (catJson.ok() && !catJson.value->empty()) {
+        Windows::Data::Json::JsonArray arr{nullptr};
+        if (Windows::Data::Json::JsonArray::TryParse(*catJson.value, arr)) {
+            for (uint32_t i = 0; i < arr.Size(); ++i) {
+                const auto obj = arr.GetObjectAt(i);
+                CatalogRow row{};
+                row.title = obj.GetNamedString(L"title", L"Stencil Pack").c_str();
+                row.vendor = obj.GetNamedString(L"vendor", L"Microsoft").c_str();
+                row.categoryGroup = obj.GetNamedString(L"categoryGroup", L"Microsoft").c_str();
+                row.fileNameUtf8 = vexio::win::ToUtf8(obj.GetNamedString(L"fileName", L"Stencil.vssx"));
+                row.url = obj.GetNamedString(L"url", L"").c_str();
+                row.approxSizeKb = static_cast<int32_t>(obj.GetNamedNumber(L"approxSizeKb", 500.0));
+                if (!row.url.empty()) {
+                    catalogRows.push_back(std::move(row));
+                }
+            }
+        }
+    }
+
+    StackPanel rootStack{};
+    rootStack.Spacing(8.0);
+    TextBlock subtitle{};
+    subtitle.Text(L"1-click download & automatic %LOCALAPPDATA%\\Vexio\\Stencils persistence across restarts (Microsoft 365, Azure V25, Cisco, Panduit, APC & NetEquip .vssx / .vss / .zip).");
+    subtitle.FontSize(12.0);
+    subtitle.Opacity(0.8);
+    subtitle.TextWrapping(TextWrapping::Wrap);
+    rootStack.Children().Append(subtitle);
+
+    ListView list{};
+    list.MaxHeight(340.0);
+    list.SelectionMode(ListViewSelectionMode::Single);
+    for (auto const& row : catalogRows) {
+        StackPanel itemPanel{};
+        itemPanel.Padding(Thickness{4, 4, 4, 4});
+        TextBlock t1{};
+        t1.Text(hstring{row.title});
+        t1.FontWeight(Microsoft::UI::Text::FontWeights::SemiBold());
+        t1.FontSize(12.5);
+        TextBlock t2{};
+        t2.Text(hstring{std::format(L"{} • ~{} KB • {}", row.categoryGroup, row.approxSizeKb, row.vendor)});
+        t2.FontSize(11.0);
+        t2.Opacity(0.72);
+        itemPanel.Children().Append(t1);
+        itemPanel.Children().Append(t2);
+        list.Items().Append(itemPanel);
+    }
+    if (!catalogRows.empty()) {
+        list.SelectedIndex(0);
+    }
+    rootStack.Children().Append(list);
+
+    ContentDialog dlg{};
+    dlg.XamlRoot(RootWorkstationGrid().XamlRoot());
+    dlg.Title(box_value(L"Official & Enterprise Stencil Catalog"));
+    dlg.Content(rootStack);
+    dlg.PrimaryButtonText(L"Install Selected Pack");
+    dlg.SecondaryButtonText(L"Install All Packs");
+    dlg.CloseButtonText(L"Close");
+    dlg.DefaultButton(ContentDialogButton::Primary);
+
+    const auto weakSelf = get_weak();
+    const ContentDialogResult result = co_await dlg.ShowAsync();
+    auto self = weakSelf.get();
+    if (!self || !self->m_doc || result == ContentDialogResult::None || catalogRows.empty()) {
+        co_return;
+    }
+
+    std::vector<CatalogRow> targets;
+    if (result == ContentDialogResult::Secondary) {
+        targets = catalogRows;
+    } else {
+        const int32_t sel = list.SelectedIndex();
+        const size_t idx = (sel >= 0 && static_cast<size_t>(sel) < catalogRows.size())
+            ? static_cast<size_t>(sel)
+            : 0u;
+        targets.push_back(catalogRows[idx]);
+    }
+
+    Windows::Web::Http::HttpClient client{};
+    client.DefaultRequestHeaders().UserAgent().TryParseAdd(L"Vexio-Windows/0.3.2-alpha");
+    uint32_t installedCount = 0;
+
+    for (auto const& target : targets) {
+        try {
+            const Uri packUri{hstring{target.url}};
+            const IBuffer dlBuf = co_await client.GetBufferAsync(packUri);
+            auto innerSelf = weakSelf.get();
+            if (!innerSelf || !innerSelf->m_doc) co_return;
+            const std::span<const uint8_t> bytes{dlBuf.data(), dlBuf.Length()};
+            if (!bytes.empty()) {
+                const auto impRes = innerSelf->m_doc.ImportStencilBytes(target.fileNameUtf8, bytes);
+                if (impRes.ok()) {
+                    innerSelf->PersistStencilBytesToLocalAppData(target.fileNameUtf8, bytes);
+                    ++installedCount;
+                }
+            }
+        } catch (...) {
+            // Continue remaining packs if one mirror is unreachable
+        }
+    }
+
+    if (auto finalSelf = weakSelf.get(); finalSelf && installedCount > 0) {
+        finalSelf->InitializeStencilCatalog();
+        if (!finalSelf->m_stencilPackNames.empty()) {
+            finalSelf->StencilPackCombo().SelectedIndex(static_cast<int32_t>(finalSelf->m_stencilPackNames.size()));
+        }
+        finalSelf->RefreshStencilList();
+        finalSelf->ShowBanner(
+            InfoBarSeverity::Success,
+            L"Official Stencil Packs Installed",
+            std::format(L"Downloaded and persisted {} official stencil archive(s).", installedCount));
+    }
 }
 
 void MainWindow::OnStencilDockDragOver(IInspectable const&, DragEventArgs const& e) {
     if (e.DataView().Contains(StandardDataFormats::StorageItems())) {
         e.AcceptedOperation(DataPackageOperation::Copy);
         if (e.DragUIOverride()) {
-            e.DragUIOverride().Caption(L"Import Visio Stencil (.vssx / .vss)");
+            e.DragUIOverride().Caption(L"Import Visio Stencil (.vssx / .vss / .zip)");
             e.DragUIOverride().IsCaptionVisible(true);
         }
     }
@@ -4352,7 +4602,7 @@ fire_and_forget MainWindow::ImportVisioStencilPickerAsync() {
     }
     picker.ViewMode(PickerViewMode::List);
     picker.SuggestedStartLocation(PickerLocationId::DocumentsLibrary);
-    for (wchar_t const* ext : {L".vssx", L".vss", L".vssm", L".vsdx", L".vstx", L".vsd", L".vdx"}) {
+    for (wchar_t const* ext : {L".vssx", L".vss", L".vssm", L".zip", L".svg", L".png", L".vsdx", L".vstx", L".vsd", L".vdx"}) {
         picker.FileTypeFilter().Append(ext);
     }
 
@@ -4381,6 +4631,7 @@ fire_and_forget MainWindow::ImportStencilStorageFileAsync(StorageFile file) {
             self->ShowBanner(InfoBarSeverity::Error, L"Stencil Import Failed", res.message());
             co_return;
         }
+        self->PersistStencilBytesToLocalAppData(fileNameUtf8, bytes);
 
         self->InitializeStencilCatalog();
         if (!self->m_stencilPackNames.empty()) {
@@ -4391,7 +4642,7 @@ fire_and_forget MainWindow::ImportStencilStorageFileAsync(StorageFile file) {
         self->ShowBanner(
             InfoBarSeverity::Success,
             L"Visio Stencil Imported",
-            std::format(L"Imported masters from {} into the Stencil Navigator.", file.Name().c_str()));
+            std::format(L"Imported and persisted masters from {} into the Stencil Navigator.", file.Name().c_str()));
     } catch (...) {
         if (auto self = weakSelf.get()) {
             self->ShowBanner(InfoBarSeverity::Error, L"Stencil I/O Error", L"Unable to read selected Visio stencil file.");
@@ -4541,7 +4792,7 @@ void MainWindow::OnCheckUpdatesClick(IInspectable const&, RoutedEventArgs const&
 }
 
 fire_and_forget MainWindow::CheckForUpdatesAsync(bool userInitiated) {
-    constexpr std::wstring_view kCurrentVersion = L"0.3.1-alpha";
+    constexpr std::wstring_view kCurrentVersion = L"0.3.2-alpha";
     const auto weakSelf = get_weak();
 
     if (userInitiated) {
@@ -4555,7 +4806,7 @@ fire_and_forget MainWindow::CheckForUpdatesAsync(bool userInitiated) {
 
     try {
         Windows::Web::Http::HttpClient client{};
-        client.DefaultRequestHeaders().UserAgent().TryParseAdd(L"Vexio-Windows/0.3.1-alpha");
+        client.DefaultRequestHeaders().UserAgent().TryParseAdd(L"Vexio-Windows/0.3.2-alpha");
         client.DefaultRequestHeaders().Accept().TryParseAdd(L"application/vnd.github+json");
 
         const Uri apiUri{L"https://api.github.com/repos/petrosvassiliou/vexio/releases"};
@@ -4564,7 +4815,7 @@ fire_and_forget MainWindow::CheckForUpdatesAsync(bool userInitiated) {
         Windows::Data::Json::JsonArray releasesArr{nullptr};
         if (Windows::Data::Json::JsonArray::TryParse(body, releasesArr) && releasesArr.Size() > 0) {
             const auto relObj = releasesArr.GetObjectAt(0);
-            latestTag = relObj.GetNamedString(L"tag_name", L"v0.3.1-alpha").c_str();
+            latestTag = relObj.GetNamedString(L"tag_name", L"v0.3.2-alpha").c_str();
             releaseUrl = relObj.GetNamedString(L"html_url", releaseUrl).c_str();
             if (relObj.HasKey(L"assets")) {
                 const auto assets = relObj.GetNamedArray(L"assets");
@@ -4626,7 +4877,7 @@ fire_and_forget MainWindow::CheckForUpdatesAsync(bool userInitiated) {
         }
     } else {
         self->BackstageUpdateStatusText().Text(hstring{
-            std::format(L"Vexio is up to date ({}).", latestTag.empty() ? L"v0.3.1-alpha" : latestTag)
+            std::format(L"Vexio is up to date ({}).", latestTag.empty() ? L"v0.3.2-alpha" : latestTag)
         });
         if (userInitiated) {
             ContentDialog dlg{};
@@ -4634,7 +4885,7 @@ fire_and_forget MainWindow::CheckForUpdatesAsync(bool userInitiated) {
             dlg.Title(box_value(L"Vexio is Up to Date"));
             dlg.Content(box_value(hstring{std::format(
                 L"You are running the latest version of Vexio Professional ({}).",
-                latestTag.empty() ? L"v0.3.1-alpha" : latestTag)}));
+                latestTag.empty() ? L"v0.3.2-alpha" : latestTag)}));
             dlg.PrimaryButtonText(L"View Release Notes");
             dlg.CloseButtonText(L"OK");
             dlg.DefaultButton(ContentDialogButton::Close);

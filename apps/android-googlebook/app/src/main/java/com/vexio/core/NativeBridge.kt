@@ -31,6 +31,9 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
+import java.io.File
+import java.net.HttpURLConnection
+import java.net.URL
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.charset.StandardCharsets
@@ -365,6 +368,9 @@ object NativeBridge {
         fileName: String,
         bytes: ByteArray
     ): String?
+
+    @JvmStatic
+    external fun nativeListOfficialStencilCatalogJson(): String
 
     @JvmStatic
     external fun nativeSetShapeTextStyleJson(
@@ -936,7 +942,8 @@ data class NativeStencilMasterDto(
     val heightIn: Double = 1.0,
     val fillFormula: String = "RGB(239,246,255)",
     val lineFormula: String = "RGB(37,99,235)",
-    val svg: String = ""
+    val svg: String = "",
+    val pngDataUrl: String = ""
 )
 
 @Serializable
@@ -949,7 +956,20 @@ data class StencilMasterItem(
     val fillFormula: String,
     val shapeKind: String,
     val prompt: String = "",
-    val svgPreview: String = ""
+    val svgPreview: String = "",
+    val pngDataUrl: String = ""
+)
+
+@Serializable
+data class OfficialStencilCatalogEntry(
+    val id: String = "",
+    val title: String = "",
+    val vendor: String = "",
+    val categoryGroup: String = "",
+    val description: String = "",
+    val fileName: String = "",
+    val url: String = "",
+    val approxSizeKb: Int = 0
 )
 
 /**
@@ -1304,6 +1324,10 @@ data class WorkstationUiState(
     val selectedStencilCategory: String = "All",
     val stencilCategories: List<String> = BuiltInStencilCatalog.categories,
     val stencilMasters: List<StencilMasterItem> = BuiltInStencilCatalog.masters,
+    val showOfficialStencilCatalogDialog: Boolean = false,
+    val officialStencilCatalog: List<OfficialStencilCatalogEntry> = emptyList(),
+    val downloadingStencilPackIds: Set<String> = emptySet(),
+    val installedStencilFileNames: Set<String> = emptySet(),
     val canvasFallbackBitmap: Bitmap? = null,
     val selectedShapeId: Long = 1L,
     val selectedShapeIds: List<Long> = listOf(1L, 2L),
@@ -1340,7 +1364,7 @@ data class WorkstationUiState(
     val inlineTextEditor: InlineCanvasEditorModel? = null,
     val smartGuidesEnabled: Boolean = true,
     val autoCheckUpdates: Boolean = true,
-    val updateStatusMessage: String = "Vexio v0.3.1-alpha • Automatic update check enabled",
+    val updateStatusMessage: String = "Vexio v0.3.2-alpha • Automatic update check enabled",
     val availableUpdateTag: String? = null,
     val availableUpdateUrl: String? = null,
     val showUpdateDialog: Boolean = false,
@@ -1484,6 +1508,9 @@ class VexioSessionViewModel(
 
     // Pre-allocated 8 KiB zero-copy Direct ByteBuffer for 120Hz/240Hz motion & USI stylus batches
     private val directMotionBatchBuffer: ByteBuffer = MotionBatchFormat.allocateDirectBatchBuffer()
+
+    @Volatile
+    private var stencilStorageDir: File? = null
 
     // Reusable Direct ByteBuffer for page thumbnail / print preview RGBA rendering
     private var directPreviewBuffer: ByteBuffer =
@@ -1703,7 +1730,8 @@ class VexioSessionViewModel(
                             fillFormula = cleanFill,
                             shapeKind = inferShapeKind(dto.name),
                             prompt = dto.prompt,
-                            svgPreview = dto.svg
+                            svgPreview = dto.svg,
+                            pngDataUrl = dto.pngDataUrl
                         )
                     )
                 }
@@ -1758,6 +1786,7 @@ class VexioSessionViewModel(
             if (docPtr != 0L) {
                 NativeBridge.nativeLoadStarterTemplate(docPtr, "flowchart")
                 NativeBridge.nativeSetPagePreset(docPtr, 1, defaultPreset.slug, defaultPreset.landscape)
+                reloadPersistedStencilsLocked()
                 loadDynamicStencilsFromNative()
                 syncPagesAndActivePageFromNative(preferFirstForeground = true)
             }
@@ -4125,17 +4154,150 @@ class VexioSessionViewModel(
         _uiState.update { it.copy(inlineTextEditor = null) }
     }
 
+    private fun sanitizeStencilFileName(fileName: String): String {
+        val cleaned = fileName.replace(Regex("[^A-Za-z0-9._\\- ]"), "_").trim()
+        return cleaned.ifBlank { "Custom_Stencil.vssx" }
+    }
+
+    @Synchronized
+    private fun reloadPersistedStencilsLocked() {
+        val dir = stencilStorageDir ?: return
+        if (!dir.exists() || !NativeBridge.isNativeAvailable || docPtr == 0L) return
+        val files = dir.listFiles()?.sortedBy { it.name.lowercase(Locale.US) }.orEmpty()
+        val installedNames = linkedSetOf<String>()
+        for (f in files) {
+            if (!f.isFile || f.length() <= 0L) continue
+            val ext = f.extension.lowercase(Locale.US)
+            if (ext !in setOf("vssx", "vssm", "vss", "vsdx", "vstx", "vstm", "vsd", "vst", "vdx", "zip", "svg", "png")) {
+                continue
+            }
+            runCatching {
+                val bytes = f.readBytes()
+                NativeBridge.nativeImportStencilBytes(docPtr, f.name, bytes)
+                installedNames.add(f.name)
+            }
+        }
+        if (installedNames.isNotEmpty()) {
+            _uiState.update { it.copy(installedStencilFileNames = it.installedStencilFileNames + installedNames) }
+        }
+    }
+
+    fun attachStencilStorageDirectory(dir: File) {
+        stencilStorageDir = dir
+        viewModelScope.launch(ioDispatcher) {
+            runCatching { if (!dir.exists()) dir.mkdirs() }
+            synchronized(this@VexioSessionViewModel) {
+                if (NativeBridge.ensureLoaded() && docPtr != 0L) {
+                    reloadPersistedStencilsLocked()
+                    loadDynamicStencilsFromNative()
+                }
+            }
+        }
+    }
+
+    fun setOfficialStencilCatalogDialogVisible(visible: Boolean) {
+        if (visible && _uiState.value.officialStencilCatalog.isEmpty()) {
+            viewModelScope.launch(ioDispatcher) {
+                val entries = if (NativeBridge.ensureLoaded()) {
+                    runCatching {
+                        lenientJson.decodeFromString<List<OfficialStencilCatalogEntry>>(
+                            NativeBridge.nativeListOfficialStencilCatalogJson()
+                        )
+                    }.getOrDefault(emptyList())
+                } else {
+                    emptyList()
+                }
+                _uiState.update {
+                    it.copy(
+                        officialStencilCatalog = entries,
+                        showOfficialStencilCatalogDialog = true
+                    )
+                }
+            }
+        } else {
+            _uiState.update { it.copy(showOfficialStencilCatalogDialog = visible) }
+        }
+    }
+
+    fun downloadOfficialStencilPack(entry: OfficialStencilCatalogEntry) {
+        if (entry.id.isBlank() || entry.url.isBlank() || entry.id in _uiState.value.downloadingStencilPackIds) return
+        _uiState.update {
+            it.copy(
+                downloadingStencilPackIds = it.downloadingStencilPackIds + entry.id,
+                statusBanner = "Downloading '${entry.title}'..."
+            )
+        }
+        viewModelScope.launch(ioDispatcher) {
+            val result = runCatching {
+                val conn = (URL(entry.url).openConnection() as HttpURLConnection).apply {
+                    instanceFollowRedirects = true
+                    connectTimeout = 20_000
+                    readTimeout = 45_000
+                    setRequestProperty("User-Agent", "Vexio-Android-Workstation/0.3.2-alpha")
+                }
+                try {
+                    val code = conn.responseCode
+                    if (code !in 200..299) {
+                        error("HTTP $code")
+                    }
+                    conn.inputStream.use { it.readBytes() }
+                } finally {
+                    conn.disconnect()
+                }
+            }
+            val bytes = result.getOrNull()
+            if (bytes != null && bytes.isNotEmpty()) {
+                importVisioStencilBytes(entry.fileName.ifBlank { "${entry.id}.vssx" }, bytes)
+                _uiState.update { it.copy(downloadingStencilPackIds = it.downloadingStencilPackIds - entry.id) }
+            } else {
+                val msg = result.exceptionOrNull()?.message ?: "network error"
+                _uiState.update {
+                    it.copy(
+                        downloadingStencilPackIds = it.downloadingStencilPackIds - entry.id,
+                        statusBanner = "Failed to download '${entry.title}': $msg"
+                    )
+                }
+            }
+        }
+    }
+
+    fun downloadAllOfficialStencilPacks() {
+        val entries = _uiState.value.officialStencilCatalog
+        val installed = _uiState.value.installedStencilFileNames
+        for (entry in entries) {
+            if (entry.fileName !in installed) {
+                downloadOfficialStencilPack(entry)
+            }
+        }
+    }
+
     fun importVisioStencilBytes(fileName: String, rawBytes: ByteArray) {
         if (rawBytes.isEmpty()) return
         viewModelScope.launch(ioDispatcher) {
+            val safeName = sanitizeStencilFileName(fileName)
+            stencilStorageDir?.let { dir ->
+                runCatching {
+                    if (!dir.exists()) dir.mkdirs()
+                    File(dir, safeName).writeBytes(rawBytes)
+                }
+            }
             var importedPackTitle = fileName.substringBeforeLast('.').ifBlank { "Imported Stencil" }
+            var packCount = 1
             synchronized(this@VexioSessionViewModel) {
                 if (NativeBridge.ensureLoaded() && docPtr != 0L) {
                     val resJson = NativeBridge.nativeImportStencilBytes(docPtr, fileName, rawBytes).orEmpty()
                     val obj = runCatching { Json.parseToJsonElement(resJson).jsonObject }.getOrNull()
-                    val parsedPack = obj?.get("packTitle")?.jsonPrimitive?.contentOrNull
-                    if (!parsedPack.isNullOrBlank()) {
-                        importedPackTitle = parsedPack
+                    val packsArr = obj?.get("packs") as? JsonArray
+                    if (packsArr != null && packsArr.isNotEmpty()) {
+                        packCount = packsArr.size
+                        val firstObj = packsArr.first() as? JsonObject
+                        val pTitle = firstObj?.get("packTitle")?.jsonPrimitive?.contentOrNull
+                        if (!pTitle.isNullOrBlank()) importedPackTitle = pTitle
+                    } else {
+                        val parsedPack = obj?.get("packTitle")?.jsonPrimitive?.contentOrNull
+                        if (!parsedPack.isNullOrBlank()) {
+                            importedPackTitle = parsedPack
+                        }
                     }
                     loadDynamicStencilsFromNative()
                 }
@@ -4152,8 +4314,13 @@ class VexioSessionViewModel(
                         isStencilDrawerExpanded = true,
                         stencilCategories = updatedCats,
                         selectedStencilCategory = importedPackTitle,
+                        installedStencilFileNames = state.installedStencilFileNames + safeName,
                         isDirty = true,
-                        statusBanner = "Imported Visio Stencil '$importedPackTitle' ($fileName)"
+                        statusBanner = if (packCount > 1) {
+                            "Imported '$fileName' ($packCount Stencil Categories Persisted Locally)"
+                        } else {
+                            "Imported Visio Stencil '$importedPackTitle' ($fileName)"
+                        }
                     )
                 }
             }
@@ -4620,7 +4787,7 @@ class VexioSessionViewModel(
             }
         }
         viewModelScope.launch(ioDispatcher) {
-            val currentVersion = "0.3.1-alpha"
+            val currentVersion = "0.3.2-alpha"
             var latestTag: String? = null
             var downloadUrl = "https://github.com/petrosvassiliou/vexio/releases"
             var ok = false
@@ -4631,7 +4798,7 @@ class VexioSessionViewModel(
                     requestMethod = "GET"
                     connectTimeout = 4500
                     readTimeout = 4500
-                    setRequestProperty("User-Agent", "Vexio-Android-Googlebook/0.3.1-alpha")
+                    setRequestProperty("User-Agent", "Vexio-Android-Googlebook/0.3.2-alpha")
                     setRequestProperty("Accept", "application/vnd.github+json")
                 }
                 if (conn.responseCode in 200..299) {

@@ -709,6 +709,9 @@ public struct VexioWorkspaceView: View {
             .visioDrawing,
             .visioTemplate,
             .visioLegacyDrawing,
+            .zip,
+            .svg,
+            .png,
             .xml,
             .data,
         ]
@@ -813,11 +816,12 @@ private struct VexioStencilNavigatorSidebar: View {
     @Environment(\.undoManager) private var undoManager
 
     @State private var isStencilDropTargeted: Bool = false
+    @State private var isOfficialCatalogPresented: Bool = false
     @State private var expandedCategories: Set<String> = [
         "Microsoft 365 & Office",
-        "Servers (Standard Roles)",
+        "Microsoft Servers & Active Directory",
+        "Microsoft Azure & Hybrid Cloud",
         "Network & Rack Equipment",
-        "Basic Shapes",
     ]
 
     private var visibleCategories: [String] {
@@ -849,6 +853,16 @@ private struct VexioStencilNavigatorSidebar: View {
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                     Spacer()
+                    Button {
+                        isOfficialCatalogPresented = true
+                    } label: {
+                        Label("Packs", systemImage: "icloud.and.arrow.down")
+                            .font(.system(size: 10.5, weight: .semibold))
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.mini)
+                    .help("Download Official Microsoft 365, Azure & NetEquip Stencil Packs")
+
                     Button {
                         onRequestImportStencil()
                     } label: {
@@ -1011,7 +1025,12 @@ private struct VexioStencilNavigatorSidebar: View {
                     }
                 }
             }
-            return !providers.isEmpty
+                return !providers.isEmpty
+        }
+        .sheet(isPresented: $isOfficialCatalogPresented) {
+            VexioOfficialStencilCatalogSheet(session: session) {
+                isOfficialCatalogPresented = false
+            }
         }
     }
 
@@ -1025,6 +1044,7 @@ private struct VexioStencilNavigatorSidebar: View {
                     .overlay(
                         StencilVectorPreviewCanvas(
                             svgMarkup: master.svgPreview,
+                            pngDataUrl: master.pngPreview,
                             fallbackSymbol: master.symbolName
                         )
                         .padding(3)
@@ -2056,5 +2076,107 @@ private struct VexioRenderedPreviewModal: View {
         }
         .padding(18)
         .frame(minWidth: 620, minHeight: 460)
+    }
+}
+
+private struct VexioOfficialStencilCatalogSheet: View {
+    @ObservedObject var session: VexioDocumentSession
+    let onClose: () -> Void
+
+    @State private var catalog: [OfficialStencilCatalogEntry] = []
+    @State private var downloadingIds: Set<String> = []
+    @State private var isInstallingAll: Bool = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 10) {
+                Label("Official & Enterprise Stencil Catalog", systemImage: "icloud.and.arrow.down.fill")
+                    .font(.system(size: 16, weight: .semibold))
+                Spacer()
+                Button {
+                    guard !isInstallingAll else { return }
+                    isInstallingAll = true
+                    Task { @MainActor in
+                        for entry in catalog where !session.isOfficialStencilInstalled(entry) {
+                            downloadingIds.insert(entry.id)
+                            _ = await session.downloadOfficialStencilPack(entry)
+                            downloadingIds.remove(entry.id)
+                        }
+                        isInstallingAll = false
+                    }
+                } label: {
+                    if isInstallingAll {
+                        HStack(spacing: 6) {
+                            ProgressView().controlSize(.small)
+                            Text("Installing All…")
+                        }
+                    } else {
+                        Label("Install All Packs", systemImage: "arrow.down.circle.fill")
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(isInstallingAll)
+
+                Button("Done", action: onClose)
+                    .keyboardShortcut(.defaultAction)
+            }
+
+            Text("Downloads official Microsoft 365, Azure V25, Purview/Security, Active Directory, Cisco & NetEquip (.vssx, .vss, .zip) stencil packs directly into ~/Library/Application Support/Vexio/Stencils for 100% offline use.")
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 8) {
+                    ForEach(catalog) { entry in
+                        let installed = session.isOfficialStencilInstalled(entry)
+                        let busy = downloadingIds.contains(entry.id)
+                        HStack(alignment: .center, spacing: 12) {
+                            VStack(alignment: .leading, spacing: 3) {
+                                HStack(spacing: 6) {
+                                    Text(entry.title)
+                                        .font(.system(size: 13, weight: .semibold))
+                                    Text(entry.categoryGroup)
+                                        .font(.system(size: 10, weight: .medium))
+                                        .padding(.horizontal, 6)
+                                        .padding(.vertical, 2)
+                                        .background(Capsule().fill(Color.accentColor.opacity(0.14)))
+                                }
+                                Text(entry.description)
+                                    .font(.system(size: 11.5))
+                                    .foregroundStyle(.secondary)
+                                Text("\(entry.vendor) • ~\(max(1, entry.approxSizeKb / 1024 == 0 ? entry.approxSizeKb : entry.approxSizeKb / 1024)) \(entry.approxSizeKb >= 1024 ? "MB" : "KB")")
+                                    .font(.system(size: 10.5))
+                                    .foregroundStyle(.tertiary)
+                            }
+                            Spacer()
+                            if busy {
+                                ProgressView()
+                                    .controlSize(.small)
+                            } else {
+                                Button(installed ? "Reinstall" : "Install") {
+                                    downloadingIds.insert(entry.id)
+                                    Task { @MainActor in
+                                        _ = await session.downloadOfficialStencilPack(entry)
+                                        downloadingIds.remove(entry.id)
+                                    }
+                                }
+                                .buttonStyle(.bordered)
+                                .tint(installed ? .green : .accentColor)
+                            }
+                        }
+                        .padding(10)
+                        .background(
+                            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                                .fill(Color.primary.opacity(0.045))
+                        )
+                    }
+                }
+            }
+        }
+        .padding(18)
+        .frame(minWidth: 660, minHeight: 500)
+        .onAppear {
+            catalog = session.listOfficialStencilCatalog()
+        }
     }
 }

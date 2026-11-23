@@ -11,7 +11,8 @@
 //!    + Vulkan `wgpu`), ChromeOS PWA (SVG + WebGPU), PDF/A, PNG, JPG, and `.vsdx`/`.vssx` round-trips.
 
 use vexio_shapesheet::{
-    GeometryRow, GeometryRowKind, GeometrySection, Unit, VisioShape, format_clean_f64,
+    ForeignMediaData, GeometryRow, GeometryRowKind, GeometrySection, ShapeKind, Unit, VisioShape,
+    format_clean_f64,
 };
 
 struct IsoArtwork {
@@ -281,15 +282,223 @@ impl IsoArtwork {
         }
 
         if label_below {
-            sh.sheet
-                .set_formula("TxtPinX", "=Width*0.5", Some(Unit::Inch));
-            sh.sheet
-                .set_formula("TxtPinY", "-0.16 in", Some(Unit::Inch));
-            sh.sheet
-                .set_formula("Char.Size", "9 pt", Some(Unit::Point));
-            sh.sheet
-                .set_formula("Char.Color", "=RGB(15,23,42)", Some(Unit::Color));
+            apply_visio_below_icon_caption(sh);
         }
+    }
+}
+
+/// Configures Visio-standard external below-icon caption cells (`TxtPinY = -TxtHeight*0.5 - 0.04 in`,
+/// `TxtLocPinY = TxtHeight*0.5`) so dropped architecture icons hang crisp, multi-line labels cleanly underneath.
+pub fn apply_visio_below_icon_caption(sh: &mut VisioShape) {
+    sh.sheet
+        .set_formula("TxtPinX", "=Width*0.5", Some(Unit::Inch));
+    sh.sheet
+        .set_formula("TxtPinY", "=-TxtHeight*0.5 - 0.04 in", Some(Unit::Inch));
+    sh.sheet
+        .set_formula("TxtWidth", "=MAX(Width*1.85, 1.18 in)", Some(Unit::Inch));
+    sh.sheet
+        .set_formula("TxtHeight", "0.28 in", Some(Unit::Inch));
+    sh.sheet
+        .set_formula("TxtLocPinX", "=TxtWidth*0.5", Some(Unit::Inch));
+    sh.sheet
+        .set_formula("TxtLocPinY", "=TxtHeight*0.5", Some(Unit::Inch));
+    sh.sheet
+        .set_formula("TextBkgnd", "0", Some(Unit::Number));
+    sh.sheet
+        .set_formula("Char.Size", "9 pt", Some(Unit::Point));
+    sh.sheet
+        .set_formula("Char.Color", "=RGB(15,23,42)", Some(Unit::Color));
+}
+
+fn apply_svg_foreign_artwork(
+    sh: &mut VisioShape,
+    svg_markup: &str,
+    fallback_fill_rgb: &'static str,
+    fallback_line_rgb: &'static str,
+    label_below: bool,
+) {
+    sh.kind = ShapeKind::ForeignObject;
+    sh.sheet.geometries.clear();
+    let mut frame = GeometrySection::rectangle(1);
+    frame.no_fill = "TRUE".into();
+    frame.no_line = "TRUE".into();
+    sh.sheet.add_geometry(frame);
+    sh.sheet
+        .set_formula("FillForegnd", format!("=RGB({fallback_fill_rgb})"), Some(Unit::Color));
+    sh.sheet
+        .set_formula("FillPattern", "0", Some(Unit::Number));
+    sh.sheet
+        .set_formula("LineColor", format!("=RGB({fallback_line_rgb})"), Some(Unit::Color));
+    sh.sheet
+        .set_formula("LinePattern", "0", Some(Unit::Number));
+    sh.sheet
+        .set_user_cell("ForeignSvgPrimary", "TRUE", "Primary SVG Stencil Vector");
+    sh.foreign_data = Some(ForeignMediaData {
+        media_type: "SVG".into(),
+        rel_id: None,
+        data: svg_markup.as_bytes().to_vec(),
+    });
+    if label_below {
+        apply_visio_below_icon_caption(sh);
+    }
+    sh.sheet.sync_all_sections_to_cells();
+}
+
+/// High-precision Visio architecture vector icons matching `MSSC_Architektur_1` / `OfficeSymbols` / `Azure V25` / `NetEquip`.
+fn try_apply_high_precision_svg_stencil(sh: &mut VisioShape, role: &str) -> bool {
+    let spec: Option<(&'static str, &'static str, &'static str)> = match role {
+        "m365_cloud" => Some((
+            r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 60"><path d="M22,50 C11,50 4,43 4,33 C4,24 10,17 19,16 C23,7 33,2 45,3 C58,4 68,12 71,23 C81,23 90,30 90,39 C90,46 84,50 75,50 Z M37,43 L37,20 L51,15 L60,18 L60,44 L51,47 L37,42 L51,44 L51,19 L42,22 L42,40 Z" fill="#DC3C00" fill-rule="evenodd"/></svg>"##,
+            "220,60,0",
+            "180,45,0",
+        )),
+        "m365_exchange" => Some((
+            r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 64"><path d="M16,49 C8,49 3,43 3,36 C3,29 8,24 15,23 C18,14 27,9 37,10 C47,11 55,17 57,26 C64,26 70,31 70,38 C70,45 64,49 56,49 Z" fill="#FFFFFF" stroke="#1E293B" stroke-width="2.6"/><path d="M17,46 C11,46 7,42 7,36 C7,31 11,27 17,26 C20,18 27,14 36,15 C45,16 51,21 53,29 C59,29 65,33 65,38 C65,43 60,46 54,46 Z" fill="none" stroke="#0078D4" stroke-width="2.2"/><rect x="44" y="10" width="24" height="24" rx="3" fill="#0078D4"/><rect x="60" y="12" width="14" height="9" rx="1.5" fill="#50E6FF"/><rect x="60" y="23" width="14" height="9" rx="1.5" fill="#28A8EA"/><path d="M49,15 H58 V17.5 H52 V20.5 H57.5 V23 H52 V26.5 H58 V29 H49 Z" fill="#FFFFFF"/></svg>"##,
+            "0,120,212",
+            "30,41,59",
+        )),
+        "m365_eop" => Some((
+            r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 84 68"><path d="M16,49 C8,49 3,43 3,36 C3,29 8,24 15,23 C18,14 27,9 37,10 C47,11 55,17 57,26 C64,26 70,31 70,38 C70,45 64,49 56,49 Z" fill="#FFFFFF" stroke="#1E293B" stroke-width="2.6"/><path d="M17,46 C11,46 7,42 7,36 C7,31 11,27 17,26 C20,18 27,14 36,15 C45,16 51,21 53,29 C59,29 65,33 65,38 C65,43 60,46 54,46 Z" fill="none" stroke="#0078D4" stroke-width="2.2"/><rect x="44" y="9" width="22" height="22" rx="3" fill="#0078D4"/><rect x="59" y="11" width="12" height="8" rx="1.5" fill="#50E6FF"/><rect x="59" y="21" width="12" height="8" rx="1.5" fill="#28A8EA"/><path d="M48,14 H56.5 V16.5 H51 V19 H56 V21.2 H51 V24 H56.5 V26.5 H48 Z" fill="#FFFFFF"/><path d="M65,36 L77,40 V49 C77,56 71.5,61 65,64 C58.5,61 53,56 53,49 V40 Z" fill="#57A300" stroke="#FFFFFF" stroke-width="1.6"/><rect x="61" y="48" width="8" height="7" rx="1.2" fill="#FFFFFF"/><path d="M62.5,48 V45.5 C62.5,44 63.6,43 65,43 C66.4,43 67.5,44 67.5,45.5 V48" fill="none" stroke="#FFFFFF" stroke-width="1.8"/></svg>"##,
+            "0,120,212",
+            "87,163,0",
+        )),
+        "m365_sharepoint" => Some((
+            r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><circle cx="38" cy="21" r="14" fill="#036C70"/><circle cx="46" cy="38" r="12" fill="#1A9BA1"/><circle cx="35" cy="49" r="10" fill="#37C6D0"/><rect x="6" y="16" width="32" height="32" rx="5" fill="#038387"/><path d="M26,25.5 C24.2,24.4 22.2,24 20.4,24 C17.2,24 15,25.7 15,28.2 C15,30.6 16.8,31.8 20.6,33 C23.6,33.9 24.6,34.7 24.6,36.2 C24.6,37.8 23.1,38.9 20.7,38.9 C18.5,38.9 16.5,38.1 14.9,36.8 L13.4,39.4 C15.3,41 17.8,41.8 20.6,41.8 C25,41.8 28,39.6 28,36 C28,33.3 26.3,31.8 22.2,30.6 C19.3,29.7 18.3,29 18.3,27.8 C18.3,26.6 19.6,25.7 21.6,25.7 C23.3,25.7 24.8,26.2 26,27.2 Z" fill="#FFFFFF"/></svg>"##,
+            "3,131,135",
+            "3,108,112",
+        )),
+        "m365_teams" => Some((
+            r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><circle cx="49" cy="19" r="6" fill="#7B83EB"/><rect x="41" y="27" width="18" height="21" rx="5" fill="#7B83EB"/><circle cx="36" cy="16" r="7.5" fill="#5059C9"/><rect x="24" y="26" width="25" height="28" rx="6" fill="#5059C9"/><rect x="5" y="17" width="30" height="30" rx="5" fill="#4B53BC"/><path d="M13,24 H27 V27.5 H21.8 V40 H18.2 V27.5 H13 Z" fill="#FFFFFF"/></svg>"##,
+            "80,89,201",
+            "75,83,188",
+        )),
+        "m365_onedrive" => Some((
+            r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 76 56"><path d="M29,18 C34,11 44,10 51,16 C55,19 57,24 57,28 C64,28 70,33 70,40 C70,47 64,51 56,51 H19 C11,51 5,45 5,38 C5,31 10,25 18,24 C20,20 24,18 29,18 Z" fill="#0078D4"/><path d="M18,24 C24,23 31,26 35,32 L19,51 C11,51 5,45 5,38 C5,31 10,25 18,24 Z" fill="#0364B8"/><path d="M35,32 C41,28 50,27 57,28 C64,28 70,33 70,40 C70,47 64,51 56,51 H19 Z" fill="#28A8EA"/></svg>"##,
+            "40,168,234",
+            "0,120,212",
+        )),
+        "m365_planner" => Some((
+            r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect x="8" y="8" width="18" height="48" rx="4" fill="#185C37"/><rect x="24" y="8" width="18" height="36" rx="4" fill="#21A366"/><rect x="40" y="8" width="17" height="25" rx="4" fill="#33C481"/></svg>"##,
+            "33,163,102",
+            "24,92,55",
+        )),
+        "m365_purview" => Some((
+            r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 72 56"><defs><linearGradient id="pv1" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#50E6FF"/><stop offset="100%" stop-color="#0078D4"/></linearGradient></defs><path d="M8,30 C14,15 31,9 48,15 C57,18 63,24 66,30 C59,20 45,17 33,21 C24,24 19,31 21,37 C15,36 10,33 8,30 Z" fill="url(#pv1)"/><path d="M64,26 C58,41 41,47 24,41 C15,38 9,32 6,26 C13,36 27,39 39,35 C48,32 53,25 51,19 C57,20 62,23 64,26 Z" fill="#0078D4"/><circle cx="36" cy="28" r="7.5" fill="#32BEDD"/></svg>"##,
+            "0,120,212",
+            "50,190,221",
+        )),
+        "m365_dep" => Some((
+            r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><path d="M32,6 L54,14 V31 C54,45 44,54 32,59 C20,54 10,45 10,31 V14 Z" fill="#D83B01"/><rect x="29.5" y="17" width="5" height="20" rx="2.5" fill="#FFFFFF"/><circle cx="32" cy="45" r="3.2" fill="#FFFFFF"/></svg>"##,
+            "216,59,1",
+            "168,42,0",
+        )),
+        "m365_universal_print" => Some((
+            r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect x="18" y="8" width="28" height="18" rx="2" fill="#E2E8F0" stroke="#0078D4" stroke-width="1.8"/><rect x="9" y="24" width="46" height="22" rx="4" fill="#50E6FF" stroke="#0078D4" stroke-width="1.8"/><circle cx="42" cy="34" r="2" fill="#0078D4"/><circle cx="48" cy="34" r="2" fill="#0078D4"/><rect x="18" y="40" width="28" height="16" rx="2" fill="#FFFFFF" stroke="#0078D4" stroke-width="1.8"/></svg>"##,
+            "80,230,255",
+            "0,120,212",
+        )),
+        "m365_apps" => Some((
+            r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><defs><linearGradient id="o365r" x1="0%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stop-color="#FF5C26"/><stop offset="100%" stop-color="#D83B01"/></linearGradient></defs><path d="M14,47 L14,17 L39,8 L39,15 L23,20 L23,44 Z" fill="#EB3C00"/><path d="M39,8 L52,12 L52,52 L39,56 Z" fill="url(#o365r)"/><path d="M14,47 L23,44 L39,50 L39,56 Z" fill="#A82400"/></svg>"##,
+            "216,59,1",
+            "168,42,0",
+        )),
+        "pp_powerbi" => Some((
+            r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><defs><linearGradient id="pbi1" x1="0%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stop-color="#E6AD10"/><stop offset="100%" stop-color="#C87E0E"/></linearGradient><linearGradient id="pbi2" x1="0%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stop-color="#F6D751"/><stop offset="100%" stop-color="#E6AD10"/></linearGradient><linearGradient id="pbi3" x1="0%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stop-color="#F9E589"/><stop offset="100%" stop-color="#F6D751"/></linearGradient></defs><rect x="38" y="8" width="16" height="48" rx="3" fill="url(#pbi1)"/><rect x="24" y="21" width="16" height="35" rx="3" fill="url(#pbi2)"/><rect x="10" y="34" width="16" height="22" rx="3" fill="url(#pbi3)"/></svg>"##,
+            "242,200,17",
+            "200,126,14",
+        )),
+        "ms_ad_dc" => Some((
+            r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 68 62"><path d="M30,6 C32,2.5 36,2.5 38,6 L63,50 C65,53.5 62.5,58 58.5,58 H9.5 C5.5,58 3,53.5 5,50 Z" fill="#0078D4" stroke="#FFFFFF" stroke-width="2"/><rect x="29" y="19" width="10" height="8" rx="1.2" fill="#FFFFFF"/><rect x="17" y="42" width="10" height="8" rx="1.2" fill="#FFFFFF"/><rect x="41" y="42" width="10" height="8" rx="1.2" fill="#FFFFFF"/><path d="M34,27 V35 M22,35 H46 M22,35 V42 M46,35 V42" stroke="#FFFFFF" stroke-width="2.4" fill="none"/></svg>"##,
+            "0,120,212",
+            "0,90,158",
+        )),
+        "ms_exchange_srv" => Some((
+            r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 68 68"><rect x="12" y="6" width="32" height="50" rx="3" fill="#64748B" stroke="#334155" stroke-width="1.8"/><rect x="17" y="13" width="22" height="6" rx="1.5" fill="#1E293B"/><rect x="17" y="24" width="22" height="6" rx="1.5" fill="#1E293B"/><circle cx="37" cy="16" r="1.8" fill="#38BDF8"/><circle cx="37" cy="27" r="1.8" fill="#38BDF8"/><rect x="33" y="34" width="22" height="22" rx="3" fill="#0078D4"/><rect x="48" y="36" width="12" height="8" rx="1.5" fill="#50E6FF"/><rect x="48" y="46" width="12" height="8" rx="1.5" fill="#28A8EA"/><path d="M37,39 H45.5 V41.5 H40 V44 H45 V46.2 H40 V49 H45.5 V51.5 H37 Z" fill="#FFFFFF"/></svg>"##,
+            "100,116,139",
+            "0,120,212",
+        )),
+        "ms_entra_connect" => Some((
+            r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 68 68"><rect x="12" y="6" width="32" height="50" rx="3" fill="#64748B" stroke="#334155" stroke-width="1.8"/><rect x="17" y="13" width="22" height="6" rx="1.5" fill="#1E293B"/><rect x="17" y="24" width="22" height="6" rx="1.5" fill="#1E293B"/><circle cx="46" cy="46" r="13" fill="#8B5CF6" stroke="#FFFFFF" stroke-width="1.8"/><path d="M40,44 A6.5,6.5 0 0,1 51,41 M52,48 A6.5,6.5 0 0,1 41,51" stroke="#FFFFFF" stroke-width="2.4" fill="none"/><polygon points="52,38 53,44 47,43" fill="#FFFFFF"/><polygon points="40,54 39,48 45,49" fill="#FFFFFF"/></svg>"##,
+            "139,92,246",
+            "51,65,85",
+        )),
+        "ms_entra_id" => Some((
+            r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><defs><linearGradient id="eid1" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#50E6FF"/><stop offset="100%" stop-color="#0078D4"/></linearGradient></defs><polygon points="32,6 6,41 32,58 58,41" fill="url(#eid1)"/><polygon points="32,6 32,58 58,41" fill="#32BEDD" fill-opacity="0.65"/><polygon points="32,24 16,41 32,51 48,41" fill="#9CEBFF"/><line x1="6" y1="41" x2="58" y2="41" stroke="#FFFFFF" stroke-width="1.5"/></svg>"##,
+            "0,120,212",
+            "50,190,221",
+        )),
+        "ms_system_center" => Some((
+            r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect x="10" y="8" width="26" height="46" rx="2" fill="#0078D4"/><rect x="14" y="13" width="5" height="5" fill="#FFFFFF"/><rect x="21" y="13" width="5" height="5" fill="#FFFFFF"/><rect x="28" y="13" width="5" height="5" fill="#FFFFFF"/><rect x="14" y="21" width="5" height="5" fill="#FFFFFF"/><rect x="21" y="21" width="5" height="5" fill="#FFFFFF"/><rect x="28" y="21" width="5" height="5" fill="#FFFFFF"/><rect x="14" y="29" width="5" height="5" fill="#FFFFFF"/><rect x="21" y="29" width="5" height="5" fill="#FFFFFF"/><circle cx="45" cy="33" r="6" fill="#0078D4"/><path d="M34,54 C34,45 39,41 45,41 C51,41 56,45 56,54 Z" fill="#0078D4"/><circle cx="15" cy="49" r="7" fill="#50E6FF" stroke="#FFFFFF" stroke-width="1.8"/></svg>"##,
+            "0,120,212",
+            "0,90,158",
+        )),
+        "m365_intune" => Some((
+            r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 68 64"><rect x="14" y="8" width="46" height="32" rx="4" fill="#0078D4"/><rect x="18" y="13" width="38" height="22" rx="1.5" fill="#FFFFFF"/><rect x="29" y="18" width="16" height="11" rx="1.5" fill="none" stroke="#0078D4" stroke-width="2"/><path d="M33,18 V15.5 H41 V18" fill="none" stroke="#0078D4" stroke-width="1.8"/><rect x="8" y="26" width="18" height="32" rx="3" fill="#0078D4" stroke="#FFFFFF" stroke-width="1.8"/><rect x="11" y="30" width="12" height="22" rx="1" fill="#FFFFFF"/></svg>"##,
+            "0,120,212",
+            "0,90,158",
+        )),
+        "ms_onprem_building" => Some((
+            r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 56 68"><rect x="10" y="6" width="36" height="56" rx="2" fill="#0078D4"/><rect x="16" y="13" width="6" height="6" fill="#FFFFFF"/><rect x="25" y="13" width="6" height="6" fill="#FFFFFF"/><rect x="34" y="13" width="6" height="6" fill="#FFFFFF"/><rect x="16" y="24" width="6" height="6" fill="#FFFFFF"/><rect x="25" y="24" width="6" height="6" fill="#FFFFFF"/><rect x="34" y="24" width="6" height="6" fill="#FFFFFF"/><rect x="16" y="35" width="6" height="6" fill="#FFFFFF"/><rect x="25" y="35" width="6" height="6" fill="#FFFFFF"/><rect x="34" y="35" width="6" height="6" fill="#FFFFFF"/><rect x="24" y="48" width="8" height="14" fill="#FFFFFF"/></svg>"##,
+            "0,120,212",
+            "0,90,158",
+        )),
+        "ms_device_stack" => Some((
+            r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 60"><rect x="8" y="10" width="40" height="26" rx="2.5" fill="#64748B" stroke="#0078D4" stroke-width="2"/><rect x="12" y="14" width="32" height="18" fill="#FFFFFF"/><polygon points="4,36 52,36 56,41 0,41" fill="#64748B" stroke="#0078D4" stroke-width="1.6"/><rect x="52" y="20" width="20" height="34" rx="3" fill="#64748B" stroke="#0078D4" stroke-width="2"/><rect x="55" y="25" width="14" height="22" fill="#FFFFFF"/><circle cx="62" cy="50.5" r="1.5" fill="#FFFFFF"/></svg>"##,
+            "100,116,139",
+            "0,120,212",
+        )),
+        "ms_win11_client" => Some((
+            r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><polygon points="8,14 29,11 29,30 8,30" fill="#002080"/><polygon points="32,10.5 56,7 56,30 32,30" fill="#002080"/><polygon points="8,33 29,33 29,52 8,49" fill="#002080"/><polygon points="32,33 56,33 56,56 32,52.5" fill="#002080"/></svg>"##,
+            "0,32,128",
+            "0,32,128",
+        )),
+        "az_sentinel" => Some((
+            r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><defs><linearGradient id="snt1" x1="0%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stop-color="#50E6FF"/><stop offset="100%" stop-color="#0078D4"/></linearGradient></defs><path d="M32,5 L55,13 V31 C55,45 44.5,55 32,60 C19.5,55 9,45 9,31 V13 Z" fill="url(#snt1)"/><path d="M18,31 A14,14 0 0,1 46,31" fill="none" stroke="#FFFFFF" stroke-width="4.2"/><circle cx="32" cy="34" r="5.5" fill="#FFFFFF"/></svg>"##,
+            "0,120,212",
+            "80,230,255",
+        )),
+        "az_vnet_ring" => Some((
+            r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><defs><linearGradient id="vnr1" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#60A5FA"/><stop offset="100%" stop-color="#2563EB"/></linearGradient></defs><circle cx="32" cy="32" r="22" fill="#FFFFFF" stroke="url(#vnr1)" stroke-width="4.5"/><circle cx="24" cy="32" r="2.6" fill="#0078D4"/><circle cx="32" cy="32" r="2.6" fill="#50E6FF"/><circle cx="40" cy="32" r="2.6" fill="#0078D4"/><path d="M19,23 L14,32 L19,41 M45,23 L50,32 L45,41" fill="none" stroke="#3B82F6" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>"##,
+            "255,255,255",
+            "59,130,246",
+        )),
+        "az_app_service" => Some((
+            r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><defs><linearGradient id="aps1" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#50E6FF"/><stop offset="100%" stop-color="#0078D4"/></linearGradient></defs><circle cx="32" cy="32" r="24" fill="url(#aps1)"/><path d="M13,22 C24,18 42,24 51,38 M15,42 C25,30 39,22 49,18 M24,10 C26,26 34,42 42,53" fill="none" stroke="#FFFFFF" stroke-width="2.6"/><circle cx="23" cy="24" r="4" fill="#FFFFFF"/><circle cx="42" cy="32" r="3.5" fill="#FFFFFF"/><circle cx="27" cy="43" r="3.5" fill="#FFFFFF"/></svg>"##,
+            "0,120,212",
+            "80,230,255",
+        )),
+        "net_cloud_hub" => Some((
+            r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 72 72"><line x1="36" y1="36" x2="36" y2="11" stroke="#0078D4" stroke-width="4"/><line x1="36" y1="36" x2="13" y2="26" stroke="#0078D4" stroke-width="4"/><line x1="36" y1="36" x2="59" y2="26" stroke="#0078D4" stroke-width="4"/><line x1="36" y1="36" x2="21" y2="57" stroke="#0078D4" stroke-width="4"/><line x1="36" y1="36" x2="51" y2="57" stroke="#0078D4" stroke-width="4"/><circle cx="36" cy="36" r="9" fill="#0078D4"/><circle cx="36" cy="11" r="6.5" fill="#0078D4"/><circle cx="13" cy="26" r="6.5" fill="#0078D4"/><circle cx="59" cy="26" r="6.5" fill="#0078D4"/><circle cx="21" cy="57" r="6.5" fill="#0078D4"/><circle cx="51" cy="57" r="6.5" fill="#0078D4"/></svg>"##,
+            "0,120,212",
+            "0,90,158",
+        )),
+        "rack_cisco_48p" => Some((
+            r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 190 36"><rect x="1" y="2" width="8" height="32" rx="1" fill="#64748B" stroke="#1E293B" stroke-width="1"/><rect x="181" y="2" width="8" height="32" rx="1" fill="#64748B" stroke="#1E293B" stroke-width="1"/><rect x="9" y="2" width="172" height="32" rx="1.5" fill="#0F4C68" stroke="#082F49" stroke-width="1.4"/><rect x="13" y="6" width="14" height="24" rx="1" fill="#082F49"/><circle cx="17" cy="11" r="1.6" fill="#22C55E"/><circle cx="17" cy="17" r="1.6" fill="#22C55E"/><circle cx="17" cy="23" r="1.6" fill="#38BDF8"/><rect x="31" y="6" width="116" height="10" rx="1" fill="#082F49" stroke="#38BDF8" stroke-width="0.7"/><rect x="31" y="20" width="116" height="10" rx="1" fill="#082F49" stroke="#38BDF8" stroke-width="0.7"/><path d="M40,6 V30 M50,6 V30 M60,6 V30 M70,6 V30 M80,6 V30 M90,6 V30 M100,6 V30 M110,6 V30 M120,6 V30 M130,6 V30 M140,6 V30" stroke="#38BDF8" stroke-width="0.7"/><rect x="151" y="7" width="11" height="9" fill="#020617" stroke="#FACC15" stroke-width="0.9"/><rect x="165" y="7" width="11" height="9" fill="#020617" stroke="#FACC15" stroke-width="0.9"/><rect x="151" y="20" width="11" height="9" fill="#020617" stroke="#FACC15" stroke-width="0.9"/><rect x="165" y="20" width="11" height="9" fill="#020617" stroke="#FACC15" stroke-width="0.9"/></svg>"##,
+            "15,76,104",
+            "8,47,73",
+        )),
+        "rack_cisco_asr2u" => Some((
+            r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 190 62"><rect x="1" y="2" width="8" height="58" rx="1" fill="#64748B" stroke="#1E293B" stroke-width="1"/><rect x="181" y="2" width="8" height="58" rx="1" fill="#64748B" stroke="#1E293B" stroke-width="1"/><rect x="9" y="2" width="172" height="58" rx="2" fill="#94A3B8" stroke="#1E293B" stroke-width="1.5"/><rect x="14" y="7" width="46" height="48" rx="1.5" fill="#1E293B"/><path d="M18,13 H56 M18,19 H56 M18,25 H56 M18,31 H56 M18,37 H56 M18,43 H56 M18,49 H56" stroke="#475569" stroke-width="1.5"/><rect x="65" y="7" width="56" height="22" rx="1.5" fill="#0F4C68" stroke="#082F49" stroke-width="1.1"/><rect x="65" y="33" width="56" height="22" rx="1.5" fill="#0F4C68" stroke="#082F49" stroke-width="1.1"/><rect x="126" y="7" width="50" height="22" rx="1.5" fill="#334155" stroke="#0F172A" stroke-width="1.1"/><rect x="126" y="33" width="50" height="22" rx="1.5" fill="#334155" stroke="#0F172A" stroke-width="1.1"/><circle cx="169" cy="14" r="2.2" fill="#22C55E"/><circle cx="169" cy="40" r="2.2" fill="#22C55E"/></svg>"##,
+            "148,163,184",
+            "30,41,59",
+        )),
+        "rack_panduit_24p" => Some((
+            r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 190 36"><rect x="1" y="2" width="8" height="32" rx="1" fill="#334155" stroke="#0F172A" stroke-width="1"/><rect x="181" y="2" width="8" height="32" rx="1" fill="#334155" stroke="#0F172A" stroke-width="1"/><rect x="9" y="2" width="172" height="32" rx="1.5" fill="#1E293B" stroke="#0F172A" stroke-width="1.4"/><rect x="15" y="10" width="36" height="16" fill="#0F172A" stroke="#64748B" stroke-width="0.9"/><rect x="55" y="10" width="36" height="16" fill="#0F172A" stroke="#64748B" stroke-width="0.9"/><rect x="99" y="10" width="36" height="16" fill="#0F172A" stroke="#64748B" stroke-width="0.9"/><rect x="139" y="10" width="36" height="16" fill="#0F172A" stroke="#64748B" stroke-width="0.9"/><path d="M21,10 V26 M27,10 V26 M33,10 V26 M39,10 V26 M45,10 V26 M61,10 V26 M67,10 V26 M73,10 V26 M79,10 V26 M85,10 V26 M105,10 V26 M111,10 V26 M117,10 V26 M123,10 V26 M129,10 V26 M145,10 V26 M151,10 V26 M157,10 V26 M163,10 V26 M169,10 V26" stroke="#94A3B8" stroke-width="0.8"/></svg>"##,
+            "30,41,59",
+            "15,23,42",
+        )),
+        "rack_apc_ups2u" => Some((
+            r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 190 62"><rect x="1" y="2" width="8" height="58" rx="1" fill="#334155" stroke="#0F172A" stroke-width="1"/><rect x="181" y="2" width="8" height="58" rx="1" fill="#334155" stroke="#0F172A" stroke-width="1"/><rect x="9" y="2" width="172" height="58" rx="2" fill="#18181B" stroke="#09090B" stroke-width="1.5"/><rect x="16" y="9" width="58" height="44" rx="1.5" fill="#27272A"/><path d="M20,16 H70 M20,23 H70 M20,30 H70 M20,37 H70 M20,44 H70" stroke="#52525B" stroke-width="2"/><rect x="81" y="14" width="34" height="22" rx="2" fill="#0284C7" stroke="#38BDF8" stroke-width="1.2"/><rect x="86" y="20" width="16" height="4" fill="#E0F2FE"/><rect x="86" y="27" width="24" height="4" fill="#34D399"/><rect x="124" y="9" width="50" height="44" rx="1.5" fill="#27272A"/><path d="M128,16 H170 M128,23 H170 M128,30 H170 M128,37 H170 M128,44 H170" stroke="#52525B" stroke-width="2"/><rect x="82" y="42" width="14" height="6" rx="1" fill="#DC2626"/></svg>"##,
+            "24,24,27",
+            "9,9,11",
+        )),
+        _ => None,
+    };
+    if let Some((svg, fill_rgb, line_rgb)) = spec {
+        apply_svg_foreign_artwork(sh, svg, fill_rgb, line_rgb, true);
+        true
+    } else {
+        false
     }
 }
 
@@ -297,6 +506,9 @@ impl IsoArtwork {
 /// for Microsoft 365/Office, Active Directory, Azure, Power Platform, Servers, Network & Rack,
 /// and Cloud Architecture. Returns `true` if handled.
 pub fn apply_visio_1to1_icon_artwork(sh: &mut VisioShape, category: &str, role: &str) -> bool {
+    if try_apply_high_precision_svg_stencil(sh, role) {
+        return true;
+    }
     match category {
         "Microsoft 365" => {
             build_microsoft_365_artwork(sh, role);

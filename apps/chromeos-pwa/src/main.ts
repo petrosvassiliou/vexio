@@ -52,7 +52,8 @@ type ActiveModal =
   | 'dataviz'
   | 'cloud'
   | 'compare'
-  | 'link';
+  | 'link'
+  | 'stencilCatalog';
 type ResizeHandleDir = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w';
 
 interface StarterTemplateCard {
@@ -532,6 +533,18 @@ interface StencilPreviewItem {
   name: string;
   prompt: string;
   svg: string;
+  pngDataUrl?: string;
+}
+
+interface OfficialStencilCatalogEntryDto {
+  id: string;
+  title: string;
+  vendor: string;
+  categoryGroup: string;
+  description: string;
+  fileName: string;
+  url: string;
+  approxSizeKb: number;
 }
 
 interface DiagramDiffReportDto {
@@ -766,7 +779,7 @@ class VexioChromeOsApp {
       return true;
     }
   })();
-  private updateStatusText = 'Vexio v0.3.1-alpha • Automatic updates enabled';
+  private updateStatusText = 'Vexio v0.3.2-alpha • Automatic updates enabled';
   private latestReleaseTag: string | null = null;
   private latestReleaseUrl = 'https://github.com/petrosvassiliou/vexio/releases';
 
@@ -793,6 +806,9 @@ class VexioChromeOsApp {
 
   private activeStencilPack = 'Basic Shapes';
   private stencilFilter = '';
+  private officialStencilCatalog: OfficialStencilCatalogEntryDto[] = [];
+  private downloadingStencilPackIds = new Set<string>();
+  private cachedOpfsStencilNames = new Set<string>();
   private selectedShapeIds: number[] = [];
   private clipboardShapeIds: number[] = [];
   private contextMenu: ContextMenuState | null = null;
@@ -1192,7 +1208,7 @@ class VexioChromeOsApp {
       return;
     }
 
-    const currentVersion = '0.3.1-alpha';
+    const currentVersion = '0.3.2-alpha';
     try {
       const resp = await fetch('https://api.github.com/repos/petrosvassiliou/vexio/releases', {
         headers: { Accept: 'application/vnd.github+json' },
@@ -1605,11 +1621,20 @@ class VexioChromeOsApp {
       );
     }
 
+    this.callEngine('listOfficialStencilCatalog')
+      .then((cRes) => {
+        if (Array.isArray(cRes?.catalog)) {
+          this.officialStencilCatalog = cRes.catalog;
+        }
+      })
+      .catch(() => {});
+
     // Preload recent OPFS workspaces, versions & cached custom stencils (100% offline-safe)
     this.callOpfs('listStencils')
       .then(async (sRes) => {
         const names: string[] = sRes?.stencils ?? [];
         for (const stName of names) {
+          this.cachedOpfsStencilNames.add(stName);
           try {
             const r = await this.callOpfs('readStencil', { name: stName });
             if (r?.bytes && r.bytes.byteLength > 0) {
@@ -1618,11 +1643,7 @@ class VexioChromeOsApp {
                 { fileName: stName, bytes: r.bytes },
                 [r.bytes.buffer]
               );
-              if (imp.packTitle && Array.isArray(imp.masterNames) && imp.masterNames.length > 0) {
-                this.stencilCatalog = { [imp.packTitle]: imp.masterNames, ...this.stencilCatalog };
-                this.stencilPreviews = { [imp.packTitle]: imp.previews ?? [], ...this.stencilPreviews };
-                this.packOrder = [imp.packTitle, ...this.packOrder.filter((p) => p !== imp.packTitle)];
-              }
+              this.applyImportedStencilResponse(imp, false);
             }
           } catch {
             // Ignore unreadable cached stencil
@@ -2120,26 +2141,99 @@ class VexioChromeOsApp {
     this.render();
   }
 
+  private applyImportedStencilResponse(
+    res: {
+      packTitle?: string;
+      masterNames?: string[];
+      previews?: StencilPreviewItem[];
+      packs?: Array<{ packTitle: string; masterNames: string[]; previews?: StencilPreviewItem[] }>;
+    },
+    expandImported: boolean
+  ): { totalMasters: number; packCount: number; primaryTitle: string } {
+    const rawPacks =
+      Array.isArray(res.packs) && res.packs.length > 0
+        ? res.packs
+        : res.packTitle && Array.isArray(res.masterNames) && res.masterNames.length > 0
+          ? [{ packTitle: res.packTitle, masterNames: res.masterNames, previews: res.previews ?? [] }]
+          : [];
+    let totalMasters = 0;
+    let primaryTitle = '';
+    for (let i = rawPacks.length - 1; i >= 0; i--) {
+      const p = rawPacks[i];
+      const mNames = Array.isArray(p.masterNames)
+        ? p.masterNames
+        : (p.previews ?? []).map((item) => item.name);
+      if (!p.packTitle || mNames.length === 0) continue;
+      this.stencilCatalog = { [p.packTitle]: mNames, ...this.stencilCatalog };
+      this.stencilPreviews = { [p.packTitle]: p.previews ?? [], ...this.stencilPreviews };
+      this.packOrder = [p.packTitle, ...this.packOrder.filter((existing) => existing !== p.packTitle)];
+      if (expandImported && i === 0) {
+        this.expandedStencilPacks.add(p.packTitle);
+      }
+      primaryTitle = p.packTitle;
+      totalMasters += mNames.length;
+    }
+    return { totalMasters, packCount: rawPacks.length, primaryTitle };
+  }
+
+  private async downloadOfficialStencilPack(entry: OfficialStencilCatalogEntryDto): Promise<void> {
+    if (this.downloadingStencilPackIds.has(entry.id)) return;
+    this.downloadingStencilPackIds.add(entry.id);
+    this.modalOutputMessage = `Downloading "${entry.title}"...`;
+    this.render();
+    try {
+      const resp = await fetch(entry.url, { mode: 'cors', credentials: 'omit' });
+      if (!resp.ok) {
+        throw new Error(`HTTP ${resp.status}`);
+      }
+      const bytes = new Uint8Array(await resp.arrayBuffer());
+      const opfsCopy = new Uint8Array(bytes);
+      this.cachedOpfsStencilNames.add(entry.fileName);
+      this.callOpfs('cacheStencil', { name: entry.fileName, vssxBytes: opfsCopy }, [opfsCopy.buffer]).catch(() => {});
+      const imp = await this.callEngine(
+        'importStencil',
+        { fileName: entry.fileName, bytes },
+        [bytes.buffer]
+      );
+      const summary = this.applyImportedStencilResponse(imp, true);
+      this.stencilGroupFilter = 'all';
+      this.modalOutputMessage =
+        summary.packCount > 1
+          ? `Installed "${entry.title}" (${summary.totalMasters} masters across ${summary.packCount} packs — cached offline in OPFS).`
+          : `Installed "${summary.primaryTitle || entry.title}" (${summary.totalMasters} masters — cached offline in OPFS).`;
+      this.showToast(this.modalOutputMessage, 'info');
+    } catch (err) {
+      this.modalOutputMessage = `Direct browser fetch blocked by host CORS (${err instanceof Error ? err.message : 'network error'}). Click "Direct File ↗" on the row, save ${entry.fileName}, and drop it onto the Shapes sidebar.`;
+      this.showToast(`Use "Direct File ↗" for "${entry.title}" and drop into Shapes`, 'warn');
+    } finally {
+      this.downloadingStencilPackIds.delete(entry.id);
+      this.render();
+    }
+  }
+
   private async handleOpenDisk(): Promise<void> {
     this.openHeaderMenu = null;
     const opened = await openLocalDiagramFile();
     if (!opened) return;
-    if (['vssx', 'vssm', 'vss', 'vst'].includes(opened.ext)) {
+    if (['vssx', 'vssm', 'vss', 'vst', 'zip', 'svg'].includes(opened.ext)) {
       const opfsCopy = new Uint8Array(opened.bytes);
+      this.cachedOpfsStencilNames.add(opened.name);
       this.callOpfs('cacheStencil', { name: opened.name, vssxBytes: opfsCopy }, [opfsCopy.buffer]).catch(() => {});
       const res = await this.callEngine(
         'importStencil',
         { fileName: opened.name, bytes: opened.bytes },
         [opened.bytes.buffer]
       );
-      if (res.packTitle && Array.isArray(res.masterNames) && res.masterNames.length > 0) {
-        this.stencilCatalog = { [res.packTitle]: res.masterNames, ...this.stencilCatalog };
-        this.stencilPreviews = { [res.packTitle]: res.previews ?? [], ...this.stencilPreviews };
-        this.packOrder = [res.packTitle, ...this.packOrder.filter((p) => p !== res.packTitle)];
-        this.expandedStencilPacks.add(res.packTitle);
+      const summary = this.applyImportedStencilResponse(res, true);
+      if (summary.totalMasters > 0) {
         this.stencilGroupFilter = 'all';
         this.activeModal = null;
-        this.showToast(`Imported Visio stencil "${res.packTitle}" (${res.masterNames.length} masters)`, 'info');
+        this.showToast(
+          summary.packCount > 1
+            ? `Imported "${opened.name}" (${summary.totalMasters} masters in ${summary.packCount} packs)`
+            : `Imported Visio stencil "${summary.primaryTitle}" (${summary.totalMasters} masters)`,
+          'info'
+        );
         this.render();
       }
       return;
@@ -2320,6 +2414,9 @@ class VexioChromeOsApp {
   private getStencilSvgPreview(packName: string, masterName: string): string {
     const list = this.stencilPreviews[packName];
     const found = list?.find((item) => item.name === masterName);
+    if (found?.pngDataUrl && found.pngDataUrl.startsWith('data:image/png;base64,')) {
+      return `<img src="${found.pngDataUrl}" alt="" style="width:100%;height:100%;object-fit:contain;display:block" loading="lazy" decoding="async" />`;
+    }
     if (found?.svg) {
       return found.svg;
     }
@@ -3349,10 +3446,15 @@ class VexioChromeOsApp {
               </button>
             </div>
 
-            <button class="m3-btn tonal" id="btn-import-vssx" style="width:100%;height:28px;font-size:11.5px;justify-content:center" title="${t.importVisioStencil}">
-              ${t.importVisioStencil}
-            </button>
-            <input type="file" id="vssx-file-input" accept=".vssx,.vssm,.vss,.vsdx,.vstx,.vstm,.vsd,.vst,.vdx" style="display:none" />
+            <div style="display:flex;gap:4px">
+              <button class="m3-btn tonal" id="btn-import-vssx" style="flex:1;height:28px;font-size:11px;justify-content:center" title="${t.importVisioStencil} (.vssx, .vss, .zip, .svg)">
+                + Stencil / .zip
+              </button>
+              <button class="m3-btn active" id="btn-open-stencil-catalog" style="flex:1;height:28px;font-size:11px;justify-content:center" title="1-Click Official Microsoft 365, Azure, Cisco & Rack Stencil Packs">
+                Official Packs ↓
+              </button>
+            </div>
+            <input type="file" id="vssx-file-input" accept=".vssx,.vssm,.vss,.vsdx,.vstx,.vstm,.vsd,.vst,.vdx,.zip,.svg,.png" style="display:none" />
 
             <div class="search-box-wrap">
               ${UI_ICONS.search}
@@ -3956,6 +4058,56 @@ class VexioChromeOsApp {
     if (!this.activeModal) return '';
     const t = this.i18n;
 
+    if (this.activeModal === 'stencilCatalog') {
+      const rowsHtml = this.officialStencilCatalog
+        .map((entry) => {
+          const isBusy = this.downloadingStencilPackIds.has(entry.id);
+          const isCached = this.cachedOpfsStencilNames.has(entry.fileName);
+          const extBadge = (entry.fileName.split('.').pop() ?? 'vssx').toUpperCase();
+          return `
+            <div class="list-row-card" style="display:flex;justify-content:space-between;align-items:center;gap:12px">
+              <div style="display:flex;flex-direction:column;gap:3px;min-width:0">
+                <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+                  <strong style="font-size:12.5px">${entry.title}</strong>
+                  <span style="font-size:10px;padding:1px 6px;border-radius:999px;background:var(--m3-surface-high);color:var(--m3-primary);font-weight:600">${extBadge}</span>
+                  <span style="font-size:10px;color:var(--m3-text-muted)">~${entry.approxSizeKb} KB • ${entry.categoryGroup}</span>
+                </div>
+                <span style="font-size:11px;color:var(--m3-text-muted)">${entry.vendor} — ${entry.description}</span>
+              </div>
+              <div style="display:flex;align-items:center;gap:6px;flex-shrink:0">
+                <a class="m3-btn" href="${entry.url}" target="_blank" rel="noopener noreferrer" style="text-decoration:none;height:26px;font-size:11px" title="Direct archive URL if corporate firewall/CORS blocks inline fetch">Direct File ↗</a>
+                <button class="m3-btn ${isCached ? 'tonal' : 'active'}" data-install-stencil-id="${entry.id}" style="height:26px;font-size:11px;min-width:86px;justify-content:center" ${isBusy ? 'disabled' : ''}>
+                  ${isBusy ? 'Installing…' : isCached ? 'Installed ✓' : 'Install'}
+                </button>
+              </div>
+            </div>
+          `;
+        })
+        .join('');
+      return `
+        <div class="modal-backdrop">
+          <div class="modal-card wide">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+              <div>
+                <strong style="font-size:14px">Official & Enterprise Visio Stencil Catalog (.vssx, .vss, .zip SVG)</strong>
+                <div style="font-size:11.5px;color:var(--m3-text-muted)">
+                  1-click download into Origin Private File System (OPFS) for 100% offline reuse across restarts — or import any local <code>.vssx</code>, legacy binary <code>.vss</code> (NetEquip / Cisco / Panduit / APC), or <code>.zip</code> SVG icon pack.
+                </div>
+              </div>
+              <div style="display:flex;gap:6px;flex-shrink:0">
+                <button class="m3-btn active" id="btn-install-all-official-stencils">Install All Packs</button>
+                <button class="m3-btn" id="btn-close-modal">Close</button>
+              </div>
+            </div>
+            ${this.modalOutputMessage ? `<div style="font-size:11.5px;color:var(--m3-primary)">${this.modalOutputMessage}</div>` : ''}
+            <div style="display:flex;flex-direction:column;gap:6px;max-height:420px;overflow-y:auto;padding-right:4px">
+              ${rowsHtml || '<div style="font-size:12px;color:var(--m3-text-muted)">Loading catalog from WASM engine…</div>'}
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
     if (this.activeModal === 'updates') {
       return `
         <div class="modal-backdrop">
@@ -3966,7 +4118,7 @@ class VexioChromeOsApp {
             </div>
             <div class="list-row-card" style="flex-direction:column;align-items:flex-start;gap:6px">
               <strong>${this.updateStatusText}</strong>
-              <span style="font-size:11.5px;color:var(--m3-text-muted)">Installed build: Vexio v0.3.1-alpha • Offline-First Workbox PWA + GitHub Releases channel</span>
+              <span style="font-size:11.5px;color:var(--m3-text-muted)">Installed build: Vexio v0.3.2-alpha • Offline-First Workbox PWA + GitHub Releases channel</span>
             </div>
             <label style="display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer">
               <input type="checkbox" id="chk-auto-updates" ${this.autoCheckUpdates ? 'checked' : ''} />
@@ -5872,26 +6024,20 @@ class VexioChromeOsApp {
       try {
         const bytes = new Uint8Array(await file.arrayBuffer());
         const opfsCopy = new Uint8Array(bytes);
+        this.cachedOpfsStencilNames.add(file.name);
         this.callOpfs('cacheStencil', { name: file.name, vssxBytes: opfsCopy }, [opfsCopy.buffer]).catch(() => {});
         const res = await this.callEngine(
           'importStencil',
           { fileName: file.name, bytes },
           [bytes.buffer]
         );
-        if (res.packTitle && Array.isArray(res.masterNames) && res.masterNames.length > 0) {
-          this.stencilCatalog = {
-            [res.packTitle]: res.masterNames,
-            ...this.stencilCatalog,
-          };
-          this.stencilPreviews = {
-            [res.packTitle]: res.previews ?? [],
-            ...this.stencilPreviews,
-          };
-          this.packOrder = [res.packTitle, ...this.packOrder.filter((p) => p !== res.packTitle)];
-          this.expandedStencilPacks.add(res.packTitle);
+        const summary = this.applyImportedStencilResponse(res, true);
+        if (summary.totalMasters > 0) {
           this.stencilGroupFilter = 'all';
           this.showToast(
-            `Imported Visio stencil "${res.packTitle}" (${res.masterNames.length} masters)`,
+            summary.packCount > 1
+              ? `Imported "${file.name}" (${summary.totalMasters} masters across ${summary.packCount} packs)`
+              : `Imported Visio stencil "${summary.primaryTitle}" (${summary.totalMasters} masters)`,
             'info'
           );
           this.render();
@@ -5900,7 +6046,7 @@ class VexioChromeOsApp {
         }
       } catch (err) {
         this.showToast(
-          `Stencil import error: ${err instanceof Error ? err.message : 'invalid .vssx/.vss file'}`,
+          `Stencil import error: ${err instanceof Error ? err.message : 'invalid .vssx/.vss/.zip file'}`,
           'error'
         );
       }
@@ -5908,6 +6054,37 @@ class VexioChromeOsApp {
 
     document.getElementById('btn-import-vssx')?.addEventListener('click', () => {
       (document.getElementById('vssx-file-input') as HTMLInputElement | null)?.click();
+    });
+    document.getElementById('btn-open-stencil-catalog')?.addEventListener('click', async () => {
+      if (this.officialStencilCatalog.length === 0) {
+        try {
+          const cRes = await this.callEngine('listOfficialStencilCatalog');
+          if (Array.isArray(cRes?.catalog)) {
+            this.officialStencilCatalog = cRes.catalog;
+          }
+        } catch {
+          // Keep empty fallback
+        }
+      }
+      this.modalOutputMessage = '';
+      this.activeModal = 'stencilCatalog';
+      this.render();
+    });
+    document.querySelectorAll('[data-install-stencil-id]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const sid = (btn as HTMLElement).dataset.installStencilId;
+        const entry = this.officialStencilCatalog.find((e) => e.id === sid);
+        if (entry) {
+          void this.downloadOfficialStencilPack(entry);
+        }
+      });
+    });
+    document.getElementById('btn-install-all-official-stencils')?.addEventListener('click', async () => {
+      for (const entry of this.officialStencilCatalog) {
+        if (!this.cachedOpfsStencilNames.has(entry.fileName)) {
+          await this.downloadOfficialStencilPack(entry);
+        }
+      }
     });
     document.getElementById('vssx-file-input')?.addEventListener('change', (ev) => {
       const f = (ev.target as HTMLInputElement).files?.[0];
@@ -5920,7 +6097,7 @@ class VexioChromeOsApp {
       });
       stencilAside.addEventListener('drop', (ev) => {
         const f = ev.dataTransfer?.files?.[0];
-        if (f && /\.(vssx|vssm|vss|vsdx|vstx|vstm|vsd|vst|vdx)$/i.test(f.name)) {
+        if (f && /\.(vssx|vssm|vss|vsdx|vstx|vstm|vsd|vst|vdx|zip|svg|png)$/i.test(f.name)) {
           ev.preventDefault();
           ev.stopPropagation();
           importVssxFile(f);

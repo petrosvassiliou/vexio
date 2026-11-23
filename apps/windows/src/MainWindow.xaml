@@ -816,15 +816,26 @@
                               DragItemsStarting="OnStencilMasterDragStarting"
                               ItemClick="OnStencilMasterItemClick" />
 
-                    <!-- Import Visio Stencil (.vssx / .vss / .vsdx) -->
-                    <Button x:Name="ImportStencilDockButton" Grid.Row="4" HorizontalAlignment="Stretch" Padding="8,5"
-                            Click="OnImportStencilClick" FontWeight="SemiBold"
-                            ToolTipService.ToolTip="Import Visio Stencil (.vssx, .vss, .vssm, .vsdx, .vstx, .vdx) or drop files here">
-                        <TextBlock x:Name="ImportStencilDockLabel" Text="+ Import Visio Stencil (.vssx / .vss)" FontSize="11.5" />
-                    </Button>
+                    <!-- Import Visio Stencil (.vssx / .vss / .zip) + Official Stencil Packs -->
+                    <Grid Grid.Row="4" ColumnSpacing="4">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Button x:Name="ImportStencilDockButton" Grid.Column="0" HorizontalAlignment="Stretch" Padding="6,5"
+                                Click="OnImportStencilClick" FontWeight="SemiBold"
+                                ToolTipService.ToolTip="Import Visio Stencil (.vssx, .vss, .vssm, .zip, .svg, .vsdx) or drop files here">
+                            <TextBlock x:Name="ImportStencilDockLabel" Text="+ Stencil / .zip" FontSize="11" />
+                        </Button>
+                        <Button x:Name="OfficialStencilCatalogButton" Grid.Column="1" HorizontalAlignment="Stretch" Padding="6,5"
+                                Click="OnOpenOfficialStencilCatalogClick" FontWeight="SemiBold" Style="{StaticResource AccentButtonStyle}"
+                                ToolTipService.ToolTip="1-Click Official Microsoft 365, Azure V25, Cisco, Panduit &amp; APC Stencil Catalog">
+                            <TextBlock Text="Official Packs ↓" FontSize="11" />
+                        </Button>
+                    </Grid>
 
                     <!-- Quick Drop Hint -->
-                    <TextBlock Grid.Row="5" Text="Click, drag onto canvas, or drop .vssx/.vss files here."
+                    <TextBlock Grid.Row="5" Text="Click, drag onto canvas, or drop .vssx/.vss/.zip files here."
                                FontSize="11" Opacity="0.7" TextWrapping="Wrap" />
                 </Grid>
             </Border>
@@ -1490,7 +1501,7 @@
                                 </StackPanel>
                                 <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
                                     <Button Click="OnCheckUpdatesClick" Content="Check for Updates Now" />
-                                    <TextBlock x:Name="BackstageUpdateStatusText" Text="Vexio v0.3.1-alpha • Automatic background update check enabled."
+                                    <TextBlock x:Name="BackstageUpdateStatusText" Text="Vexio v0.3.2-alpha • Automatic background update check enabled."
                                                FontSize="12" Opacity="0.8" VerticalAlignment="Center" />
                                 </StackPanel>
                             </StackPanel>

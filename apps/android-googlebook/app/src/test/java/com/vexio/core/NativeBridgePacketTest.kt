@@ -673,8 +673,8 @@ class NativeBridgePacketTest {
         assertEquals(22, vm.uiState.value.stencilCategories.size)
         assertTrue(vm.uiState.value.stencilMasters.isNotEmpty())
         assertTrue(
-            "Expected 0.3.1-alpha in updateStatusMessage, got: ${vm.uiState.value.updateStatusMessage}",
-            vm.uiState.value.updateStatusMessage.contains("0.3.1-alpha")
+            "Expected 0.3.2-alpha in updateStatusMessage, got: ${vm.uiState.value.updateStatusMessage}",
+            vm.uiState.value.updateStatusMessage.contains("0.3.2-alpha")
         )
 
         val sampleNativeJson = """
