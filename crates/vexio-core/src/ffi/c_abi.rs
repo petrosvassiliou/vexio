@@ -2120,8 +2120,8 @@ pub(crate) fn build_native_state_json(session: &DocumentSession, active_page_id:
                             guarded: c.is_guarded(),
                         })
                         .collect();
-                    let bg_trans = s.sheet.get_f64("TextBkgndTrans").unwrap_or(1.0);
-                    let text_bg_color = if bg_trans < 0.99 {
+                    let bg_trans = s.sheet.get_f64("TextBkgndTrans").unwrap_or(0.0);
+                    let text_bg_color = if bg_trans < 0.995 {
                         s.sheet.get_color("TextBkgnd").map(|c| c.to_hex_rgb())
                     } else {
                         None

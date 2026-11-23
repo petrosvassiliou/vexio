@@ -486,13 +486,16 @@ impl<'a> EvalSession<'a> {
                     s.line_style_id,
                     s.text_style_id,
                 ) {
-                    if let Some((_, styled)) = self.lookup_cell_with_inheritance_bounded(
+                    if let Some((_, mut styled)) = self.lookup_cell_with_inheritance_bounded(
                         &GlobalCellId {
                             sheet: SheetKey::Style(style_id),
                             cell: id.cell.clone(),
                         },
                         depth + 1,
                     ) {
+                        if styled.formula.to_ascii_uppercase().contains("THEME") {
+                            styled.vsdx_cached_value = None;
+                        }
                         return Some((
                             SheetKey::Master {
                                 master_id: *master_id,
@@ -544,13 +547,17 @@ impl<'a> EvalSession<'a> {
                     shape.text_style_id,
                 )
                 .unwrap_or(0);
-                if let Some((_, styled)) = self.lookup_cell_with_inheritance_bounded(
+                if let Some((_, mut styled)) = self.lookup_cell_with_inheritance_bounded(
                     &GlobalCellId {
                         sheet: SheetKey::Style(style_id),
                         cell: id.cell.clone(),
                     },
                     depth + 1,
                 ) {
+                    // StyleSheet `V` was cached for the StyleSheet's own QuickStyle matrix, not this Shape!
+                    if styled.formula.to_ascii_uppercase().contains("THEME") {
+                        styled.vsdx_cached_value = None;
+                    }
                     return Some((id.sheet.clone(), styled));
                 }
                 None
@@ -1546,6 +1553,8 @@ impl<'a> EvalSession<'a> {
                     CellValue::Color(theme.accent_colors[idx])
                 } else if key.contains("background") || key == "lightcolor" {
                     CellValue::Color(theme.background_color)
+                } else if key.contains("textbkgnd") && !key.contains("trans") {
+                    CellValue::number(0.0)
                 } else if key.contains("fillforegndtrans") || key.contains("trans") {
                     CellValue::number(0.0)
                 } else if key.contains("fillpattern") {
@@ -1852,6 +1861,16 @@ impl<'a> EvalSession<'a> {
                 } else {
                     CellValue::number(0.0)
                 }
+            }
+            "NURBS" | "POLYLINE" => {
+                let mut nums = Vec::with_capacity(args.len());
+                for a in args {
+                    match self.eval_expr(ctx_sheet, ctx_cell, a).as_internal_f64() {
+                        Ok(v) if v.is_finite() => nums.push(crate::units::format_clean_f64(v)),
+                        _ => nums.push("0".into()),
+                    }
+                }
+                CellValue::Str(format!("{}({})", upper, nums.join(",")))
             }
             "DOCMD" => CellValue::number(0.0),
             _ => CellValue::Err(CellError::Name),
@@ -2190,6 +2209,10 @@ fn collect_shape_cell_ids_page(page_id: u32, s: &VisioShape, out: &mut Vec<Globa
             "txtpiny",
             "txtwidth",
             "txtheight",
+            "txtlocpinx",
+            "txtlocpiny",
+            "txtangle",
+            "hidetext",
         ] {
             if !s.sheet.cells.contains_key(core_key) {
                 out.push(GlobalCellId {
@@ -2413,12 +2436,19 @@ fn collect_shape_visuals(
         if no_show {
             continue;
         }
+        let geom_str_sheet = |cell_key: &str| -> Option<String> {
+            ss.get_str(cell_key)
+                .or_else(|| ss.get_cell(cell_key).map(|c| c.formula.clone()))
+                .or_else(|| master_shape.and_then(|ms| ms.sheet.get_str(cell_key)))
+                .or_else(|| master_shape.and_then(|ms| ms.sheet.get_cell(cell_key).map(|c| c.formula.clone())))
+        };
         let mut verbs = Vec::new();
-        let mut last_world_pt: Option<[f64; 2]> = None;
-        for row in &geom.rows {
-            if row.deleted {
-                continue;
-            }
+        let mut last_local_pt: Option<[f64; 2]> = None;
+        let active_rows: Vec<&crate::sections::GeometryRow> =
+            geom.rows.iter().filter(|r| !r.deleted).collect();
+        let mut r_pos = 0usize;
+        while r_pos < active_rows.len() {
+            let row = active_rows[r_pos];
             let ix = row.ix;
             let raw_x = geom_cell_sheet(&format!("{prefix}.X{ix}")).unwrap_or(0.0);
             let raw_y = geom_cell_sheet(&format!("{prefix}.Y{ix}")).unwrap_or(0.0);
@@ -2426,33 +2456,57 @@ fn collect_shape_visuals(
                 GeometryRowKind::MoveTo => {
                     let (px, py) = world_tf.local_to_parent(raw_x, raw_y);
                     expand([px, py]);
-                    last_world_pt = Some([px, py]);
+                    last_local_pt = Some([raw_x, raw_y]);
                     verbs.push(EvaluatedPathVerb::MoveTo([px, py]));
                 }
                 GeometryRowKind::RelMoveTo => {
-                    let (px, py) = world_tf.local_to_parent(raw_x * w, raw_y * h);
+                    let lx = raw_x * w;
+                    let ly = raw_y * h;
+                    let (px, py) = world_tf.local_to_parent(lx, ly);
                     expand([px, py]);
-                    last_world_pt = Some([px, py]);
+                    last_local_pt = Some([lx, ly]);
                     verbs.push(EvaluatedPathVerb::MoveTo([px, py]));
                 }
-                GeometryRowKind::LineTo | GeometryRowKind::InfiniteLine | GeometryRowKind::PolylineTo => {
+                GeometryRowKind::LineTo | GeometryRowKind::InfiniteLine => {
                     let (px, py) = world_tf.local_to_parent(raw_x, raw_y);
                     expand([px, py]);
-                    last_world_pt = Some([px, py]);
+                    last_local_pt = Some([raw_x, raw_y]);
+                    verbs.push(EvaluatedPathVerb::LineTo([px, py]));
+                }
+                GeometryRowKind::PolylineTo => {
+                    if let Some(poly_str) = geom_str_sheet(&format!("{prefix}.A{ix}"))
+                        .or_else(|| row.a.clone())
+                    {
+                        for [lx, ly] in parse_visio_polyline_local_points(&poly_str, w, h) {
+                            let (wx, wy) = world_tf.local_to_parent(lx, ly);
+                            expand([wx, wy]);
+                            verbs.push(EvaluatedPathVerb::LineTo([wx, wy]));
+                        }
+                    }
+                    let (px, py) = world_tf.local_to_parent(raw_x, raw_y);
+                    expand([px, py]);
+                    last_local_pt = Some([raw_x, raw_y]);
                     verbs.push(EvaluatedPathVerb::LineTo([px, py]));
                 }
                 GeometryRowKind::RelLineTo => {
-                    let (px, py) = world_tf.local_to_parent(raw_x * w, raw_y * h);
+                    let lx = raw_x * w;
+                    let ly = raw_y * h;
+                    let (px, py) = world_tf.local_to_parent(lx, ly);
                     expand([px, py]);
-                    last_world_pt = Some([px, py]);
+                    last_local_pt = Some([lx, ly]);
                     verbs.push(EvaluatedPathVerb::LineTo([px, py]));
                 }
                 GeometryRowKind::ArcTo => {
-                    let bow = geom_cell_sheet(&format!("{prefix}.A{ix}")).unwrap_or(0.0);
+                    let raw_bow = geom_cell_sheet(&format!("{prefix}.A{ix}")).unwrap_or(0.0);
+                    let bow = if world_tf.flip_x ^ world_tf.flip_y {
+                        -raw_bow
+                    } else {
+                        raw_bow
+                    };
                     let (px, py) = world_tf.local_to_parent(raw_x, raw_y);
                     expand([px - bow.abs(), py - bow.abs()]);
                     expand([px + bow.abs(), py + bow.abs()]);
-                    last_world_pt = Some([px, py]);
+                    last_local_pt = Some([raw_x, raw_y]);
                     verbs.push(EvaluatedPathVerb::ArcTo {
                         to: [px, py],
                         bow,
@@ -2461,11 +2515,13 @@ fn collect_shape_visuals(
                 GeometryRowKind::RelQuadBezTo => {
                     let ax = geom_cell_sheet(&format!("{prefix}.A{ix}")).unwrap_or(0.0) * w;
                     let by = geom_cell_sheet(&format!("{prefix}.B{ix}")).unwrap_or(0.0) * h;
+                    let lx = raw_x * w;
+                    let ly = raw_y * h;
                     let (cx, cy) = world_tf.local_to_parent(ax, by);
-                    let (px, py) = world_tf.local_to_parent(raw_x * w, raw_y * h);
+                    let (px, py) = world_tf.local_to_parent(lx, ly);
                     expand([cx, cy]);
                     expand([px, py]);
-                    last_world_pt = Some([px, py]);
+                    last_local_pt = Some([lx, ly]);
                     verbs.push(EvaluatedPathVerb::QuadTo {
                         ctrl: [cx, cy],
                         to: [px, py],
@@ -2476,13 +2532,15 @@ fn collect_shape_visuals(
                     let c1y = geom_cell_sheet(&format!("{prefix}.B{ix}")).unwrap_or(0.0) * h;
                     let c2x = geom_cell_sheet(&format!("{prefix}.C{ix}")).unwrap_or(0.0) * w;
                     let c2y = geom_cell_sheet(&format!("{prefix}.D{ix}")).unwrap_or(0.0) * h;
+                    let lx = raw_x * w;
+                    let ly = raw_y * h;
                     let (p1x, p1y) = world_tf.local_to_parent(c1x, c1y);
                     let (p2x, p2y) = world_tf.local_to_parent(c2x, c2y);
-                    let (px, py) = world_tf.local_to_parent(raw_x * w, raw_y * h);
+                    let (px, py) = world_tf.local_to_parent(lx, ly);
                     expand([p1x, p1y]);
                     expand([p2x, p2y]);
                     expand([px, py]);
-                    last_world_pt = Some([px, py]);
+                    last_local_pt = Some([lx, ly]);
                     verbs.push(EvaluatedPathVerb::CubicTo {
                         ctrl1: [p1x, p1y],
                         ctrl2: [p2x, p2y],
@@ -2496,16 +2554,22 @@ fn collect_shape_visuals(
                     let dy_pt = geom_cell_sheet(&format!("{prefix}.D{ix}")).unwrap_or(raw_y + h * 0.5);
                     let rx = ((ax - raw_x).powi(2) + (ay - raw_y).powi(2)).sqrt();
                     let ry = ((cx_pt - raw_x).powi(2) + (dy_pt - raw_y).powi(2)).sqrt();
+                    let major_ang = (ay - raw_y).atan2(ax - raw_x);
+                    let eff_ang = if world_tf.flip_x ^ world_tf.flip_y {
+                        world_tf.angle_rad - major_ang
+                    } else {
+                        world_tf.angle_rad + major_ang
+                    };
                     let (wx, wy) = world_tf.local_to_parent(raw_x, raw_y);
                     let r_max = rx.max(ry);
                     expand([wx - r_max, wy - r_max]);
                     expand([wx + r_max, wy + r_max]);
-                    last_world_pt = None;
+                    last_local_pt = None;
                     verbs.push(EvaluatedPathVerb::Ellipse {
                         center: [wx, wy],
                         rx,
                         ry,
-                        angle_rad: world_tf.angle_rad,
+                        angle_rad: eff_ang,
                     });
                 }
                 GeometryRowKind::EllipticalArcTo | GeometryRowKind::RelEllipticalArcTo => {
@@ -2514,33 +2578,129 @@ fn collect_shape_visuals(
                     } else {
                         (1.0, 1.0)
                     };
-                    let (px, py) = world_tf.local_to_parent(raw_x * scale.0, raw_y * scale.1);
+                    let end_local = [raw_x * scale.0, raw_y * scale.1];
+                    let (px, py) = world_tf.local_to_parent(end_local[0], end_local[1]);
                     expand([px, py]);
                     let a_opt = geom_cell_sheet(&format!("{prefix}.A{ix}"));
                     let b_opt = geom_cell_sheet(&format!("{prefix}.B{ix}"));
-                    if let (Some(p0), Some(ax), Some(by)) = (last_world_pt, a_opt, b_opt) {
-                        let (mx, my) = world_tf.local_to_parent(ax * scale.0, by * scale.1);
-                        expand([mx, my]);
-                        let bow = elliptical_arc_sagitta_from_three_points(p0, [mx, my], [px, py]);
-                        if bow.abs() > 1e-6 {
-                            verbs.push(EvaluatedPathVerb::ArcTo { to: [px, py], bow });
-                        } else {
+                    let c_rad = geom_cell_sheet(&format!("{prefix}.C{ix}")).unwrap_or(0.0);
+                    let d_ratio = geom_cell_sheet(&format!("{prefix}.D{ix}")).unwrap_or(1.0);
+                    if let (Some(p0_local), Some(ax), Some(by)) = (last_local_pt, a_opt, b_opt) {
+                        let mid_local = [ax * scale.0, by * scale.1];
+                        let cubics = decompose_visio_elliptical_arc_local_cubics(
+                            p0_local,
+                            mid_local,
+                            end_local,
+                            c_rad,
+                            d_ratio,
+                            w,
+                            h,
+                        );
+                        if cubics.is_empty() {
                             verbs.push(EvaluatedPathVerb::LineTo([px, py]));
+                        } else {
+                            for (c1_l, c2_l, end_l) in cubics {
+                                let (c1x, c1y) = world_tf.local_to_parent(c1_l[0], c1_l[1]);
+                                let (c2x, c2y) = world_tf.local_to_parent(c2_l[0], c2_l[1]);
+                                let (ex, ey) = world_tf.local_to_parent(end_l[0], end_l[1]);
+                                expand([c1x, c1y]);
+                                expand([c2x, c2y]);
+                                expand([ex, ey]);
+                                verbs.push(EvaluatedPathVerb::CubicTo {
+                                    ctrl1: [c1x, c1y],
+                                    ctrl2: [c2x, c2y],
+                                    to: [ex, ey],
+                                });
+                            }
                         }
                     } else {
                         verbs.push(EvaluatedPathVerb::LineTo([px, py]));
                     }
-                    last_world_pt = Some([px, py]);
+                    last_local_pt = Some(end_local);
                 }
-                GeometryRowKind::SplineStart
-                | GeometryRowKind::SplineKnot
-                | GeometryRowKind::NURBSTo => {
+                GeometryRowKind::NURBSTo => {
+                    let end_local = [raw_x, raw_y];
+                    let knot_prev = geom_cell_sheet(&format!("{prefix}.A{ix}")).unwrap_or(0.0);
+                    let weight_last = geom_cell_sheet(&format!("{prefix}.B{ix}")).unwrap_or(1.0);
+                    let knot_first = geom_cell_sheet(&format!("{prefix}.C{ix}")).unwrap_or(0.0);
+                    let weight_first = geom_cell_sheet(&format!("{prefix}.D{ix}")).unwrap_or(1.0);
+                    let nurbs_str = geom_str_sheet(&format!("{prefix}.E{ix}"))
+                        .or_else(|| row.e.clone());
+                    let mut emitted = false;
+                    if let (Some(p0_local), Some(expr_s)) = (last_local_pt, nurbs_str) {
+                        let sampled = evaluate_visio_nurbs_local_points(
+                            p0_local,
+                            end_local,
+                            knot_first,
+                            weight_first,
+                            knot_prev,
+                            weight_last,
+                            &expr_s,
+                            w,
+                            h,
+                        );
+                        if !sampled.is_empty() {
+                            for [lx, ly] in sampled {
+                                let (wx, wy) = world_tf.local_to_parent(lx, ly);
+                                expand([wx, wy]);
+                                verbs.push(EvaluatedPathVerb::LineTo([wx, wy]));
+                            }
+                            emitted = true;
+                        }
+                    }
+                    if !emitted {
+                        let (px, py) = world_tf.local_to_parent(raw_x, raw_y);
+                        expand([px, py]);
+                        verbs.push(EvaluatedPathVerb::LineTo([px, py]));
+                    }
+                    last_local_pt = Some(end_local);
+                }
+                GeometryRowKind::SplineStart => {
+                    let degree = geom_cell_sheet(&format!("{prefix}.D{ix}"))
+                        .unwrap_or(3.0)
+                        .round()
+                        .clamp(1.0, 8.0) as usize;
+                    let k0 = geom_cell_sheet(&format!("{prefix}.A{ix}")).unwrap_or(0.0);
+                    let k1 = geom_cell_sheet(&format!("{prefix}.B{ix}")).unwrap_or(0.0);
+                    let k_last = geom_cell_sheet(&format!("{prefix}.C{ix}")).unwrap_or(1.0);
+                    let mut ctrl_pts: Vec<[f64; 2]> = Vec::new();
+                    if let Some(p0) = last_local_pt {
+                        ctrl_pts.push(p0);
+                    }
+                    ctrl_pts.push([raw_x, raw_y]);
+                    let mut raw_knots = vec![k0, k1];
+                    while r_pos + 1 < active_rows.len()
+                        && active_rows[r_pos + 1].kind == GeometryRowKind::SplineKnot
+                    {
+                        r_pos += 1;
+                        let krow = active_rows[r_pos];
+                        let kix = krow.ix;
+                        let kx = geom_cell_sheet(&format!("{prefix}.X{kix}")).unwrap_or(0.0);
+                        let ky = geom_cell_sheet(&format!("{prefix}.Y{kix}")).unwrap_or(0.0);
+                        let ka = geom_cell_sheet(&format!("{prefix}.A{kix}")).unwrap_or(0.0);
+                        ctrl_pts.push([kx, ky]);
+                        raw_knots.push(ka);
+                    }
+                    raw_knots.push(k_last);
+                    let weights = vec![1.0; ctrl_pts.len()];
+                    let sampled = sample_rational_bspline(&ctrl_pts, &weights, &raw_knots, degree);
+                    for [lx, ly] in &sampled {
+                        let (wx, wy) = world_tf.local_to_parent(*lx, *ly);
+                        expand([wx, wy]);
+                        verbs.push(EvaluatedPathVerb::LineTo([wx, wy]));
+                    }
+                    if let Some(&last_c) = ctrl_pts.last() {
+                        last_local_pt = Some(last_c);
+                    }
+                }
+                GeometryRowKind::SplineKnot => {
                     let (px, py) = world_tf.local_to_parent(raw_x, raw_y);
                     expand([px, py]);
-                    last_world_pt = Some([px, py]);
+                    last_local_pt = Some([raw_x, raw_y]);
                     verbs.push(EvaluatedPathVerb::LineTo([px, py]));
                 }
             }
+            r_pos += 1;
         }
         let path_fill = layer_color_override.or_else(|| ss.get_color(&format!("{prefix}.FillForegnd")));
         let path_stroke = layer_color_override.or_else(|| ss.get_color(&format!("{prefix}.LineColor")));
@@ -2695,11 +2855,9 @@ fn collect_shape_visuals(
 
     let stroke_color = if line_pat == 0
         || line_trans >= 0.995
+        || shape.kind == ShapeKind::ForeignObject
         || (!has_drawable_paths
-            && matches!(
-                shape.kind,
-                ShapeKind::Group | ShapeKind::Guide | ShapeKind::ForeignObject
-            ))
+            && matches!(shape.kind, ShapeKind::Group | ShapeKind::Guide))
         || !has_drawable_paths
     {
         None
@@ -2721,6 +2879,16 @@ fn collect_shape_visuals(
                 c
             })
     };
+
+    let txt_width = ss
+        .get_f64("TxtWidth")
+        .or_else(|| master_shape.and_then(|ms| ms.sheet.get_f64("TxtWidth")))
+        .filter(|v| v.is_finite() && *v > 0.05);
+    let txt_height = ss
+        .get_f64("TxtHeight")
+        .or_else(|| master_shape.and_then(|ms| ms.sheet.get_f64("TxtHeight")))
+        .filter(|v| v.is_finite() && *v > 0.05);
+    let mut txt_local_center = [w * 0.5, h * 0.5];
 
     let (txt_px, txt_py) = if shape.kind == ShapeKind::Connector1D
         && ss.get_cell("TxtPinX").is_none()
@@ -2758,20 +2926,52 @@ fn collect_shape_visuals(
             world_tf.local_to_parent(w * 0.5, h * 0.5)
         }
     } else {
-        let txt_lx = ss.get_f64("TxtPinX").unwrap_or(w * 0.5);
-        let txt_ly = ss.get_f64("TxtPinY").unwrap_or(h * 0.5);
-        world_tf.local_to_parent(txt_lx, txt_ly)
+        let txt_lx = ss
+            .get_f64("TxtPinX")
+            .or_else(|| master_shape.and_then(|ms| ms.sheet.get_f64("TxtPinX")))
+            .unwrap_or(w * 0.5);
+        let txt_ly = ss
+            .get_f64("TxtPinY")
+            .or_else(|| master_shape.and_then(|ms| ms.sheet.get_f64("TxtPinY")))
+            .unwrap_or(h * 0.5);
+        let tw_ref = txt_width.unwrap_or(w);
+        let th_ref = txt_height.unwrap_or(h);
+        let txt_lpx = ss
+            .get_f64("TxtLocPinX")
+            .or_else(|| master_shape.and_then(|ms| ms.sheet.get_f64("TxtLocPinX")))
+            .unwrap_or(tw_ref * 0.5);
+        let txt_lpy = ss
+            .get_f64("TxtLocPinY")
+            .or_else(|| master_shape.and_then(|ms| ms.sheet.get_f64("TxtLocPinY")))
+            .unwrap_or(th_ref * 0.5);
+        let txt_ang = ss
+            .get_f64("TxtAngle")
+            .or_else(|| master_shape.and_then(|ms| ms.sheet.get_f64("TxtAngle")))
+            .unwrap_or(0.0);
+        let (tsa, tca) = txt_ang.sin_cos();
+        let off_x = tw_ref * 0.5 - txt_lpx;
+        let off_y = th_ref * 0.5 - txt_lpy;
+        let cx_l = txt_lx + off_x * tca - off_y * tsa;
+        let cy_l = txt_ly + off_x * tsa + off_y * tca;
+        txt_local_center = [cx_l, cy_l];
+        world_tf.local_to_parent(cx_l, cy_l)
     };
-    let txt_width = ss.get_f64("TxtWidth").filter(|v| v.is_finite() && *v > 0.05);
-    let txt_height = ss.get_f64("TxtHeight").filter(|v| v.is_finite() && *v > 0.05);
 
+    // Visio `[MS-VSDX]` rule: `TextBkgndTrans` defaults to `0.0` (`0%` transparent), while `TextBkgnd` defaults to `0` (`None`).
     let txt_bg_trans = ss
         .get_f64("TextBkgndTrans")
         .or_else(|| master_shape.and_then(|ms| ms.sheet.get_f64("TextBkgndTrans")))
-        .unwrap_or(1.0);
-    let text_bg_color = if txt_bg_trans < 0.99 {
+        .unwrap_or(0.0)
+        .clamp(0.0, 1.0);
+    let text_bg_color = if txt_bg_trans < 0.995 {
         ss.get_color("TextBkgnd")
             .or_else(|| master_shape.and_then(|ms| ms.sheet.get_color("TextBkgnd")))
+            .map(|mut c| {
+                if txt_bg_trans > 0.001 {
+                    c.a = (((1.0 - txt_bg_trans) * (c.a as f64)).round() as u8).max(1);
+                }
+                c
+            })
     } else {
         None
     };
@@ -2790,10 +2990,20 @@ fn collect_shape_visuals(
         .or_else(|| master_shape.and_then(|ms| ms.foreign_data.clone()))
         .filter(|fm| !fm.data.is_empty());
 
-    let effective_text = if !shape.text.is_empty() {
+    let hide_text = ss
+        .get_bool("HideText")
+        .or_else(|| master_shape.and_then(|ms| ms.sheet.get_bool("HideText")))
+        .unwrap_or(false);
+    let effective_text = if hide_text {
+        String::new()
+    } else if !shape.text.is_empty() {
         shape.text.clone()
     } else if let Some(ms) = master_shape {
-        if shape.children.is_empty() {
+        let explicit_empty_text = shape
+            .opaque_xml_fragments
+            .iter()
+            .any(|f| f.trim() == "<Text/>");
+        if shape.children.is_empty() && !explicit_empty_text {
             ms.text.clone()
         } else {
             String::new()
@@ -2812,29 +3022,81 @@ fn collect_shape_visuals(
         aabb_max[1] = aabb_max[1].max(txt_py + half_th);
     }
 
-    let fallback_text_color = if qs_font_mat > 0 || qs_fill_mat > 0 || qs_font_col.is_some() {
-        resolve_quickstyle_font_color(&active_theme, qs_font_mat, qs_fill_mat, qs_font_col)
+    let page_bg = page
+        .page_sheet
+        .get_color("PageColor")
+        .or_else(|| {
+            doc.active_theme_id
+                .and_then(|tid| doc.themes.iter().find(|t| t.id == tid))
+                .map(|t| t.background_color)
+        })
+        .unwrap_or(RgbaColor::WHITE);
+    let page_lum =
+        (0.2126 * (page_bg.r as f64) + 0.7152 * (page_bg.g as f64) + 0.0722 * (page_bg.b as f64)) / 255.0;
+    let text_inside_shape_body = shape.kind == ShapeKind::Shape2D
+        && w.abs() > 1e-4
+        && h.abs() > 1e-4
+        && txt_local_center[0] >= -0.04 * w.abs()
+        && txt_local_center[0] <= 1.04 * w.abs()
+        && txt_local_center[1] >= -0.04 * h.abs()
+        && txt_local_center[1] <= 1.04 * h.abs();
+    let has_dark_fill_behind_text = text_inside_shape_body
+        && fill_color.is_some_and(|fc| {
+            let fl = (0.2126 * (fc.r as f64) + 0.7152 * (fc.g as f64) + 0.0722 * (fc.b as f64)) / 255.0;
+            fc.a >= 120 && fl < 0.48
+        });
+
+    let default_contrast_text = if page_lum < 0.38 {
+        RgbaColor {
+            r: 248,
+            g: 250,
+            b: 252,
+            a: 255,
+        }
     } else {
-        let bg = page
-            .page_sheet
-            .get_color("PageColor")
-            .or_else(|| {
-                doc.active_theme_id
-                    .and_then(|tid| doc.themes.iter().find(|t| t.id == tid))
-                    .map(|t| t.background_color)
-            })
-            .unwrap_or(RgbaColor::WHITE);
-        let lum = (0.2126 * (bg.r as f64) + 0.7152 * (bg.g as f64) + 0.0722 * (bg.b as f64)) / 255.0;
-        if lum < 0.38 {
-            RgbaColor {
-                r: 248,
-                g: 250,
-                b: 252,
-                a: 255,
-            }
+        let dk = active_theme.dark_color;
+        let dk_lum = (0.2126 * (dk.r as f64) + 0.7152 * (dk.g as f64) + 0.0722 * (dk.b as f64)) / 255.0;
+        if dk_lum < 0.55 {
+            dk
         } else {
             RgbaColor::BLACK
         }
+    };
+
+    let fallback_text_color = if qs_font_mat > 0 || qs_fill_mat > 0 || qs_font_col.is_some() {
+        let cand = resolve_quickstyle_font_color(&active_theme, qs_font_mat, qs_fill_mat, qs_font_col);
+        let cand_lum = (0.2126 * (cand.r as f64) + 0.7152 * (cand.g as f64) + 0.0722 * (cand.b as f64)) / 255.0;
+        if cand_lum > 0.85 && !has_dark_fill_behind_text && text_bg_color.is_none() && page_lum >= 0.55 {
+            default_contrast_text
+        } else {
+            cand
+        }
+    } else {
+        default_contrast_text
+    };
+
+    let resolved_text_color = match ss.get_color("Char.Color") {
+        Some(c) => {
+            let c_lum = (0.2126 * (c.r as f64) + 0.7152 * (c.g as f64) + 0.0722 * (c.b as f64)) / 255.0;
+            let from_theme_or_inh = ss
+                .get_cell("Char.Color")
+                .map(|cell| {
+                    let fu = cell.formula.to_ascii_uppercase();
+                    fu.contains("THEME") || !fu.contains("RGB(")
+                })
+                .unwrap_or(true);
+            if c_lum > 0.90
+                && from_theme_or_inh
+                && !has_dark_fill_behind_text
+                && text_bg_color.is_none()
+                && page_lum >= 0.65
+            {
+                default_contrast_text
+            } else {
+                c
+            }
+        }
+        None => fallback_text_color,
     };
 
     // Evaluate world-space connection ports (`Connections.X{ix}` / `Connections.Y{ix}` + cardinal fallback for 2D shapes).
@@ -2964,7 +3226,7 @@ fn collect_shape_visuals(
             .get_f64("Char.Size")
             .map(|inches| inches * 72.0)
             .unwrap_or(10.0),
-        text_color: ss.get_color("Char.Color").unwrap_or(fallback_text_color),
+        text_color: resolved_text_color,
         font_family: ss
             .get_str("Char.Font")
             .filter(|s| !s.is_empty())
@@ -3151,43 +3413,75 @@ fn resolve_master_instance_sibling_id(
     find_by_msid(top_root, target_sid, master_root_id, true)
 }
 
-/// Compute signed circular-arc sagitta `bow` passing through `(p0, p_ctrl, p1)` for Visio `EllipticalArcTo`.
-fn elliptical_arc_sagitta_from_three_points(p0: [f64; 2], pm: [f64; 2], p1: [f64; 2]) -> f64 {
-    let dx = p1[0] - p0[0];
-    let dy = p1[1] - p0[1];
-    let chord = dx.hypot(dy);
-    if chord < 1e-7 {
-        return 0.0;
+/// Analytically decompose a Visio `[MS-VSDX]` `EllipticalArcTo` / `RelEllipticalArcTo` segment
+/// (`p0 -> pm -> p1`, major-axis angle `c_rad`, aspect ratio `d_ratio = rx / ry`) in local shape inches
+/// into exact cubic Bézier curves (`<= 45°` per segment).
+fn decompose_visio_elliptical_arc_local_cubics(
+    p0: [f64; 2],
+    pm: [f64; 2],
+    p1: [f64; 2],
+    c_rad: f64,
+    d_ratio: f64,
+    shape_w: f64,
+    shape_h: f64,
+) -> Vec<([f64; 2], [f64; 2], [f64; 2])> {
+    if !p0[0].is_finite()
+        || !p0[1].is_finite()
+        || !pm[0].is_finite()
+        || !pm[1].is_finite()
+        || !p1[0].is_finite()
+        || !p1[1].is_finite()
+    {
+        return Vec::new();
     }
-    let ux = dx / chord;
-    let uy = dy / chord;
-    let nx = -uy;
-    let ny = ux;
+    let chord_local = (p1[0] - p0[0]).hypot(p1[1] - p0[1]);
+    if chord_local < 1e-7 {
+        return Vec::new();
+    }
+    let c = if c_rad.is_finite() { c_rad } else { 0.0 };
+    let d = if d_ratio.is_finite() && d_ratio.abs() >= 1e-4 {
+        d_ratio.abs().clamp(1e-4, 1e4)
+    } else {
+        1.0
+    };
+    let (sc, cc) = c.sin_cos();
+    let to_uv = |pt: [f64; 2]| -> [f64; 2] {
+        let u_raw = pt[0] * cc + pt[1] * sc;
+        let v_raw = -pt[0] * sc + pt[1] * cc;
+        [u_raw, v_raw * d]
+    };
+    let from_uv = |uv: [f64; 2]| -> [f64; 2] {
+        let u_raw = uv[0];
+        let v_raw = uv[1] / d;
+        [u_raw * cc - v_raw * sc, u_raw * sc + v_raw * cc]
+    };
 
-    // Circumcenter of triangle `(p0, pm, p1)`.
-    let ax = p0[0];
-    let ay = p0[1];
-    let bx = pm[0];
-    let by = pm[1];
-    let cx = p1[0];
-    let cy = p1[1];
-    let d = 2.0 * (ax * (by - cy) + bx * (cy - ay) + cx * (ay - by));
-    if d.abs() < 1e-9 {
-        return 0.0;
-    }
-    let a2 = ax * ax + ay * ay;
-    let b2 = bx * bx + by * by;
-    let c2 = cx * cx + cy * cy;
-    let ocx = (a2 * (by - cy) + b2 * (cy - ay) + c2 * (ay - by)) / d;
-    let ocy = (a2 * (cx - bx) + b2 * (ax - cx) + c2 * (bx - ax)) / d;
-    let r = (ax - ocx).hypot(ay - ocy);
-    if !r.is_finite() || r < 1e-7 || r > chord * 1e4 {
-        return 0.0;
+    let q0 = to_uv(p0);
+    let qm = to_uv(pm);
+    let q1 = to_uv(p1);
+    let chord_uv = (q1[0] - q0[0]).hypot(q1[1] - q0[1]);
+    if chord_uv < 1e-7 {
+        return Vec::new();
     }
 
-    let a0 = (p0[1] - ocy).atan2(p0[0] - ocx);
-    let amid = (pm[1] - ocy).atan2(pm[0] - ocx);
-    let a1 = (p1[1] - ocy).atan2(p1[0] - ocx);
+    let det = 2.0
+        * (q0[0] * (qm[1] - q1[1]) + qm[0] * (q1[1] - q0[1]) + q1[0] * (q0[1] - qm[1]));
+    if det.abs() < 1e-9 {
+        return Vec::new();
+    }
+    let a2 = q0[0] * q0[0] + q0[1] * q0[1];
+    let b2 = qm[0] * qm[0] + qm[1] * qm[1];
+    let c2 = q1[0] * q1[0] + q1[1] * q1[1];
+    let uc = (a2 * (qm[1] - q1[1]) + b2 * (q1[1] - q0[1]) + c2 * (q0[1] - qm[1])) / det;
+    let vc = (a2 * (q1[0] - qm[0]) + b2 * (q0[0] - q1[0]) + c2 * (qm[0] - q0[0])) / det;
+    let r = (q0[0] - uc).hypot(q0[1] - vc);
+    if !r.is_finite() || r < 1e-7 || r > chord_uv * 250.0 {
+        return Vec::new();
+    }
+
+    let a0 = (q0[1] - vc).atan2(q0[0] - uc);
+    let amid = (qm[1] - vc).atan2(qm[0] - uc);
+    let a1 = (q1[1] - vc).atan2(q1[0] - uc);
     let ccw_end = (a1 - a0).rem_euclid(std::f64::consts::TAU);
     let ccw_mid = (amid - a0).rem_euclid(std::f64::consts::TAU);
     let sweep = if ccw_mid <= ccw_end + 1e-9 {
@@ -3195,12 +3489,270 @@ fn elliptical_arc_sagitta_from_three_points(p0: [f64; 2], pm: [f64; 2], p1: [f64
     } else {
         ccw_end - std::f64::consts::TAU
     };
-    let a_half = a0 + sweep * 0.5;
-    let arc_mid_x = ocx + r * a_half.cos();
-    let arc_mid_y = ocy + r * a_half.sin();
-    let chord_mid_x = (p0[0] + p1[0]) * 0.5;
-    let chord_mid_y = (p0[1] + p1[1]) * 0.5;
-    (arc_mid_x - chord_mid_x) * nx + (arc_mid_y - chord_mid_y) * ny
+
+    // Guard against degenerate near-collinear control-point rounding that flips a tiny minor arc
+    // into a >180° reflex balloon extending multiples of the shape size outside local bounds!
+    if sweep.abs() > std::f64::consts::PI && r > chord_uv * 1.35 {
+        let apex_ang = a0 + sweep * 0.5;
+        let apex_local = from_uv([uc + r * apex_ang.cos(), vc + r * apex_ang.sin()]);
+        let ref_span = shape_w.abs().max(shape_h.abs()).max(chord_local).max(0.25);
+        let mid_chord = [(p0[0] + p1[0]) * 0.5, (p0[1] + p1[1]) * 0.5];
+        let apex_dev = (apex_local[0] - mid_chord[0]).hypot(apex_local[1] - mid_chord[1]);
+        let pm_dev = (pm[0] - mid_chord[0]).hypot(pm[1] - mid_chord[1]);
+        if apex_dev > ref_span * 1.75 && pm_dev < apex_dev * 0.35 {
+            // Smooth quadratic-equivalent cubic passing through `pm` without reflex explosion
+            let q_ctrl = [
+                2.0 * pm[0] - 0.5 * (p0[0] + p1[0]),
+                2.0 * pm[1] - 0.5 * (p0[1] + p1[1]),
+            ];
+            let c1 = [
+                p0[0] + (2.0 / 3.0) * (q_ctrl[0] - p0[0]),
+                p0[1] + (2.0 / 3.0) * (q_ctrl[1] - p0[1]),
+            ];
+            let c2 = [
+                p1[0] + (2.0 / 3.0) * (q_ctrl[0] - p1[0]),
+                p1[1] + (2.0 / 3.0) * (q_ctrl[1] - p1[1]),
+            ];
+            return vec![(c1, c2, p1)];
+        }
+    }
+
+    let n_segs = ((sweep.abs() / std::f64::consts::FRAC_PI_4).ceil() as usize).clamp(1, 24);
+    let dt = sweep / (n_segs as f64);
+    let k = (4.0 / 3.0) * (dt * 0.25).tan();
+    let mut out = Vec::with_capacity(n_segs);
+    for i in 0..n_segs {
+        let t0 = a0 + (i as f64) * dt;
+        let t1 = if i + 1 == n_segs { a0 + sweep } else { t0 + dt };
+        let (s0, c0) = t0.sin_cos();
+        let (s1, c1) = t1.sin_cos();
+        let su = uc + r * c0;
+        let sv = vc + r * s0;
+        let eu = uc + r * c1;
+        let ev = vc + r * s1;
+        let ctrl1_uv = [su - k * r * s0, sv + k * r * c0];
+        let ctrl2_uv = [eu + k * r * s1, ev - k * r * c1];
+        let end_local = if i + 1 == n_segs {
+            p1
+        } else {
+            from_uv([eu, ev])
+        };
+        out.push((from_uv(ctrl1_uv), from_uv(ctrl2_uv), end_local));
+    }
+    out
 }
+
+fn extract_func_arg_f64s(expr_str: &str, func_name: &str) -> Option<Vec<f64>> {
+    let trimmed = expr_str.trim().trim_start_matches('=').trim().trim_matches('"').trim();
+    let upper = trimmed.to_ascii_uppercase();
+    let prefix = format!("{func_name}(");
+    let start = upper.find(&prefix)? + prefix.len();
+    let end = trimmed.rfind(')')?;
+    if end <= start {
+        return None;
+    }
+    let body = &trimmed[start..end];
+    let mut vals = Vec::new();
+    for part in body.split(|c: char| c == ',' || c == ';') {
+        let tok = part
+            .trim()
+            .trim_end_matches("in")
+            .trim_end_matches("mm")
+            .trim_end_matches("cm")
+            .trim_end_matches("pt")
+            .trim();
+        let v = tok.parse::<f64>().ok().filter(|n| n.is_finite())?;
+        vals.push(v);
+    }
+    Some(vals)
+}
+
+/// Parse Visio `POLYLINE(xType, yType, x1, y1, ...)` into local shape coordinates `(lx, ly)` in inches.
+fn parse_visio_polyline_local_points(expr_str: &str, w: f64, h: f64) -> Vec<[f64; 2]> {
+    let Some(args) = extract_func_arg_f64s(expr_str, "POLYLINE") else {
+        return Vec::new();
+    };
+    if args.len() < 4 {
+        return Vec::new();
+    }
+    let x_scale = if args[0].round() as i32 == 0 { w } else { 1.0 };
+    let y_scale = if args[1].round() as i32 == 0 { h } else { 1.0 };
+    let mut pts = Vec::with_capacity((args.len() - 2) / 2);
+    for pair in args[2..].chunks_exact(2) {
+        pts.push([pair[0] * x_scale, pair[1] * y_scale]);
+    }
+    pts
+}
+
+/// Evaluate Visio `[MS-VSDX]` `NURBSTo` (`E = NURBS(knotLast, degree, xType, yType, x1, y1, knot1, weight1, ...)`)
+/// via rational Cox-de Boor B-spline interpolation in local shape inches.
+#[allow(clippy::too_many_arguments)]
+fn evaluate_visio_nurbs_local_points(
+    p0_local: [f64; 2],
+    end_local: [f64; 2],
+    knot_first: f64,
+    weight_first: f64,
+    knot_prev: f64,
+    weight_last: f64,
+    expr_str: &str,
+    w: f64,
+    h: f64,
+) -> Vec<[f64; 2]> {
+    let Some(args) = extract_func_arg_f64s(expr_str, "NURBS") else {
+        return Vec::new();
+    };
+    if args.len() < 8 {
+        return Vec::new();
+    }
+    let knot_last = args[0];
+    let degree = (args[1].round() as usize).clamp(1, 8);
+    let x_scale = if args[2].round() as i32 == 0 { w } else { 1.0 };
+    let y_scale = if args[3].round() as i32 == 0 { h } else { 1.0 };
+
+    let tuples = &args[4..];
+    let m = tuples.len() / 4;
+    if m == 0 {
+        return Vec::new();
+    }
+
+    let mut ctrl_pts = Vec::with_capacity(m + 2);
+    let mut weights = Vec::with_capacity(m + 2);
+    let mut base_knots = Vec::with_capacity(m + 3);
+
+    ctrl_pts.push(p0_local);
+    weights.push(if weight_first.is_finite() && weight_first > 1e-6 {
+        weight_first
+    } else {
+        1.0
+    });
+    base_knots.push(knot_first);
+
+    for i in 0..m {
+        let base = i * 4;
+        ctrl_pts.push([tuples[base] * x_scale, tuples[base + 1] * y_scale]);
+        base_knots.push(tuples[base + 2]);
+        let wt = tuples[base + 3];
+        weights.push(if wt.is_finite() && wt > 1e-6 { wt } else { 1.0 });
+    }
+
+    ctrl_pts.push(end_local);
+    weights.push(if weight_last.is_finite() && weight_last > 1e-6 {
+        weight_last
+    } else {
+        1.0
+    });
+    base_knots.push(knot_prev);
+    base_knots.push(knot_last);
+
+    sample_rational_bspline(&ctrl_pts, &weights, &base_knots, degree)
+}
+
+/// Evaluate a clamped rational B-spline (`ctrl_pts`, `weights`, `raw_knots`, `degree`) using Cox-de Boor.
+fn sample_rational_bspline(
+    ctrl_pts: &[[f64; 2]],
+    weights: &[f64],
+    raw_knots: &[f64],
+    degree: usize,
+) -> Vec<[f64; 2]> {
+    let n = ctrl_pts.len();
+    if n < 2 {
+        return Vec::new();
+    }
+    let p = degree.min(n - 1).max(1);
+    let needed_knots = n + p + 1;
+
+    let mut knots = raw_knots.to_vec();
+    let monotonic = knots.windows(2).all(|w| w[0].is_finite() && w[1].is_finite() && w[1] >= w[0] - 1e-9)
+        && knots.last().copied().unwrap_or(0.0) > knots.first().copied().unwrap_or(0.0) + 1e-9;
+
+    if monotonic && !knots.is_empty() && knots.len() <= needed_knots {
+        let k_start = knots[0];
+        let k_end = *knots.last().unwrap();
+        // Visio omits the extra clamped boundary multiplicities at the start/end of `NURBS(...)`:
+        // pad start and end symmetrically to reach `n + p + 1` knots.
+        let mut pad_front = true;
+        while knots.len() < needed_knots {
+            if pad_front {
+                knots.insert(0, k_start);
+            } else {
+                knots.push(k_end);
+            }
+            pad_front = !pad_front;
+        }
+    } else {
+        knots.clear();
+        for _ in 0..=p {
+            knots.push(0.0);
+        }
+        let internal = n - p - 1;
+        for j in 1..=internal {
+            knots.push((j as f64) / ((internal + 1) as f64));
+        }
+        for _ in 0..=p {
+            knots.push(1.0);
+        }
+    }
+
+    let t_min = knots[p];
+    let t_max = knots[n];
+    if !(t_max > t_min + 1e-9) {
+        return vec![*ctrl_pts.last().unwrap()];
+    }
+
+    let steps = (n * 6).clamp(12, 96);
+    let mut out = Vec::with_capacity(steps);
+    let mut basis = vec![0.0f64; n];
+
+    for step in 1..=steps {
+        if step == steps {
+            out.push(*ctrl_pts.last().unwrap());
+            break;
+        }
+        let t = t_min + (t_max - t_min) * ((step as f64) / (steps as f64));
+        // Cox-de Boor basis evaluation `N_{i, p}(t)`
+        let mut n_cur = vec![0.0f64; knots.len() - 1];
+        for i in 0..n_cur.len() {
+            if t >= knots[i] && t < knots[i + 1] {
+                n_cur[i] = 1.0;
+            }
+        }
+        for d in 1..=p {
+            let max_i = knots.len() - 1 - d;
+            let mut n_next = vec![0.0f64; max_i];
+            for i in 0..max_i {
+                let d1 = knots[i + d] - knots[i];
+                let t1 = if d1 > 1e-12 {
+                    ((t - knots[i]) / d1) * n_cur[i]
+                } else {
+                    0.0
+                };
+                let d2 = knots[i + d + 1] - knots[i + 1];
+                let t2 = if d2 > 1e-12 {
+                    ((knots[i + d + 1] - t) / d2) * n_cur[i + 1]
+                } else {
+                    0.0
+                };
+                n_next[i] = t1 + t2;
+            }
+            n_cur = n_next;
+        }
+        basis.copy_from_slice(&n_cur[..n]);
+
+        let mut wx_sum = 0.0;
+        let mut wy_sum = 0.0;
+        let mut w_sum = 0.0;
+        for i in 0..n {
+            let bw = basis[i] * weights.get(i).copied().unwrap_or(1.0);
+            wx_sum += bw * ctrl_pts[i][0];
+            wy_sum += bw * ctrl_pts[i][1];
+            w_sum += bw;
+        }
+        if w_sum > 1e-12 {
+            out.push([wx_sum / w_sum, wy_sum / w_sum]);
+        }
+    }
+    out
+}
+
 
 

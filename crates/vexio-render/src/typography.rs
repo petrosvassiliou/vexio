@@ -909,8 +909,8 @@ fn layout_horizontal_lines(
     lyon_buf: &mut VertexBuffers<GpuVertex, u32>,
     commands: &mut Vec<StrokeCommand>,
 ) {
-    let pad_x = (box_w_in * 0.04).min(0.08);
-    let pad_y = (box_h_in * 0.06).min(0.08);
+    let pad_x = (box_w_in * 0.015).min(0.03);
+    let pad_y = (box_h_in * 0.05).min(0.06);
     let default_cap_h = paragraphs
         .iter()
         .flatten()
@@ -1284,8 +1284,9 @@ fn wrap_paragraph_cells_with_font(
                 continue;
             }
         }
-        // Hard-break an oversized single word if needed.
-        if tw > max_w_in && tok.len() > 1 {
+        // Hard-break an oversized single word only when it exceeds `max_w_in` by > 35%
+        // (avoids chopping words like "SharePoint" or "On-premises" by 1-2 letters when fallback fonts run slightly wider than Segoe UI).
+        if tw > max_w_in * 1.35 && tok.len() > 1 {
             for cell in tok {
                 let cw = measure_cells_advance_in(std::slice::from_ref(&cell), font_family);
                 if !cur_line.is_empty() && cur_w + cw > max_w_in {

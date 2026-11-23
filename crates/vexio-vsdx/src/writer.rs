@@ -541,6 +541,9 @@ fn write_shape_xml(out: &mut String, shape: &VisioShape) {
     }
 
     for frag in &shape.opaque_xml_fragments {
+        if !shape.text.is_empty() && frag.trim() == "<Text/>" {
+            continue;
+        }
         out.push_str(frag);
         out.push('\n');
     }

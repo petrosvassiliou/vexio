@@ -347,12 +347,58 @@ pub fn tessellate_shape_full(
     let mut first_tangent: Option<([f64; 2], [f64; 2])> = None;
     let mut last_tangent: Option<([f64; 2], [f64; 2])> = None;
 
+    let shared_fill_count = visual
+        .paths
+        .iter()
+        .filter(|g| !g.no_show && !g.no_fill && g.fill_color.is_none() && !g.verbs_page_space.is_empty())
+        .count();
+    let use_compound_fill = shared_fill_count >= 2 && (fill_rgba.is_some() || grad_spec.is_some());
+    if use_compound_fill {
+        let mut compound_verbs = Vec::new();
+        for geom in &visual.paths {
+            if !geom.no_show && !geom.no_fill && geom.fill_color.is_none() && !geom.verbs_page_space.is_empty() {
+                compound_verbs.extend_from_slice(&geom.verbs_page_space);
+            }
+        }
+        let compound_geom = EvaluatedGeometryPath {
+            no_fill: false,
+            no_line: true,
+            no_show: false,
+            verbs_page_space: compound_verbs,
+            fill_color: None,
+            stroke_color: None,
+            stroke_weight_in: None,
+        };
+        let mut dummy_t0 = None;
+        let mut dummy_t1 = None;
+        tessellate_geometry_section(
+            &compound_geom,
+            rounding,
+            0,
+            fill_rgba,
+            grad_spec.as_ref(),
+            None,
+            stroke_w,
+            tol,
+            &mut fill_tess,
+            &mut stroke_tess,
+            &mut lyon_buf,
+            &mut dummy_t0,
+            &mut dummy_t1,
+        );
+    }
+
     for geom in &visual.paths {
         if geom.no_show || geom.verbs_page_space.is_empty() {
             continue;
         }
-        let g_fill = geom.fill_color.map(RgbaColor::to_linear_f32).or(fill_rgba);
-        let g_grad = if geom.fill_color.is_some() {
+        let is_shared_fill = !geom.no_fill && geom.fill_color.is_none();
+        let g_fill = if use_compound_fill && is_shared_fill {
+            None
+        } else {
+            geom.fill_color.map(RgbaColor::to_linear_f32).or(fill_rgba)
+        };
+        let g_grad = if (use_compound_fill && is_shared_fill) || geom.fill_color.is_some() {
             None
         } else {
             grad_spec.as_ref()
@@ -466,8 +512,8 @@ pub fn tessellate_shape_full(
                 _ => 0.0,
             };
             let local_cy = match visual.vert_align {
-                0 => (box_h * 0.5 - pad - span_h * 0.5).max(0.0),
-                2 => (-box_h * 0.5 + pad + span_h * 0.5).min(0.0),
+                0 => box_h * 0.5 - pad - span_h * 0.5,
+                2 => -box_h * 0.5 + pad + span_h * 0.5,
                 _ => 0.0,
             };
             let hw = span_w * 0.5;

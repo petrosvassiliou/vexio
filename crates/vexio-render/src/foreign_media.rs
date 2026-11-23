@@ -38,8 +38,9 @@ pub fn tessellate_foreign_media(
         || (media.data.starts_with(b"<?xml") && media.data.windows(4).any(|w| w == b"<svg"))
     {
         if let Ok(svg_str) = std::str::from_utf8(&media.data) {
-            let mesh = tessellate_svg_foreign(svg_str, world_tf, tol_in);
+            let mut mesh = tessellate_svg_foreign(svg_str, world_tf, tol_in);
             if !mesh.is_empty() {
+                fit_foreign_mesh_to_transform(&mut mesh, world_tf);
                 return mesh;
             }
         }
@@ -58,8 +59,9 @@ pub fn tessellate_foreign_media(
     }
 
     if mt.contains("EMF") || (media.data.len() >= 44 && &media.data[40..44] == b" EMF") {
-        let mesh = tessellate_emf_foreign(&media.data, world_tf, tol_in);
+        let mut mesh = tessellate_emf_foreign(&media.data, world_tf, tol_in);
         if !mesh.is_empty() {
+            fit_foreign_mesh_to_transform(&mut mesh, world_tf);
             return mesh;
         }
     }
@@ -69,13 +71,62 @@ pub fn tessellate_foreign_media(
         && matches!(u16::from_le_bytes([media.data[0], media.data[1]]), 1 | 2)
         && u16::from_le_bytes([media.data[2], media.data[3]]) == 9;
     if mt.contains("WMF") || is_placeable_wmf || is_std_wmf {
-        let mesh = tessellate_wmf_foreign(&media.data, world_tf, tol_in);
+        let mut mesh = tessellate_wmf_foreign(&media.data, world_tf, tol_in);
         if !mesh.is_empty() {
+            fit_foreign_mesh_to_transform(&mut mesh, world_tf);
             return mesh;
         }
     }
 
     TessellatedMesh::new()
+}
+
+/// Ensure vector `ForeignData` (`SVG` / `EMF` / `EMF+` / `WMF`) whose internal coordinate space
+/// exceeds its declared header `viewBox` / `rclBounds` fits cleanly inside `world_tf` (`[0..width] x [0..height]`).
+fn fit_foreign_mesh_to_transform(mesh: &mut TessellatedMesh, world_tf: &ShapeTransform2D) {
+    if mesh.vertices.is_empty() {
+        return;
+    }
+    let w = world_tf.width.abs();
+    let h = world_tf.height.abs();
+    if w < 1e-6 || h < 1e-6 {
+        return;
+    }
+    let mut min_lx = f64::INFINITY;
+    let mut min_ly = f64::INFINITY;
+    let mut max_lx = f64::NEG_INFINITY;
+    let mut max_ly = f64::NEG_INFINITY;
+    for v in &mesh.vertices {
+        let (lx, ly) = world_tf.parent_to_local(v.pos[0] as f64, v.pos[1] as f64);
+        if lx.is_finite() && ly.is_finite() {
+            min_lx = min_lx.min(lx);
+            min_ly = min_ly.min(ly);
+            max_lx = max_lx.max(lx);
+            max_ly = max_ly.max(ly);
+        }
+    }
+    if !min_lx.is_finite() || !max_lx.is_finite() {
+        return;
+    }
+    let span_x = (max_lx - min_lx).max(1e-6);
+    let span_y = (max_ly - min_ly).max(1e-6);
+    let overflows = min_lx < -w * 0.25
+        || max_lx > w * 1.25
+        || min_ly < -h * 0.25
+        || max_ly > h * 1.25;
+    if !overflows {
+        return;
+    }
+    let scale = (w / span_x).min(h / span_y);
+    let pad_x = (w - span_x * scale) * 0.5;
+    let pad_y = (h - span_y * scale) * 0.5;
+    for v in &mut mesh.vertices {
+        let (lx, ly) = world_tf.parent_to_local(v.pos[0] as f64, v.pos[1] as f64);
+        let fit_lx = pad_x + (lx - min_lx) * scale;
+        let fit_ly = pad_y + (ly - min_ly) * scale;
+        let (wx, wy) = world_tf.local_to_parent(fit_lx, fit_ly);
+        v.pos = [wx as f32, wy as f32];
+    }
 }
 
 // ============================================================================
@@ -88,10 +139,7 @@ struct SvgStyleState {
     stroke: Option<RgbaColor>,
     stroke_width: f64,
     opacity: f64,
-    tx: f64,
-    ty: f64,
-    sx: f64,
-    sy: f64,
+    xform: Affine2D,
 }
 
 impl Default for SvgStyleState {
@@ -101,15 +149,202 @@ impl Default for SvgStyleState {
             stroke: None,
             stroke_width: 1.0,
             opacity: 1.0,
-            tx: 0.0,
-            ty: 0.0,
-            sx: 1.0,
-            sy: 1.0,
+            xform: Affine2D::default(),
+        }
+    }
+}
+
+#[derive(Default)]
+struct SvgDocumentDefs {
+    gradients: std::collections::BTreeMap<String, RgbaColor>,
+    css_classes: std::collections::BTreeMap<String, String>,
+}
+
+fn is_svg_non_rendering_container(tag: &str) -> bool {
+    matches!(
+        tag,
+        "defs"
+            | "clippath"
+            | "mask"
+            | "symbol"
+            | "marker"
+            | "pattern"
+            | "lineargradient"
+            | "radialgradient"
+            | "style"
+            | "title"
+            | "desc"
+            | "metadata"
+    )
+}
+
+fn collect_svg_defs_and_styles(svg: &str) -> SvgDocumentDefs {
+    let mut defs = SvgDocumentDefs::default();
+    let mut reader = Reader::from_str(svg);
+    reader.config_mut().trim_text(true);
+    let mut buf = Vec::new();
+
+    let mut cur_grad_id: Option<String> = None;
+    let mut cur_grad_stops: Vec<RgbaColor> = Vec::new();
+    let mut grad_links: Vec<(String, String)> = Vec::new();
+    let mut in_style = false;
+    let mut style_buf = String::new();
+
+    let empty_grads = std::collections::BTreeMap::new();
+    let extract_stop_color = |e: &BytesStart<'_>| -> Option<RgbaColor> {
+        let mut col: Option<RgbaColor> = None;
+        let mut op = 1.0f64;
+        if let Some(sc) = attr_val(e, b"stop-color") {
+            if let Some(Some(c)) = parse_svg_paint(&sc, &empty_grads) {
+                col = Some(c);
+            }
+        }
+        if let Some(so) = attr_val(e, b"stop-opacity").and_then(|s| parse_svg_num(&s)) {
+            op = so.clamp(0.0, 1.0);
+        }
+        if let Some(st_s) = attr_val(e, b"style") {
+            for decl in st_s.split(';') {
+                if let Some((k, v)) = decl.split_once(':') {
+                    match k.trim().to_ascii_lowercase().as_str() {
+                        "stop-color" => {
+                            if let Some(Some(c)) = parse_svg_paint(v.trim(), &empty_grads) {
+                                col = Some(c);
+                            }
+                        }
+                        "stop-opacity" => {
+                            if let Some(so) = parse_svg_num(v.trim()) {
+                                op = so.clamp(0.0, 1.0);
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+        col.map(|mut c| {
+            c.a = ((c.a as f64) * op).round().clamp(0.0, 255.0) as u8;
+            c
+        })
+    };
+
+    loop {
+        match reader.read_event_into(&mut buf) {
+            Ok(Event::Start(e)) => {
+                let tag = String::from_utf8_lossy(e.local_name().as_ref()).to_ascii_lowercase();
+                if tag == "lineargradient" || tag == "radialgradient" {
+                    cur_grad_id = attr_val(&e, b"id");
+                    cur_grad_stops.clear();
+                    if let (Some(gid), Some(href)) = (
+                        &cur_grad_id,
+                        attr_val(&e, b"href").or_else(|| attr_val(&e, b"xlink:href")),
+                    ) {
+                        if let Some(target) = href.trim().strip_prefix('#') {
+                            grad_links.push((gid.clone(), target.to_string()));
+                        }
+                    }
+                } else if tag == "stop" && cur_grad_id.is_some() {
+                    if let Some(c) = extract_stop_color(&e) {
+                        cur_grad_stops.push(c);
+                    }
+                } else if tag == "style" {
+                    in_style = true;
+                    style_buf.clear();
+                }
+            }
+            Ok(Event::Empty(e)) => {
+                let tag = String::from_utf8_lossy(e.local_name().as_ref()).to_ascii_lowercase();
+                if (tag == "lineargradient" || tag == "radialgradient") && cur_grad_id.is_none() {
+                    if let (Some(gid), Some(href)) = (
+                        attr_val(&e, b"id"),
+                        attr_val(&e, b"href").or_else(|| attr_val(&e, b"xlink:href")),
+                    ) {
+                        if let Some(target) = href.trim().strip_prefix('#') {
+                            grad_links.push((gid, target.to_string()));
+                        }
+                    }
+                } else if tag == "stop" && cur_grad_id.is_some() {
+                    if let Some(c) = extract_stop_color(&e) {
+                        cur_grad_stops.push(c);
+                    }
+                }
+            }
+            Ok(Event::Text(t)) if in_style => {
+                if let Ok(s) = t.unescape() {
+                    style_buf.push_str(&s);
+                }
+            }
+            Ok(Event::CData(cd)) if in_style => {
+                style_buf.push_str(&String::from_utf8_lossy(cd.as_ref()));
+            }
+            Ok(Event::End(e)) => {
+                let tag = String::from_utf8_lossy(e.local_name().as_ref()).to_ascii_lowercase();
+                if tag == "lineargradient" || tag == "radialgradient" {
+                    if let Some(gid) = cur_grad_id.take() {
+                        if !cur_grad_stops.is_empty() {
+                            let n = cur_grad_stops.len() as u32;
+                            let (mut r, mut g, mut b, mut a) = (0u32, 0u32, 0u32, 0u32);
+                            for c in &cur_grad_stops {
+                                r += c.r as u32;
+                                g += c.g as u32;
+                                b += c.b as u32;
+                                a += c.a as u32;
+                            }
+                            defs.gradients.insert(
+                                gid,
+                                RgbaColor {
+                                    r: (r / n) as u8,
+                                    g: (g / n) as u8,
+                                    b: (b / n) as u8,
+                                    a: (a / n) as u8,
+                                },
+                            );
+                        }
+                        cur_grad_stops.clear();
+                    }
+                } else if tag == "style" && in_style {
+                    in_style = false;
+                    parse_svg_css_rules(&style_buf, &mut defs.css_classes);
+                }
+            }
+            Ok(Event::Eof) | Err(_) => break,
+            _ => {}
+        }
+        buf.clear();
+    }
+
+    for (from_id, to_id) in grad_links {
+        if !defs.gradients.contains_key(&from_id) {
+            if let Some(&col) = defs.gradients.get(&to_id) {
+                defs.gradients.insert(from_id, col);
+            }
+        }
+    }
+    defs
+}
+
+fn parse_svg_css_rules(css: &str, out: &mut std::collections::BTreeMap<String, String>) {
+    for rule in css.split('}') {
+        let Some((selectors, body)) = rule.split_once('{') else {
+            continue;
+        };
+        let clean_body = body.trim();
+        if clean_body.is_empty() {
+            continue;
+        }
+        for sel in selectors.split(',') {
+            if let Some(cls) = sel.trim().strip_prefix('.') {
+                let entry = out.entry(cls.trim().to_string()).or_default();
+                if !entry.is_empty() && !entry.ends_with(';') {
+                    entry.push(';');
+                }
+                entry.push_str(clean_body);
+            }
         }
     }
 }
 
 fn tessellate_svg_foreign(svg: &str, world_tf: &ShapeTransform2D, tol_in: f32) -> TessellatedMesh {
+    let defs = collect_svg_defs_and_styles(svg);
     let mut reader = Reader::from_str(svg);
     reader.config_mut().trim_text(true);
     let mut buf = Vec::new();
@@ -119,6 +354,7 @@ fn tessellate_svg_foreign(svg: &str, world_tf: &ShapeTransform2D, tol_in: f32) -
     let mut vb_w = 64.0f64;
     let mut vb_h = 64.0f64;
     let mut got_vb = false;
+    let mut skip_depth = 0usize;
 
     let mut stack: Vec<SvgStyleState> = vec![SvgStyleState::default()];
     let mut lyon_buf: VertexBuffers<GpuVertex, u32> = VertexBuffers::new();
@@ -133,19 +369,23 @@ fn tessellate_svg_foreign(svg: &str, world_tf: &ShapeTransform2D, tol_in: f32) -
                     parse_svg_root_viewbox(&e, &mut vb_x, &mut vb_y, &mut vb_w, &mut vb_h);
                     got_vb = true;
                 }
-                let next_state = derive_svg_state(stack.last().unwrap(), &e);
-                emit_svg_shape_elem(
-                    &tag,
-                    &e,
-                    &next_state,
-                    (vb_x, vb_y, vb_w.max(1e-3), vb_h.max(1e-3)),
-                    world_tf,
-                    tol_in,
-                    &mut fill_tess,
-                    &mut stroke_tess,
-                    &mut lyon_buf,
-                );
-                stack.push(next_state);
+                if is_svg_non_rendering_container(&tag) || skip_depth > 0 {
+                    skip_depth += 1;
+                } else {
+                    let next_state = derive_svg_state(stack.last().unwrap(), &e, &defs);
+                    emit_svg_shape_elem(
+                        &tag,
+                        &e,
+                        &next_state,
+                        (vb_x, vb_y, vb_w.max(1e-3), vb_h.max(1e-3)),
+                        world_tf,
+                        tol_in,
+                        &mut fill_tess,
+                        &mut stroke_tess,
+                        &mut lyon_buf,
+                    );
+                    stack.push(next_state);
+                }
             }
             Ok(Event::Empty(e)) => {
                 let tag = String::from_utf8_lossy(e.local_name().as_ref()).to_ascii_lowercase();
@@ -153,21 +393,25 @@ fn tessellate_svg_foreign(svg: &str, world_tf: &ShapeTransform2D, tol_in: f32) -
                     parse_svg_root_viewbox(&e, &mut vb_x, &mut vb_y, &mut vb_w, &mut vb_h);
                     got_vb = true;
                 }
-                let st = derive_svg_state(stack.last().unwrap(), &e);
-                emit_svg_shape_elem(
-                    &tag,
-                    &e,
-                    &st,
-                    (vb_x, vb_y, vb_w.max(1e-3), vb_h.max(1e-3)),
-                    world_tf,
-                    tol_in,
-                    &mut fill_tess,
-                    &mut stroke_tess,
-                    &mut lyon_buf,
-                );
+                if skip_depth == 0 && !is_svg_non_rendering_container(&tag) {
+                    let st = derive_svg_state(stack.last().unwrap(), &e, &defs);
+                    emit_svg_shape_elem(
+                        &tag,
+                        &e,
+                        &st,
+                        (vb_x, vb_y, vb_w.max(1e-3), vb_h.max(1e-3)),
+                        world_tf,
+                        tol_in,
+                        &mut fill_tess,
+                        &mut stroke_tess,
+                        &mut lyon_buf,
+                    );
+                }
             }
             Ok(Event::End(_)) => {
-                if stack.len() > 1 {
+                if skip_depth > 0 {
+                    skip_depth -= 1;
+                } else if stack.len() > 1 {
                     stack.pop();
                 }
             }
@@ -195,11 +439,14 @@ fn attr_val(e: &BytesStart<'_>, key: &[u8]) -> Option<String> {
 }
 
 fn parse_svg_num(s: &str) -> Option<f64> {
-    let trimmed = s
-        .trim()
+    let raw = s.trim();
+    if raw.ends_with('%') {
+        let pct = raw.trim_end_matches('%').trim().parse::<f64>().ok()?;
+        return (pct * 0.01).is_finite().then_some(pct * 0.01);
+    }
+    let trimmed = raw
         .trim_end_matches("px")
         .trim_end_matches("pt")
-        .trim_end_matches('%')
         .trim();
     trimmed.parse::<f64>().ok().filter(|v| v.is_finite())
 }
@@ -225,22 +472,48 @@ fn parse_svg_root_viewbox(
             return;
         }
     }
-    if let Some(w) = attr_val(e, b"width").and_then(|s| parse_svg_num(&s)) {
-        if w > 0.0 {
-            *vb_w = w;
+    if let Some(ws) = attr_val(e, b"width") {
+        if !ws.trim().ends_with('%') {
+            if let Some(w) = parse_svg_num(&ws).filter(|&w| w > 0.0) {
+                *vb_w = w;
+            }
         }
     }
-    if let Some(h) = attr_val(e, b"height").and_then(|s| parse_svg_num(&s)) {
-        if h > 0.0 {
-            *vb_h = h;
+    if let Some(hs) = attr_val(e, b"height") {
+        if !hs.trim().ends_with('%') {
+            if let Some(h) = parse_svg_num(&hs).filter(|&h| h > 0.0) {
+                *vb_h = h;
+            }
         }
     }
 }
 
-fn parse_svg_paint(raw: &str) -> Option<Option<RgbaColor>> {
+fn parse_svg_paint(
+    raw: &str,
+    gradients: &std::collections::BTreeMap<String, RgbaColor>,
+) -> Option<Option<RgbaColor>> {
     let t = raw.trim();
     if t.eq_ignore_ascii_case("none") || t.eq_ignore_ascii_case("transparent") {
         return Some(None);
+    }
+    if let Some(rest) = t.strip_prefix("url(").or_else(|| t.strip_prefix("URL(")) {
+        if let Some(inner) = rest.strip_suffix(')') {
+            let gid = inner
+                .trim()
+                .trim_matches('"')
+                .trim_matches('\'')
+                .trim_start_matches('#');
+            if let Some(&col) = gradients.get(gid) {
+                return Some(Some(col));
+            }
+            // Fallback Azure blue if an unrecognized external gradient ID is referenced
+            return Some(Some(RgbaColor {
+                r: 0,
+                g: 120,
+                b: 212,
+                a: 255,
+            }));
+        }
     }
     if let Some(c) = RgbaColor::from_hex(t) {
         return Some(Some(c));
@@ -275,58 +548,140 @@ fn parse_svg_paint(raw: &str) -> Option<Option<RgbaColor>> {
     named.map(|(r, g, b)| Some(RgbaColor { r, g, b, a: 255 }))
 }
 
-fn derive_svg_state(parent: &SvgStyleState, e: &BytesStart<'_>) -> SvgStyleState {
+fn parse_svg_transform_list(tf_str: &str) -> Affine2D {
+    let mut acc = Affine2D::default();
+    let mut rest = tf_str.trim();
+    while let Some(open_idx) = rest.find('(') {
+        let fn_name = rest[..open_idx].trim().to_ascii_lowercase();
+        let after_open = &rest[open_idx + 1..];
+        let Some(close_idx) = after_open.find(')') else {
+            break;
+        };
+        let args_str = &after_open[..close_idx];
+        let nums: Vec<f64> = args_str
+            .split(|c: char| c.is_whitespace() || c == ',')
+            .filter(|t| !t.is_empty())
+            .filter_map(|t| t.parse::<f64>().ok().filter(|v| v.is_finite()))
+            .collect();
+        let op = match fn_name.as_str() {
+            "matrix" if nums.len() >= 6 => Affine2D {
+                m11: nums[0],
+                m12: nums[1],
+                m21: nums[2],
+                m22: nums[3],
+                dx: nums[4],
+                dy: nums[5],
+            },
+            "translate" if !nums.is_empty() => Affine2D {
+                dx: nums[0],
+                dy: nums.get(1).copied().unwrap_or(0.0),
+                ..Affine2D::default()
+            },
+            "scale" if !nums.is_empty() => {
+                let sx = nums[0];
+                let sy = nums.get(1).copied().unwrap_or(sx);
+                Affine2D {
+                    m11: sx,
+                    m22: sy,
+                    ..Affine2D::default()
+                }
+            }
+            "rotate" if !nums.is_empty() => {
+                let (s, c) = nums[0].to_radians().sin_cos();
+                let rot = Affine2D {
+                    m11: c,
+                    m12: s,
+                    m21: -s,
+                    m22: c,
+                    dx: 0.0,
+                    dy: 0.0,
+                };
+                if nums.len() >= 3 {
+                    let cx = nums[1];
+                    let cy = nums[2];
+                    let t1 = Affine2D {
+                        dx: cx,
+                        dy: cy,
+                        ..Affine2D::default()
+                    };
+                    let t2 = Affine2D {
+                        dx: -cx,
+                        dy: -cy,
+                        ..Affine2D::default()
+                    };
+                    t2.multiply(rot).multiply(t1)
+                } else {
+                    rot
+                }
+            }
+            _ => Affine2D::default(),
+        };
+        // SVG transform lists apply right-to-left to column vectors (`M_parent * M_op * p`),
+        // which in row-vector `Affine2D::apply` (`p * M`) is `op.multiply(acc)`.
+        acc = op.multiply(acc);
+        rest = after_open[close_idx + 1..].trim().trim_start_matches(',').trim();
+    }
+    acc
+}
+
+fn derive_svg_state(
+    parent: &SvgStyleState,
+    e: &BytesStart<'_>,
+    defs: &SvgDocumentDefs,
+) -> SvgStyleState {
     let mut st = parent.clone();
+    if let Some(cls_attr) = attr_val(e, b"class") {
+        for cls in cls_attr.split_whitespace() {
+            if let Some(css_body) = defs.css_classes.get(cls) {
+                for decl in css_body.split(';') {
+                    if let Some((k, v)) = decl.split_once(':') {
+                        apply_svg_prop(&mut st, k.trim(), v.trim(), &defs.gradients);
+                    }
+                }
+            }
+        }
+    }
+    for key in [
+        b"fill".as_slice(),
+        b"stroke",
+        b"stroke-width",
+        b"opacity",
+        b"fill-opacity",
+    ] {
+        if let Some(val) = attr_val(e, key) {
+            let ks = std::str::from_utf8(key).unwrap_or("");
+            apply_svg_prop(&mut st, ks, &val, &defs.gradients);
+        }
+    }
     if let Some(style_str) = attr_val(e, b"style") {
         for decl in style_str.split(';') {
             let Some((k, v)) = decl.split_once(':') else {
                 continue;
             };
-            apply_svg_prop(&mut st, k.trim(), v.trim());
-        }
-    }
-    for key in [b"fill".as_slice(), b"stroke", b"stroke-width", b"opacity", b"fill-opacity"] {
-        if let Some(val) = attr_val(e, key) {
-            let ks = std::str::from_utf8(key).unwrap_or("");
-            apply_svg_prop(&mut st, ks, &val);
+            apply_svg_prop(&mut st, k.trim(), v.trim(), &defs.gradients);
         }
     }
     if let Some(tf) = attr_val(e, b"transform") {
-        let lower = tf.to_ascii_lowercase();
-        if let Some(rest) = lower.strip_prefix("translate(").and_then(|s| s.strip_suffix(')')) {
-            let nums: Vec<f64> = rest
-                .split(|c: char| c.is_whitespace() || c == ',')
-                .filter(|t| !t.is_empty())
-                .filter_map(|t| t.parse::<f64>().ok())
-                .collect();
-            if let Some(&dx) = nums.first() {
-                st.tx += dx * st.sx;
-                st.ty += nums.get(1).copied().unwrap_or(0.0) * st.sy;
-            }
-        } else if let Some(rest) = lower.strip_prefix("scale(").and_then(|s| s.strip_suffix(')')) {
-            let nums: Vec<f64> = rest
-                .split(|c: char| c.is_whitespace() || c == ',')
-                .filter(|t| !t.is_empty())
-                .filter_map(|t| t.parse::<f64>().ok())
-                .collect();
-            if let Some(&sx) = nums.first() {
-                st.sx *= sx;
-                st.sy *= nums.get(1).copied().unwrap_or(sx);
-            }
-        }
+        let local_xf = parse_svg_transform_list(&tf);
+        st.xform = local_xf.multiply(st.xform);
     }
     st
 }
 
-fn apply_svg_prop(st: &mut SvgStyleState, k: &str, v: &str) {
+fn apply_svg_prop(
+    st: &mut SvgStyleState,
+    k: &str,
+    v: &str,
+    gradients: &std::collections::BTreeMap<String, RgbaColor>,
+) {
     match k.to_ascii_lowercase().as_str() {
         "fill" => {
-            if let Some(p) = parse_svg_paint(v) {
+            if let Some(p) = parse_svg_paint(v, gradients) {
                 st.fill = p;
             }
         }
         "stroke" => {
-            if let Some(p) = parse_svg_paint(v) {
+            if let Some(p) = parse_svg_paint(v, gradients) {
                 st.stroke = p;
             }
         }
@@ -358,11 +713,16 @@ fn emit_svg_shape_elem(
 ) {
     let fallback_pt = point(world_tf.pin_x as f32, world_tf.pin_y as f32);
     let map_svg = |sx: f64, sy: f64| -> lyon_path::math::Point {
-        if !sx.is_finite() || !sy.is_finite() || !vb.2.is_finite() || !vb.3.is_finite() || vb.2.abs() < 1e-9 || vb.3.abs() < 1e-9 {
+        if !sx.is_finite()
+            || !sy.is_finite()
+            || !vb.2.is_finite()
+            || !vb.3.is_finite()
+            || vb.2.abs() < 1e-9
+            || vb.3.abs() < 1e-9
+        {
             return fallback_pt;
         }
-        let tx = st.tx + sx * st.sx;
-        let ty = st.ty + sy * st.sy;
+        let (tx, ty) = st.xform.apply(sx, sy);
         let nx = (tx - vb.0) / vb.2;
         // SVG Y points down (`0` = top, `vb.3` = bottom); Visio local Y points up (`height` = top, `0` = bottom)!
         let ny = 1.0 - (ty - vb.1) / vb.3;
@@ -481,7 +841,8 @@ fn emit_svg_shape_elem(
             let scale_in = (world_tf.width / vb.2.max(1e-6))
                 .min(world_tf.height / vb.3.max(1e-6))
                 .max(0.002);
-            let raw_sw = st.stroke_width * st.sx.abs().max(0.5) * scale_in;
+            let xf_scale = st.xform.m11.hypot(st.xform.m12).max(0.1);
+            let raw_sw = st.stroke_width * xf_scale * scale_in;
             let sw = if raw_sw.is_finite() {
                 (raw_sw as f32).clamp(0.006, 0.25)
             } else {
@@ -502,59 +863,81 @@ fn emit_svg_shape_elem(
     }
 }
 
-fn tokenize_svg_path(d: &str) -> Vec<Result<char, f64>> {
-    let mut tokens = Vec::new();
+fn skip_svg_sep(bytes: &[u8], i: &mut usize) {
+    while *i < bytes.len() && (bytes[*i].is_ascii_whitespace() || bytes[*i] == b',') {
+        *i += 1;
+    }
+}
+
+fn read_svg_number(d: &str, i: &mut usize) -> Option<f64> {
     let bytes = d.as_bytes();
-    let mut i = 0usize;
-    while i < bytes.len() {
-        let c = bytes[i] as char;
-        if c.is_ascii_whitespace() || c == ',' {
-            i += 1;
-            continue;
-        }
-        if c.is_ascii_alphabetic() {
-            tokens.push(Ok(c));
-            i += 1;
-            continue;
-        }
-        let start = i;
-        if c == '+' || c == '-' {
-            i += 1;
-        }
-        let mut saw_dot = false;
-        while i < bytes.len() {
-            let ch = bytes[i] as char;
-            if ch.is_ascii_digit() {
-                i += 1;
-            } else if ch == '.' && !saw_dot {
-                saw_dot = true;
-                i += 1;
-            } else if (ch == 'e' || ch == 'E') && i > start {
-                i += 1;
-                if i < bytes.len() && (bytes[i] == b'+' || bytes[i] == b'-') {
-                    i += 1;
-                }
-            } else {
-                break;
-            }
-        }
-        if i > start {
-            if let Ok(num) = d[start..i].parse::<f64>() {
-                tokens.push(Err(num));
-            }
+    skip_svg_sep(bytes, i);
+    if *i >= bytes.len() {
+        return None;
+    }
+    let start = *i;
+    if bytes[*i] == b'+' || bytes[*i] == b'-' {
+        *i += 1;
+    }
+    let mut saw_digit = false;
+    let mut saw_dot = false;
+    while *i < bytes.len() {
+        let ch = bytes[*i];
+        if ch.is_ascii_digit() {
+            saw_digit = true;
+            *i += 1;
+        } else if ch == b'.' && !saw_dot {
+            saw_dot = true;
+            *i += 1;
         } else {
-            i += 1;
+            break;
         }
     }
-    tokens
+    if !saw_digit {
+        *i = start;
+        return None;
+    }
+    if *i < bytes.len() && (bytes[*i] == b'e' || bytes[*i] == b'E') {
+        let exp_pos = *i;
+        *i += 1;
+        if *i < bytes.len() && (bytes[*i] == b'+' || bytes[*i] == b'-') {
+            *i += 1;
+        }
+        let exp_digits_start = *i;
+        while *i < bytes.len() && bytes[*i].is_ascii_digit() {
+            *i += 1;
+        }
+        if *i == exp_digits_start {
+            *i = exp_pos;
+        }
+    }
+    d[start..*i].parse::<f64>().ok().filter(|v| v.is_finite())
+}
+
+/// W3C SVG `<path>` arc flag reader: consumes a single `'0'` or `'1'` character,
+/// cleanly handling concatenated minified flags such as `a8 8 0 10-16 0` or `0118.5`.
+fn read_svg_arc_flag(d: &str, i: &mut usize) -> Option<bool> {
+    let bytes = d.as_bytes();
+    skip_svg_sep(bytes, i);
+    match bytes.get(*i).copied() {
+        Some(b'0') => {
+            *i += 1;
+            Some(false)
+        }
+        Some(b'1') => {
+            *i += 1;
+            Some(true)
+        }
+        _ => None,
+    }
 }
 
 fn parse_svg_path_d<F>(d: &str, map_svg: &F, b: &mut lyon_path::path::Builder) -> bool
 where
     F: Fn(f64, f64) -> lyon_path::math::Point,
 {
-    let tokens = tokenize_svg_path(d);
-    let mut idx = 0usize;
+    let bytes = d.as_bytes();
+    let mut i = 0usize;
     let mut cmd = 'M';
     let mut cur = [0.0f64, 0.0f64];
     let mut sub_start = [0.0f64, 0.0f64];
@@ -562,25 +945,21 @@ where
     let mut in_sub = false;
     let mut any = false;
 
-    let next_num = |idx: &mut usize| -> Option<f64> {
-        match tokens.get(*idx) {
-            Some(Err(v)) => {
-                *idx += 1;
-                Some(*v)
-            }
-            _ => None,
+    loop {
+        skip_svg_sep(bytes, &mut i);
+        if i >= bytes.len() {
+            break;
         }
-    };
-
-    while idx < tokens.len() {
-        if let Ok(c) = tokens[idx] {
-            cmd = c;
-            idx += 1;
+        if bytes[i].is_ascii_alphabetic() {
+            cmd = bytes[i] as char;
+            i += 1;
         }
         match cmd {
             'M' | 'm' => {
-                let Some(x) = next_num(&mut idx) else { break };
-                let Some(y) = next_num(&mut idx) else { break };
+                let (Some(x), Some(y)) = (read_svg_number(d, &mut i), read_svg_number(d, &mut i))
+                else {
+                    break;
+                };
                 if in_sub {
                     b.end(false);
                 }
@@ -593,8 +972,10 @@ where
                 cmd = if cmd == 'm' { 'l' } else { 'L' };
             }
             'L' | 'l' => {
-                let Some(x) = next_num(&mut idx) else { break };
-                let Some(y) = next_num(&mut idx) else { break };
+                let (Some(x), Some(y)) = (read_svg_number(d, &mut i), read_svg_number(d, &mut i))
+                else {
+                    break;
+                };
                 cur = if cmd == 'l' { [cur[0] + x, cur[1] + y] } else { [x, y] };
                 last_ctrl = cur;
                 if !in_sub {
@@ -607,7 +988,9 @@ where
                 any = true;
             }
             'H' | 'h' => {
-                let Some(x) = next_num(&mut idx) else { break };
+                let Some(x) = read_svg_number(d, &mut i) else {
+                    break;
+                };
                 cur[0] = if cmd == 'h' { cur[0] + x } else { x };
                 last_ctrl = cur;
                 if in_sub {
@@ -615,7 +998,9 @@ where
                 }
             }
             'V' | 'v' => {
-                let Some(y) = next_num(&mut idx) else { break };
+                let Some(y) = read_svg_number(d, &mut i) else {
+                    break;
+                };
                 cur[1] = if cmd == 'v' { cur[1] + y } else { y };
                 last_ctrl = cur;
                 if in_sub {
@@ -624,12 +1009,12 @@ where
             }
             'C' | 'c' => {
                 let (Some(x1), Some(y1), Some(x2), Some(y2), Some(x), Some(y)) = (
-                    next_num(&mut idx),
-                    next_num(&mut idx),
-                    next_num(&mut idx),
-                    next_num(&mut idx),
-                    next_num(&mut idx),
-                    next_num(&mut idx),
+                    read_svg_number(d, &mut i),
+                    read_svg_number(d, &mut i),
+                    read_svg_number(d, &mut i),
+                    read_svg_number(d, &mut i),
+                    read_svg_number(d, &mut i),
+                    read_svg_number(d, &mut i),
                 ) else {
                     break;
                 };
@@ -643,17 +1028,21 @@ where
                     ([x1, y1], [x2, y2], [x, y])
                 };
                 if in_sub {
-                    b.cubic_bezier_to(map_svg(c1[0], c1[1]), map_svg(c2[0], c2[1]), map_svg(end[0], end[1]));
+                    b.cubic_bezier_to(
+                        map_svg(c1[0], c1[1]),
+                        map_svg(c2[0], c2[1]),
+                        map_svg(end[0], end[1]),
+                    );
                 }
                 last_ctrl = c2;
                 cur = end;
             }
             'S' | 's' => {
                 let (Some(x2), Some(y2), Some(x), Some(y)) = (
-                    next_num(&mut idx),
-                    next_num(&mut idx),
-                    next_num(&mut idx),
-                    next_num(&mut idx),
+                    read_svg_number(d, &mut i),
+                    read_svg_number(d, &mut i),
+                    read_svg_number(d, &mut i),
+                    read_svg_number(d, &mut i),
                 ) else {
                     break;
                 };
@@ -664,17 +1053,21 @@ where
                     ([x2, y2], [x, y])
                 };
                 if in_sub {
-                    b.cubic_bezier_to(map_svg(c1[0], c1[1]), map_svg(c2[0], c2[1]), map_svg(end[0], end[1]));
+                    b.cubic_bezier_to(
+                        map_svg(c1[0], c1[1]),
+                        map_svg(c2[0], c2[1]),
+                        map_svg(end[0], end[1]),
+                    );
                 }
                 last_ctrl = c2;
                 cur = end;
             }
             'Q' | 'q' => {
                 let (Some(cx), Some(cy), Some(x), Some(y)) = (
-                    next_num(&mut idx),
-                    next_num(&mut idx),
-                    next_num(&mut idx),
-                    next_num(&mut idx),
+                    read_svg_number(d, &mut i),
+                    read_svg_number(d, &mut i),
+                    read_svg_number(d, &mut i),
+                    read_svg_number(d, &mut i),
                 ) else {
                     break;
                 };
@@ -690,7 +1083,9 @@ where
                 cur = end;
             }
             'T' | 't' => {
-                let (Some(x), Some(y)) = (next_num(&mut idx), next_num(&mut idx)) else {
+                let (Some(x), Some(y)) =
+                    (read_svg_number(d, &mut i), read_svg_number(d, &mut i))
+                else {
                     break;
                 };
                 let ctrl = [2.0 * cur[0] - last_ctrl[0], 2.0 * cur[1] - last_ctrl[1]];
@@ -702,14 +1097,22 @@ where
                 cur = end;
             }
             'A' | 'a' => {
-                let (Some(rx), Some(ry), Some(rot_deg), Some(large_f), Some(sweep_f), Some(x), Some(y)) = (
-                    next_num(&mut idx),
-                    next_num(&mut idx),
-                    next_num(&mut idx),
-                    next_num(&mut idx),
-                    next_num(&mut idx),
-                    next_num(&mut idx),
-                    next_num(&mut idx),
+                let (
+                    Some(rx),
+                    Some(ry),
+                    Some(rot_deg),
+                    Some(large_arc),
+                    Some(sweep),
+                    Some(x),
+                    Some(y),
+                ) = (
+                    read_svg_number(d, &mut i),
+                    read_svg_number(d, &mut i),
+                    read_svg_number(d, &mut i),
+                    read_svg_arc_flag(d, &mut i),
+                    read_svg_arc_flag(d, &mut i),
+                    read_svg_number(d, &mut i),
+                    read_svg_number(d, &mut i),
                 ) else {
                     break;
                 };
@@ -721,8 +1124,8 @@ where
                         rx.abs(),
                         ry.abs(),
                         rot_deg.to_radians(),
-                        large_f.abs() > 0.5,
-                        sweep_f.abs() > 0.5,
+                        large_arc,
+                        sweep,
                         map_svg,
                         b,
                     );
@@ -737,6 +1140,7 @@ where
                 }
                 cur = sub_start;
                 last_ctrl = cur;
+                cmd = 'M';
             }
             _ => break,
         }
@@ -962,7 +1366,11 @@ fn decode_bmp_rgba8(bytes: &[u8]) -> Option<(u32, u32, Vec<u8>)> {
     let height_signed = i32::from_le_bytes([bytes[22], bytes[23], bytes[24], bytes[25]]);
     let bpp = u16::from_le_bytes([bytes[28], bytes[29]]);
     let compression = u32::from_le_bytes([bytes[30], bytes[31], bytes[32], bytes[33]]);
-    if width <= 0 || height_signed == 0 || !matches!(bpp, 24 | 32) || compression != 0 {
+    if width <= 0
+        || height_signed == 0
+        || !matches!(bpp, 16 | 24 | 32)
+        || !matches!(compression, 0 | 3)
+    {
         return None;
     }
     let w = width as usize;
@@ -983,12 +1391,24 @@ fn decode_bmp_rgba8(bytes: &[u8]) -> Option<(u32, u32, Vec<u8>)> {
         let row = &bytes[pixel_offset + src_y * row_stride..pixel_offset + (src_y + 1) * row_stride];
         for x in 0..w {
             let p = &row[x * bytes_pp..(x + 1) * bytes_pp];
-            let a = if bytes_pp == 4 { p[3] } else { 255 };
             let out = &mut rgba[(dst_y * w + x) * 4..(dst_y * w + x + 1) * 4];
-            out[0] = p[2];
-            out[1] = p[1];
-            out[2] = p[0];
-            out[3] = a;
+            if bytes_pp == 2 {
+                // 16-bit RGB555 (`0RRRRRGGGGGBBBBB`)
+                let v = u16::from_le_bytes([p[0], p[1]]);
+                let r5 = ((v >> 10) & 0x1F) as u8;
+                let g5 = ((v >> 5) & 0x1F) as u8;
+                let b5 = (v & 0x1F) as u8;
+                out[0] = (r5 << 3) | (r5 >> 2);
+                out[1] = (g5 << 3) | (g5 >> 2);
+                out[2] = (b5 << 3) | (b5 >> 2);
+                out[3] = 255;
+            } else {
+                let a = if bytes_pp == 4 { p[3] } else { 255 };
+                out[0] = p[2];
+                out[1] = p[1];
+                out[2] = p[0];
+                out[3] = a;
+            }
         }
     }
     Some((w as u32, h as u32, rgba))
@@ -1274,9 +1694,11 @@ fn tessellate_emf_foreign(bytes: &[u8], world_tf: &ShapeTransform2D, tol_in: f32
     let mut built_gdi_path: Option<Path> = None;
 
     let mut lyon_buf: VertexBuffers<GpuVertex, u32> = VertexBuffers::new();
+    let mut plus_lyon_buf: VertexBuffers<GpuVertex, u32> = VertexBuffers::new();
     let mut fill_tess = FillTessellator::new();
     let mut stroke_tess = StrokeTessellator::new();
     let mut extra_meshes: Vec<TessellatedMesh> = Vec::new();
+    let mut has_emf_plus_png = false;
 
     let emit_path_paint = |p: &Path,
                            do_fill: bool,
@@ -1766,7 +2188,7 @@ fn tessellate_emf_foreign(bytes: &[u8], world_tf: &ShapeTransform2D, tol_in: f32
                     );
                 }
             }
-            81 if rec.len() >= 80 => {
+            81 if rec.len() >= 80 && !has_emf_plus_png => {
                 // EMR_STRETCHDIBITS (embedded DIB raster inside EMF stencil)
                 let off_bmi = rd_u32_at(rec, 48) as usize;
                 let cb_bmi = rd_u32_at(rec, 52) as usize;
@@ -1793,7 +2215,7 @@ fn tessellate_emf_foreign(bytes: &[u8], world_tf: &ShapeTransform2D, tol_in: f32
                 }
             }
             70 if rec.len() >= 20 => {
-                // EMR_COMMENT: inspect for `EMF+` dual/pure vector records (`0x2B464D45` = `b"EMF+"`).
+                // EMR_COMMENT: inspect for `EMF+` dual/pure vector & embedded PNG records (`0x2B464D45` = `b"EMF+"`).
                 let cb_data = rd_u32_at(rec, 8) as usize;
                 if 12 + cb_data <= rec.len() && cb_data >= 8 && &rec[12..16] == b"EMF+" {
                     let plus_buf = &rec[16..12 + cb_data];
@@ -1806,8 +2228,19 @@ fn tessellate_emf_foreign(bytes: &[u8], world_tf: &ShapeTransform2D, tol_in: f32
                         &map_plus_to_page,
                         &mut fill_tess,
                         &mut stroke_tess,
-                        &mut lyon_buf,
+                        &mut plus_lyon_buf,
                     );
+                    if let Some(png_off) = plus_buf
+                        .windows(8)
+                        .position(|w| w == b"\x89PNG\r\n\x1a\n")
+                    {
+                        if let Some((pw, ph, prgba)) = decode_png_rgba8(&plus_buf[png_off..]) {
+                            // Prefer 32-bit alpha EMF+ PNG over 16-bit GDI StretchDIBits fallback!
+                            has_emf_plus_png = true;
+                            extra_meshes.clear();
+                            extra_meshes.push(emit_rgba_grid_in_transform(pw, ph, &prgba, world_tf));
+                        }
+                    }
                 }
             }
             _ => {}
@@ -1815,9 +2248,16 @@ fn tessellate_emf_foreign(bytes: &[u8], world_tf: &ShapeTransform2D, tol_in: f32
         pos += rec_size;
     }
 
-    let mut out = TessellatedMesh {
-        vertices: lyon_buf.vertices,
-        indices: lyon_buf.indices,
+    let mut out = if !plus_lyon_buf.indices.is_empty() {
+        TessellatedMesh {
+            vertices: plus_lyon_buf.vertices,
+            indices: plus_lyon_buf.indices,
+        }
+    } else {
+        TessellatedMesh {
+            vertices: lyon_buf.vertices,
+            indices: lyon_buf.indices,
+        }
     };
     for em in extra_meshes {
         out.append(&em);

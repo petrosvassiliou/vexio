@@ -1490,7 +1490,7 @@
                                 </StackPanel>
                                 <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
                                     <Button Click="OnCheckUpdatesClick" Content="Check for Updates Now" />
-                                    <TextBlock x:Name="BackstageUpdateStatusText" Text="Vexio v0.3.0-alpha • Automatic background update check enabled."
+                                    <TextBlock x:Name="BackstageUpdateStatusText" Text="Vexio v0.3.1-alpha • Automatic background update check enabled."
                                                FontSize="12" Opacity="0.8" VerticalAlignment="Center" />
                                 </StackPanel>
                             </StackPanel>

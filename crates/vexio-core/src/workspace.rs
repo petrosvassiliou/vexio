@@ -2830,6 +2830,7 @@ impl DocumentSession {
             if let Some(bg_str) = &patch.text_bg_color {
                 let bgt = bg_str.trim();
                 if bgt.is_empty() || bgt.eq_ignore_ascii_case("none") || bgt.eq_ignore_ascii_case("transparent") {
+                    push_cell(&mut cmds, "TextBkgnd", "0".to_string());
                     push_cell(&mut cmds, "TextBkgndTrans", "1".to_string());
                 } else if let Some(c) = vexio_shapesheet::RgbaColor::from_hex(bgt) {
                     push_cell(

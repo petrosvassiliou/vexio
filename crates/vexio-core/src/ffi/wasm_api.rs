@@ -1602,11 +1602,11 @@ impl WasmVexioSession {
                         let line_weight_pt = (s.sheet.get_f64("LineWeight").unwrap_or(1.25 / 72.0) * 72.0 * 100.0).round() / 100.0;
                         let line_pattern = s.sheet.get_f64("LinePattern").unwrap_or(1.0).round() as i32;
                         let ev_vis = vis_by_id.get(&s.id).copied();
-                        let bg_trans = s.sheet.get_f64("TextBkgndTrans").unwrap_or(1.0);
+                        let bg_trans = s.sheet.get_f64("TextBkgndTrans").unwrap_or(0.0);
                         let text_bg_color = ev_vis
                             .and_then(|v| v.text_bg_color.map(|c| c.to_hex_rgb()))
                             .or_else(|| {
-                                if bg_trans < 0.99 {
+                                if bg_trans < 0.995 {
                                     s.sheet.get_color("TextBkgnd").map(|c| c.to_hex_rgb())
                                 } else {
                                     None

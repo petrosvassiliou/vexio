@@ -544,14 +544,43 @@ impl ShapeSheet {
     }
 
     pub fn get_color(&self, name: &str) -> Option<RgbaColor> {
-        let cell = self.get_cell(name)?;
+        let key = canonical_cell_name(name);
+        let is_text_bkgnd = key == "textbkgnd";
+        let cell = self.cells.get(&key)?;
         match &cell.value {
             CellValue::Color(c) => Some(*c),
-            CellValue::Str(s) => RgbaColor::from_hex(s).or_else(|| {
-                s.trim().parse::<u32>().ok().and_then(visio_standard_palette_color)
-            }),
-            CellValue::Num { internal, .. } if internal.is_finite() && *internal >= 0.0 => {
-                visio_standard_palette_color(internal.round() as u32)
+            CellValue::Str(s) => {
+                let t = s.trim().trim_matches('"').trim();
+                if is_text_bkgnd
+                    && (t == "0"
+                        || t.eq_ignore_ascii_case("none")
+                        || t.eq_ignore_ascii_case("transparent"))
+                {
+                    return None;
+                }
+                RgbaColor::from_hex(t).or_else(|| {
+                    let idx = t.parse::<u32>().ok()?;
+                    if is_text_bkgnd {
+                        idx.checked_sub(1).and_then(visio_standard_palette_color)
+                    } else {
+                        visio_standard_palette_color(idx)
+                    }
+                })
+            }
+            CellValue::Num { internal, .. } if internal.is_finite() => {
+                let rounded = internal.round() as i64;
+                if is_text_bkgnd {
+                    // Visio `[MS-VSDX]` rule: `TextBkgnd = 0` means None (transparent); `1..=254` maps to `Palette[k - 1]`.
+                    if rounded <= 0 {
+                        None
+                    } else {
+                        visio_standard_palette_color((rounded - 1) as u32)
+                    }
+                } else if rounded >= 0 {
+                    visio_standard_palette_color(rounded as u32)
+                } else {
+                    None
+                }
             }
             _ => match &cell.vsdx_cached_value {
                 Some(CellValue::Color(c)) => Some(*c),
@@ -679,17 +708,46 @@ impl ShapeSheet {
             if !row.y.eq_ignore_ascii_case("Inh") {
                 self.set_formula(format!("{prefix}.Y{ix}"), row.y.clone(), Some(x_unit));
             }
+            let (a_unit, b_unit, c_unit, d_unit) = match row.kind {
+                GeometryRowKind::ArcTo => (Some(Unit::Inch), None, None, None),
+                GeometryRowKind::Ellipse => (
+                    Some(Unit::Inch),
+                    Some(Unit::Inch),
+                    Some(Unit::Inch),
+                    Some(Unit::Inch),
+                ),
+                GeometryRowKind::EllipticalArcTo => (
+                    Some(Unit::Inch),
+                    Some(Unit::Inch),
+                    Some(Unit::Radian),
+                    Some(Unit::Number),
+                ),
+                GeometryRowKind::RelEllipticalArcTo => (
+                    Some(Unit::Number),
+                    Some(Unit::Number),
+                    Some(Unit::Radian),
+                    Some(Unit::Number),
+                ),
+                GeometryRowKind::RelQuadBezTo => (Some(Unit::Number), Some(Unit::Number), None, None),
+                GeometryRowKind::RelCubBezTo => (
+                    Some(Unit::Number),
+                    Some(Unit::Number),
+                    Some(Unit::Number),
+                    Some(Unit::Number),
+                ),
+                _ => (None, None, None, None),
+            };
             if let Some(a) = &row.a {
-                self.set_formula(format!("{prefix}.A{ix}"), a.clone(), None);
+                self.set_formula(format!("{prefix}.A{ix}"), a.clone(), a_unit);
             }
             if let Some(b) = &row.b {
-                self.set_formula(format!("{prefix}.B{ix}"), b.clone(), None);
+                self.set_formula(format!("{prefix}.B{ix}"), b.clone(), b_unit);
             }
             if let Some(c) = &row.c {
-                self.set_formula(format!("{prefix}.C{ix}"), c.clone(), None);
+                self.set_formula(format!("{prefix}.C{ix}"), c.clone(), c_unit);
             }
             if let Some(d) = &row.d {
-                self.set_formula(format!("{prefix}.D{ix}"), d.clone(), None);
+                self.set_formula(format!("{prefix}.D{ix}"), d.clone(), d_unit);
             }
             if let Some(e) = &row.e {
                 self.set_formula(format!("{prefix}.E{ix}"), e.clone(), None);
@@ -789,10 +847,11 @@ pub fn default_unit_for_cell(canonical_key: &str) -> Option<Unit> {
         "lineweight" | "char.size" => Some(Unit::Point),
         "flipx" | "flipy" | "lockwidth" | "lockheight" | "lockaspect" | "lockmovex"
         | "lockmovey" | "lockrotate" | "lockdelete" | "lockselect" | "lockformat"
-        | "locktextedit" | "char.strikethru" | "char.smallcaps" | "fillgradientenabled" => {
+        | "locktextedit" | "char.strikethru" | "char.smallcaps" | "fillgradientenabled"
+        | "hidetext" | "dontshow" => {
             Some(Unit::Boolean)
         }
-        "fillforegnd" | "fillbkgnd" | "linecolor" | "char.color" | "shdwforegnd" | "textbkgnd" => {
+        "fillforegnd" | "fillbkgnd" | "linecolor" | "char.color" | "shdwforegnd" => {
             Some(Unit::Color)
         }
         "char.font" => Some(Unit::String),

@@ -6,18 +6,18 @@ Every parser, reactive ShapeSheet formula, layout router, CAD translator, valida
 
 ---
 
-## Download Installers (`v0.3.0-alpha`)
+## Download Installers (`v0.3.1-alpha`)
 
-All compiled native installers are published on the [**`v0.3.0-alpha` Releases Page**](https://github.com/petrosvassiliou/vexio/releases/tag/v0.3.0-alpha):
+All compiled native installers are published on the [**`v0.3.1-alpha` Releases Page**](https://github.com/petrosvassiliou/vexio/releases/tag/v0.3.1-alpha):
 
 | Platform | Architecture | Direct Installer Download |
 | :--- | :--- | :--- |
-| **Windows 11 Native** (`WinUI 3 + DirectX 12`) | `x64` | [**`Vexio-Windows-v0.3.0-alpha-x64.msix`**](https://github.com/petrosvassiliou/vexio/releases/download/v0.3.0-alpha/Vexio-Windows-v0.3.0-alpha-x64.msix) |
-| **Windows 11 Native** (`WinUI 3 + DirectX 12`) | `ARM64` | [**`Vexio-Windows-v0.3.0-alpha-arm64.msix`**](https://github.com/petrosvassiliou/vexio/releases/download/v0.3.0-alpha/Vexio-Windows-v0.3.0-alpha-arm64.msix) |
-| **macOS 15+ Native** (`Swift 6 Liquid Glass + Metal`) | `Universal2` (`Apple Silicon + Intel`) | [**`Vexio-v0.3.0-alpha-Universal2.dmg`**](https://github.com/petrosvassiliou/vexio/releases/download/v0.3.0-alpha/Vexio-v0.3.0-alpha-Universal2.dmg) |
-| **Android & Googlebook OS** (`Compose M3E + Vulkan`) | `arm64-v8a` + `x86_64` APK | [**`Vexio-Android-Googlebook-v0.3.0-alpha.apk`**](https://github.com/petrosvassiliou/vexio/releases/download/v0.3.0-alpha/Vexio-Android-Googlebook-v0.3.0-alpha.apk) |
-| **Android & Googlebook OS** (`Play App Bundle`) | `arm64-v8a` + `x86_64` AAB | [**`Vexio-Android-Googlebook-v0.3.0-alpha.aab`**](https://github.com/petrosvassiliou/vexio/releases/download/v0.3.0-alpha/Vexio-Android-Googlebook-v0.3.0-alpha.aab) |
-| **ChromeOS Offline-First PWA** | Live Web + Offline Bundle | [**Launch Live App**](https://vexio-chromeos-suite.web.app) · [**`Vexio-ChromeOS-PWA-v0.3.0-alpha.zip`**](https://github.com/petrosvassiliou/vexio/releases/download/v0.3.0-alpha/Vexio-ChromeOS-PWA-v0.3.0-alpha.zip) |
+| **Windows 11 Native** (`WinUI 3 + DirectX 12`) | `x64` | [**`Vexio-Windows-v0.3.1-alpha-x64.msix`**](https://github.com/petrosvassiliou/vexio/releases/download/v0.3.1-alpha/Vexio-Windows-v0.3.1-alpha-x64.msix) |
+| **Windows 11 Native** (`WinUI 3 + DirectX 12`) | `ARM64` | [**`Vexio-Windows-v0.3.1-alpha-arm64.msix`**](https://github.com/petrosvassiliou/vexio/releases/download/v0.3.1-alpha/Vexio-Windows-v0.3.1-alpha-arm64.msix) |
+| **macOS 15+ Native** (`Swift 6 Liquid Glass + Metal`) | `Universal2` (`Apple Silicon + Intel`) | [**`Vexio-v0.3.1-alpha-Universal2.dmg`**](https://github.com/petrosvassiliou/vexio/releases/download/v0.3.1-alpha/Vexio-v0.3.1-alpha-Universal2.dmg) |
+| **Android & Googlebook OS** (`Compose M3E + Vulkan`) | `arm64-v8a` + `x86_64` APK | [**`Vexio-Android-Googlebook-v0.3.1-alpha.apk`**](https://github.com/petrosvassiliou/vexio/releases/download/v0.3.1-alpha/Vexio-Android-Googlebook-v0.3.1-alpha.apk) |
+| **Android & Googlebook OS** (`Play App Bundle`) | `arm64-v8a` + `x86_64` AAB | [**`Vexio-Android-Googlebook-v0.3.1-alpha.aab`**](https://github.com/petrosvassiliou/vexio/releases/download/v0.3.1-alpha/Vexio-Android-Googlebook-v0.3.1-alpha.aab) |
+| **ChromeOS Offline-First PWA** | Live Web + Offline Bundle | [**Launch Live App**](https://vexio-chromeos-suite.web.app) · [**`Vexio-ChromeOS-PWA-v0.3.1-alpha.zip`**](https://github.com/petrosvassiliou/vexio/releases/download/v0.3.1-alpha/Vexio-ChromeOS-PWA-v0.3.1-alpha.zip) |
 
 ---
 

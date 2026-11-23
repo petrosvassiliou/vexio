@@ -344,7 +344,7 @@ fn parse_theme_parts(archive: &RawOpcArchive, doc: &mut VisioDocument) {
 
 fn assign_theme_slot(theme: &mut vexio_shapesheet::ThemeDef, slot: &str, color: RgbaColor) {
     match slot {
-        "dk1" | "dk2" => theme.dark_color = color,
+        "dk1" => theme.dark_color = color,
         "lt1" => {
             theme.light_color = color;
             theme.background_color = color;
@@ -779,6 +779,7 @@ fn parse_shape_bounded(
     let mut sheet = ShapeSheet::new();
     let mut children = Vec::new();
     let mut text = String::new();
+    let mut has_explicit_text = false;
     let mut foreign_data = None;
     let mut opaque_xml_fragments = Vec::new();
     let mut dummy_layers = Vec::new();
@@ -794,21 +795,31 @@ fn parse_shape_bounded(
                     parse_section_elem(reader, &e, &mut sheet, &mut dummy_layers, tables)?;
                 }
                 b"Text" => {
+                    has_explicit_text = true;
                     text = read_text_element(reader)?;
                 }
                 b"Shapes" => {
                     // Container for group child `<Shape>` elements
                 }
                 b"Shape" => {
-                    children.push(parse_shape_bounded(
-                        reader,
-                        &e,
-                        part_dir,
-                        part_rels,
-                        archive,
-                        tables,
-                        depth + 1,
-                    )?);
+                    if attr_str(&e, b"Del").as_deref() == Some("1") {
+                        if let Some(msid) = attr_str(&e, b"MasterShape").and_then(|s| s.parse().ok()) {
+                            let mut tomb = VisioShape::new_rect(u64::MAX, "__del__", 0.0, 0.0, 0.0, 0.0);
+                            tomb.master_shape_id = Some(msid);
+                            children.push(tomb);
+                        }
+                        skip_to_end(reader, b"Shape")?;
+                    } else {
+                        children.push(parse_shape_bounded(
+                            reader,
+                            &e,
+                            part_dir,
+                            part_rels,
+                            archive,
+                            tables,
+                            depth + 1,
+                        )?);
+                    }
                 }
                 b"ForeignData" => {
                     let ftype = attr_str(&e, b"ForeignType").unwrap_or_else(|| "Bitmap".into());
@@ -862,6 +873,18 @@ fn parse_shape_bounded(
                 b"Cell" => {
                     parse_cell_elem(reader, &e, true, &mut sheet, tables)?;
                 }
+                b"Text" => {
+                    has_explicit_text = true;
+                }
+                b"Shape" => {
+                    if attr_str(&e, b"Del").as_deref() == Some("1") {
+                        if let Some(msid) = attr_str(&e, b"MasterShape").and_then(|s| s.parse().ok()) {
+                            let mut tomb = VisioShape::new_rect(u64::MAX, "__del__", 0.0, 0.0, 0.0, 0.0);
+                            tomb.master_shape_id = Some(msid);
+                            children.push(tomb);
+                        }
+                    }
+                }
                 _ => {}
             },
             Event::End(e) if e.local_name().as_ref() == b"Shape" => break,
@@ -869,6 +892,13 @@ fn parse_shape_bounded(
             _ => {}
         }
         buf.clear();
+    }
+
+    if has_explicit_text
+        && text.trim().is_empty()
+        && (master_id.is_some() || master_shape_id.is_some())
+    {
+        opaque_xml_fragments.push("<Text/>".to_string());
     }
 
     if kind == ShapeKind::Shape2D && !children.is_empty() {
@@ -961,9 +991,40 @@ fn is_color_cell_name(name: &str) -> bool {
     let lower = name.to_ascii_lowercase();
     matches!(
         lower.as_str(),
-        "fillforegnd" | "fillbkgnd" | "linecolor" | "char.color" | "shdwforegnd" | "textbkgnd" | "pagecolor"
+        "fillforegnd" | "fillbkgnd" | "linecolor" | "char.color" | "shdwforegnd" | "pagecolor"
     ) || lower.ends_with(".fillforegnd")
         || lower.ends_with(".linecolor")
+}
+
+/// Resolve Visio's 1-based `TextBkgnd` value token:
+/// - `"0"` (or `<= 0`) -> `Ok(None)` (transparent / no text block background)
+/// - `"#RRGGBB"` -> `Ok(Some(RgbaColor))`
+/// - `"1".."254"` -> `Ok(Some(Colors[k - 1]))`
+fn resolve_text_bkgnd_token(v: &str, tables: &DocParseTables) -> Option<Option<RgbaColor>> {
+    let t = v.trim().trim_matches('"').trim();
+    if t.is_empty() {
+        return None;
+    }
+    if let Some(c) = RgbaColor::from_hex(t) {
+        return Some(Some(c));
+    }
+    if let Ok(num) = t.parse::<f64>() {
+        if !num.is_finite() {
+            return None;
+        }
+        let k = num.round() as i64;
+        if k <= 0 {
+            return Some(None);
+        }
+        let idx0 = (k - 1) as u32;
+        return tables
+            .colors
+            .get(&idx0)
+            .copied()
+            .or_else(|| vexio_shapesheet::visio_standard_palette_color(idx0))
+            .map(Some);
+    }
+    None
 }
 
 fn parse_cell_elem(
@@ -983,6 +1044,7 @@ fn parse_cell_elem(
     let val = attr_str(e, b"V");
     let unit_tok = attr_str(e, b"U");
     let formula_attr = attr_str(e, b"F");
+    let is_text_bkgnd = name.eq_ignore_ascii_case("TextBkgnd");
     let is_color = is_color_cell_name(&name);
     let unit = unit_tok
         .as_deref()
@@ -1000,7 +1062,13 @@ fn parse_cell_elem(
     let formula = match formula_attr.as_deref() {
         Some("Inh") | Some("No Formula") | None => {
             if let Some(v) = &val {
-                if is_color {
+                if is_text_bkgnd {
+                    match resolve_text_bkgnd_token(v, tables) {
+                        Some(None) => "0".into(),
+                        Some(Some(c)) => format!("=RGB({},{},{})", c.r, c.g, c.b),
+                        None => format_vsdx_value_as_formula(v, unit),
+                    }
+                } else if is_color {
                     if let Some(c) = tables.resolve_color_token(v) {
                         format!("=RGB({},{},{})", c.r, c.g, c.b)
                     } else {
@@ -1025,7 +1093,13 @@ fn parse_cell_elem(
     if let Some(cell) = sheet.get_cell_mut(&name) {
         cell.deleted = deleted;
         if let Some(v_str) = val {
-            let parsed_cv = if is_color {
+            let parsed_cv = if is_text_bkgnd {
+                match resolve_text_bkgnd_token(&v_str, tables) {
+                    Some(None) => Some(vexio_shapesheet::CellValue::number(0.0)),
+                    Some(Some(c)) => Some(vexio_shapesheet::CellValue::Color(c)),
+                    None => None,
+                }
+            } else if is_color {
                 tables
                     .resolve_color_token(&v_str)
                     .map(vexio_shapesheet::CellValue::Color)
@@ -1060,8 +1134,13 @@ fn parse_cell_elem(
 }
 
 fn format_vsdx_value_as_formula(v: &str, unit: Option<Unit>) -> String {
-    if v.starts_with('#') && RgbaColor::from_hex(v).is_some() {
-        let c = RgbaColor::from_hex(v).unwrap();
+    let trimmed = v.trim();
+    let upper = trimmed.to_ascii_uppercase();
+    if upper.starts_with("NURBS(") || upper.starts_with("POLYLINE(") {
+        return format!("={trimmed}");
+    }
+    if trimmed.starts_with('#') && RgbaColor::from_hex(trimmed).is_some() {
+        let c = RgbaColor::from_hex(trimmed).unwrap();
         return format!("=RGB({},{},{})", c.r, c.g, c.b);
     }
     match unit {
@@ -1710,7 +1789,7 @@ fn parse_geometry_row(
     } else {
         Some(Unit::Inch)
     };
-    let cells = read_geometry_row_cells(reader, default_xy_unit)?;
+    let cells = read_geometry_row_cells(reader, kind, default_xy_unit)?;
     Ok(Some(GeometryRow {
         ix,
         kind,
@@ -1725,8 +1804,51 @@ fn parse_geometry_row(
     }))
 }
 
+fn geometry_row_cell_default_unit(
+    kind: GeometryRowKind,
+    cell_name: &str,
+    default_xy_unit: Option<Unit>,
+) -> Option<Unit> {
+    match cell_name {
+        "X" | "Y" => default_xy_unit,
+        "A" => match kind {
+            GeometryRowKind::ArcTo
+            | GeometryRowKind::Ellipse
+            | GeometryRowKind::EllipticalArcTo => Some(Unit::Inch),
+            GeometryRowKind::RelEllipticalArcTo
+            | GeometryRowKind::RelQuadBezTo
+            | GeometryRowKind::RelCubBezTo => Some(Unit::Number),
+            _ => None,
+        },
+        "B" => match kind {
+            GeometryRowKind::Ellipse | GeometryRowKind::EllipticalArcTo => Some(Unit::Inch),
+            GeometryRowKind::RelEllipticalArcTo
+            | GeometryRowKind::RelQuadBezTo
+            | GeometryRowKind::RelCubBezTo => Some(Unit::Number),
+            _ => None,
+        },
+        "C" => match kind {
+            GeometryRowKind::Ellipse => Some(Unit::Inch),
+            GeometryRowKind::EllipticalArcTo | GeometryRowKind::RelEllipticalArcTo => {
+                Some(Unit::Radian)
+            }
+            GeometryRowKind::RelCubBezTo => Some(Unit::Number),
+            _ => None,
+        },
+        "D" => match kind {
+            GeometryRowKind::Ellipse => Some(Unit::Inch),
+            GeometryRowKind::EllipticalArcTo
+            | GeometryRowKind::RelEllipticalArcTo
+            | GeometryRowKind::RelCubBezTo => Some(Unit::Number),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
 fn read_geometry_row_cells(
     reader: &mut Reader<&[u8]>,
+    kind: GeometryRowKind,
     default_xy_unit: Option<Unit>,
 ) -> Result<BTreeMap<String, String>, VsdxError> {
     let dummy_tables = DocParseTables::default();
@@ -1736,7 +1858,7 @@ fn read_geometry_row_cells(
         match reader.read_event_into(&mut buf)? {
             Event::Empty(e) if e.local_name().as_ref() == b"Cell" => {
                 if let Some(n) = attr_str(&e, b"N") {
-                    let hint = if n == "X" || n == "Y" { default_xy_unit } else { None };
+                    let hint = geometry_row_cell_default_unit(kind, &n, default_xy_unit);
                     if let Some(f) = cell_formula_from_attrs_opt(&e, hint, &dummy_tables) {
                         map.insert(n, f);
                     }
@@ -1744,7 +1866,7 @@ fn read_geometry_row_cells(
             }
             Event::Start(e) if e.local_name().as_ref() == b"Cell" => {
                 if let Some(n) = attr_str(&e, b"N") {
-                    let hint = if n == "X" || n == "Y" { default_xy_unit } else { None };
+                    let hint = geometry_row_cell_default_unit(kind, &n, default_xy_unit);
                     if let Some(f) = cell_formula_from_attrs_opt(&e, hint, &dummy_tables) {
                         map.insert(n, f);
                     }
@@ -1947,7 +2069,16 @@ fn hydrate_shape_against_masters(
                 }
             }
         }
-        if shape.text.is_empty() && !ms.text.is_empty() {
+        let eff_hide_text = shape
+            .sheet
+            .get_bool("HideText")
+            .or_else(|| ms.sheet.get_bool("HideText"))
+            .unwrap_or(false);
+        let explicit_empty_text = shape
+            .opaque_xml_fragments
+            .iter()
+            .any(|f| f.trim() == "<Text/>");
+        if shape.text.is_empty() && !ms.text.is_empty() && !eff_hide_text && !explicit_empty_text {
             shape.text = ms.text.clone();
         }
 
@@ -1990,6 +2121,9 @@ fn hydrate_shape_against_masters(
                     shape.children.push(cloned);
                 }
             }
+            shape.children.retain(|c| c.name != "__del__");
+        } else {
+            shape.children.retain(|c| c.name != "__del__");
         }
     }
 
