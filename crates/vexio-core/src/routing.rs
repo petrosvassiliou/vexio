@@ -74,6 +74,9 @@ impl ObstacleRect {
 /// Re-resolve all glued endpoints, route all 1D connectors around obstacles, and apply line jumps on `page_id`.
 pub fn route_page_connectors(doc: &mut VisioDocument, page_id: u32) {
     ReactiveEngine::recalculate_document(doc);
+    let visuals = ReactiveEngine::evaluate_page_visuals(doc, page_id);
+    let world_transforms: BTreeMap<u64, vexio_shapesheet::ShapeTransform2D> =
+        visuals.iter().map(|v| (v.shape_id, v.transform)).collect();
     let masters_snapshot = doc.masters.clone();
     let Some(page) = doc.page_mut(page_id) else {
         return;
@@ -86,11 +89,23 @@ pub fn route_page_connectors(doc: &mut VisioDocument, page_id: u32) {
         _ => LineJumpStyle::Arc,
     };
 
-    // 1. Collect 2D obstacle AABBs
+    // 1. Collect 2D obstacle AABBs and world-space shape centers (including group subshapes)
     let mut obstacles = Vec::new();
     let mut shape_centers: BTreeMap<u64, ([f64; 2], [f64; 2])> = BTreeMap::new();
+    for (&sid, wtf) in &world_transforms {
+        shape_centers.insert(
+            sid,
+            ([wtf.pin_x, wtf.pin_y], [wtf.width.abs(), wtf.height.abs()]),
+        );
+    }
+    let mut top_of_id: BTreeMap<u64, u64> = BTreeMap::new();
     for s in &page.shapes {
-        if s.kind == ShapeKind::Shape2D || s.kind == ShapeKind::Group {
+        let mut sub_ids = BTreeSet::new();
+        vexio_shapesheet::VisioPage::collect_subtree_ids(s, &mut sub_ids);
+        for sid in sub_ids {
+            top_of_id.insert(sid, s.id);
+        }
+        if s.kind == ShapeKind::Shape2D || (s.kind == ShapeKind::Group && s.master_id.is_some()) {
             let px = s.sheet.get_f64("PinX").unwrap_or(0.0);
             let py = s.sheet.get_f64("PinY").unwrap_or(0.0);
             let w = s.sheet.get_f64("Width").unwrap_or(1.0);
@@ -109,6 +124,22 @@ pub fn route_page_connectors(doc: &mut VisioDocument, page_id: u32) {
                 max_y,
             });
             shape_centers.insert(s.id, ([px, py], [w, h]));
+        } else if s.kind == ShapeKind::Group {
+            for ch in &s.children {
+                if matches!(ch.kind, ShapeKind::Shape2D | ShapeKind::Group) {
+                    if let Some(wtf) = world_transforms.get(&ch.id) {
+                        let min_x = wtf.pin_x - wtf.loc_pin_x;
+                        let min_y = wtf.pin_y - wtf.loc_pin_y;
+                        obstacles.push(ObstacleRect {
+                            shape_id: ch.id,
+                            min_x,
+                            min_y,
+                            max_x: min_x + wtf.width.abs(),
+                            max_y: min_y + wtf.height.abs(),
+                        });
+                    }
+                }
+            }
         }
     }
 
@@ -125,6 +156,7 @@ pub fn route_page_connectors(doc: &mut VisioDocument, page_id: u32) {
             page,
             &masters_snapshot,
             c.target_shape_id,
+            world_transforms.get(&c.target_shape_id).copied(),
             &c.to_cell,
             c.is_dynamic,
         );
@@ -205,6 +237,9 @@ pub fn route_page_connectors(doc: &mut VisioDocument, page_id: u32) {
                 bx = p[0];
                 by = p[1];
                 ignore_ids.insert(*tid);
+                if let Some(&top_id) = top_of_id.get(tid) {
+                    ignore_ids.insert(top_id);
+                }
                 s.sheet.set_formula(
                     "BeginX",
                     format!("{} in", format_clean_f64(bx)),
@@ -220,6 +255,9 @@ pub fn route_page_connectors(doc: &mut VisioDocument, page_id: u32) {
                 ex = p[0];
                 ey = p[1];
                 ignore_ids.insert(*tid);
+                if let Some(&top_id) = top_of_id.get(tid) {
+                    ignore_ids.insert(top_id);
+                }
                 s.sheet.set_formula(
                     "EndX",
                     format!("{} in", format_clean_f64(ex)),
@@ -509,6 +547,7 @@ fn resolve_glue_point(
     page: &VisioPage,
     masters: &[vexio_shapesheet::VisioMaster],
     target_id: u64,
+    world_tf: Option<vexio_shapesheet::ShapeTransform2D>,
     to_cell: &str,
     is_dynamic: bool,
 ) -> Option<[f64; 2]> {
@@ -523,34 +562,42 @@ fn resolve_glue_point(
                 m.shapes.first()
             }
         });
-    let w = sh
+    let local_w = sh
         .sheet
         .get_f64("Width")
         .or_else(|| master_shape.and_then(|ms| ms.sheet.get_f64("Width")))
         .unwrap_or(1.0);
-    let h = sh
+    let local_h = sh
         .sheet
         .get_f64("Height")
         .or_else(|| master_shape.and_then(|ms| ms.sheet.get_f64("Height")))
         .unwrap_or(1.0);
-    let px = sh.sheet.get_f64("PinX").unwrap_or(0.0);
-    let py = sh.sheet.get_f64("PinY").unwrap_or(0.0);
-    let lpx = sh.sheet.get_f64("LocPinX").unwrap_or(w * 0.5);
-    let lpy = sh.sheet.get_f64("LocPinY").unwrap_or(h * 0.5);
-    let ang = sh.sheet.get_f64("Angle").unwrap_or(0.0);
-    let flip_x = sh.sheet.get_bool("FlipX").unwrap_or(false);
-    let flip_y = sh.sheet.get_bool("FlipY").unwrap_or(false);
-    let tf = vexio_shapesheet::ShapeTransform2D {
-        pin_x: px,
-        pin_y: py,
-        width: w,
-        height: h,
-        loc_pin_x: lpx,
-        loc_pin_y: lpy,
-        angle_rad: ang,
-        flip_x,
-        flip_y,
-    };
+    let tf = world_tf.unwrap_or_else(|| {
+        let px = sh.sheet.get_f64("PinX").unwrap_or(0.0);
+        let py = sh.sheet.get_f64("PinY").unwrap_or(0.0);
+        let lpx = sh.sheet.get_f64("LocPinX").unwrap_or(local_w * 0.5);
+        let lpy = sh.sheet.get_f64("LocPinY").unwrap_or(local_h * 0.5);
+        let ang = sh.sheet.get_f64("Angle").unwrap_or(0.0);
+        let flip_x = sh.sheet.get_bool("FlipX").unwrap_or(false);
+        let flip_y = sh.sheet.get_bool("FlipY").unwrap_or(false);
+        vexio_shapesheet::ShapeTransform2D {
+            pin_x: px,
+            pin_y: py,
+            width: local_w,
+            height: local_h,
+            loc_pin_x: lpx,
+            loc_pin_y: lpy,
+            angle_rad: ang,
+            flip_x,
+            flip_y,
+        }
+    });
+    let w = tf.width;
+    let h = tf.height;
+    let px = tf.pin_x;
+    let py = tf.pin_y;
+    let sx = if local_w.abs() > 1e-6 { w / local_w } else { 1.0 };
+    let sy = if local_h.abs() > 1e-6 { h / local_h } else { 1.0 };
 
     if !is_dynamic {
         // Check explicit ConnectionPoint cell (`Connections.X1` -> `(Connections.X1, Connections.Y1)`)
@@ -570,7 +617,7 @@ fn resolve_glue_point(
                 .get_f64(&yk)
                 .or_else(|| master_shape.and_then(|ms| ms.sheet.get_f64(&yk)));
             if let (Some(cx), Some(cy)) = (cx_opt, cy_opt) {
-                let (wx, wy) = tf.local_to_parent(cx, cy);
+                let (wx, wy) = tf.local_to_parent(cx * sx, cy * sy);
                 return Some([wx, wy]);
             }
             // Fallback cardinal ports `1..=4` matching `EvaluatedShapeVisual::connection_points`

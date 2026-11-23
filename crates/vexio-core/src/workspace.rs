@@ -2181,17 +2181,6 @@ impl DocumentSession {
                 attach_cardinal_ports_to_shape(&mut grp);
                 grp.children = children;
 
-                // Re-target external dynamic connectors pointing at grouped member shapes to the group container
-                for c in &mut page.connects {
-                    if !top_id_set.contains(&c.connector_shape_id)
-                        && top_id_set.contains(&c.target_shape_id)
-                    {
-                        c.target_shape_id = gid;
-                        c.to_cell = "PinX".into();
-                        c.is_dynamic = true;
-                    }
-                }
-
                 let pos = insert_pos.unwrap_or(remaining.len()).min(remaining.len());
                 remaining.insert(pos, grp);
                 page.shapes = remaining;
@@ -2352,6 +2341,16 @@ impl DocumentSession {
                             );
 
                             let cid = child.id;
+                            if orig_child_id != cid {
+                                for c in &mut page.connects {
+                                    if c.target_shape_id == orig_child_id {
+                                        c.target_shape_id = cid;
+                                    }
+                                    if c.connector_shape_id == orig_child_id {
+                                        c.connector_shape_id = cid;
+                                    }
+                                }
+                            }
                             if Some(orig_child_id) == first_orig_child_id {
                                 first_restored_child_id = Some(cid);
                             }

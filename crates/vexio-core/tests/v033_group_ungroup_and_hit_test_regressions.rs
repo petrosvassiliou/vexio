@@ -333,3 +333,84 @@ fn unfilled_layer_frame_click_through_and_enclosure_marquee_select_inner_shapes_
         vexio_engine_destroy(engine);
     }
 }
+
+#[test]
+fn group_ungroup_preserves_connector_glues_world_routing_and_bpmn_validation() {
+    let mut sess = DocumentSession::new_blank("GroupConnectorIntegrity");
+    let s1 = sess
+        .drop_builtin_shape(1, "BPMN 2.0", "Start Event", 2.0, 5.0)
+        .unwrap();
+    let s2 = sess
+        .drop_builtin_shape(1, "BPMN 2.0", "Task", 5.0, 5.0)
+        .unwrap();
+    let s3 = sess
+        .drop_builtin_shape(1, "BPMN 2.0", "End Event", 8.0, 5.0)
+        .unwrap();
+    let c12 = sess.connect_shapes(1, s1, s2).unwrap();
+    let c23 = sess.connect_shapes(1, s2, s3).unwrap();
+    assert!(sess.validate("bpmn").is_empty());
+
+    // Group [s1, s2] -> connectors c12 and c23 must stay glued to s1 and s2 and BPMN must remain 100% valid!
+    let gid = sess.group_shapes(1, &[s1, s2]).unwrap();
+    assert!(gid > 0);
+    assert!(
+        sess.validate("bpmn").is_empty(),
+        "BPMN validation must remain clean while [Start Event, Task] are grouped"
+    );
+
+    // Move the group +1.5 in up -> c23 BeginY (glued to s2 inside gid) must follow to ~6.5 in!
+    let gw = sess
+        .doc
+        .page(1)
+        .unwrap()
+        .find_shape(gid)
+        .unwrap()
+        .sheet
+        .get_f64("Width")
+        .unwrap();
+    let gh = sess
+        .doc
+        .page(1)
+        .unwrap()
+        .find_shape(gid)
+        .unwrap()
+        .sheet
+        .get_f64("Height")
+        .unwrap();
+    let gx = sess
+        .doc
+        .page(1)
+        .unwrap()
+        .find_shape(gid)
+        .unwrap()
+        .sheet
+        .get_f64("PinX")
+        .unwrap();
+    sess.transform_shape(1, gid, gx, 6.5, gw, gh, 0.0).unwrap();
+    let c23_by = sess
+        .doc
+        .page(1)
+        .unwrap()
+        .find_shape(c23)
+        .unwrap()
+        .sheet
+        .get_f64("BeginY")
+        .unwrap();
+    assert!(
+        (c23_by - 6.5).abs() < 0.6,
+        "glued connector c23 must follow grouped member s2 in world space (got BeginY={c23_by})"
+    );
+    assert!(c12 > 0);
+
+    // Ungroup + Undo + Redo must preserve every glue endpoint and 0 BPMN validation issues!
+    let restored = sess.ungroup_shapes(1, &[gid]).unwrap();
+    assert_eq!(restored.len(), 2);
+    assert!(
+        sess.validate("bpmn").is_empty(),
+        "BPMN validation must remain clean after ungrouping connected shapes"
+    );
+    assert!(sess.journal.undo(&mut sess.doc).unwrap());
+    assert!(sess.validate("bpmn").is_empty());
+    assert!(sess.journal.redo(&mut sess.doc).unwrap());
+    assert!(sess.validate("bpmn").is_empty());
+}

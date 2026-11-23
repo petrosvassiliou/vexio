@@ -62,8 +62,24 @@ impl<'a> PageGraph<'a> {
         let mut shapes_by_id = BTreeMap::new();
         let mut outgoing: BTreeMap<u64, Vec<(u64, &'a VisioShape)>> = BTreeMap::new();
         let mut incoming: BTreeMap<u64, Vec<(u64, &'a VisioShape)>> = BTreeMap::new();
-        for s in &page.shapes {
-            if s.kind == ShapeKind::Shape2D
+
+        fn collect_semantic_nodes<'b>(
+            s: &'b VisioShape,
+            shapes_by_id: &mut BTreeMap<u64, &'b VisioShape>,
+            outgoing: &mut BTreeMap<u64, Vec<(u64, &'b VisioShape)>>,
+            incoming: &mut BTreeMap<u64, Vec<(u64, &'b VisioShape)>>,
+        ) {
+            let has_explicit_role = s.sheet.get_cell("Prop.BpmnType").is_some()
+                || s.sheet.get_cell("Prop.UmlType").is_some()
+                || s.sheet.get_cell("Prop.WorkflowRole").is_some()
+                || s.sheet.get_cell("User.DomainRole").is_some();
+            if s.kind == ShapeKind::Group && !has_explicit_role {
+                for ch in &s.children {
+                    collect_semantic_nodes(ch, shapes_by_id, outgoing, incoming);
+                }
+                return;
+            }
+            if (s.kind == ShapeKind::Shape2D || (s.kind == ShapeKind::Group && has_explicit_role))
                 && s.sheet.get_f64("User.visSwimlane").unwrap_or(0.0) < 0.5
                 && role_str(s) != "container"
                 && role_str(s) != "pool"
@@ -72,6 +88,10 @@ impl<'a> PageGraph<'a> {
                 outgoing.insert(s.id, Vec::new());
                 incoming.insert(s.id, Vec::new());
             }
+        }
+
+        for s in &page.shapes {
+            collect_semantic_nodes(s, &mut shapes_by_id, &mut outgoing, &mut incoming);
         }
 
         let mut beg_map: BTreeMap<u64, u64> = BTreeMap::new();
@@ -85,7 +105,15 @@ impl<'a> PageGraph<'a> {
         }
 
         let mut dangling_connectors = Vec::new();
-        for s in &page.shapes {
+        fn collect_connectors<'b>(
+            s: &'b VisioShape,
+            beg_map: &BTreeMap<u64, u64>,
+            end_map: &BTreeMap<u64, u64>,
+            shapes_by_id: &BTreeMap<u64, &'b VisioShape>,
+            outgoing: &mut BTreeMap<u64, Vec<(u64, &'b VisioShape)>>,
+            incoming: &mut BTreeMap<u64, Vec<(u64, &'b VisioShape)>>,
+            dangling_connectors: &mut Vec<&'b VisioShape>,
+        ) {
             if s.kind == ShapeKind::Connector1D {
                 match (beg_map.get(&s.id), end_map.get(&s.id)) {
                     (Some(&u), Some(&v))
@@ -96,7 +124,36 @@ impl<'a> PageGraph<'a> {
                     }
                     _ => dangling_connectors.push(s),
                 }
+            } else if s.kind == ShapeKind::Group {
+                let has_explicit_role = s.sheet.get_cell("Prop.BpmnType").is_some()
+                    || s.sheet.get_cell("Prop.UmlType").is_some()
+                    || s.sheet.get_cell("Prop.WorkflowRole").is_some()
+                    || s.sheet.get_cell("User.DomainRole").is_some();
+                if !has_explicit_role {
+                    for ch in &s.children {
+                        collect_connectors(
+                            ch,
+                            beg_map,
+                            end_map,
+                            shapes_by_id,
+                            outgoing,
+                            incoming,
+                            dangling_connectors,
+                        );
+                    }
+                }
             }
+        }
+        for s in &page.shapes {
+            collect_connectors(
+                s,
+                &beg_map,
+                &end_map,
+                &shapes_by_id,
+                &mut outgoing,
+                &mut incoming,
+                &mut dangling_connectors,
+            );
         }
 
         Self {
