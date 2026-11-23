@@ -80,12 +80,35 @@ jobs:
         with:
           gradle-version: '8.11.1'
 
+      - name: Provision Persistent Release Signing Keystore
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "${ANDROID_KEYSTORE_BASE64}" ]; then
+            KS_PATH="${RUNNER_TEMP}/vexio-release.p12"
+            printf '%s' "${ANDROID_KEYSTORE_BASE64}" | base64 -d > "${KS_PATH}"
+            chmod 600 "${KS_PATH}"
+            echo "ANDROID_KEYSTORE_PATH=${KS_PATH}" >> "$GITHUB_ENV"
+          fi
+
       - name: Run Gradle Unit Tests, assembleRelease & bundleRelease
         working-directory: apps/android-googlebook
         env:
           SKIP_CARGO_NDK: "1"
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           gradle testDebugUnitTest assembleRelease bundleRelease --no-daemon --stacktrace
+
+      - name: Verify APK v1/v2/v3 Signature & Clean Ephemeral Keystore
+        if: always()
+        run: |
+          rm -f "${RUNNER_TEMP}/vexio-release.p12"
+          APK_SRC=$(ls apps/android-googlebook/app/build/outputs/apk/release/*.apk 2>/dev/null | head -n 1 || true)
+          if [ -n "${APK_SRC}" ]; then
+            "${ANDROID_HOME}/build-tools/35.0.0/apksigner" verify --verbose --print-certs "${APK_SRC}"
+          fi
 
       - name: Stage Version-Named Android & Googlebook APK / AAB Installers
         run: |

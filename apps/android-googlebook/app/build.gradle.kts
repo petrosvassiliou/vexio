@@ -17,8 +17,8 @@ android {
         applicationId = "com.vexio.googlebook"
         minSdk = 29
         targetSdk = 36
-        versionCode = 35
-        versionName = "0.3.5-alpha"
+        versionCode = 36
+        versionName = "0.3.6-alpha"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -38,11 +38,29 @@ android {
         }
     }
 
+    signingConfigs {
+        create("release") {
+            val ksPath = System.getenv("ANDROID_KEYSTORE_PATH")?.trim().orEmpty()
+            val ksFile = if (ksPath.isNotEmpty()) File(ksPath) else null
+            if (ksFile != null && ksFile.exists()) {
+                storeFile = ksFile
+                storeType = "PKCS12"
+                storePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("ANDROID_KEY_ALIAS") ?: "vexio-release"
+                keyPassword = System.getenv("ANDROID_KEY_PASSWORD") ?: System.getenv("ANDROID_KEYSTORE_PASSWORD")
+                enableV1Signing = true
+                enableV2Signing = true
+                enableV3Signing = true
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
-            signingConfig = signingConfigs.getByName("debug")
+            val relSigning = signingConfigs.getByName("release")
+            signingConfig = if (relSigning.storeFile != null) relSigning else signingConfigs.getByName("debug")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
