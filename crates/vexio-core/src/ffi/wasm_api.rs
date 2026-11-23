@@ -506,6 +506,12 @@ impl WasmVexioSession {
             visuals.iter().map(|v| (v.shape_id, v)).collect();
         let mut out = Vec::new();
         for top_sh in &page.shapes {
+            if !matches!(
+                top_sh.kind,
+                ShapeKind::Shape2D | ShapeKind::Group | ShapeKind::ForeignObject
+            ) {
+                continue;
+            }
             let mut sub_ids = std::collections::BTreeSet::new();
             vexio_shapesheet::VisioPage::collect_subtree_ids(top_sh, &mut sub_ids);
             let mut s_min = [f64::INFINITY, f64::INFINITY];
