@@ -489,6 +489,13 @@ object NativeBridge {
     ): Boolean
 
     @JvmStatic
+    external fun nativeViewportScreenToPageIn(
+        viewportPtr: Long,
+        xPx: Double,
+        yPx: Double
+    ): DoubleArray?
+
+    @JvmStatic
     external fun nativeInsertContainer(
         docPtr: Long,
         pageId: Int,
@@ -1329,8 +1336,9 @@ data class WorkstationUiState(
     val downloadingStencilPackIds: Set<String> = emptySet(),
     val installedStencilFileNames: Set<String> = emptySet(),
     val canvasFallbackBitmap: Bitmap? = null,
+    val highlightedStencilMasterId: String = "",
     val selectedShapeId: Long = 1L,
-    val selectedShapeIds: List<Long> = listOf(1L, 2L),
+    val selectedShapeIds: List<Long> = listOf(1L),
     val selectedShapeName: String = "Sheet.1 (Process)",
     val activeCellName: String = "Width",
     val formulaBarInput: String = "GUARD(2.50 in)",
@@ -1364,7 +1372,7 @@ data class WorkstationUiState(
     val inlineTextEditor: InlineCanvasEditorModel? = null,
     val smartGuidesEnabled: Boolean = true,
     val autoCheckUpdates: Boolean = true,
-    val updateStatusMessage: String = "Vexio v0.3.6-alpha • Automatic update check enabled",
+    val updateStatusMessage: String = "Vexio v0.3.7-alpha • Automatic update check enabled",
     val availableUpdateTag: String? = null,
     val availableUpdateUrl: String? = null,
     val showUpdateDialog: Boolean = false,
@@ -1682,8 +1690,8 @@ class VexioSessionViewModel(
             }
             return
         }
-        val w = viewportWidthPx.coerceIn(64, 2560)
-        val h = viewportHeightPx.coerceIn(64, 1600)
+        val w = viewportWidthPx.coerceIn(64, 4096)
+        val h = viewportHeightPx.coerceIn(64, 4096)
         if (w <= 0 || h <= 0) return
         val needed = w * h * 4
         var buf = directViewportRgbaBuffer
@@ -1879,6 +1887,7 @@ class VexioSessionViewModel(
             NativeBridge.nativeLoadStarterTemplate(docPtr, templateId)
             NativeBridge.nativeSetPagePreset(docPtr, 1, preset.slug, preset.landscape)
             syncPagesAndActivePageFromNative(preferFirstForeground = true)
+            syncViewportSelection(listOf(1L))
             refreshSelectedShapeFormulas()
             presentViewportOrFallback()
         }
@@ -1886,6 +1895,7 @@ class VexioSessionViewModel(
             it.copy(
                 showStartBackstage = false,
                 selectedShapeId = 1L,
+                selectedShapeIds = listOf(1L),
                 activeTool = VexioTool.POINTER,
                 activeCursor = VexioCursorKind.ARROW,
                 isDirty = true,
@@ -2473,6 +2483,80 @@ class VexioSessionViewModel(
         _uiState.update {
             it.copy(shapeSheetCells = refreshed, formulaBarInput = activeFormula)
         }
+    }
+
+    private var lastCenterDropAnchor: Pair<Float, Float>? = null
+    private var centerDropCascadeStep: Int = 0
+
+    fun highlightStencilMaster(masterId: String) {
+        _uiState.update { it.copy(highlightedStencilMasterId = masterId) }
+    }
+
+    @Synchronized
+    fun screenPxToPageIn(xPx: Float, yPx: Float): Pair<Float, Float> {
+        if (NativeBridge.isNativeAvailable && viewportPtr != 0L) {
+            val pt = NativeBridge.nativeViewportScreenToPageIn(viewportPtr, xPx.toDouble(), yPx.toDouble())
+            if (pt != null && pt.size >= 2 && pt[0].isFinite() && pt[1].isFinite()) {
+                return pt[0].toFloat() to pt[1].toFloat()
+            }
+        }
+        val preset = _uiState.value.activePagePreset
+        val pw = if (preset.isMetric) 11.69f else 11.0f
+        val ph = if (preset.isMetric) 8.27f else 8.5f
+        if (xPx < 0f && yPx < 0f) {
+            return (pw * 0.5f) to (ph * 0.5f)
+        }
+        val safeW = viewportWidthPx.coerceAtLeast(1).toFloat()
+        val safeH = viewportHeightPx.coerceAtLeast(1).toFloat()
+        val xIn = ((xPx / safeW) * pw).coerceIn(0.4f, pw - 0.4f)
+        val yIn = ((1f - (yPx / safeH)) * ph).coerceIn(0.4f, ph - 0.4f)
+        return xIn to yIn
+    }
+
+    @Synchronized
+    fun dropStencilAtViewportCenter(master: StencilMasterItem) {
+        val (cx, cy) = screenPxToPageIn(-1f, -1f)
+        val prev = lastCenterDropAnchor
+        if (prev != null && kotlin.math.hypot(cx - prev.first, cy - prev.second) < 0.05f) {
+            centerDropCascadeStep = (centerDropCascadeStep + 1) % 6
+        } else {
+            lastCenterDropAnchor = cx to cy
+            centerDropCascadeStep = 0
+        }
+        val dx = centerDropCascadeStep * 0.28f
+        val dy = -centerDropCascadeStep * 0.28f
+        _uiState.update { it.copy(highlightedStencilMasterId = master.masterId) }
+        instantiateMasterDrop(
+            title = master.title,
+            widthFormula = master.defaultWidthFormula,
+            heightFormula = master.defaultHeightFormula,
+            fillFormula = master.fillFormula,
+            pinXInches = cx + dx,
+            pinYInches = cy + dy,
+            category = master.category
+        )
+    }
+
+    @Synchronized
+    fun dropStencilAtScreenPx(
+        title: String,
+        widthFormula: String,
+        heightFormula: String,
+        fillFormula: String,
+        category: String,
+        screenXPx: Float,
+        screenYPx: Float
+    ) {
+        val (px, py) = screenPxToPageIn(screenXPx, screenYPx)
+        instantiateMasterDrop(
+            title = title,
+            widthFormula = widthFormula,
+            heightFormula = heightFormula,
+            fillFormula = fillFormula,
+            pinXInches = px,
+            pinYInches = py,
+            category = category
+        )
     }
 
     @Synchronized
@@ -3873,6 +3957,9 @@ class VexioSessionViewModel(
                 pages = listOf(DiagramPageTab(1, "Page-1", preset.label)),
                 activePagePreset = preset,
                 metricUnits = preset.isMetric,
+                selectedShapeId = 0L,
+                selectedShapeIds = emptyList(),
+                selectedShapeName = "",
                 activeTool = VexioTool.POINTER,
                 activeCursor = VexioCursorKind.ARROW,
                 isDirty = false,
@@ -4240,7 +4327,7 @@ class VexioSessionViewModel(
                     instanceFollowRedirects = true
                     connectTimeout = 20_000
                     readTimeout = 45_000
-                    setRequestProperty("User-Agent", "Vexio-Android-Workstation/0.3.6-alpha")
+                    setRequestProperty("User-Agent", "Vexio-Android-Workstation/0.3.7-alpha")
                 }
                 try {
                     val code = conn.responseCode
@@ -4794,7 +4881,7 @@ class VexioSessionViewModel(
             }
         }
         viewModelScope.launch(ioDispatcher) {
-            val currentVersion = "0.3.6-alpha"
+            val currentVersion = "0.3.7-alpha"
             var latestTag: String? = null
             var downloadUrl = "https://github.com/petrosvassiliou/vexio/releases"
             var ok = false
@@ -4805,7 +4892,7 @@ class VexioSessionViewModel(
                     requestMethod = "GET"
                     connectTimeout = 4500
                     readTimeout = 4500
-                    setRequestProperty("User-Agent", "Vexio-Android-Googlebook/0.3.6-alpha")
+                    setRequestProperty("User-Agent", "Vexio-Android-Googlebook/0.3.7-alpha")
                     setRequestProperty("Accept", "application/vnd.github+json")
                 }
                 if (conn.responseCode in 200..299) {

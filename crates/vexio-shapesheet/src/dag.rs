@@ -3101,7 +3101,11 @@ fn collect_shape_visuals(
 
     // Evaluate world-space connection ports (`Connections.X{ix}` / `Connections.Y{ix}` + cardinal fallback for 2D shapes).
     let mut connection_points: Vec<EvaluatedConnectionPort> = Vec::new();
-    if matches!(shape.kind, ShapeKind::Shape2D | ShapeKind::Group) && parent_tf.is_none() {
+    if matches!(
+        shape.kind,
+        ShapeKind::Shape2D | ShapeKind::Group | ShapeKind::ForeignObject
+    ) && parent_tf.is_none()
+    {
         let cp_rows = if !ss.connection_points.is_empty() {
             &ss.connection_points
         } else if let Some(ms) = master_shape.filter(|m| !m.sheet.connection_points.is_empty()) {
@@ -3147,7 +3151,11 @@ fn collect_shape_visuals(
     }
 
     let mut control_handles: Vec<EvaluatedControlHandle> = Vec::new();
-    if matches!(shape.kind, ShapeKind::Shape2D | ShapeKind::Group) && parent_tf.is_none() {
+    if matches!(
+        shape.kind,
+        ShapeKind::Shape2D | ShapeKind::Group | ShapeKind::ForeignObject
+    ) && parent_tf.is_none()
+    {
         let ctrl_rows = if !ss.controls.is_empty() {
             &ss.controls
         } else if let Some(ms) = master_shape.filter(|m| !m.sheet.controls.is_empty()) {

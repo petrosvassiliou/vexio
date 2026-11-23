@@ -1988,15 +1988,57 @@ pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeSetSelectio
         };
         // SAFETY: `viewport_ptr` verified non-zero handle.
         let vp = unsafe { &mut *(viewport_ptr as *mut VexioViewport) };
-        vp.selected_ids = ids;
         if doc_ptr != 0 {
             // SAFETY: `doc_ptr` verified non-zero handle.
             let doc = unsafe { &*(doc_ptr as *const VexioDoc) };
+            if let Some(page) = doc.session.doc.page(vp.page_id) {
+                let mut normalized = Vec::new();
+                for id in ids {
+                    if let Some(top_id) = page.top_level_shape_id(id) {
+                        if !normalized.contains(&top_id) {
+                            normalized.push(top_id);
+                        }
+                    }
+                }
+                vp.selected_ids = normalized;
+            } else {
+                vp.selected_ids = ids;
+            }
             vp.present_if_attached(&doc.session.doc);
+        } else {
+            vp.selected_ids = ids;
         }
         JNI_TRUE
     }))
     .unwrap_or(JNI_FALSE)
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeViewportScreenToPageIn<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    viewport_ptr: jlong,
+    x_px: jdouble,
+    y_px: jdouble,
+) -> jni::sys::jdoubleArray {
+    catch_unwind(AssertUnwindSafe(|| {
+        if viewport_ptr == 0 {
+            return std::ptr::null_mut();
+        }
+        // SAFETY: `viewport_ptr` verified non-zero handle.
+        let vp = unsafe { &*(viewport_ptr as *const VexioViewport) };
+        let pt = if x_px.is_finite() && y_px.is_finite() && (x_px >= 0.0 || y_px >= 0.0) {
+            vp.camera.screen_to_page_in(x_px, y_px)
+        } else {
+            [vp.camera.center_x_in, vp.camera.center_y_in]
+        };
+        let Ok(out_arr) = env.new_double_array(2) else {
+            return std::ptr::null_mut();
+        };
+        let _ = env.set_double_array_region(&out_arr, 0, &pt);
+        out_arr.into_raw()
+    }))
+    .unwrap_or(std::ptr::null_mut())
 }
 
 #[no_mangle]

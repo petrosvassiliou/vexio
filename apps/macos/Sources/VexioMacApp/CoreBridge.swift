@@ -1657,6 +1657,17 @@ private final class NativeDocumentCore: @unchecked Sendable {
         return CGRect(x: x, y: y, width: w, height: h)
     }
 
+    func viewportScreenToPageIn(xPx: Double, yPx: Double) -> CGPoint? {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let activeViewport = viewport else { return nil }
+        var xIn = 0.0
+        var yIn = 0.0
+        let status = vexio_viewport_screen_to_page(activeViewport, xPx, yPx, &xIn, &yIn)
+        guard status == VEXIO_OK else { return nil }
+        return CGPoint(x: xIn, y: yIn)
+    }
+
     func getStateJSON(activePageId: UInt32) -> String {
         lock.lock()
         defer { lock.unlock() }
@@ -2508,6 +2519,39 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
 
     // MARK: - Stencil Instantiation, Primitive Drawing, Context-Menu Actions & Validation
 
+    @Published public var highlightedStencilMasterId: String = ""
+    public var activeDraggedStencilMasterId: String?
+    private var lastCenterDropAnchor: CGPoint?
+    private var centerDropCascadeStep: Int = 0
+
+    public func screenPxToPageInches(xPx: Double, yPx: Double) -> CGPoint {
+        if let pt = core.viewportScreenToPageIn(xPx: xPx, yPx: yPx) {
+            return pt
+        }
+        return CGPoint(x: 5.85, y: 4.13)
+    }
+
+    public func instantiateStencilMasterAtViewportCenter(
+        masterId: String,
+        undoManager: UndoManager?
+    ) {
+        highlightedStencilMasterId = masterId
+        let center = screenPxToPageInches(xPx: -1.0, yPx: -1.0)
+        if let prev = lastCenterDropAnchor,
+           hypot(center.x - prev.x, center.y - prev.y) < 0.05
+        {
+            centerDropCascadeStep = (centerDropCascadeStep + 1) % 6
+        } else {
+            lastCenterDropAnchor = center
+            centerDropCascadeStep = 0
+        }
+        let target = CGPoint(
+            x: center.x + CGFloat(centerDropCascadeStep) * 0.28,
+            y: center.y - CGFloat(centerDropCascadeStep) * 0.28
+        )
+        instantiateStencilMaster(masterId: masterId, atCanvasInches: target, undoManager: undoManager)
+    }
+
     public func instantiateStencilMaster(
         masterId: String,
         atCanvasInches point: CGPoint,
@@ -2520,8 +2564,8 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
             return
         }
 
-        let safeX = min(max(Double(point.x), 0.5), 10.5)
-        let safeY = min(max(Double(point.y), 0.5), 8.0)
+        let safeX = max(Double(point.x), 0.2)
+        let safeY = max(Double(point.y), 0.2)
 
         if let createdId = try? core.dropStencil(
             pageId: activePageId,
@@ -2533,6 +2577,7 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
             selectedShapeId = createdId
             selectedShapeIds = [createdId]
             activeTool = .pointer
+            core.setSelectionIds([createdId])
             registerJournalUndoStep(actionName: "Drop \(master.name)", undoManager: undoManager)
             reloadSelectedShapeSheetCells()
             syncSelectedShapeMetadataFromCore()

@@ -414,3 +414,184 @@ fn group_ungroup_preserves_connector_glues_world_routing_and_bpmn_validation() {
     assert!(sess.journal.redo(&mut sess.doc).unwrap());
     assert!(sess.validate("bpmn").is_empty());
 }
+
+#[test]
+fn exchange_server_rotate_button_click_drag_and_viewport_drop_regression() {
+    use std::ffi::CString;
+    use vexio_core::ffi::c_abi::*;
+
+    let title = CString::new("ExchangeRotateRegression").unwrap();
+    let cat = CString::new("Microsoft Servers & Active Directory").unwrap();
+    let master = CString::new("Exchange Server").unwrap();
+
+    // SAFETY: All C-ABI handles are created and destroyed within this test scope.
+    unsafe {
+        let engine = vexio_engine_create();
+        let doc = vexio_doc_create_blank(title.as_ptr());
+        let mut vp: *mut VexioViewport = std::ptr::null_mut();
+        // High-DPI Googlebook viewport (`1600 x 1000`, `dpi_scale = 2.0`)
+        assert_eq!(
+            vexio_viewport_create_headless(engine, doc, 1, 1600, 1000, 2.0, &mut vp),
+            VexioStatus::Ok
+        );
+
+        // 1. Verify `vexio_viewport_screen_to_page` center (-1, -1) & drop coordinate accuracy
+        let (mut cx_in, mut cy_in) = (0.0, 0.0);
+        assert_eq!(
+            vexio_viewport_screen_to_page(vp, -1.0, -1.0, &mut cx_in, &mut cy_in),
+            VexioStatus::Ok
+        );
+        assert!((cx_in - (*vp).camera.center_x_in).abs() < 1e-6);
+        assert!((cy_in - (*vp).camera.center_y_in).abs() < 1e-6);
+
+        let (mut drop_x, mut drop_y) = (0.0, 0.0);
+        assert_eq!(
+            vexio_viewport_screen_to_page(vp, 920.0, 480.0, &mut drop_x, &mut drop_y),
+            VexioStatus::Ok
+        );
+        let mut ex_sid = 0u64;
+        assert_eq!(
+            vexio_doc_drop_stencil(
+                doc,
+                1,
+                cat.as_ptr(),
+                master.as_ptr(),
+                drop_x,
+                drop_y,
+                &mut ex_sid
+            ),
+            VexioStatus::Ok
+        );
+        assert_eq!(ex_sid, 1);
+
+        // 2. Passing `[1, 2]` (root group + child subshape) MUST normalize to `[1]`!
+        let polluted = [1u64, 2u64];
+        assert_eq!(
+            vexio_viewport_set_selection(vp, doc, polluted.as_ptr(), polluted.len()),
+            VexioStatus::Ok
+        );
+        assert_eq!(
+            (*vp).selected_ids,
+            vec![1u64],
+            "child subshape IDs must be normalized to their top-level Group ID"
+        );
+
+        // 3. Single-clicking the `28 dp` circular `↻` Rotate button above `Exchange Server`
+        // MUST rotate `-90°` (`90°` clockwise) AND NEVER deselect `Exchange Server`!
+        let visuals = vexio_shapesheet::ReactiveEngine::evaluate_page_visuals(&(*doc).session.doc, 1);
+        let vis = visuals.iter().find(|v| v.shape_id == ex_sid).unwrap();
+        let rot_stem_len = 28.0 / (*vp).camera.zoom_ppi.max(1.0);
+        let (rx_in, ry_in) = vis
+            .transform
+            .local_to_parent(vis.transform.width * 0.5, vis.transform.height + rot_stem_len);
+        let [rx_px, ry_px] = (*vp).camera.page_in_to_screen(rx_in, ry_in);
+
+        let mut cursor = 0u32;
+        let down = VexioPointerEvent {
+            kind: 1,
+            buttons: 1,
+            modifiers: 0,
+            x_px: rx_px,
+            y_px: ry_px,
+            pressure: 0.5,
+            tilt_x_deg: 0.0,
+            tilt_y_deg: 0.0,
+            timestamp_us: 1000,
+        };
+        let up = VexioPointerEvent {
+            kind: 2,
+            buttons: 0,
+            ..down
+        };
+        assert_eq!(
+            vexio_viewport_dispatch_pointer(vp, doc, &down, &mut cursor),
+            VexioStatus::Ok
+        );
+        assert_eq!(cursor, 13, "pressing `↻` Rotate button must return Rotate cursor (13)");
+        assert_eq!(
+            vexio_viewport_dispatch_pointer(vp, doc, &up, &mut cursor),
+            VexioStatus::Ok
+        );
+        assert_eq!(
+            vexio_viewport_get_primary_selection(vp),
+            ex_sid,
+            "clicking `↻` Rotate button must keep Exchange Server selected"
+        );
+        let ang_after_click = (*doc)
+            .session
+            .doc
+            .page(1)
+            .unwrap()
+            .find_shape(ex_sid)
+            .unwrap()
+            .sheet
+            .get_f64("Angle")
+            .unwrap()
+            .to_degrees();
+        assert!(
+            (ang_after_click + 90.0).abs() < 0.5,
+            "single-clicking `↻` Rotate button must rotate 90° clockwise (-90°), got {ang_after_click}"
+        );
+
+        // 4. Now drag the rotated `↻` Rotate button back to 0° (above original PinX, PinY + 1.5 in)!
+        let visuals2 = vexio_shapesheet::ReactiveEngine::evaluate_page_visuals(&(*doc).session.doc, 1);
+        let vis2 = visuals2.iter().find(|v| v.shape_id == ex_sid).unwrap();
+        let (rx2_in, ry2_in) = vis2
+            .transform
+            .local_to_parent(vis2.transform.width * 0.5, vis2.transform.height + rot_stem_len);
+        let [rx2_px, ry2_px] = (*vp).camera.page_in_to_screen(rx2_in, ry2_in);
+        let [top_px, top_py] = (*vp).camera.page_in_to_screen(drop_x, drop_y + 1.5);
+
+        let down2 = VexioPointerEvent {
+            x_px: rx2_px,
+            y_px: ry2_px,
+            ..down
+        };
+        let drag_mv = VexioPointerEvent {
+            kind: 0,
+            x_px: top_px,
+            y_px: top_py,
+            ..down2
+        };
+        let up2 = VexioPointerEvent {
+            kind: 2,
+            buttons: 0,
+            x_px: top_px,
+            y_px: top_py,
+            ..down2
+        };
+        assert_eq!(
+            vexio_viewport_dispatch_pointer(vp, doc, &down2, &mut cursor),
+            VexioStatus::Ok
+        );
+        assert_eq!(cursor, 13, "pressing rotated `↻` button must hit RotateShape (13)");
+        assert_eq!(
+            vexio_viewport_dispatch_pointer(vp, doc, &drag_mv, &mut cursor),
+            VexioStatus::Ok
+        );
+        assert_eq!(
+            vexio_viewport_dispatch_pointer(vp, doc, &up2, &mut cursor),
+            VexioStatus::Ok
+        );
+        assert_eq!(vexio_viewport_get_primary_selection(vp), ex_sid);
+        let ang_after_drag = (*doc)
+            .session
+            .doc
+            .page(1)
+            .unwrap()
+            .find_shape(ex_sid)
+            .unwrap()
+            .sheet
+            .get_f64("Angle")
+            .unwrap()
+            .to_degrees();
+        assert!(
+            ang_after_drag.abs() < 1.0,
+            "dragging rotated `↻` button back to 12 o'clock must set Angle ~0°, got {ang_after_drag}"
+        );
+
+        vexio_viewport_destroy(vp);
+        vexio_doc_destroy(doc);
+        vexio_engine_destroy(engine);
+    }
+}

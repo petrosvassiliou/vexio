@@ -226,8 +226,10 @@ pub fn reconcile_containers_and_swimlanes_after_move(
             .copied()
             .filter(|&id| {
                 page.find_shape(id).is_some_and(|sh| {
-                    matches!(sh.kind, ShapeKind::Shape2D | ShapeKind::Group)
-                        && !is_container_shape(sh)
+                    matches!(
+                        sh.kind,
+                        ShapeKind::Shape2D | ShapeKind::Group | ShapeKind::ForeignObject
+                    ) && !is_container_shape(sh)
                         && !is_swimlane_shape(sh)
                         && !is_callout_shape(sh)
                 })

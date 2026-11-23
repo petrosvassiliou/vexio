@@ -1639,7 +1639,10 @@ impl WasmVexioSession {
                         } else {
                             Vec::new()
                         };
-                        let (ports, port_cells) = if matches!(s.kind, ShapeKind::Shape2D | ShapeKind::Group) {
+                        let (ports, port_cells) = if matches!(
+                            s.kind,
+                            ShapeKind::Shape2D | ShapeKind::Group | ShapeKind::ForeignObject
+                        ) {
                             if let Some(v) = vis_by_id.get(&s.id) {
                                 let pts: Vec<[f64; 2]> =
                                     v.connection_points.iter().map(|cp| cp.pos_page_in).collect();

@@ -1066,28 +1066,41 @@ private struct VexioStencilNavigatorSidebar: View {
         .padding(6)
         .background(
             RoundedRectangle(cornerRadius: 9, style: .continuous)
-                .fill(Color.primary.opacity(0.045))
+                .fill(
+                    session.highlightedStencilMasterId == master.id
+                        ? Color.accentColor.opacity(0.14)
+                        : Color.primary.opacity(0.045)
+                )
         )
         .overlay(
             RoundedRectangle(cornerRadius: 9, style: .continuous)
-                .strokeBorder(Color.primary.opacity(0.09), lineWidth: 0.8)
+                .strokeBorder(
+                    session.highlightedStencilMasterId == master.id
+                        ? Color.accentColor
+                        : Color.primary.opacity(0.09),
+                    lineWidth: session.highlightedStencilMasterId == master.id ? 1.5 : 0.8
+                )
         )
         .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
-        .onTapGesture {
-            session.instantiateStencilMaster(
+        .onTapGesture(count: 2) {
+            session.instantiateStencilMasterAtViewportCenter(
                 masterId: master.id,
-                atCanvasInches: CGPoint(x: 4.50, y: 4.50),
                 undoManager: undoManager
             )
         }
+        .onTapGesture(count: 1) {
+            session.highlightedStencilMasterId = master.id
+        }
         .onDrag {
-            NSItemProvider(object: master.id as NSString)
+            session.activeDraggedStencilMasterId = master.id
+            let provider = NSItemProvider(object: master.id as NSString)
+            provider.suggestedName = master.name
+            return provider
         }
         .contextMenu {
             Button("Add '\(master.name)' to Center of Page") {
-                session.instantiateStencilMaster(
+                session.instantiateStencilMasterAtViewportCenter(
                     masterId: master.id,
-                    atCanvasInches: CGPoint(x: 5.50, y: 4.25),
                     undoManager: undoManager
                 )
             }

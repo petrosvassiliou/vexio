@@ -673,8 +673,8 @@ class NativeBridgePacketTest {
         assertEquals(22, vm.uiState.value.stencilCategories.size)
         assertTrue(vm.uiState.value.stencilMasters.isNotEmpty())
         assertTrue(
-            "Expected 0.3.6-alpha in updateStatusMessage, got: ${vm.uiState.value.updateStatusMessage}",
-            vm.uiState.value.updateStatusMessage.contains("0.3.6-alpha")
+            "Expected 0.3.7-alpha in updateStatusMessage, got: ${vm.uiState.value.updateStatusMessage}",
+            vm.uiState.value.updateStatusMessage.contains("0.3.7-alpha")
         )
 
         val sampleNativeJson = """
@@ -722,6 +722,37 @@ class NativeBridgePacketTest {
         val nextStepId = vm.autoConnectSelected("east")
         assertTrue(nextStepId > calloutId)
         assertEquals(listOf(nextStepId), vm.uiState.value.selectedShapeIds)
+    }
+
+    @Test
+    fun v037I18nAndViewportCenterDropCascadeWorkDeterministically() {
+        val vm = VexioSessionViewModel()
+        for (lang in VexioAppLanguage.entries) {
+            assertTrue(com.vexio.ui.i18n.VexioI18n.startHeroSubtitle(lang).isNotBlank())
+            assertTrue(com.vexio.ui.i18n.VexioI18n.blankA4LandscapeTitle(lang).isNotBlank())
+            assertTrue(com.vexio.ui.i18n.VexioI18n.autoCheckUpdatesCheckbox(lang).isNotBlank())
+            assertTrue(
+                com.vexio.ui.i18n.VexioI18n.localizeUpdateStatus(
+                    "Offline mode active • Update check skipped cleanly",
+                    null,
+                    lang
+                ).isNotBlank()
+            )
+        }
+        assertEquals(
+            "Leeres ISO A4 Querformat",
+            com.vexio.ui.i18n.VexioI18n.blankA4LandscapeTitle(VexioAppLanguage.DE)
+        )
+        val firstMaster = vm.uiState.value.stencilMasters.first()
+        vm.dropStencilAtViewportCenter(firstMaster)
+        val id1 = vm.uiState.value.selectedShapeId
+        assertEquals(listOf(id1), vm.uiState.value.selectedShapeIds)
+        val pinX1 = vm.uiState.value.shapeSheetCells.first { it.cellName == "PinX" }.formula
+        vm.dropStencilAtViewportCenter(firstMaster)
+        val id2 = vm.uiState.value.selectedShapeId
+        assertTrue(id2 != id1)
+        val pinX2 = vm.uiState.value.shapeSheetCells.first { it.cellName == "PinX" }.formula
+        assertTrue("Expected cascaded PinX on consecutive double-click drops: $pinX1 vs $pinX2", pinX1 != pinX2)
     }
 }
 

@@ -105,7 +105,9 @@ pub fn route_page_connectors(doc: &mut VisioDocument, page_id: u32) {
         for sid in sub_ids {
             top_of_id.insert(sid, s.id);
         }
-        if s.kind == ShapeKind::Shape2D || (s.kind == ShapeKind::Group && s.master_id.is_some()) {
+        if matches!(s.kind, ShapeKind::Shape2D | ShapeKind::ForeignObject)
+            || (s.kind == ShapeKind::Group && s.master_id.is_some())
+        {
             let px = s.sheet.get_f64("PinX").unwrap_or(0.0);
             let py = s.sheet.get_f64("PinY").unwrap_or(0.0);
             let w = s.sheet.get_f64("Width").unwrap_or(1.0);
@@ -126,7 +128,10 @@ pub fn route_page_connectors(doc: &mut VisioDocument, page_id: u32) {
             shape_centers.insert(s.id, ([px, py], [w, h]));
         } else if s.kind == ShapeKind::Group {
             for ch in &s.children {
-                if matches!(ch.kind, ShapeKind::Shape2D | ShapeKind::Group) {
+                if matches!(
+                    ch.kind,
+                    ShapeKind::Shape2D | ShapeKind::Group | ShapeKind::ForeignObject
+                ) {
                     if let Some(wtf) = world_transforms.get(&ch.id) {
                         let min_x = wtf.pin_x - wtf.loc_pin_x;
                         let min_y = wtf.pin_y - wtf.loc_pin_y;

@@ -3754,8 +3754,10 @@ impl DocumentSession {
                             .page(page_id)
                             .and_then(|p| p.find_shape(cand_id))
                             .is_some_and(|cand| {
-                                matches!(cand.kind, ShapeKind::Shape2D | ShapeKind::Group)
-                                    && !crate::containers::is_swimlane_shape(cand)
+                                matches!(
+                                    cand.kind,
+                                    ShapeKind::Shape2D | ShapeKind::Group | ShapeKind::ForeignObject
+                                ) && !crate::containers::is_swimlane_shape(cand)
                                     && !crate::containers::is_callout_shape(cand)
                             })
                 })
@@ -3841,7 +3843,10 @@ impl DocumentSession {
         if let Some(page) = self.doc.page(page_id) {
             for cand in &page.shapes {
                 if cand.id == source_shape_id
-                    || !matches!(cand.kind, ShapeKind::Shape2D | ShapeKind::Group)
+                    || !matches!(
+                        cand.kind,
+                        ShapeKind::Shape2D | ShapeKind::Group | ShapeKind::ForeignObject
+                    )
                     || crate::containers::is_container_shape(cand)
                     || crate::containers::is_swimlane_shape(cand)
                     || crate::containers::is_callout_shape(cand)

@@ -1,6 +1,6 @@
 {
   "name": "vexio-chromeos-pwa",
-  "version": "0.3.6-alpha",
+  "version": "0.3.7-alpha",
   "private": true,
   "type": "module",
   "description": "Vexio — 1:1 Microsoft Visio Parity Offline-First Firebase ChromeOS Workstation PWA",

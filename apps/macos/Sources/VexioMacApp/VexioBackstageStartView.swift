@@ -52,14 +52,97 @@ public struct VexioBackstageStartView: View {
         }
     }
 
-    private let starterTemplates: [(id: String, title: String, subtitle: String, icon: String)] = [
-        ("flowchart", "Basic Flowchart", "Process, decision & data flow", "arrow.triangle.branch"),
-        ("bpmn", "BPMN 2.0 Process", "Gateways, tasks & sequence flows", "point.3.connected.trianglepath.dotted"),
-        ("network", "Network & Server Rack", "Firewalls, switches, AD & M365", "server.rack"),
-        ("floorplan", "Architectural Floor Plan", "Metric / scaled rooms & walls", "ruler"),
-        ("orgchart", "Organization Chart", "Executive & team reporting tree", "person.3.sequence"),
-        ("uml", "UML 2.5 Architecture", "Classes, interfaces & components", "square.stack.3d.up"),
-    ]
+    private var starterTemplates: [(id: String, title: String, subtitle: String, icon: String)] {
+        switch i18n.language {
+        case .de:
+            return [
+                ("flowchart", "Standard-Flussdiagramm", "Prozess-, Entscheidungs- & Datenfluss", "arrow.triangle.branch"),
+                ("bpmn", "BPMN-2.0-Prozess", "Gateways, Aufgaben & Sequenzflüsse", "point.3.connected.trianglepath.dotted"),
+                ("network", "Netzwerk- & Server-Rack", "Firewalls, Switches, AD & M365", "server.rack"),
+                ("floorplan", "Architektur-Grundriss", "Metrische Räume, Racks & Wände", "ruler"),
+                ("orgchart", "Organigramm", "Führungs- & Teamstruktur", "person.3.sequence"),
+                ("uml", "UML-2.5-Architektur", "Klassen, Schnittstellen & Komponenten", "square.stack.3d.up"),
+            ]
+        case .it:
+            return [
+                ("flowchart", "Diagramma di flusso", "Processi, decisioni e flussi dati", "arrow.triangle.branch"),
+                ("bpmn", "Processo BPMN 2.0", "Gateway, attività e flussi di sequenza", "point.3.connected.trianglepath.dotted"),
+                ("network", "Rete e Server Rack", "Firewall, switch, AD e M365", "server.rack"),
+                ("floorplan", "Planimetria architettonica", "Stanze e pareti in scala metrica", "ruler"),
+                ("orgchart", "Organigramma", "Struttura gerarchica aziendale", "person.3.sequence"),
+                ("uml", "Architettura UML 2.5", "Classi, interfacce e componenti", "square.stack.3d.up"),
+            ]
+        case .fr:
+            return [
+                ("flowchart", "Organigramme de flux", "Processus, décisions et flux de données", "arrow.triangle.branch"),
+                ("bpmn", "Processus BPMN 2.0", "Passerelles, tâches et flux séquentiels", "point.3.connected.trianglepath.dotted"),
+                ("network", "Réseau et baie serveur", "Pare-feu, commutateurs, AD et M365", "server.rack"),
+                ("floorplan", "Plan d’étage architectural", "Pièces et murs à l’échelle métrique", "ruler"),
+                ("orgchart", "Organigramme hiérarchique", "Direction et équipes", "person.3.sequence"),
+                ("uml", "Architecture UML 2.5", "Classes, interfaces et composants", "square.stack.3d.up"),
+            ]
+        case .es:
+            return [
+                ("flowchart", "Diagrama de flujo", "Procesos, decisiones y flujo de datos", "arrow.triangle.branch"),
+                ("bpmn", "Proceso BPMN 2.0", "Compuertas, tareas y flujos de secuencia", "point.3.connected.trianglepath.dotted"),
+                ("network", "Red y rack de servidores", "Firewalls, switches, AD y M365", "server.rack"),
+                ("floorplan", "Plano arquitectónico", "Salas y muros a escala métrica", "ruler"),
+                ("orgchart", "Organigrama", "Estructura directiva y de equipos", "person.3.sequence"),
+                ("uml", "Arquitectura UML 2.5", "Clases, interfaces y componentes", "square.stack.3d.up"),
+            ]
+        case .el:
+            return [
+                ("flowchart", "Διάγραμμα ροής", "Διαδικασίες, αποφάσεις & ροή δεδομένων", "arrow.triangle.branch"),
+                ("bpmn", "Διαδικασία BPMN 2.0", "Πύλες, εργασίες & ροές ακολουθίας", "point.3.connected.trianglepath.dotted"),
+                ("network", "Δίκτυο & Server Rack", "Τείχη προστασίας, switches, AD & M365", "server.rack"),
+                ("floorplan", "Αρχιτεκτονική κάτοψη", "Χώροι & τοίχοι σε μετρική κλίμακα", "ruler"),
+                ("orgchart", "Οργανόγραμμα", "Διοικητική ιεραρχία & ομάδες", "person.3.sequence"),
+                ("uml", "Αρχιτεκτονική UML 2.5", "Κλάσεις, διεπαφές & στοιχεία", "square.stack.3d.up"),
+            ]
+        case .en:
+            return [
+                ("flowchart", "Basic Flowchart", "Process, decision & data flow", "arrow.triangle.branch"),
+                ("bpmn", "BPMN 2.0 Process", "Gateways, tasks & sequence flows", "point.3.connected.trianglepath.dotted"),
+                ("network", "Network & Server Rack", "Firewalls, switches, AD & M365", "server.rack"),
+                ("floorplan", "Architectural Floor Plan", "Metric / scaled rooms & walls", "ruler"),
+                ("orgchart", "Organization Chart", "Executive & team reporting tree", "person.3.sequence"),
+                ("uml", "UML 2.5 Architecture", "Classes, interfaces & components", "square.stack.3d.up"),
+            ]
+        }
+    }
+
+    private var dropZoneHint: String {
+        switch i18n.language {
+        case .de: return ".vsdx-, .vssx-, .vsd- oder .dwg-Datei hier ablegen"
+        case .it: return "Rilascia qui file .vsdx, .vssx, .vsd o .dwg"
+        case .fr: return "Déposez un fichier .vsdx, .vssx, .vsd ou .dwg ici"
+        case .es: return "Suelte aquí archivos .vsdx, .vssx, .vsd o .dwg"
+        case .el: return "Αποθέστε εδώ αρχεία .vsdx, .vssx, .vsd ή .dwg"
+        case .en: return "Drop .vsdx, .vssx, .vsd, or .dwg here"
+        }
+    }
+
+    private var metricLabelWord: String {
+        switch i18n.language {
+        case .de: return "Metrisch"
+        case .it: return "Metrico"
+        case .fr: return "Métrique"
+        case .es: return "Métrico"
+        case .el: return "Μετρικό"
+        case .en: return "Metric"
+        }
+    }
+
+    private var imperialLabelWord: String {
+        switch i18n.language {
+        case .de: return "Zoll"
+        case .it: return "Imperiale"
+        case .fr: return "Impérial"
+        case .es: return "Imperial"
+        case .el: return "Ίντσες"
+        case .en: return "Imperial"
+        }
+    }
 
     public var body: some View {
         ZStack {
@@ -240,7 +323,7 @@ public struct VexioBackstageStartView: View {
                                         Image(systemName: "arrow.down.doc")
                                             .font(.system(size: 20))
                                             .foregroundStyle(.secondary)
-                                        Text("Drop .vsdx, .vssx, .vsd, or .dwg here")
+                                        Text(dropZoneHint)
                                             .font(.system(size: 11))
                                             .foregroundStyle(.secondary)
                                             .multilineTextAlignment(.center)
@@ -314,19 +397,19 @@ public struct VexioBackstageStartView: View {
                             ) {
                                 blankSheetCard(
                                     title: i18n.t("newBlankA4"),
-                                    subtitle: "297 × 210 mm • Metric",
+                                    subtitle: "297 × 210 mm • \(metricLabelWord)",
                                     preset: .a4,
                                     badge: i18n.unitPreference.isMetric ? "DEFAULT" : "ISO"
                                 )
                                 blankSheetCard(
                                     title: i18n.t("newBlankA3"),
-                                    subtitle: "420 × 297 mm • Metric",
+                                    subtitle: "420 × 297 mm • \(metricLabelWord)",
                                     preset: .a3,
                                     badge: "ISO"
                                 )
                                 blankSheetCard(
                                     title: i18n.t("newBlankLetter"),
-                                    subtitle: "11 × 8.5 in • Imperial",
+                                    subtitle: "11 × 8.5 in • \(imperialLabelWord)",
                                     preset: .letter,
                                     badge: !i18n.unitPreference.isMetric ? "DEFAULT" : "ANSI"
                                 )

@@ -219,53 +219,63 @@ impl NativeResizeHandle {
 }
 
 fn hit_test_selection_grips(
-    doc: &VisioDocument,
-    page_id: u32,
+    visuals: &[vexio_shapesheet::EvaluatedShapeVisual],
     selected_id: u64,
     page_pt: [f64; 2],
     logical_ppi: f64,
 ) -> Option<Result<NativeResizeHandle, ()>> {
-    let sh = doc.page(page_id)?.find_shape(selected_id)?;
-    if !matches!(sh.kind, ShapeKind::Shape2D | ShapeKind::Group) {
+    let vis = visuals.iter().find(|v| v.shape_id == selected_id)?;
+    if !matches!(
+        vis.kind,
+        ShapeKind::Shape2D | ShapeKind::Group | ShapeKind::ForeignObject
+    ) {
         return None;
     }
-    let px = sh.sheet.get_f64("PinX").unwrap_or(0.0);
-    let py = sh.sheet.get_f64("PinY").unwrap_or(0.0);
-    let w = sh.sheet.get_f64("Width").unwrap_or(1.0);
-    let h = sh.sheet.get_f64("Height").unwrap_or(1.0);
-    let ang = sh.sheet.get_f64("Angle").unwrap_or(0.0);
-
-    // Transform `page_pt` into unrotated shape-centered coordinates
-    let dx = page_pt[0] - px;
-    let dy = page_pt[1] - py;
-    let (s, c) = (-ang).sin_cos();
-    let lx = dx * c - dy * s;
-    let ly = dx * s + dy * c;
-
+    let tf = &vis.transform;
     let ppi = logical_ppi.max(1.0);
-    // Matches `tessellate_selection_handles` (`rot_stem_len = 28.0 / ppi`, `rot_radius = 11.0 / ppi`)
-    // with a generous 15 dp (`30 dp` diameter) hit target for mouse, stylus, and finger touch!
-    let rot_offset = 28.0 / ppi;
-    let rot_hit_radius = 15.0 / ppi;
-    if lx.hypot(ly - (h * 0.5 + rot_offset)) <= rot_hit_radius {
+
+    // Exact match to `tessellate_selection_handles` (`rot_stem_len = 28.0 / ppi`, `rot_radius = 11.0 / ppi`)
+    // using `vis.transform.local_to_parent(...)` so non-centered `LocPinX`/`LocPinY`, `FlipX`/`FlipY`,
+    // master-inherited dimensions, and rotated `Group` stencils hit with 0.00 px discrepancy!
+    let rot_stem_len = 28.0 / ppi;
+    let up_pt: [f64; 2] = tf
+        .local_to_parent(tf.width * 0.5, tf.height + rot_stem_len)
+        .into();
+    // Generous 18 dp (`36 dp` diameter) hit target around the `22 dp` circular `↻` button + stem!
+    let rot_hit_radius = 18.0 / ppi;
+    if (page_pt[0] - up_pt[0]).hypot(page_pt[1] - up_pt[1]) <= rot_hit_radius {
         return Some(Err(())); // Rotation button (`↻`)!
     }
+    let (lx, ly) = tf.parent_to_local(page_pt[0], page_pt[1]);
+    if (lx - tf.width * 0.5).abs() <= 11.0 / ppi
+        && ly >= tf.height + 7.5 / ppi
+        && ly <= tf.height + rot_stem_len + rot_hit_radius
+    {
+        return Some(Err(())); // Rotation stem directly beneath `↻`!
+    }
 
-    let tol_in = 10.0 / ppi;
-    let hw = w * 0.5;
-    let hh = h * 0.5;
+    let c00: [f64; 2] = tf.local_to_parent(0.0, 0.0).into();
+    let c10: [f64; 2] = tf.local_to_parent(tf.width, 0.0).into();
+    let c11: [f64; 2] = tf.local_to_parent(tf.width, tf.height).into();
+    let c01: [f64; 2] = tf.local_to_parent(0.0, tf.height).into();
+    let top_mid = [(c01[0] + c11[0]) * 0.5, (c01[1] + c11[1]) * 0.5];
+    let bot_mid = [(c00[0] + c10[0]) * 0.5, (c00[1] + c10[1]) * 0.5];
+    let left_mid = [(c00[0] + c01[0]) * 0.5, (c00[1] + c01[1]) * 0.5];
+    let right_mid = [(c10[0] + c11[0]) * 0.5, (c10[1] + c11[1]) * 0.5];
+
+    let tol_in = 11.0 / ppi;
     let grips = [
-        (NativeResizeHandle::NW, -hw, hh),
-        (NativeResizeHandle::NE, hw, hh),
-        (NativeResizeHandle::SE, hw, -hh),
-        (NativeResizeHandle::SW, -hw, -hh),
-        (NativeResizeHandle::N, 0.0, hh),
-        (NativeResizeHandle::E, hw, 0.0),
-        (NativeResizeHandle::S, 0.0, -hh),
-        (NativeResizeHandle::W, -hw, 0.0),
+        (NativeResizeHandle::SW, c00),
+        (NativeResizeHandle::SE, c10),
+        (NativeResizeHandle::NE, c11),
+        (NativeResizeHandle::NW, c01),
+        (NativeResizeHandle::N, top_mid),
+        (NativeResizeHandle::S, bot_mid),
+        (NativeResizeHandle::W, left_mid),
+        (NativeResizeHandle::E, right_mid),
     ];
-    for (dir, gx, gy) in grips {
-        if (lx - gx).hypot(ly - gy) <= tol_in {
+    for (dir, gp) in grips {
+        if (page_pt[0] - gp[0]).hypot(page_pt[1] - gp[1]) <= tol_in {
             return Some(Ok(dir));
         }
     }
@@ -370,7 +380,11 @@ fn hit_test_autoconnect_triangles(
     logical_ppi: f64,
 ) -> Option<(vexio_render::AutoConnectDir, [f64; 2])> {
     let vis = visuals.iter().find(|v| v.shape_id == shape_id)?;
-    if !matches!(vis.kind, ShapeKind::Shape2D | ShapeKind::Group) || vis.is_swimlane {
+    if !matches!(
+        vis.kind,
+        ShapeKind::Shape2D | ShapeKind::Group | ShapeKind::ForeignObject
+    ) || vis.is_swimlane
+    {
         return None;
     }
     let ppi = logical_ppi.max(1.0);
@@ -514,10 +528,12 @@ pub enum NativeDragState {
     },
     RotateShape {
         shape_id: u64,
+        start_page: [f64; 2],
         orig_pin: [f64; 2],
         orig_size: [f64; 2],
         orig_angle_deg: f64,
         cur_angle_deg: f64,
+        dragged: bool,
     },
     DragConnectorEndpoint {
         shape_id: u64,
@@ -762,7 +778,52 @@ impl VexioViewport {
                             }
                         }
 
-                        // 2a. Check Yellow Diamond `Controls.*` Handles & 4 Directional AutoConnect Triangles!
+                        // 2a. Check 8-Handle Resize Grips & Top `↻` Rotation Button FIRST across all selected 2D/Group shapes!
+                        for &cand_sid in self.selected_ids.iter().rev() {
+                            if let Some(grip_hit) = hit_test_selection_grips(
+                                &visuals,
+                                cand_sid,
+                                page_pt,
+                                logical_ppi,
+                            ) {
+                                if let Some(vis) = visuals.iter().find(|v| v.shape_id == cand_sid) {
+                                    let ox = vis.transform.pin_x;
+                                    let oy = vis.transform.pin_y;
+                                    let ow = vis.transform.width.max(0.1);
+                                    let oh = vis.transform.height.max(0.1);
+                                    let oa = vis.transform.angle_rad.to_degrees();
+                                    match grip_hit {
+                                        Ok(handle) => {
+                                            self.drag_state = Some(NativeDragState::ResizeShape {
+                                                shape_id: cand_sid,
+                                                handle,
+                                                start_page: page_pt,
+                                                orig_pin: [ox, oy],
+                                                orig_size: [ow, oh],
+                                                orig_angle_deg: oa,
+                                                cur_pin: [ox, oy],
+                                                cur_size: [ow, oh],
+                                            });
+                                            return handle.cursor_code();
+                                        }
+                                        Err(()) => {
+                                            self.drag_state = Some(NativeDragState::RotateShape {
+                                                shape_id: cand_sid,
+                                                start_page: page_pt,
+                                                orig_pin: [ox, oy],
+                                                orig_size: [ow, oh],
+                                                orig_angle_deg: oa,
+                                                cur_angle_deg: oa,
+                                                dragged: false,
+                                            });
+                                            return 13;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // 2b. Check Yellow Diamond `Controls.*` Handles & 4 Directional AutoConnect Triangles!
                         if self.selected_ids.len() == 1 {
                             let primary_sid = self.selected_ids[0];
                             if let Some((row_name, ctrl_pt)) = hit_test_control_handles(
@@ -825,54 +886,6 @@ impl VexioViewport {
                                 });
                                 self.present_if_attached(&session.doc);
                                 return 2;
-                            }
-                        }
-
-                        // 2b. Check 8-Handle Resize Grips & Top Rotation Knob on primary selected 2D shape!
-                        if let Some(&primary_sid) = self.selected_ids.first() {
-                            if let Some(grip_hit) = hit_test_selection_grips(
-                                &session.doc,
-                                pid,
-                                primary_sid,
-                                page_pt,
-                                logical_ppi,
-                            ) {
-                                if let Some(sh) = session
-                                    .doc
-                                    .page(pid)
-                                    .and_then(|p| p.find_shape(primary_sid))
-                                {
-                                    let ox = sh.sheet.get_f64("PinX").unwrap_or(page_pt[0]);
-                                    let oy = sh.sheet.get_f64("PinY").unwrap_or(page_pt[1]);
-                                    let ow = sh.sheet.get_f64("Width").unwrap_or(1.0);
-                                    let oh = sh.sheet.get_f64("Height").unwrap_or(1.0);
-                                    let oa = sh.sheet.get_f64("Angle").unwrap_or(0.0).to_degrees();
-                                    match grip_hit {
-                                        Ok(handle) => {
-                                            self.drag_state = Some(NativeDragState::ResizeShape {
-                                                shape_id: primary_sid,
-                                                handle,
-                                                start_page: page_pt,
-                                                orig_pin: [ox, oy],
-                                                orig_size: [ow, oh],
-                                                orig_angle_deg: oa,
-                                                cur_pin: [ox, oy],
-                                                cur_size: [ow, oh],
-                                            });
-                                            return handle.cursor_code();
-                                        }
-                                        Err(()) => {
-                                            self.drag_state = Some(NativeDragState::RotateShape {
-                                                shape_id: primary_sid,
-                                                orig_pin: [ox, oy],
-                                                orig_size: [ow, oh],
-                                                orig_angle_deg: oa,
-                                                cur_angle_deg: oa,
-                                            });
-                                            return 13;
-                                        }
-                                    }
-                                }
                             }
                         }
 
@@ -1162,30 +1175,40 @@ impl VexioViewport {
                         }
                         NativeDragState::RotateShape {
                             shape_id,
+                            start_page,
                             orig_pin,
                             cur_angle_deg,
+                            dragged,
                             ..
                         } => {
-                            let rad = (page_pt[1] - orig_pin[1]).atan2(page_pt[0] - orig_pin[0])
-                                - std::f64::consts::FRAC_PI_2;
-                            let deg = if is_alt {
-                                rad.to_degrees()
-                            } else {
-                                (rad.to_degrees() / 5.0).round() * 5.0
-                            };
-                            *cur_angle_deg = deg;
-                            if let Some(page) = session.doc.page_mut(pid) {
-                                if let Some(sh) = page.find_shape_mut(*shape_id) {
-                                    let _ = sh.sheet.try_set_formula_respecting_guard(
-                                        "Angle",
-                                        format!("{} deg", format_clean_f64(deg)),
-                                        false,
-                                    );
-                                }
+                            if !*dragged
+                                && (page_pt[0] - start_page[0]).hypot(page_pt[1] - start_page[1])
+                                    >= (4.0 / eff_ppi.max(12.0)).max(0.025)
+                            {
+                                *dragged = true;
                             }
-                            ReactiveEngine::recalculate_document(&mut session.doc);
-                            route_page_connectors(&mut session.doc, pid);
-                            self.present_if_attached(&session.doc);
+                            if *dragged {
+                                let rad = (page_pt[1] - orig_pin[1]).atan2(page_pt[0] - orig_pin[0])
+                                    - std::f64::consts::FRAC_PI_2;
+                                let deg = if is_alt {
+                                    rad.to_degrees()
+                                } else {
+                                    (rad.to_degrees() / 5.0).round() * 5.0
+                                };
+                                *cur_angle_deg = deg;
+                                if let Some(page) = session.doc.page_mut(pid) {
+                                    if let Some(sh) = page.find_shape_mut(*shape_id) {
+                                        let _ = sh.sheet.try_set_formula_respecting_guard(
+                                            "Angle",
+                                            format!("{} deg", format_clean_f64(deg)),
+                                            false,
+                                        );
+                                    }
+                                }
+                                ReactiveEngine::recalculate_document(&mut session.doc);
+                                route_page_connectors(&mut session.doc, pid);
+                                self.present_if_attached(&session.doc);
+                            }
                             return 13;
                         }
                         NativeDragState::MoveShapes {
@@ -1483,6 +1506,20 @@ impl VexioViewport {
                     }
                     self.present_if_attached(&session.doc);
                 } else if self.active_tool == NativeCanvasTool::Select {
+                    for &cand_sid in self.selected_ids.iter().rev() {
+                        if let Some(grip_hit) =
+                            hit_test_selection_grips(&visuals, cand_sid, page_pt, logical_ppi)
+                        {
+                            if self.overlay.hovered_autoconnect.is_some() {
+                                self.overlay.hovered_autoconnect = None;
+                                self.present_if_attached(&session.doc);
+                            }
+                            return match grip_hit {
+                                Ok(handle) => handle.cursor_code(),
+                                Err(()) => 13,
+                            };
+                        }
+                    }
                     let next_hov = if self.selected_ids.len() == 1 {
                         let psid = self.selected_ids[0];
                         hit_test_autoconnect_triangles(&visuals, psid, page_pt, logical_ppi)
@@ -1493,6 +1530,12 @@ impl VexioViewport {
                     if self.overlay.hovered_autoconnect != next_hov {
                         self.overlay.hovered_autoconnect = next_hov;
                         self.present_if_attached(&session.doc);
+                    }
+                    if next_hov.is_some() {
+                        return 2;
+                    }
+                    if top_hit.is_some() {
+                        return 1;
                     }
                 }
             }
@@ -1551,25 +1594,39 @@ impl VexioViewport {
                             orig_size,
                             orig_angle_deg,
                             cur_angle_deg,
+                            dragged,
+                            ..
                         } => {
-                            if let Some(page) = session.doc.page_mut(pid) {
-                                if let Some(sh) = page.find_shape_mut(shape_id) {
-                                    sh.sheet.set_formula(
-                                        "Angle",
-                                        format!("{} deg", format_clean_f64(orig_angle_deg)),
-                                        Some(vexio_shapesheet::Unit::Degree),
-                                    );
+                            if dragged {
+                                if let Some(page) = session.doc.page_mut(pid) {
+                                    if let Some(sh) = page.find_shape_mut(shape_id) {
+                                        sh.sheet.set_formula(
+                                            "Angle",
+                                            format!("{} deg", format_clean_f64(orig_angle_deg)),
+                                            Some(vexio_shapesheet::Unit::Degree),
+                                        );
+                                    }
                                 }
+                                let _ = session.transform_shape(
+                                    pid,
+                                    shape_id,
+                                    orig_pin[0],
+                                    orig_pin[1],
+                                    orig_size[0],
+                                    orig_size[1],
+                                    cur_angle_deg,
+                                );
+                            } else {
+                                // Single click/tap on the `↻` Rotate button rotates 90° clockwise (`-90°` CCW)
+                                // while keeping the shape selected!
+                                let _ = session.rotate_or_flip_shapes(
+                                    pid,
+                                    &[shape_id],
+                                    -90.0,
+                                    false,
+                                    false,
+                                );
                             }
-                            let _ = session.transform_shape(
-                                pid,
-                                shape_id,
-                                orig_pin[0],
-                                orig_pin[1],
-                                orig_size[0],
-                                orig_size[1],
-                                cur_angle_deg,
-                            );
                         }
                         NativeDragState::MoveShapes {
                             shape_ids,
@@ -1991,21 +2048,24 @@ impl VexioViewport {
                             }
                         };
                     }
-                    if hit_test_control_handles(&visuals, psid, page_pt, logical_ppi).is_some()
-                        || hit_test_autoconnect_triangles(&visuals, psid, page_pt, logical_ppi)
-                            .is_some()
-                    {
-                        return 2;
-                    }
                 }
-                if let Some(&primary_sid) = self.selected_ids.first() {
+                for &cand_sid in self.selected_ids.iter().rev() {
                     if let Some(grip_hit) =
-                        hit_test_selection_grips(&session.doc, pid, primary_sid, page_pt, logical_ppi)
+                        hit_test_selection_grips(&visuals, cand_sid, page_pt, logical_ppi)
                     {
                         return match grip_hit {
                             Ok(h) => h.cursor_code(),
                             Err(()) => 13,
                         };
+                    }
+                }
+                if self.selected_ids.len() == 1 {
+                    let psid = self.selected_ids[0];
+                    if hit_test_control_handles(&visuals, psid, page_pt, logical_ppi).is_some()
+                        || hit_test_autoconnect_triangles(&visuals, psid, page_pt, logical_ppi)
+                            .is_some()
+                    {
+                        return 2;
                     }
                 }
                 if top_hit.is_some() {
@@ -4262,11 +4322,52 @@ pub unsafe extern "C" fn vexio_viewport_set_selection(
             // SAFETY: `shape_ids_ptr` verified non-null for `shape_ids_len` elements.
             unsafe { std::slice::from_raw_parts(shape_ids_ptr, shape_ids_len) }.to_vec()
         };
-        vp_mut.selected_ids = ids;
         if !doc.is_null() {
             // SAFETY: `doc` verified non-null.
             let doc_ref = unsafe { &*doc };
+            if let Some(page) = doc_ref.session.doc.page(vp_mut.page_id) {
+                let mut normalized = Vec::new();
+                for id in ids {
+                    if let Some(top_id) = page.top_level_shape_id(id) {
+                        if !normalized.contains(&top_id) {
+                            normalized.push(top_id);
+                        }
+                    }
+                }
+                vp_mut.selected_ids = normalized;
+            } else {
+                vp_mut.selected_ids = ids;
+            }
             vp_mut.present_if_attached(&doc_ref.session.doc);
+        } else {
+            vp_mut.selected_ids = ids;
+        }
+        VexioStatus::Ok
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_viewport_screen_to_page(
+    vp: *const VexioViewport,
+    x_px: f64,
+    y_px: f64,
+    out_x_in: *mut f64,
+    out_y_in: *mut f64,
+) -> VexioStatus {
+    catch_ffi_status(|| {
+        if vp.is_null() || out_x_in.is_null() || out_y_in.is_null() {
+            return VexioStatus::ErrInvalidArg;
+        }
+        // SAFETY: `vp`, `out_x_in`, and `out_y_in` verified non-null.
+        let vp_ref = unsafe { &*vp };
+        let pt = if x_px.is_finite() && y_px.is_finite() && (x_px >= 0.0 || y_px >= 0.0) {
+            vp_ref.camera.screen_to_page_in(x_px, y_px)
+        } else {
+            [vp_ref.camera.center_x_in, vp_ref.camera.center_y_in]
+        };
+        unsafe {
+            *out_x_in = pt[0];
+            *out_y_in = pt[1];
         }
         VexioStatus::Ok
     })

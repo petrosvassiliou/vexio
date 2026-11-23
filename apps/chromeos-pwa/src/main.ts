@@ -779,7 +779,7 @@ class VexioChromeOsApp {
       return true;
     }
   })();
-  private updateStatusText = 'Vexio v0.3.6-alpha • Automatic updates enabled';
+  private updateStatusText = 'Vexio v0.3.7-alpha • Automatic updates enabled';
   private latestReleaseTag: string | null = null;
   private latestReleaseUrl = 'https://github.com/petrosvassiliou/vexio/releases';
 
@@ -1208,7 +1208,7 @@ class VexioChromeOsApp {
       return;
     }
 
-    const currentVersion = '0.3.6-alpha';
+    const currentVersion = '0.3.7-alpha';
     try {
       const resp = await fetch('https://api.github.com/repos/petrosvassiliou/vexio/releases', {
         headers: { Accept: 'application/vnd.github+json' },
@@ -4140,7 +4140,7 @@ class VexioChromeOsApp {
             </div>
             <div class="list-row-card" style="flex-direction:column;align-items:flex-start;gap:6px">
               <strong>${this.updateStatusText}</strong>
-              <span style="font-size:11.5px;color:var(--m3-text-muted)">Installed build: Vexio v0.3.6-alpha • Offline-First Workbox PWA + GitHub Releases channel</span>
+              <span style="font-size:11.5px;color:var(--m3-text-muted)">Installed build: Vexio v0.3.7-alpha • Offline-First Workbox PWA + GitHub Releases channel</span>
             </div>
             <label style="display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer">
               <input type="checkbox" id="chk-auto-updates" ${this.autoCheckUpdates ? 'checked' : ''} />
@@ -4156,6 +4156,55 @@ class VexioChromeOsApp {
     }
 
     if (this.activeModal === 'backstage') {
+      const lc = normalizeLangCode(this.lang);
+      const bsCreateHdr: Record<VexioLangCode, string> = {
+        en: 'Create New Diagram or Open Local File Inside Vexio',
+        de: 'Neues Diagramm erstellen oder lokale Datei in Vexio öffnen',
+        it: 'Crea nuovo diagramma o apri file locale in Vexio',
+        fr: 'Créer un diagramme ou ouvrir un fichier local dans Vexio',
+        es: 'Crear nuevo diagrama o abrir archivo local en Vexio',
+        gr: 'Δημιουργία νέου διαγράμματος ή άνοιγμα τοπικού αρχείου',
+      };
+      const bsTplHdr: Record<VexioLangCode, string> = {
+        en: '8 Built-In Enterprise Starter Templates',
+        de: '8 integrierte Enterprise-Startvorlagen',
+        it: '8 modelli iniziali Enterprise integrati',
+        fr: '8 modèles de départ d’entreprise intégrés',
+        es: '8 plantillas empresariales iniciales integradas',
+        gr: '8 ενσωματωμένα πρότυπα Enterprise',
+      };
+      const bsSaveHdr: Record<VexioLangCode, string> = {
+        en: 'Save & Export Formats (100% Offline)',
+        de: 'Speicher- & Exportformate (100 % Offline)',
+        it: 'Formati di salvataggio ed esportazione (100% Offline)',
+        fr: 'Formats d’enregistrement et d’exportation (100 % hors ligne)',
+        es: 'Formatos de guardado y exportación (100 % sin conexión)',
+        gr: 'Μορφές αποθήκευσης & εξαγωγής (100% εκτός σύνδεσης)',
+      };
+      const bsLangHdr: Record<VexioLangCode, string> = {
+        en: 'Language, Units & Software Updates',
+        de: 'Sprache, Einheiten & Software-Updates',
+        it: 'Lingua, unità e aggiornamenti software',
+        fr: 'Langue, unités et mises à jour logicielles',
+        es: 'Idioma, unidades y actualizaciones de software',
+        gr: 'Γλώσσα, μονάδες & ενημερώσεις λογισμικού',
+      };
+      const bsSnapHdr: Record<VexioLangCode, string> = {
+        en: 'Immutable Version History Snapshots (OPFS + Firebase Cloud)',
+        de: 'Unveränderliche Versionshistorie-Snapshots (OPFS + Firebase Cloud)',
+        it: 'Snapshot cronologia versioni immutabili (OPFS + Firebase Cloud)',
+        fr: 'Instantanés d’historique de versions (OPFS + Firebase Cloud)',
+        es: 'Instantáneas del historial de versiones (OPFS + Firebase Cloud)',
+        gr: 'Στιγμιότυπα ιστορικού εκδόσεων (OPFS + Firebase Cloud)',
+      };
+      const bsWsHdr: Record<VexioLangCode, string> = {
+        en: 'Local OPFS & Synced Cloud Workspaces',
+        de: 'Lokale OPFS- & synchronisierte Cloud-Arbeitsbereiche',
+        it: 'Aree di lavoro locali OPFS e Cloud sincronizzate',
+        fr: 'Espaces de travail OPFS locaux et Cloud synchronisés',
+        es: 'Espacios de trabajo locales OPFS y en la nube',
+        gr: 'Τοπικοί χώροι εργασίας OPFS & Cloud',
+      };
       return `
         <div class="modal-backdrop">
           <div class="modal-card wide">
@@ -4172,7 +4221,7 @@ class VexioChromeOsApp {
               </div>
             </div>
 
-            <div class="pane-header">Create New Diagram or Open Local File Inside Vexio</div>
+            <div class="pane-header">${bsCreateHdr[lc]}</div>
             <div style="display:flex;gap:8px;flex-wrap:wrap">
               <button class="m3-btn active" data-blank-preset="a4_l">${t.newBlankA4}</button>
               <button class="m3-btn tonal" data-blank-preset="a3_l">${t.newBlankA3}</button>
@@ -4181,7 +4230,7 @@ class VexioChromeOsApp {
               <button class="m3-btn tonal" id="btn-backstage-import-vssx">${t.importVisioStencil}</button>
             </div>
 
-            <div class="pane-header" style="margin-top:4px">8 Built-In Enterprise Starter Templates</div>
+            <div class="pane-header" style="margin-top:4px">${bsTplHdr[lc]}</div>
             <div class="backstage-grid">
               ${STARTER_TEMPLATES.map(
                 (tpl) => `
@@ -4194,20 +4243,20 @@ class VexioChromeOsApp {
               ).join('')}
             </div>
 
-            <div class="pane-header" style="margin-top:4px">Save &amp; Export Formats (100% Offline)</div>
+            <div class="pane-header" style="margin-top:4px">${bsSaveHdr[lc]}</div>
             <div style="display:flex;gap:8px;flex-wrap:wrap">
               <button class="m3-btn active" data-export-ext="vsdx">${t.saveFile}</button>
               <button class="m3-btn tonal" id="btn-backstage-save-as">${t.saveAs}</button>
-              <button class="m3-btn tonal" data-export-ext="pdf">Export PDF/A (.pdf)</button>
-              <button class="m3-btn tonal" data-export-ext="png">Export PNG (.png)</button>
-              <button class="m3-btn tonal" data-export-ext="jpg">Export JPG (.jpg)</button>
-              <button class="m3-btn" data-export-ext="svg">Export Vector (.svg)</button>
+              <button class="m3-btn tonal" data-export-ext="pdf">PDF/A (.pdf)</button>
+              <button class="m3-btn tonal" data-export-ext="png">PNG (.png)</button>
+              <button class="m3-btn tonal" data-export-ext="jpg">JPEG (.jpg)</button>
+              <button class="m3-btn" data-export-ext="svg">SVG (.svg)</button>
               <button class="m3-btn" data-export-ext="pptx">PowerPoint (.pptx)</button>
-              <button class="m3-btn" data-export-ext="docx">Word Spec (.docx)</button>
+              <button class="m3-btn" data-export-ext="docx">Word (.docx)</button>
               <button class="m3-btn" data-export-ext="dxf">AutoCAD (.dxf)</button>
             </div>
 
-            <div class="pane-header" style="margin-top:4px">Language, Units &amp; Software Updates</div>
+            <div class="pane-header" style="margin-top:4px">${bsLangHdr[lc]}</div>
             <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
               <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
                 ${(['en', 'de', 'it', 'fr', 'es', 'gr'] as const)
@@ -4226,15 +4275,15 @@ class VexioChromeOsApp {
               </div>
             </div>
 
-            <div class="pane-header" style="margin-top:6px">Immutable Version History Snapshots (OPFS + Firebase Cloud)</div>
+            <div class="pane-header" style="margin-top:6px">${bsSnapHdr[lc]}</div>
             <div style="display:flex;gap:8px">
-              <input class="cell-input" id="version-label-input" value="${this.versionLabelDraft}" placeholder="Version label..." />
-              <button class="m3-btn active" id="btn-create-version">Save Version Snapshot</button>
+              <input class="cell-input" id="version-label-input" value="${this.versionLabelDraft}" placeholder="Snapshot..." />
+              <button class="m3-btn active" id="btn-create-version">+ Snapshot</button>
             </div>
             <div style="display:flex;flex-direction:column;gap:6px;max-height:130px;overflow-y:auto">
               ${
                 this.opfsVersions.length === 0
-                  ? '<div style="font-size:12px;color:var(--m3-text-muted)">No snapshots saved for this document yet.</div>'
+                  ? '<div style="font-size:12px;color:var(--m3-text-muted)">—</div>'
                   : this.opfsVersions
                       .map(
                         (v) => `
@@ -4243,7 +4292,7 @@ class VexioChromeOsApp {
                           <strong>${v.label}</strong>
                           <span style="color:var(--m3-text-muted);font-size:11px;margin-left:8px">${v.createdAt} • ${(v.byteLength / 1024).toFixed(1)} KB</span>
                         </div>
-                        <button class="m3-btn" data-restore-version="${v.versionId}">Restore</button>
+                        <button class="m3-btn" data-restore-version="${v.versionId}">↺</button>
                       </div>
                     `
                       )
@@ -4251,7 +4300,7 @@ class VexioChromeOsApp {
               }
             </div>
 
-            <div class="pane-header" style="margin-top:6px">Local OPFS &amp; Synced Cloud Workspaces</div>
+            <div class="pane-header" style="margin-top:6px">${bsWsHdr[lc]}</div>
             <div style="display:flex;gap:8px">
               <button class="m3-btn" id="btn-new-workspace">+ Create New Workspace Slot</button>
             </div>
@@ -6178,13 +6227,20 @@ class VexioChromeOsApp {
         };
         this.render();
       });
-      el.addEventListener('click', async () => {
+      el.addEventListener('click', () => {
+        document.querySelectorAll('.stencil-item.selected').forEach((n) => n.classList.remove('selected'));
+        el.classList.add('selected');
+      });
+      el.addEventListener('dblclick', async () => {
         const count = this.snapshot?.shapes.length ?? 0;
+        const pageW = this.snapshot?.pageWidthIn ?? 11.69;
+        const pageH = this.snapshot?.pageHeightIn ?? 8.27;
+        const step = count % 6;
         const res = await this.callEngine('dropShape', {
           category: packCategory,
           masterName,
-          xIn: 2.2 + (count % 4) * 2.1,
-          yIn: 6.5 - Math.floor(count / 4) * 1.6,
+          xIn: pageW * 0.5 + step * 0.28,
+          yIn: pageH * 0.5 - step * 0.28,
         });
         this.persistMutationSideEffects(res.wal);
         this.snapshot = res.snapshot;
@@ -6478,12 +6534,14 @@ class VexioChromeOsApp {
         }
 
         // 0D. Check 2D Cardinal Connection Port Dot (Drag from any port to draw glued connector!)
-        // 1. Check Top Rotation Knob FIRST
+        // 1. Check Top Rotation Knob FIRST (DOM hit + geometric proximity fallback so clicking near `↻` never deselects!)
         const rotEl = targetEl?.closest('[data-rotate-knob]') as HTMLElement | null;
-        const rotIdAttr = rotEl?.dataset.rotateKnob;
-        if (rotIdAttr && this.snapshot) {
-          const sid = Number(rotIdAttr);
-          const sh = this.snapshot.shapes.find((s) => s.id === sid);
+        let rotSid = rotEl?.dataset.rotateKnob ? Number(rotEl.dataset.rotateKnob) : 0;
+        if (!rotSid && this.activeTool === 'pointer' && this.snapshot) {
+          rotSid = this.hitTestRotateKnobSync(ptIn[0], ptIn[1]) ?? 0;
+        }
+        if (rotSid && this.snapshot) {
+          const sh = this.snapshot.shapes.find((s) => s.id === rotSid);
           if (sh) {
             ev.stopPropagation();
             host.setPointerCapture(ev.pointerId);
@@ -6491,7 +6549,7 @@ class VexioChromeOsApp {
               mode: 'rotate',
               startPageIn: ptIn,
               curPageIn: ptIn,
-              shapeId: sid,
+              shapeId: rotSid,
               origPin: [sh.pinX, sh.pinY],
               origSize: [sh.width, sh.height],
               origAngleDeg: sh.angleDeg,
@@ -7200,20 +7258,26 @@ class VexioChromeOsApp {
           }
           this.render();
         } else if (st.mode === 'rotate' && st.shapeId && st.origPin && st.origSize) {
-          const [cx, cy] = st.origPin;
-          const rad = Math.atan2(ptIn[1] - cy, ptIn[0] - cx) - Math.PI * 0.5;
-          const angleDeg = Math.round(((rad * 180) / Math.PI) / 5) * 5;
-          const res = await this.callEngine('transformShape', {
-            shapeId: st.shapeId,
-            pinX: cx,
-            pinY: cy,
-            width: st.origSize[0],
-            height: st.origSize[1],
-            angleDeg,
-          });
-          this.persistMutationSideEffects(res.wal);
-          this.snapshot = res.snapshot;
-          this.render();
+          const movedDistIn = Math.hypot(ptIn[0] - st.startPageIn[0], ptIn[1] - st.startPageIn[1]);
+          if (movedDistIn < 0.04) {
+            // Single click/tap on `↻` Rotate button rotates 90° clockwise while keeping selection!
+            await this.rotateOrFlipSelected(90);
+          } else {
+            const [cx, cy] = st.origPin;
+            const rad = Math.atan2(ptIn[1] - cy, ptIn[0] - cx) - Math.PI * 0.5;
+            const angleDeg = Math.round(((rad * 180) / Math.PI) / 5) * 5;
+            const res = await this.callEngine('transformShape', {
+              shapeId: st.shapeId,
+              pinX: cx,
+              pinY: cy,
+              width: st.origSize[0],
+              height: st.origSize[1],
+              angleDeg,
+            });
+            this.persistMutationSideEffects(res.wal);
+            this.snapshot = res.snapshot;
+            this.render();
+          }
         } else if (st.mode === 'resize' && st.shapeId && st.origPin && st.origSize && st.resizeHandle) {
           const next = this.computeResizedBox(
             st.origPin,
@@ -7762,6 +7826,31 @@ class VexioChromeOsApp {
       this.zoomPct = Number((e.target as HTMLInputElement).value);
       this.render();
     });
+  }
+
+  private hitTestRotateKnobSync(xIn: number, yIn: number): number | null {
+    if (!this.snapshot || this.selectedShapeIds.length === 0) return null;
+    const ppiZoom = Math.max(24, 96 * (this.zoomPct / 100));
+    const rotOffsetIn = 28 / ppiZoom;
+    const rotRadiusIn = 18 / ppiZoom;
+    for (let i = this.selectedShapeIds.length - 1; i >= 0; i--) {
+      const sid = this.selectedShapeIds[i];
+      const sh = this.snapshot.shapes.find((s) => s.id === sid && s.kind !== 'Connector1D');
+      if (!sh) continue;
+      const dx = xIn - sh.pinX;
+      const dy = yIn - sh.pinY;
+      const rad = (-sh.angleDeg * Math.PI) / 180;
+      const lx = dx * Math.cos(rad) - dy * Math.sin(rad);
+      const ly = dx * Math.sin(rad) + dy * Math.cos(rad);
+      const hh = sh.height * 0.5;
+      if (Math.hypot(lx, ly - (hh + rotOffsetIn)) <= rotRadiusIn) {
+        return sh.id;
+      }
+      if (Math.abs(lx) <= 11 / ppiZoom && ly >= hh + 7 / ppiZoom && ly <= hh + rotOffsetIn + rotRadiusIn) {
+        return sh.id;
+      }
+    }
+    return null;
   }
 
   private hitTestResizeGripSync(

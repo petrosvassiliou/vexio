@@ -116,6 +116,7 @@ uint32_t    vexio_viewport_get_active_tool(const VexioViewport* vp);
 uint64_t    vexio_viewport_pop_created_text_shape(VexioViewport* vp);
 uint64_t    vexio_viewport_hit_test_shape(const VexioViewport* vp, const VexioDoc* doc, double x_px, double y_px);
 VexioStatus vexio_viewport_get_shape_screen_bounds(const VexioViewport* vp, const VexioDoc* doc, uint64_t shape_id, double* out_x_px, double* out_y_px, double* out_w_px, double* out_h_px);
+VexioStatus vexio_viewport_screen_to_page(const VexioViewport* vp, double x_px, double y_px, double* out_x_in, double* out_y_in);
 
 /* Rich Text Formatting, Stencil Rotate/Flip, ISO Metric Page Setup & Rename */
 VexioStatus vexio_doc_set_shape_text_style_json(VexioDoc* doc, uint32_t page_id, const uint64_t* shape_ids_ptr, size_t shape_ids_len, const char* style_json_utf8);

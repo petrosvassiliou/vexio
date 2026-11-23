@@ -5,7 +5,11 @@ import android.content.ClipData
 import android.content.ClipDescription
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Paint
+import android.graphics.Point
+import android.graphics.RectF
 import android.net.Uri
 import android.util.Base64
 import android.util.LruCache
@@ -27,8 +31,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.draganddrop.dragAndDropSource
 import androidx.compose.foundation.draganddrop.dragAndDropTarget
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -132,7 +137,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draganddrop.DragAndDropEvent
 import androidx.compose.ui.draganddrop.DragAndDropTarget
-import androidx.compose.ui.draganddrop.DragAndDropTransferData
 import androidx.compose.ui.draganddrop.mimeTypes
 import androidx.compose.ui.draganddrop.toAndroidDragEvent
 import androidx.compose.ui.draw.clip
@@ -142,11 +146,11 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusTarget
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.withTransform
@@ -168,6 +172,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
@@ -175,8 +180,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.DpOffset
-import androidx.compose.ui.unit.IntOffset
-import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.input.motionprediction.MotionEventPredictor
@@ -195,6 +198,7 @@ import com.vexio.core.VexioThemePreset
 import com.vexio.core.VexioTool
 import com.vexio.core.VexioVisualPreset
 import com.vexio.core.WorkstationUiState
+import com.vexio.ui.i18n.VexioI18n
 import com.vexio.ui.theme.LocalVexioSemanticColors
 import com.vexio.ui.theme.VexioExpressiveMotion
 import com.vexio.ui.theme.rememberExpressiveScaleState
@@ -585,16 +589,11 @@ fun GooglebookWorkstationScreen(
                             viewModel.selectStencilCategory(cat)
                             navBackStack.add(WorkstationNavKey.StencilDrawer(cat))
                         },
-                        onMasterClicked = { master ->
-                            viewModel.instantiateMasterDrop(
-                                title = master.title,
-                                widthFormula = master.defaultWidthFormula,
-                                heightFormula = master.defaultHeightFormula,
-                                fillFormula = master.fillFormula,
-                                pinXInches = 4.50f,
-                                pinYInches = 4.50f,
-                                category = master.category
-                            )
+                        onMasterSelected = { master ->
+                            viewModel.highlightStencilMaster(master.masterId)
+                        },
+                        onMasterDoubleClicked = { master ->
+                            viewModel.dropStencilAtViewportCenter(master)
                         },
                         onImportStencilRequested = onImportStencilRequested,
                         onOpenOfficialCatalogRequested = {
@@ -775,6 +774,7 @@ fun GooglebookWorkstationScreen(
                 initialHex = initialHex,
                 allowClearNone = allowClear,
                 clearLabel = lang.clearHighlightLabel,
+                lang = lang,
                 onDismiss = { activeColorPickerTarget = null },
                 onClearNone = {
                     activeColorPickerTarget = null
@@ -828,18 +828,27 @@ fun GooglebookWorkstationScreen(
 
         // Automatic & Manual Update Check Dialog
         if (uiState.showUpdateDialog) {
+            val lang = uiState.language
             AlertDialog(
                 onDismissRequest = viewModel::dismissUpdateDialog,
                 title = {
                     Text(
                         if (uiState.availableUpdateTag != null) {
-                            "Update Available (${uiState.availableUpdateTag})"
+                            VexioI18n.localizeUpdateStatus("", uiState.availableUpdateTag, lang)
                         } else {
-                            uiState.language.checkUpdatesLabel
+                            lang.checkUpdatesLabel
                         }
                     )
                 },
-                text = { Text(uiState.updateStatusMessage) },
+                text = {
+                    Text(
+                        VexioI18n.localizeUpdateStatus(
+                            uiState.updateStatusMessage,
+                            uiState.availableUpdateTag,
+                            lang
+                        )
+                    )
+                },
                 confirmButton = {
                     if (uiState.availableUpdateUrl != null) {
                         FilledTonalButton(
@@ -856,13 +865,19 @@ fun GooglebookWorkstationScreen(
                                 }
                             }
                         ) {
-                            Text(if (uiState.availableUpdateTag != null) "Download APK Update" else "Release Notes")
+                            Text(
+                                if (uiState.availableUpdateTag != null) {
+                                    VexioI18n.downloadApkUpdate(lang)
+                                } else {
+                                    VexioI18n.releaseNotesButton(lang)
+                                }
+                            )
                         }
                     }
                 },
                 dismissButton = {
                     TextButton(onClick = viewModel::dismissUpdateDialog) {
-                        Text("Close")
+                        Text(VexioI18n.closeButton(lang))
                     }
                 }
             )
@@ -870,10 +885,11 @@ fun GooglebookWorkstationScreen(
 
         // Official & Enterprise Stencil Catalog Dialog (.vssx, .vss, .zip SVG)
         if (uiState.showOfficialStencilCatalogDialog) {
+            val lang = uiState.language
             AlertDialog(
                 onDismissRequest = { viewModel.setOfficialStencilCatalogDialogVisible(false) },
                 title = {
-                    Text("Official & Enterprise Stencil Catalog")
+                    Text(VexioI18n.officialCatalogTitle(lang))
                 },
                 text = {
                     Column(
@@ -884,7 +900,7 @@ fun GooglebookWorkstationScreen(
                             .verticalScroll(rememberScrollState())
                     ) {
                         Text(
-                            text = "1-click download & local persistence across restarts (Microsoft 365, Azure V25, Cisco, Panduit, APC & NetEquip .vssx / .vss / .zip).",
+                            text = VexioI18n.officialCatalogSubtitle(lang),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -921,9 +937,9 @@ fun GooglebookWorkstationScreen(
                                     ) {
                                         Text(
                                             when {
-                                                isBusy -> "Installing…"
-                                                isInstalled -> "Installed ✓"
-                                                else -> "Install"
+                                                isBusy -> VexioI18n.installingLabel(lang)
+                                                isInstalled -> VexioI18n.installedBadge(lang)
+                                                else -> VexioI18n.installButton(lang)
                                             },
                                             style = MaterialTheme.typography.labelSmall
                                         )
@@ -935,12 +951,12 @@ fun GooglebookWorkstationScreen(
                 },
                 confirmButton = {
                     FilledTonalButton(onClick = { viewModel.downloadAllOfficialStencilPacks() }) {
-                        Text("Install All Packs")
+                        Text(VexioI18n.installAllPacksButton(lang))
                     }
                 },
                 dismissButton = {
                     TextButton(onClick = { viewModel.setOfficialStencilCatalogDialogVisible(false) }) {
-                        Text("Close")
+                        Text(VexioI18n.closeButton(lang))
                     }
                 }
             )
@@ -1088,7 +1104,7 @@ private fun WorkstationHeaderBar(
                     onDismissRequest = { if (openSiblingMenuId == "file") openSiblingMenuId = null }
                 ) {
                     DropdownMenuItem(
-                        text = { Text("+ Blank ISO A4 (mm)") },
+                        text = { Text(VexioI18n.blankIsoA4Short(lang)) },
                         onClick = { openSiblingMenuId = null; onCreateBlankA4() }
                     )
                     DropdownMenuItem(
@@ -1113,12 +1129,12 @@ private fun WorkstationHeaderBar(
                         onClick = { openSiblingMenuId = null; onImportStencilClick() }
                     )
                     DropdownMenuItem(
-                        text = { Text("Print / PDF (Ctrl+P)") },
+                        text = { Text(VexioI18n.printPdfLabel(lang)) },
                         leadingIcon = { Icon(Icons.Default.Print, contentDescription = null) },
                         onClick = { openSiblingMenuId = null; onPrintClick() }
                     )
                     DropdownMenuItem(
-                        text = { Text("Start / Templates Hub…") },
+                        text = { Text(VexioI18n.startHubMenu(lang)) },
                         onClick = { openSiblingMenuId = null; onToggleBackstage() }
                     )
                 }
@@ -1173,7 +1189,7 @@ private fun WorkstationHeaderBar(
                         Text(
                             text = buildString {
                                 append(uiState.documentTitle)
-                                if (uiState.isDirty) append(" • Edited")
+                                if (uiState.isDirty) append(VexioI18n.editedSuffix(lang))
                             },
                             style = MaterialTheme.typography.titleSmall,
                             maxLines = 1,
@@ -1252,26 +1268,26 @@ private fun WorkstationHeaderBar(
                     contentPadding = PaddingValues(horizontal = 9.dp, vertical = 4.dp),
                     shape = RoundedCornerShape(10.dp)
                 ) {
-                    Text("Export ▾", style = MaterialTheme.typography.labelMedium, maxLines = 1, softWrap = false)
+                    Text(VexioI18n.exportMenuButton(lang), style = MaterialTheme.typography.labelMedium, maxLines = 1, softWrap = false)
                 }
                 DropdownMenu(
                     expanded = openSiblingMenuId == "export",
                     onDismissRequest = { if (openSiblingMenuId == "export") openSiblingMenuId = null }
                 ) {
                     DropdownMenuItem(
-                        text = { Text("Export High-DPI JPEG (.jpg)") },
+                        text = { Text(VexioI18n.exportJpgItem(lang)) },
                         onClick = { openSiblingMenuId = null; onExportJpgClick() }
                     )
                     DropdownMenuItem(
-                        text = { Text("Export Archival PDF/A (.pdf)") },
+                        text = { Text(VexioI18n.exportPdfItem(lang)) },
                         onClick = { openSiblingMenuId = null; onExportFormat("pdf") }
                     )
                     DropdownMenuItem(
-                        text = { Text("Export Vector SVG (.svg)") },
+                        text = { Text(VexioI18n.exportSvgItem(lang)) },
                         onClick = { openSiblingMenuId = null; onExportFormat("svg") }
                     )
                     DropdownMenuItem(
-                        text = { Text("Export AutoCAD DXF (.dxf)") },
+                        text = { Text(VexioI18n.exportDxfItem(lang)) },
                         onClick = { openSiblingMenuId = null; onExportFormat("dxf") }
                     )
                 }
@@ -1320,7 +1336,7 @@ private fun WorkstationHeaderBar(
                     contentPadding = PaddingValues(horizontal = 9.dp, vertical = 4.dp),
                     shape = RoundedCornerShape(10.dp)
                 ) {
-                    Text("Updates ▾", style = MaterialTheme.typography.labelMedium, maxLines = 1, softWrap = false)
+                    Text(VexioI18n.updatesMenuButton(lang), style = MaterialTheme.typography.labelMedium, maxLines = 1, softWrap = false)
                 }
                 DropdownMenu(
                     expanded = openSiblingMenuId == "help",
@@ -1335,7 +1351,7 @@ private fun WorkstationHeaderBar(
                         onClick = { openSiblingMenuId = null; onImportStencilClick() }
                     )
                     DropdownMenuItem(
-                        text = { Text("Welcome / Start Hub") },
+                        text = { Text(VexioI18n.startHubMenu(lang)) },
                         onClick = { openSiblingMenuId = null; onToggleBackstage() }
                     )
                 }
@@ -1357,7 +1373,7 @@ private fun WorkstationHeaderBar(
                 ) {
                     Icon(Icons.Default.OpenInNew, contentDescription = null, modifier = Modifier.size(14.dp))
                     Spacer(Modifier.width(4.dp))
-                    Text("New Window", style = MaterialTheme.typography.labelMedium, maxLines = 1, softWrap = false)
+                    Text(VexioI18n.newWindowButton(lang), style = MaterialTheme.typography.labelMedium, maxLines = 1, softWrap = false)
                 }
             }
 
@@ -1515,7 +1531,7 @@ private fun ClassicVisioM3Ribbon(
                                             singleLine = true,
                                             placeholder = {
                                                 Text(
-                                                    "Filter ${uiState.availableFontFamilies.size} OS fonts…",
+                                                    VexioI18n.filterFontsPlaceholder(uiState.availableFontFamilies.size, lang),
                                                     style = MaterialTheme.typography.labelSmall
                                                 )
                                             },
@@ -1655,7 +1671,7 @@ private fun ClassicVisioM3Ribbon(
                                 onClick = { viewModel.applyRichTextStyle(horizAlign = 2) }
                             )
                             ExpressivePlan2ActionPill(
-                                label = "• List",
+                                label = VexioI18n.bulletListPill(lang),
                                 selected = uiState.textBullets,
                                 onClick = { viewModel.applyRichTextStyle(bullets = !uiState.textBullets) }
                             )
@@ -1667,7 +1683,7 @@ private fun ClassicVisioM3Ribbon(
                             var distributeMenuOpen by remember { mutableStateOf(false) }
                             Box {
                                 ExpressivePlan2ActionPill(
-                                    label = "Align ▾",
+                                    label = VexioI18n.alignMenuPill(lang),
                                     selected = false,
                                     onClick = { alignMenuOpen = true }
                                 )
@@ -1675,16 +1691,9 @@ private fun ClassicVisioM3Ribbon(
                                     expanded = alignMenuOpen,
                                     onDismissRequest = { alignMenuOpen = false }
                                 ) {
-                                    listOf(
-                                        "left" to "Align Left",
-                                        "center" to "Align Center",
-                                        "right" to "Align Right",
-                                        "top" to "Align Top",
-                                        "middle" to "Align Middle",
-                                        "bottom" to "Align Bottom"
-                                    ).forEach { (modeSlug, title) ->
+                                    listOf("left", "center", "right", "top", "middle", "bottom").forEach { modeSlug ->
                                         DropdownMenuItem(
-                                            text = { Text(title) },
+                                            text = { Text(VexioI18n.alignOptionLabel(modeSlug, lang)) },
                                             onClick = {
                                                 alignMenuOpen = false
                                                 viewModel.alignSelectedShapes(modeSlug)
@@ -1695,7 +1704,7 @@ private fun ClassicVisioM3Ribbon(
                             }
                             Box {
                                 ExpressivePlan2ActionPill(
-                                    label = "Distribute ▾",
+                                    label = VexioI18n.distributeMenuPill(lang),
                                     selected = false,
                                     onClick = { distributeMenuOpen = true }
                                 )
@@ -1704,14 +1713,14 @@ private fun ClassicVisioM3Ribbon(
                                     onDismissRequest = { distributeMenuOpen = false }
                                 ) {
                                     DropdownMenuItem(
-                                        text = { Text("Distribute Horizontally") },
+                                        text = { Text(VexioI18n.distributeHorizontally(lang)) },
                                         onClick = {
                                             distributeMenuOpen = false
                                             viewModel.distributeSelectedShapes("horizontal")
                                         }
                                     )
                                     DropdownMenuItem(
-                                        text = { Text("Distribute Vertically") },
+                                        text = { Text(VexioI18n.distributeVertically(lang)) },
                                         onClick = {
                                             distributeMenuOpen = false
                                             viewModel.distributeSelectedShapes("vertical")
@@ -1720,12 +1729,12 @@ private fun ClassicVisioM3Ribbon(
                                 }
                             }
                             ExpressivePlan2ActionPill(
-                                label = "Group",
+                                label = VexioI18n.groupPill(lang),
                                 selected = false,
                                 onClick = { viewModel.groupSelectedShapes() }
                             )
                             ExpressivePlan2ActionPill(
-                                label = "Ungroup",
+                                label = VexioI18n.ungroupPill(lang),
                                 selected = false,
                                 onClick = { viewModel.ungroupSelectedShapes() }
                             )
@@ -1740,12 +1749,12 @@ private fun ClassicVisioM3Ribbon(
                                 onClick = { viewModel.rotateOrFlipSelected(deltaAngleDeg = 90.0) }
                             )
                             ExpressivePlan2ActionPill(
-                                label = "⇆ Flip H",
+                                label = VexioI18n.flipHPill(lang),
                                 selected = false,
                                 onClick = { viewModel.rotateOrFlipSelected(flipX = true) }
                             )
                             ExpressivePlan2ActionPill(
-                                label = "⇅ Flip V",
+                                label = VexioI18n.flipVPill(lang),
                                 selected = false,
                                 onClick = { viewModel.rotateOrFlipSelected(flipY = true) }
                             )
@@ -1753,7 +1762,7 @@ private fun ClassicVisioM3Ribbon(
 
                         "Insert" -> {
                             ExpressivePlan2ActionPill(
-                                label = "+ New Page",
+                                label = VexioI18n.newPagePill(lang),
                                 selected = false,
                                 onClick = viewModel::addNewPage
                             )
@@ -1763,27 +1772,27 @@ private fun ClassicVisioM3Ribbon(
                                 onClick = onImportStencilClick
                             )
                             ExpressivePlan2ActionPill(
-                                label = "Text Box (Ctrl+2)",
+                                label = VexioI18n.textBoxPill(lang),
                                 selected = uiState.activeTool == VexioTool.TEXT_BLOCK,
                                 onClick = { viewModel.selectTool(VexioTool.TEXT_BLOCK) }
                             )
                             ExpressivePlan2ActionPill(
-                                label = "+ Container",
+                                label = VexioI18n.containerPill(lang),
                                 selected = false,
                                 onClick = { viewModel.insertContainer() }
                             )
                             ExpressivePlan2ActionPill(
-                                label = "+ Swimlanes",
+                                label = VexioI18n.swimlanesPill(lang),
                                 selected = false,
                                 onClick = { viewModel.insertSwimlanes() }
                             )
                             ExpressivePlan2ActionPill(
-                                label = "+ Callout",
+                                label = VexioI18n.calloutPill(lang),
                                 selected = false,
                                 onClick = { viewModel.attachCallout() }
                             )
                             ExpressivePlan2ActionPill(
-                                label = "Subprocess (+)",
+                                label = VexioI18n.subprocessPill(lang),
                                 selected = false,
                                 onClick = { viewModel.createOrLinkSubprocess() }
                             )
@@ -1792,14 +1801,14 @@ private fun ClassicVisioM3Ribbon(
                         "Design" -> {
                             Box {
                                 ExpressivePlan2ActionPill(
-                                    label = "Page Size: ${uiState.activePagePreset.label} ▾",
+                                    label = VexioI18n.pageSizePrefix(VexioI18n.pagePresetLabel(uiState.activePagePreset, lang), lang),
                                     selected = true,
                                     onClick = { pageSizeMenuOpen = true }
                                 )
                                 DropdownMenu(expanded = pageSizeMenuOpen, onDismissRequest = { pageSizeMenuOpen = false }) {
                                     VexioPagePresetSpec.entries.forEach { preset ->
                                         DropdownMenuItem(
-                                            text = { Text(preset.label) },
+                                            text = { Text(VexioI18n.pagePresetLabel(preset, lang)) },
                                             leadingIcon = {
                                                 if (uiState.activePagePreset == preset) {
                                                     Icon(Icons.Default.Check, contentDescription = null)
@@ -1815,13 +1824,13 @@ private fun ClassicVisioM3Ribbon(
                             }
                             VexioThemePreset.entries.forEach { preset ->
                                 ExpressivePlan2ActionPill(
-                                    label = preset.displayName,
+                                    label = VexioI18n.themePresetName(preset, lang),
                                     selected = uiState.activeThemeSlug == preset.slug,
                                     onClick = { viewModel.applyDocumentTheme(preset.slug, uiState.activeThemeVariant) }
                                 )
                             }
                             ExpressivePlan2ActionPill(
-                                label = "Auto-Layout",
+                                label = VexioI18n.autoLayoutPill(lang),
                                 selected = false,
                                 onClick = { viewModel.autoLayoutActivePage() }
                             )
@@ -1829,7 +1838,7 @@ private fun ClassicVisioM3Ribbon(
 
                         "Data" -> {
                             ExpressivePlan2ActionPill(
-                                label = "Data Visualizer (.csv/.xlsx)",
+                                label = VexioI18n.dataVisualizerPill(lang),
                                 selected = uiState.lastDataVisualizerShapeCount > 0,
                                 onClick = {
                                     viewModel.importDataVisualizer(
@@ -1838,12 +1847,12 @@ private fun ClassicVisioM3Ribbon(
                                 }
                             )
                             ExpressivePlan2ActionPill(
-                                label = "Cloud Discovery",
+                                label = VexioI18n.cloudDiscoveryPill(lang),
                                 selected = uiState.lastCloudDiscoveryShapeCount > 0,
                                 onClick = { viewModel.importCloudDiscovery(Plan2SamplePayloads.cloudDiscoveryJson) }
                             )
                             ExpressivePlan2ActionPill(
-                                label = "Entra / LDIF Org Chart",
+                                label = VexioI18n.entraOrgChartPill(lang),
                                 selected = uiState.lastOrgChartShapeCount > 0,
                                 onClick = { viewModel.importEntraOrLdifOrgChart(Plan2SamplePayloads.entraOrgChartLdif) }
                             )
@@ -1851,17 +1860,17 @@ private fun ClassicVisioM3Ribbon(
 
                         "Process" -> {
                             ExpressivePlan2ActionPill(
-                                label = "Validate BPMN 2.0 ✓",
+                                label = VexioI18n.validateBpmnPill(lang),
                                 selected = uiState.validationSummary.standard == "BPMN 2.0",
                                 onClick = { viewModel.validateActiveDiagram("bpmn") }
                             )
                             ExpressivePlan2ActionPill(
-                                label = "Validate UML 2.5 ✓",
+                                label = VexioI18n.validateUmlPill(lang),
                                 selected = uiState.validationSummary.standard == "UML 2.5",
                                 onClick = { viewModel.validateActiveDiagram("uml") }
                             )
                             ExpressivePlan2ActionPill(
-                                label = "Create Subprocess Drill-Down",
+                                label = VexioI18n.createSubprocessDrillDown(lang),
                                 selected = false,
                                 onClick = { viewModel.createOrLinkSubprocess() }
                             )
@@ -1869,17 +1878,17 @@ private fun ClassicVisioM3Ribbon(
 
                         "Review" -> {
                             ExpressivePlan2ActionPill(
-                                label = "Markup Pen",
+                                label = VexioI18n.markupPenPill(lang),
                                 selected = uiState.activeTool == VexioTool.STYLUS_INK,
                                 onClick = { viewModel.selectTool(VexioTool.STYLUS_INK) }
                             )
                             ExpressivePlan2ActionPill(
-                                label = "Highlighter",
+                                label = VexioI18n.highlighterPill(lang),
                                 selected = uiState.activeTool == VexioTool.HIGHLIGHTER,
                                 onClick = { viewModel.selectTool(VexioTool.HIGHLIGHTER) }
                             )
                             ExpressivePlan2ActionPill(
-                                label = "Diagram Compare (Visual Diff)",
+                                label = VexioI18n.diagramComparePill(lang),
                                 selected = uiState.lastCompareSummary != null,
                                 onClick = { viewModel.compareWithBaseline() }
                             )
@@ -1887,17 +1896,17 @@ private fun ClassicVisioM3Ribbon(
 
                         "View" -> {
                             ExpressivePlan2ActionPill(
-                                label = "Smart Guides",
+                                label = VexioI18n.smartGuidesPill(lang),
                                 selected = uiState.smartGuidesEnabled,
                                 onClick = { viewModel.toggleSmartGuides() }
                             )
                             ExpressivePlan2ActionPill(
-                                label = "Stencils Navigator",
+                                label = VexioI18n.stencilsNavigatorPill(lang),
                                 selected = uiState.isStencilDrawerExpanded,
                                 onClick = viewModel::toggleStencilDrawer
                             )
                             ExpressivePlan2ActionPill(
-                                label = "Inspector Pane",
+                                label = VexioI18n.inspectorPanePill(lang),
                                 selected = uiState.isInspectorExpanded,
                                 onClick = viewModel::toggleInspectorPane
                             )
@@ -1907,7 +1916,7 @@ private fun ClassicVisioM3Ribbon(
                                 onClick = viewModel::toggleShapeSheetDrawer
                             )
                             ExpressivePlan2ActionPill(
-                                label = "100% Zoom",
+                                label = VexioI18n.zoom100Pill(lang),
                                 selected = uiState.zoomPercent == 100,
                                 onClick = { viewModel.setZoomPercent(100) }
                             )
@@ -1920,13 +1929,13 @@ private fun ClassicVisioM3Ribbon(
                                 onClick = viewModel::toggleShapeSheetDrawer
                             )
                             ExpressivePlan2ActionPill(
-                                label = "Plan 2 Strip",
+                                label = VexioI18n.plan2StripPill(lang),
                                 selected = uiState.isPlan2RibbonExpanded,
                                 onClick = onTogglePlan2Strip
                             )
                             VexioBooleanOp.entries.forEach { op ->
                                 ExpressivePlan2ActionPill(
-                                    label = op.displayName,
+                                    label = VexioI18n.booleanOpName(op, lang),
                                     selected = uiState.lastBooleanOp == op.slug,
                                     onClick = { viewModel.performBooleanOp(op) }
                                 )
@@ -2021,13 +2030,13 @@ private fun InAppStartBackstageOverlay(
                     }
                     Spacer(Modifier.height(6.dp))
                     Text("VEXIO PROFESSIONAL", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
-                    Text("1:1 Visio & Offline CAD Suite", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(VexioI18n.suiteSubtitle(lang), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     HorizontalDivider()
                     FilledTonalButton(
                         onClick = { onCreateBlankPreset("Drawing_A4.vsdx", VexioPagePresetSpec.A4_LANDSCAPE) },
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text("+ Blank ISO A4 (mm)", maxLines = 1, softWrap = false)
+                        Text(VexioI18n.blankIsoA4Short(lang), maxLines = 1, softWrap = false)
                     }
                     FilledTonalButton(onClick = onOpenFile, modifier = Modifier.fillMaxWidth()) {
                         Text(lang.openFileLabel, maxLines = 1, softWrap = false)
@@ -2043,7 +2052,7 @@ private fun InAppStartBackstageOverlay(
                         Text(lang.saveAsLabel, maxLines = 1, softWrap = false)
                     }
                     TextButton(onClick = onPrint, modifier = Modifier.fillMaxWidth()) {
-                        Text("Print / PDF (Ctrl+P)", maxLines = 1, softWrap = false)
+                        Text(VexioI18n.printPdfLabel(lang), maxLines = 1, softWrap = false)
                     }
                     HorizontalDivider()
                     FilledTonalButton(onClick = onCheckUpdates, modifier = Modifier.fillMaxWidth()) {
@@ -2063,28 +2072,44 @@ private fun InAppStartBackstageOverlay(
             ) {
                 Text(lang.startHeroTitle, style = MaterialTheme.typography.headlineSmall)
                 Text(
-                    "Create a blank ISO Metric (A4 / A3) or US Letter page, start from a 1:1 Visio template, or open/import Visio (.vsdx, .vsd, .vssx, .vss) and CAD (.dwg, .dxf) files directly inside the app.",
+                    VexioI18n.startHeroSubtitle(lang),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
 
-                Text("Blank Page Presets (Metric Default / OS Standard)", style = MaterialTheme.typography.titleMedium)
+                Text(VexioI18n.blankPresetsHeading(lang), style = MaterialTheme.typography.titleMedium)
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     modifier = Modifier.horizontalScroll(rememberScrollState())
                 ) {
                     listOf(
-                        Triple("Blank ISO A4 Landscape", "297 × 210 mm • Metric", VexioPagePresetSpec.A4_LANDSCAPE),
-                        Triple("Blank ISO A3 Landscape", "420 × 297 mm • Metric", VexioPagePresetSpec.A3_LANDSCAPE),
-                        Triple("Blank ISO A4 Portrait", "210 × 297 mm • Metric", VexioPagePresetSpec.A4_PORTRAIT),
-                        Triple("Blank US Letter", "11 × 8.5 in • Imperial", VexioPagePresetSpec.LETTER_LANDSCAPE)
+                        Triple(
+                            VexioI18n.blankA4LandscapeTitle(lang),
+                            VexioI18n.metricUnitSubtitle("297 × 210 mm", lang),
+                            VexioPagePresetSpec.A4_LANDSCAPE
+                        ),
+                        Triple(
+                            VexioI18n.blankA3LandscapeTitle(lang),
+                            VexioI18n.metricUnitSubtitle("420 × 297 mm", lang),
+                            VexioPagePresetSpec.A3_LANDSCAPE
+                        ),
+                        Triple(
+                            VexioI18n.blankA4PortraitTitle(lang),
+                            VexioI18n.metricUnitSubtitle("210 × 297 mm", lang),
+                            VexioPagePresetSpec.A4_PORTRAIT
+                        ),
+                        Triple(
+                            VexioI18n.blankUsLetterTitle(lang),
+                            VexioI18n.imperialUnitSubtitle("11 × 8.5 in", lang),
+                            VexioPagePresetSpec.LETTER_LANDSCAPE
+                        )
                     ).forEach { (cardTitle, subtitle, preset) ->
                         Surface(
                             shape = RoundedCornerShape(16.dp),
                             color = MaterialTheme.colorScheme.surfaceContainerLow,
                             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                             modifier = Modifier
-                                .width(210.dp)
+                                .width(224.dp)
                                 .clip(RoundedCornerShape(16.dp))
                                 .clickable { onCreateBlankPreset("${preset.slug.uppercase()}_Diagram.vsdx", preset) }
                         ) {
@@ -2096,19 +2121,12 @@ private fun InAppStartBackstageOverlay(
                     }
                 }
 
-                Text("Starter Diagram Templates", style = MaterialTheme.typography.titleMedium)
+                Text(VexioI18n.starterTemplatesHeading(lang), style = MaterialTheme.typography.titleMedium)
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     modifier = Modifier.horizontalScroll(rememberScrollState())
                 ) {
-                    listOf(
-                        "Flowchart Starter" to "flowchart",
-                        "BPMN 2.0 Process" to "bpmn",
-                        "Network & Rack Topology" to "network",
-                        "CAD Floor Plan" to "floorplan",
-                        "Organization Chart" to "orgchart",
-                        "UML 2.5 Architecture" to "uml"
-                    ).forEach { (title, slug) ->
+                    listOf("flowchart", "bpmn", "network", "floorplan", "orgchart", "uml").forEach { slug ->
                         Surface(
                             shape = RoundedCornerShape(14.dp),
                             color = MaterialTheme.colorScheme.surfaceContainer,
@@ -2118,7 +2136,7 @@ private fun InAppStartBackstageOverlay(
                                 .clickable { onLoadTemplate(slug) }
                         ) {
                             Text(
-                                text = title,
+                                text = VexioI18n.templateTitle(slug, lang),
                                 style = MaterialTheme.typography.labelLarge,
                                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
                             )
@@ -2136,7 +2154,7 @@ private fun InAppStartBackstageOverlay(
                         verticalArrangement = Arrangement.spacedBy(10.dp),
                         modifier = Modifier.padding(16.dp)
                     ) {
-                        Text("Language (EN, DE, IT, FR, ES, GR) & Updates", style = MaterialTheme.typography.titleSmall)
+                        Text(VexioI18n.languageAndUpdatesHeading(lang), style = MaterialTheme.typography.titleSmall)
                         Row(
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
                             modifier = Modifier.horizontalScroll(rememberScrollState())
@@ -2154,10 +2172,14 @@ private fun InAppStartBackstageOverlay(
                                 checked = uiState.autoCheckUpdates,
                                 onCheckedChange = onToggleAutoUpdates
                             )
-                            Text("Automatically check for updates on startup", style = MaterialTheme.typography.bodySmall)
+                            Text(VexioI18n.autoCheckUpdatesCheckbox(lang), style = MaterialTheme.typography.bodySmall)
                             Spacer(Modifier.width(12.dp))
                             Text(
-                                text = uiState.updateStatusMessage,
+                                text = VexioI18n.localizeUpdateStatus(
+                                    uiState.updateStatusMessage,
+                                    uiState.availableUpdateTag,
+                                    lang
+                                ),
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -2190,10 +2212,12 @@ private fun Plan2ExpressiveControlStrip(
     onSyncCrdtPeerDelta: () -> Unit,
     onExportPlan2Format: (String) -> Unit
 ) {
+    val lang = uiState.language
     var themeMenuExpanded by remember { mutableStateOf(false) }
     var exportMenuExpanded by remember { mutableStateOf(false) }
-    val activeThemeDisplay = remember(uiState.activeThemeSlug) {
-        VexioThemePreset.fromSlug(uiState.activeThemeSlug)?.displayName ?: "Modern"
+    val activeThemeDisplay = remember(uiState.activeThemeSlug, lang) {
+        VexioThemePreset.fromSlug(uiState.activeThemeSlug)?.let { VexioI18n.themePresetName(it, lang) }
+            ?: VexioI18n.themePresetName(VexioThemePreset.MODERN, lang)
     }
 
     Surface(
@@ -2220,7 +2244,7 @@ private fun Plan2ExpressiveControlStrip(
                     modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
                 ) {
                     Text(
-                        text = "Boolean",
+                        text = VexioI18n.booleanGroupTitle(lang),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.padding(horizontal = 4.dp)
@@ -2228,7 +2252,7 @@ private fun Plan2ExpressiveControlStrip(
                     VexioBooleanOp.entries.forEach { op ->
                         val active = uiState.lastBooleanOp == op.slug
                         ExpressivePlan2ActionPill(
-                            label = op.displayName,
+                            label = VexioI18n.booleanOpName(op, lang),
                             selected = active,
                             onClick = { onBooleanOp(op) }
                         )
@@ -2249,7 +2273,7 @@ private fun Plan2ExpressiveControlStrip(
                 ) {
                     Box {
                         ExpressivePlan2ActionPill(
-                            label = "Theme: $activeThemeDisplay",
+                            label = VexioI18n.themeLabelPrefix(activeThemeDisplay, lang),
                             selected = true,
                             onClick = { themeMenuExpanded = true }
                         )
@@ -2259,7 +2283,7 @@ private fun Plan2ExpressiveControlStrip(
                         ) {
                             VexioThemePreset.entries.forEach { preset ->
                                 DropdownMenuItem(
-                                    text = { Text("${preset.displayName} (4 Variants)") },
+                                    text = { Text("${VexioI18n.themePresetName(preset, lang)} (${VexioI18n.variantsSuffix(lang)})") },
                                     leadingIcon = {
                                         if (preset.slug == uiState.activeThemeSlug) {
                                             Icon(Icons.Default.Check, contentDescription = null)
@@ -2291,7 +2315,7 @@ private fun Plan2ExpressiveControlStrip(
 
                     VexioVisualPreset.entries.forEach { preset ->
                         ExpressivePlan2ActionPill(
-                            label = preset.displayName,
+                            label = VexioI18n.visualPresetName(preset, lang),
                             selected = preset.slug in uiState.activeVisualPresets,
                             onClick = { onToggleVisualPreset(preset) }
                         )
@@ -2625,7 +2649,7 @@ private fun ShapeSheetFormulaBar(
                     modifier = Modifier.size(16.dp)
                 )
                 Spacer(Modifier.width(4.dp))
-                Text("Apply", style = MaterialTheme.typography.labelMedium)
+                Text(VexioI18n.applyButton(uiState.language), style = MaterialTheme.typography.labelMedium)
             }
         }
     }
@@ -2660,11 +2684,13 @@ private fun StencilMasterDrawerPane(
     uiState: WorkstationUiState,
     posture: AdaptiveWorkstationPosture,
     onSelectCategory: (String) -> Unit,
-    onMasterClicked: (StencilMasterItem) -> Unit,
+    onMasterSelected: (StencilMasterItem) -> Unit,
+    onMasterDoubleClicked: (StencilMasterItem) -> Unit,
     onImportStencilRequested: () -> Unit = {},
     onOpenOfficialCatalogRequested: () -> Unit = {},
     onOpenNewWindowRequested: () -> Unit
 ) {
+    val lang = uiState.language
     var searchQuery by remember { mutableStateOf("") }
     var expandedCategories by remember {
         mutableStateOf(
@@ -2705,13 +2731,13 @@ private fun StencilMasterDrawerPane(
                     .padding(horizontal = 12.dp, vertical = 8.dp)
             ) {
                 Text(
-                    text = "Stencils (${uiState.stencilMasters.size} • ${uiState.stencilCategories.size} Packs)",
+                    text = VexioI18n.stencilsHeader(uiState.stencilMasters.size, uiState.stencilCategories.size, lang),
                     style = MaterialTheme.typography.titleSmall,
                     modifier = Modifier.weight(1f)
                 )
                 val allExpanded = expandedCategories.size >= uiState.stencilCategories.size
                 Text(
-                    text = if (allExpanded) "Collapse" else "Expand All",
+                    text = if (allExpanded) VexioI18n.collapseLabel(lang) else VexioI18n.expandAllLabel(lang),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier
@@ -2750,7 +2776,7 @@ private fun StencilMasterDrawerPane(
                     )
                     Spacer(Modifier.width(4.dp))
                     Text(
-                        text = "+ Stencil",
+                        text = VexioI18n.addStencilShort(lang),
                         style = MaterialTheme.typography.labelSmall,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
@@ -2772,7 +2798,7 @@ private fun StencilMasterDrawerPane(
                     )
                     Spacer(Modifier.width(4.dp))
                     Text(
-                        text = "Official Packs",
+                        text = VexioI18n.officialPacksShort(lang),
                         style = MaterialTheme.typography.labelSmall,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
@@ -2803,7 +2829,7 @@ private fun StencilMasterDrawerPane(
                 Box(modifier = Modifier.weight(1f)) {
                     if (searchQuery.isEmpty()) {
                         Text(
-                            text = "Search ${uiState.stencilMasters.size} shapes in ${uiState.stencilCategories.size} packs…",
+                            text = VexioI18n.searchStencilsPlaceholder(uiState.stencilMasters.size, uiState.stencilCategories.size, lang),
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
@@ -2866,7 +2892,7 @@ private fun StencilMasterDrawerPane(
                             }
                     ) {
                         Text(
-                            text = cat,
+                            text = VexioI18n.localizeStencilCategory(cat, lang),
                             style = MaterialTheme.typography.labelSmall,
                             color = if (active) {
                                 MaterialTheme.colorScheme.onPrimaryContainer
@@ -2889,11 +2915,13 @@ private fun StencilMasterDrawerPane(
                 modifier = Modifier.fillMaxSize()
             ) {
                 visibleCategories.forEach { category ->
+                    val localizedCat = VexioI18n.localizeStencilCategory(category, lang)
                     val mastersInCat = uiState.stencilMasters.filter { m ->
                         m.category == category && (
                             trimmedQuery.isEmpty() ||
                                 m.title.contains(trimmedQuery, ignoreCase = true) ||
                                 m.category.contains(trimmedQuery, ignoreCase = true) ||
+                                localizedCat.contains(trimmedQuery, ignoreCase = true) ||
                                 m.prompt.contains(trimmedQuery, ignoreCase = true)
                             )
                     }
@@ -2931,7 +2959,7 @@ private fun StencilMasterDrawerPane(
                                     )
                                     Spacer(Modifier.width(6.dp))
                                     Text(
-                                        text = category,
+                                        text = localizedCat,
                                         style = MaterialTheme.typography.labelLarge,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis,
@@ -2955,7 +2983,10 @@ private fun StencilMasterDrawerPane(
                                 DraggableStencilMasterCard(
                                     windowInstanceId = uiState.windowInstanceId,
                                     master = master,
-                                    onClick = { onMasterClicked(master) },
+                                    lang = lang,
+                                    isHighlighted = uiState.highlightedStencilMasterId == master.masterId,
+                                    onSelect = { onMasterSelected(master) },
+                                    onDoubleClickAdd = { onMasterDoubleClicked(master) },
                                     onOpenNewWindowRequested = onOpenNewWindowRequested
                                 )
                             }
@@ -3139,22 +3170,116 @@ private fun parseStencilSvgDoc(svg: String, defaultAccent: Color): ParsedCompose
 
 private val stencilPreviewBitmapCache = LruCache<String, ImageBitmap>(512)
 
+private class StencilCardDragShadowBuilder(
+    private val density: Float,
+    private val title: String,
+    private val previewBitmap: Bitmap?
+) : View.DragShadowBuilder() {
+    private val widthPx = (196f * density.coerceAtLeast(1f)).toInt().coerceAtLeast(120)
+    private val heightPx = (52f * density.coerceAtLeast(1f)).toInt().coerceAtLeast(40)
+
+    override fun onProvideShadowMetrics(outShadowSize: Point, outShadowTouchPoint: Point) {
+        outShadowSize.set(widthPx, heightPx)
+        outShadowTouchPoint.set(widthPx / 3, heightPx / 2)
+    }
+
+    override fun onDrawShadow(canvas: android.graphics.Canvas) {
+        val d = density.coerceAtLeast(1f)
+        val rect = RectF(1.5f * d, 1.5f * d, widthPx - 1.5f * d, heightPx - 1.5f * d)
+        val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.FILL
+            color = android.graphics.Color.argb(244, 248, 250, 252)
+        }
+        val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeWidth = 1.8f * d
+            color = android.graphics.Color.rgb(37, 99, 235)
+        }
+        canvas.drawRoundRect(rect, 11f * d, 11f * d, bgPaint)
+        canvas.drawRoundRect(rect, 11f * d, 11f * d, borderPaint)
+
+        val iconLeft = 8f * d
+        val iconTop = 7f * d
+        val iconW = 50f * d
+        val iconH = heightPx - 14f * d
+        val iconRect = RectF(iconLeft, iconTop, iconLeft + iconW, iconTop + iconH)
+        val whitePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.FILL
+            color = android.graphics.Color.WHITE
+        }
+        canvas.drawRoundRect(iconRect, 6f * d, 6f * d, whitePaint)
+
+        val bmp = previewBitmap
+        if (bmp != null && bmp.width > 0 && bmp.height > 0) {
+            val pad = 3f * d
+            val availW = (iconW - pad * 2f).coerceAtLeast(1f)
+            val availH = (iconH - pad * 2f).coerceAtLeast(1f)
+            val fit = minOf(availW / bmp.width.toFloat(), availH / bmp.height.toFloat())
+            val dw = bmp.width * fit
+            val dh = bmp.height * fit
+            val dx = iconLeft + (iconW - dw) * 0.5f
+            val dy = iconTop + (iconH - dh) * 0.5f
+            canvas.drawBitmap(bmp, null, RectF(dx, dy, dx + dw, dy + dh), Paint(Paint.FILTER_BITMAP_FLAG))
+        }
+
+        val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = android.graphics.Color.rgb(15, 23, 42)
+            textSize = 12.5f * d
+            isFakeBoldText = true
+        }
+        val clippedTitle = if (title.length > 20) title.take(19) + "…" else title
+        canvas.drawText(clippedTitle, iconLeft + iconW + 8f * d, heightPx * 0.57f, textPaint)
+    }
+}
+
+private fun startStencilSystemDrag(
+    hostView: View,
+    masterTitle: String,
+    jsonPayload: String,
+    previewBitmap: Bitmap?,
+    density: Float
+): Boolean {
+    val item = ClipData.Item(jsonPayload)
+    val clipData = ClipData(
+        masterTitle,
+        arrayOf(VEXIO_MASTER_CLIP_MIME, ClipDescription.MIMETYPE_TEXT_PLAIN),
+        item
+    )
+    val shadow = StencilCardDragShadowBuilder(density, masterTitle, previewBitmap)
+    val startedGlobal = runCatching {
+        hostView.startDragAndDrop(
+            clipData,
+            shadow,
+            jsonPayload,
+            View.DRAG_FLAG_GLOBAL or View.DRAG_FLAG_GLOBAL_URI_READ
+        )
+    }.getOrDefault(false)
+    if (startedGlobal) return true
+    return runCatching {
+        hostView.startDragAndDrop(clipData, shadow, jsonPayload, 0)
+    }.getOrDefault(false)
+}
+
 /**
- * Stencil Master card acting as a cross-window Drag & Drop source (`DRAG_FLAG_GLOBAL`),
- * rendering crisp Retina PNG / multi-geometry SVG vector previews directly without
- * `CacheDrawScopeDragShadowCallback` offscreen layer recycling artifacts inside `LazyColumn`.
+ * Stencil Master card supporting:
+ * - Single-click / tap: selects & highlights the master in the Stencil Navigator
+ * - Double-click / double-tap: adds the stencil directly to the center of the visible diagram
+ * - Immediate Mouse / Trackpad / Stylus / Touch Drag & Drop (`View.startDragAndDrop`) onto the canvas & across windows
  */
 @Composable
 private fun DraggableStencilMasterCard(
     windowInstanceId: String,
     master: StencilMasterItem,
-    onClick: () -> Unit,
+    lang: VexioAppLanguage,
+    isHighlighted: Boolean,
+    onSelect: () -> Unit,
+    onDoubleClickAdd: () -> Unit,
     onOpenNewWindowRequested: () -> Unit
 ) {
     var cardMenuExpanded by remember { mutableStateOf(false) }
+    val hostView = LocalView.current
+    val density = LocalDensity.current.density
     val primaryStroke = MaterialTheme.colorScheme.primary
-    val dragCardBg = MaterialTheme.colorScheme.surfaceContainerHigh
-    val dragCardBorder = MaterialTheme.colorScheme.primary
     val decodedPngPreview = remember(master.masterId, master.pngDataUrl) {
         val prefix = "data:image/png;base64,"
         if (master.pngDataUrl.startsWith(prefix)) {
@@ -3194,64 +3319,45 @@ private fun DraggableStencilMasterCard(
     Box(modifier = Modifier.fillMaxWidth()) {
         Surface(
             shape = RoundedCornerShape(12.dp),
-            color = MaterialTheme.colorScheme.surfaceContainerLowest,
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+            color = if (isHighlighted) {
+                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.42f)
+            } else {
+                MaterialTheme.colorScheme.surfaceContainerLowest
+            },
+            border = BorderStroke(
+                width = if (isHighlighted) 1.5.dp else 1.dp,
+                color = if (isHighlighted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant
+            ),
             modifier = Modifier
                 .fillMaxWidth()
-                .clickable(onClick = onClick)
-                .dragAndDropSource(
-                    drawDragDecoration = {
-                        val cr = CornerRadius(12.dp.toPx(), 12.dp.toPx())
-                        drawRoundRect(
-                            color = dragCardBg.copy(alpha = 0.94f),
-                            size = size,
-                            cornerRadius = cr
-                        )
-                        drawRoundRect(
-                            color = dragCardBorder,
-                            size = size,
-                            cornerRadius = cr,
-                            style = Stroke(width = 1.5.dp.toPx())
-                        )
-                        val pad = 8.dp.toPx()
-                        val boxW = 56.dp.toPx().coerceAtMost((size.width - pad * 2f).coerceAtLeast(1f))
-                        val boxH = 40.dp.toPx().coerceAtMost((size.height - pad * 2f).coerceAtLeast(1f))
-                        val boxTop = ((size.height - boxH) * 0.5f).coerceAtLeast(0f)
-                        drawRoundRect(
-                            color = Color.White,
-                            topLeft = Offset(pad, boxTop),
-                            size = Size(boxW, boxH),
-                            cornerRadius = CornerRadius(8.dp.toPx(), 8.dp.toPx())
-                        )
-                        if (decodedPngPreview != null && decodedPngPreview.width > 0 && decodedPngPreview.height > 0) {
-                            val innerPad = 3.dp.toPx()
-                            val availW = (boxW - innerPad * 2f).coerceAtLeast(1f)
-                            val availH = (boxH - innerPad * 2f).coerceAtLeast(1f)
-                            val fit = minOf(availW / decodedPngPreview.width.toFloat(), availH / decodedPngPreview.height.toFloat())
-                            val dstW = (decodedPngPreview.width * fit).toInt().coerceAtLeast(1)
-                            val dstH = (decodedPngPreview.height * fit).toInt().coerceAtLeast(1)
-                            val dstX = (pad + (boxW - dstW) * 0.5f).toInt()
-                            val dstY = (boxTop + (boxH - dstH) * 0.5f).toInt()
-                            drawImage(
-                                image = decodedPngPreview,
-                                dstOffset = IntOffset(dstX, dstY),
-                                dstSize = IntSize(dstW, dstH)
+                .pointerInput(master.masterId) {
+                    detectTapGestures(
+                        onTap = { onSelect() },
+                        onDoubleTap = { onDoubleClickAdd() }
+                    )
+                }
+                .pointerInput(master.masterId, jsonPayload) {
+                    var dragLaunched = false
+                    detectDragGestures(
+                        onDragStart = {
+                            onSelect()
+                            dragLaunched = startStencilSystemDrag(
+                                hostView = hostView,
+                                masterTitle = master.title,
+                                jsonPayload = jsonPayload,
+                                previewBitmap = runCatching { decodedPngPreview?.asAndroidBitmap() }.getOrNull(),
+                                density = density
                             )
+                        },
+                        onDragEnd = { dragLaunched = false },
+                        onDragCancel = { dragLaunched = false },
+                        onDrag = { change, _ ->
+                            if (dragLaunched) {
+                                change.consume()
+                            }
                         }
-                    },
-                    transferData = { _: Offset ->
-                        val item = ClipData.Item(jsonPayload)
-                        val clipData = ClipData(
-                            master.title,
-                            arrayOf(VEXIO_MASTER_CLIP_MIME, ClipDescription.MIMETYPE_TEXT_PLAIN),
-                            item
-                        )
-                        DragAndDropTransferData(
-                            clipData = clipData,
-                            flags = View.DRAG_FLAG_GLOBAL or View.DRAG_FLAG_GLOBAL_URI_READ
-                        )
-                    }
-                )
+                    )
+                }
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -3401,7 +3507,7 @@ private fun DraggableStencilMasterCard(
                         overflow = TextOverflow.Ellipsis
                     )
                     Text(
-                        text = master.category,
+                        text = VexioI18n.localizeStencilCategory(master.category, lang),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
@@ -3427,15 +3533,15 @@ private fun DraggableStencilMasterCard(
             onDismissRequest = { cardMenuExpanded = false }
         ) {
             DropdownMenuItem(
-                text = { Text("Add '${master.title}' to Page") },
+                text = { Text(VexioI18n.addMasterToPageMenu(master.title, lang)) },
                 leadingIcon = { Icon(Icons.Default.Add, contentDescription = null) },
                 onClick = {
                     cardMenuExpanded = false
-                    onClick()
+                    onDoubleClickAdd()
                 }
             )
             DropdownMenuItem(
-                text = { Text("Open New Side-by-Side Window") },
+                text = { Text(VexioI18n.openSideBySideWindowMenu(lang)) },
                 leadingIcon = { Icon(Icons.Default.OpenInNew, contentDescription = null) },
                 onClick = {
                     cardMenuExpanded = false
@@ -3524,7 +3630,7 @@ private fun ExpressiveMorphingToolbar(
                         if (isSelected) {
                             Spacer(Modifier.width(5.dp))
                             Text(
-                                text = tool.displayName,
+                                text = VexioI18n.toolName(tool, uiState.language),
                                 style = MaterialTheme.typography.labelMedium,
                                 color = contentColor
                             )
@@ -3601,6 +3707,7 @@ private fun VulkanCanvasDropZone(
     val density = LocalDensity.current.density
     val semanticColors = LocalVexioSemanticColors.current
 
+    val lang = uiState.language
     var isDragHovering by remember { mutableStateOf(false) }
     var contextMenuVisible by remember { mutableStateOf(false) }
     var contextMenuOffsetDp by remember { mutableStateOf(DpOffset.Zero) }
@@ -3608,6 +3715,60 @@ private fun VulkanCanvasDropZone(
 
     val hardwarePointerIcon = remember(uiState.activeCursor) {
         resolveHardwarePointerIcon(context, uiState.activeCursor)
+    }
+
+    fun handleAndroidDragDrop(dragEvent: DragEvent): Boolean {
+        isDragHovering = false
+        val localPayloadJson = dragEvent.localState as? String
+        val clipData = dragEvent.clipData
+        if ((clipData == null || clipData.itemCount == 0) && localPayloadJson.isNullOrBlank()) {
+            return false
+        }
+
+        val activity = context as? Activity
+        val dragPermissions = if (clipData != null) activity?.requestDragAndDropPermissions(dragEvent) else null
+
+        try {
+            val firstItem = if (clipData != null && clipData.itemCount > 0) clipData.getItemAt(0) else null
+
+            // Case 1: Dropped .vsdx / .vsdm / .vssx / .vstx / .vsd / .dwg / .dxf file URI
+            val droppedUri = firstItem?.uri
+            if (droppedUri != null) {
+                val lastSeg = droppedUri.lastPathSegment?.lowercase().orEmpty()
+                val ext = lastSeg.substringAfterLast('.', "")
+                if (ext in SUPPORTED_DIAGRAM_EXTENSIONS ||
+                    clipData?.description?.hasMimeType("application/*") == true
+                ) {
+                    onExternalUriDropped(droppedUri)
+                    return true
+                }
+            }
+
+            // Case 2: Intra-window or Cross-window Vexio Stencil Master JSON payload
+            val rawText = firstItem?.text?.toString()?.takeIf { it.isNotBlank() } ?: localPayloadJson
+            if (!rawText.isNullOrBlank() && rawText.trimStart().startsWith("{")) {
+                val payload = runCatching {
+                    Json.decodeFromString<CrossWindowShapePayload>(rawText)
+                }.getOrNull()
+                if (payload != null) {
+                    viewModel.dropStencilAtScreenPx(
+                        title = payload.title,
+                        widthFormula = payload.widthFormula,
+                        heightFormula = payload.heightFormula,
+                        fillFormula = payload.fillFormula,
+                        category = payload.category,
+                        screenXPx = dragEvent.x,
+                        screenYPx = dragEvent.y
+                    )
+                    return true
+                }
+            }
+        } finally {
+            if (clipData == null || clipData.itemCount == 0 || clipData.getItemAt(0).uri == null) {
+                dragPermissions?.release()
+            }
+        }
+        return false
     }
 
     val dragAndDropTarget = remember(context, density) {
@@ -3625,58 +3786,7 @@ private fun VulkanCanvasDropZone(
             }
 
             override fun onDrop(event: DragAndDropEvent): Boolean {
-                isDragHovering = false
-                val dragEvent: DragEvent = event.toAndroidDragEvent()
-                val clipData = dragEvent.clipData ?: return false
-                if (clipData.itemCount == 0) return false
-
-                val activity = context as? Activity
-                val dragPermissions = activity?.requestDragAndDropPermissions(dragEvent)
-
-                try {
-                    val firstItem = clipData.getItemAt(0)
-
-                    // Case 1: Dropped .vsdx / .vsdm / .vssx / .vstx / .vsd / .dwg / .dxf file URI
-                    val droppedUri = firstItem.uri
-                    if (droppedUri != null) {
-                        val lastSeg = droppedUri.lastPathSegment?.lowercase().orEmpty()
-                        val ext = lastSeg.substringAfterLast('.', "")
-                        if (ext in SUPPORTED_DIAGRAM_EXTENSIONS ||
-                            clipData.description?.hasMimeType("application/*") == true
-                        ) {
-                            onExternalUriDropped(droppedUri)
-                            return true
-                        }
-                    }
-
-                    // Case 2: Cross-window Vexio Stencil Master / Shape JSON payload
-                    val rawText = firstItem.text?.toString()
-                    if (!rawText.isNullOrBlank() && rawText.trimStart().startsWith("{")) {
-                        val payload = runCatching {
-                            Json.decodeFromString<CrossWindowShapePayload>(rawText)
-                        }.getOrNull()
-                        if (payload != null) {
-                            val dpi = 96f * density * (viewModel.uiState.value.zoomPercent / 100f)
-                            val pinXIn = (dragEvent.x / dpi.coerceAtLeast(1f)).coerceIn(0.5f, 10.5f)
-                            val pinYIn = (8.5f - (dragEvent.y / dpi.coerceAtLeast(1f))).coerceIn(0.5f, 8.0f)
-                            viewModel.instantiateMasterDrop(
-                                title = payload.title,
-                                widthFormula = payload.widthFormula,
-                                heightFormula = payload.heightFormula,
-                                fillFormula = payload.fillFormula,
-                                pinXInches = pinXIn,
-                                pinYInches = pinYIn,
-                                category = payload.category
-                            )
-                            return true
-                        }
-                    }
-                } finally {
-                    if (clipData.getItemAt(0).uri == null) {
-                        dragPermissions?.release()
-                    }
-                }
-                return false
+                return handleAndroidDragDrop(event.toAndroidDragEvent())
             }
         }
     }
@@ -3687,7 +3797,8 @@ private fun VulkanCanvasDropZone(
             .dragAndDropTarget(
                 shouldStartDragAndDrop = { startEvent ->
                     val mimes = startEvent.mimeTypes()
-                    mimes.contains(VEXIO_MASTER_CLIP_MIME) ||
+                    mimes.isEmpty() ||
+                        mimes.contains(VEXIO_MASTER_CLIP_MIME) ||
                         mimes.contains(ClipDescription.MIMETYPE_TEXT_PLAIN) ||
                         mimes.any {
                             it.startsWith("application/") ||
@@ -3713,6 +3824,27 @@ private fun VulkanCanvasDropZone(
                             }
                         }
                     )
+
+                    setOnDragListener { _, dragEvent ->
+                        when (dragEvent.action) {
+                            DragEvent.ACTION_DRAG_STARTED -> true
+                            DragEvent.ACTION_DRAG_ENTERED -> {
+                                isDragHovering = true
+                                true
+                            }
+                            DragEvent.ACTION_DRAG_LOCATION -> true
+                            DragEvent.ACTION_DRAG_EXITED -> {
+                                isDragHovering = false
+                                true
+                            }
+                            DragEvent.ACTION_DROP -> handleAndroidDragDrop(dragEvent)
+                            DragEvent.ACTION_DRAG_ENDED -> {
+                                isDragHovering = false
+                                true
+                            }
+                            else -> false
+                        }
+                    }
 
                     holder.addCallback(object : SurfaceHolder.Callback {
                         override fun surfaceCreated(surfaceHolder: SurfaceHolder) {
@@ -3749,10 +3881,8 @@ private fun VulkanCanvasDropZone(
                             x = (xPx / pxToDp).dp,
                             y = (yPx / pxToDp).dp
                         )
-                        val dpi = (96f * pxToDp * (viewModel.uiState.value.zoomPercent / 100f)).coerceAtLeast(1f)
-                        val xIn = (xPx / dpi).toDouble().coerceIn(1.0, 10.0)
-                        val yIn = (8.5 - (yPx / dpi).toDouble()).coerceIn(1.0, 7.5)
-                        lastRightClickPageIn = xIn to yIn
+                        val (xIn, yIn) = viewModel.screenPxToPageIn(xPx, yPx)
+                        lastRightClickPageIn = xIn.toDouble() to yIn.toDouble()
                         contextMenuVisible = true
                     }
 
@@ -3931,7 +4061,7 @@ private fun VulkanCanvasDropZone(
                     shadowElevation = 6.dp
                 ) {
                     Text(
-                        text = "Drop Stencil Master or .vsdx / .vssx / .vsd / .dwg / .dxf Here",
+                        text = VexioI18n.dropOverlayBanner(lang),
                         style = MaterialTheme.typography.titleSmall,
                         color = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp)
@@ -3947,7 +4077,7 @@ private fun VulkanCanvasDropZone(
             offset = contextMenuOffsetDp
         ) {
             DropdownMenuItem(
-                text = { Text("Edit Shape Label (Double-Click)") },
+                text = { Text(VexioI18n.ctxEditShapeLabel(lang)) },
                 leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) },
                 onClick = {
                     contextMenuVisible = false
@@ -3955,42 +4085,42 @@ private fun VulkanCanvasDropZone(
                 }
             )
             DropdownMenuItem(
-                text = { Text("Group Selected Shapes (Ctrl+G)") },
+                text = { Text(VexioI18n.ctxGroupSelected(lang)) },
                 onClick = {
                     contextMenuVisible = false
                     viewModel.groupSelectedShapes()
                 }
             )
             DropdownMenuItem(
-                text = { Text("Ungroup Selected Group (Ctrl+Shift+G)") },
+                text = { Text(VexioI18n.ctxUngroupSelected(lang)) },
                 onClick = {
                     contextMenuVisible = false
                     viewModel.ungroupSelectedShapes()
                 }
             )
             DropdownMenuItem(
-                text = { Text("Rotate Left 90° (↺)") },
+                text = { Text(VexioI18n.ctxRotateLeft90(lang)) },
                 onClick = {
                     contextMenuVisible = false
                     viewModel.rotateOrFlipSelected(deltaAngleDeg = -90.0)
                 }
             )
             DropdownMenuItem(
-                text = { Text("Rotate Right 90° (↻)") },
+                text = { Text(VexioI18n.ctxRotateRight90(lang)) },
                 onClick = {
                     contextMenuVisible = false
                     viewModel.rotateOrFlipSelected(deltaAngleDeg = 90.0)
                 }
             )
             DropdownMenuItem(
-                text = { Text("Flip Horizontal (⇆)") },
+                text = { Text(VexioI18n.ctxFlipHorizontal(lang)) },
                 onClick = {
                     contextMenuVisible = false
                     viewModel.rotateOrFlipSelected(flipX = true)
                 }
             )
             DropdownMenuItem(
-                text = { Text("Flip Vertical (⇅)") },
+                text = { Text(VexioI18n.ctxFlipVertical(lang)) },
                 onClick = {
                     contextMenuVisible = false
                     viewModel.rotateOrFlipSelected(flipY = true)
@@ -3998,7 +4128,7 @@ private fun VulkanCanvasDropZone(
             )
             HorizontalDivider()
             DropdownMenuItem(
-                text = { Text("Duplicate Selection (Ctrl+D)") },
+                text = { Text(VexioI18n.ctxDuplicate(lang)) },
                 leadingIcon = { Icon(Icons.Default.ContentCopy, contentDescription = null) },
                 onClick = {
                     contextMenuVisible = false
@@ -4006,7 +4136,7 @@ private fun VulkanCanvasDropZone(
                 }
             )
             DropdownMenuItem(
-                text = { Text("Delete Selected Shape (Del)") },
+                text = { Text(VexioI18n.ctxDelete(lang)) },
                 leadingIcon = { Icon(Icons.Default.DeleteOutline, contentDescription = null) },
                 onClick = {
                     contextMenuVisible = false
@@ -4015,7 +4145,7 @@ private fun VulkanCanvasDropZone(
             )
             HorizontalDivider()
             DropdownMenuItem(
-                text = { Text("Bring to Front") },
+                text = { Text(VexioI18n.ctxBringToFront(lang)) },
                 leadingIcon = { Icon(Icons.Default.FlipToFront, contentDescription = null) },
                 onClick = {
                     contextMenuVisible = false
@@ -4023,7 +4153,7 @@ private fun VulkanCanvasDropZone(
                 }
             )
             DropdownMenuItem(
-                text = { Text("Send to Back") },
+                text = { Text(VexioI18n.ctxSendToBack(lang)) },
                 leadingIcon = { Icon(Icons.Default.FlipToBack, contentDescription = null) },
                 onClick = {
                     contextMenuVisible = false
@@ -4032,7 +4162,7 @@ private fun VulkanCanvasDropZone(
             )
             HorizontalDivider()
             DropdownMenuItem(
-                text = { Text("Insert Rectangle Here") },
+                text = { Text(VexioI18n.ctxInsertPrimitive("rect", lang)) },
                 leadingIcon = { Icon(Icons.Default.CropSquare, contentDescription = null) },
                 onClick = {
                     contextMenuVisible = false
@@ -4040,7 +4170,7 @@ private fun VulkanCanvasDropZone(
                 }
             )
             DropdownMenuItem(
-                text = { Text("Insert Circle / Ellipse Here") },
+                text = { Text(VexioI18n.ctxInsertPrimitive("ellipse", lang)) },
                 leadingIcon = { Icon(Icons.Default.RadioButtonUnchecked, contentDescription = null) },
                 onClick = {
                     contextMenuVisible = false
@@ -4048,7 +4178,7 @@ private fun VulkanCanvasDropZone(
                 }
             )
             DropdownMenuItem(
-                text = { Text("Insert Diamond Here") },
+                text = { Text(VexioI18n.ctxInsertPrimitive("diamond", lang)) },
                 leadingIcon = { Icon(Icons.Default.Diamond, contentDescription = null) },
                 onClick = {
                     contextMenuVisible = false
@@ -4056,7 +4186,7 @@ private fun VulkanCanvasDropZone(
                 }
             )
             DropdownMenuItem(
-                text = { Text("Insert Hexagon Here") },
+                text = { Text(VexioI18n.ctxInsertPrimitive("hexagon", lang)) },
                 leadingIcon = { Icon(Icons.Default.Hexagon, contentDescription = null) },
                 onClick = {
                     contextMenuVisible = false
@@ -4064,7 +4194,7 @@ private fun VulkanCanvasDropZone(
                 }
             )
             DropdownMenuItem(
-                text = { Text("Insert 5-Point Star Here") },
+                text = { Text(VexioI18n.ctxInsertPrimitive("star", lang)) },
                 leadingIcon = { Icon(Icons.Default.StarBorder, contentDescription = null) },
                 onClick = {
                     contextMenuVisible = false
@@ -4072,7 +4202,7 @@ private fun VulkanCanvasDropZone(
                 }
             )
             DropdownMenuItem(
-                text = { Text("Insert Straight Line Here") },
+                text = { Text(VexioI18n.ctxInsertPrimitive("line", lang)) },
                 leadingIcon = { Icon(Icons.Default.HorizontalRule, contentDescription = null) },
                 onClick = {
                     contextMenuVisible = false
@@ -4081,7 +4211,7 @@ private fun VulkanCanvasDropZone(
             )
             HorizontalDivider()
             DropdownMenuItem(
-                text = { Text("Auto-Layout Active Page") },
+                text = { Text(VexioI18n.ctxAutoLayoutPage(lang)) },
                 leadingIcon = { Icon(Icons.Default.Schema, contentDescription = null) },
                 onClick = {
                     contextMenuVisible = false
@@ -4089,7 +4219,7 @@ private fun VulkanCanvasDropZone(
                 }
             )
             DropdownMenuItem(
-                text = { Text("Link Subprocess Page (+)") },
+                text = { Text(VexioI18n.ctxLinkSubprocess(lang)) },
                 leadingIcon = { Icon(Icons.Default.AccountTree, contentDescription = null) },
                 onClick = {
                     contextMenuVisible = false
@@ -4097,7 +4227,7 @@ private fun VulkanCanvasDropZone(
                 }
             )
             DropdownMenuItem(
-                text = { Text("Inspect ShapeSheet (Shift+F5)") },
+                text = { Text(VexioI18n.ctxInspectShapeSheet(lang)) },
                 leadingIcon = { Icon(Icons.Default.TableChart, contentDescription = null) },
                 onClick = {
                     contextMenuVisible = false
@@ -4107,7 +4237,7 @@ private fun VulkanCanvasDropZone(
                 }
             )
             DropdownMenuItem(
-                text = { Text("Open New Diagram Window (Ctrl+N)") },
+                text = { Text(VexioI18n.ctxOpenNewWindow(lang)) },
                 leadingIcon = { Icon(Icons.Default.OpenInNew, contentDescription = null) },
                 onClick = {
                     contextMenuVisible = false
@@ -4154,7 +4284,7 @@ private fun ShapeSheetSectionTablePane(
                     modifier = Modifier.weight(1f)
                 )
                 Text(
-                    text = "Canonical Units: in / deg • Reactive Topological DAG",
+                    text = VexioI18n.shapeSheetSubtitle(uiState.language),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -4242,7 +4372,7 @@ private fun ShapeInspectorPane(
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             Text(
-                text = "Shape & Layer Inspector",
+                text = VexioI18n.shapeAndLayerInspectorTitle(lang),
                 style = MaterialTheme.typography.titleSmall,
                 maxLines = 1,
                 softWrap = false
@@ -4319,7 +4449,7 @@ private fun ShapeInspectorPane(
                                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
                                 ) {
                                     Text(
-                                        text = "Font: ${uiState.textFontFamily} (${uiState.textFontSizePt} pt) ▾",
+                                        text = VexioI18n.fontButtonLabel(uiState.textFontFamily, uiState.textFontSizePt, lang),
                                         style = MaterialTheme.typography.labelMedium,
                                         fontFamily = resolveComposeFontFamily(uiState.textFontFamily),
                                         maxLines = 1,
@@ -4424,16 +4554,19 @@ private fun ShapeInspectorPane(
                             modifier = Modifier.padding(12.dp)
                         ) {
                             Text(
-                                text = "Visio Plan 2 Telemetry",
+                                text = VexioI18n.telemetryCardTitle(lang),
                                 style = MaterialTheme.typography.labelLarge,
                                 color = MaterialTheme.colorScheme.primary
                             )
                             Text(
-                                text = "Theme: ${uiState.activeThemeSlug} (Variant ${uiState.activeThemeVariant + 1}/4)",
+                                text = VexioI18n.themeLabelPrefix(
+                                    "${uiState.activeThemeSlug} (${uiState.activeThemeVariant + 1}/4)",
+                                    lang
+                                ),
                                 style = MaterialTheme.typography.labelSmall
                             )
                             Text(
-                                text = "Effects: ${uiState.activeVisualPresets.joinToString(", ").ifEmpty { "Standard" }}",
+                                text = VexioI18n.effectsLabel(uiState.activeVisualPresets.joinToString(", "), lang),
                                 style = MaterialTheme.typography.labelSmall
                             )
                         }
@@ -4567,7 +4700,7 @@ private fun ShapeInspectorPane(
                             modifier = Modifier.padding(12.dp)
                         ) {
                             Text(
-                                text = "Googlebook Hardware Shortcuts",
+                                text = VexioI18n.hardwareShortcutsTitle(lang),
                                 style = MaterialTheme.typography.labelLarge
                             )
                             Text("Ctrl+S / Ctrl+Shift+S  Save / Save As", style = MaterialTheme.typography.labelSmall)
@@ -4728,14 +4861,14 @@ private fun WorkstationBottomStatusBar(
                                 }
                             )
                             DropdownMenuItem(
-                                text = { Text("Switch to ${tab.name} (${tab.scaleLabel})") },
+                                text = { Text(VexioI18n.switchToPageItem(tab.name, tab.scaleLabel, uiState.language)) },
                                 onClick = {
                                     pageMenuExpanded = false
                                     onSelectPage(tab.pageId)
                                 }
                             )
                             DropdownMenuItem(
-                                text = { Text("Insert New Page") },
+                                text = { Text(VexioI18n.newPagePill(uiState.language)) },
                                 leadingIcon = { Icon(Icons.Default.Add, contentDescription = null) },
                                 onClick = {
                                     pageMenuExpanded = false
@@ -4743,7 +4876,7 @@ private fun WorkstationBottomStatusBar(
                                 }
                             )
                             DropdownMenuItem(
-                                text = { Text("Create Subprocess Page") },
+                                text = { Text(VexioI18n.createSubprocessDrillDown(uiState.language)) },
                                 leadingIcon = { Icon(Icons.Default.AccountTree, contentDescription = null) },
                                 onClick = {
                                     pageMenuExpanded = false
@@ -4751,7 +4884,7 @@ private fun WorkstationBottomStatusBar(
                                 }
                             )
                             DropdownMenuItem(
-                                text = { Text("Auto-Layout Active Page") },
+                                text = { Text(VexioI18n.ctxAutoLayoutPage(uiState.language)) },
                                 leadingIcon = { Icon(Icons.Default.Schema, contentDescription = null) },
                                 onClick = {
                                     pageMenuExpanded = false
@@ -4780,7 +4913,7 @@ private fun WorkstationBottomStatusBar(
 
             if (posture != AdaptiveWorkstationPosture.COMPACT_CONVERTIBLE) {
                 Text(
-                    text = "Cursor: ${uiState.activeCursor.name} • Tool: ${uiState.activeTool.displayName}",
+                    text = VexioI18n.statusCursorAndTool(uiState.activeCursor, uiState.activeTool, uiState.language),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
@@ -4790,7 +4923,7 @@ private fun WorkstationBottomStatusBar(
             }
 
             Text(
-                text = "Zoom ${uiState.zoomPercent}%",
+                text = "${uiState.zoomPercent}%",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.primary,
                 maxLines = 1,
@@ -4810,6 +4943,7 @@ private fun FullSpectrumColorPickerDialog(
     initialHex: String,
     allowClearNone: Boolean,
     clearLabel: String,
+    lang: VexioAppLanguage,
     onDismiss: () -> Unit,
     onClearNone: () -> Unit,
     onColorSelected: (String) -> Unit
@@ -4921,19 +5055,19 @@ private fun FullSpectrumColorPickerDialog(
 
                 // Fine RGB Channel Sliders (0..255)
                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text("Red: $red", style = MaterialTheme.typography.labelSmall)
+                    Text(VexioI18n.redChannel(red, lang), style = MaterialTheme.typography.labelSmall)
                     Slider(
                         value = red.toFloat(),
                         onValueChange = { syncHexFromRgb(it.toInt(), green, blue) },
                         valueRange = 0f..255f
                     )
-                    Text("Green: $green", style = MaterialTheme.typography.labelSmall)
+                    Text(VexioI18n.greenChannel(green, lang), style = MaterialTheme.typography.labelSmall)
                     Slider(
                         value = green.toFloat(),
                         onValueChange = { syncHexFromRgb(red, it.toInt(), blue) },
                         valueRange = 0f..255f
                     )
-                    Text("Blue: $blue", style = MaterialTheme.typography.labelSmall)
+                    Text(VexioI18n.blueChannel(blue, lang), style = MaterialTheme.typography.labelSmall)
                     Slider(
                         value = blue.toFloat(),
                         onValueChange = { syncHexFromRgb(red, green, it.toInt()) },
@@ -4985,7 +5119,7 @@ private fun FullSpectrumColorPickerDialog(
                     onColorSelected(normalized)
                 }
             ) {
-                Text("Apply Color")
+                Text(VexioI18n.applyColorButton(lang))
             }
         },
         dismissButton = {
@@ -4996,7 +5130,7 @@ private fun FullSpectrumColorPickerDialog(
                     }
                 }
                 TextButton(onClick = onDismiss) {
-                    Text("Cancel")
+                    Text(VexioI18n.cancelButton(lang))
                 }
             }
         }

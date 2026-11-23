@@ -68,7 +68,11 @@ public final class VexioMetalNSView: NSView {
         layerContentsPlacement = .scaleAxesIndependently
         allowedTouchTypes = [.indirect, .direct]
         wantsRestingTouches = true
-        registerForDraggedTypes([.string])
+        registerForDraggedTypes([
+            .string,
+            NSPasteboard.PasteboardType("public.utf8-plain-text"),
+            NSPasteboard.PasteboardType("public.plain-text")
+        ])
     }
 
     override public var acceptsFirstResponder: Bool {
@@ -735,16 +739,38 @@ public final class VexioMetalNSView: NSView {
     // MARK: - Stencil Drag-and-Drop Destination (NSDraggingDestination)
 
     override public func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        if sender.draggingPasteboard.canReadObject(forClasses: [NSString.self], options: nil) {
+        if sender.draggingPasteboard.canReadObject(forClasses: [NSString.self], options: nil)
+            || session?.activeDraggedStencilMasterId != nil
+        {
             return .copy
         }
         return []
     }
 
+    override public func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        if sender.draggingPasteboard.canReadObject(forClasses: [NSString.self], options: nil)
+            || session?.activeDraggedStencilMasterId != nil
+        {
+            return .copy
+        }
+        return []
+    }
+
+    override public func draggingEnded(_ sender: any NSDraggingInfo) {
+        session?.activeDraggedStencilMasterId = nil
+    }
+
     override public func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
-        guard let session,
-              let masterId = sender.draggingPasteboard.string(forType: .string)
-        else {
+        guard let session else { return false }
+        let pb = sender.draggingPasteboard
+        let resolvedMasterId = pb.string(forType: .string)
+            ?? pb.string(forType: NSPasteboard.PasteboardType("public.utf8-plain-text"))
+            ?? pb.string(forType: NSPasteboard.PasteboardType("public.plain-text"))
+            ?? (pb.readObjects(forClasses: [NSString.self], options: nil)?.first as? String)
+            ?? session.activeDraggedStencilMasterId
+        session.activeDraggedStencilMasterId = nil
+
+        guard let masterId = resolvedMasterId else {
             return false
         }
         session.ensureStencilsLoadedIfNeeded()
@@ -755,13 +781,15 @@ public final class VexioMetalNSView: NSView {
         }
 
         let dropPointInView = convert(sender.draggingLocation, from: nil)
-        let canvasXInches = max((dropPointInView.x - session.panOffset.width) / (96.0 * max(session.zoomScale, 0.1)), 0.35)
-        let rawTopDownY = max((dropPointInView.y - session.panOffset.height) / (96.0 * max(session.zoomScale, 0.1)), 0.35)
-        let canvasYInches = min(max(8.5 - rawTopDownY, 0.45), 8.05)
+        let scale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2.0
+        let pagePoint = session.screenPxToPageInches(
+            xPx: Double(dropPointInView.x * scale),
+            yPx: Double(dropPointInView.y * scale)
+        )
 
         session.instantiateStencilMaster(
             masterId: masterId,
-            atCanvasInches: CGPoint(x: min(canvasXInches, 10.5), y: canvasYInches),
+            atCanvasInches: pagePoint,
             undoManager: activeUndoManager
         )
         return true

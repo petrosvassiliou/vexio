@@ -2336,7 +2336,11 @@ pub fn tessellate_autoconnect_triangles(
     zoom_ppi: f64,
     hovered_dir: Option<AutoConnectDir>,
 ) -> TessellatedMesh {
-    if !matches!(visual.kind, ShapeKind::Shape2D | ShapeKind::Group) || visual.is_swimlane {
+    if !matches!(
+        visual.kind,
+        ShapeKind::Shape2D | ShapeKind::Group | ShapeKind::ForeignObject
+    ) || visual.is_swimlane
+    {
         return TessellatedMesh::new();
     }
     let ppi = zoom_ppi.max(1.0);
