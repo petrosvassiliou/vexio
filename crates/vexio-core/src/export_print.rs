@@ -1993,7 +1993,7 @@ pub fn encode_rgba_to_png(width: u32, height: u32, rgba: &[u8], dpi: u32) -> Vec
         let start = y * row_bytes;
         raw_scanlines.extend_from_slice(&rgba[start..start + row_bytes]);
     }
-    let zlib_stream = encode_zlib_stored(&raw_scanlines);
+    let zlib_stream = encode_zlib_compressed(&raw_scanlines);
     write_png_chunk(&mut png, b"IDAT", &zlib_stream);
     write_png_chunk(&mut png, b"IEND", &[]);
     png
@@ -2361,6 +2361,17 @@ fn write_png_chunk(out: &mut Vec<u8>, tag: &[u8; 4], data: &[u8]) {
     out.extend_from_slice(data);
     let crc = crc32fast::hash(&out[crc_start..]);
     out.extend_from_slice(&crc.to_be_bytes());
+}
+
+fn encode_zlib_compressed(raw: &[u8]) -> Vec<u8> {
+    use std::io::Write as _;
+    let mut enc = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::fast());
+    if enc.write_all(raw).is_ok() {
+        if let Ok(compressed) = enc.finish() {
+            return compressed;
+        }
+    }
+    encode_zlib_stored(raw)
 }
 
 fn encode_zlib_stored(raw: &[u8]) -> Vec<u8> {

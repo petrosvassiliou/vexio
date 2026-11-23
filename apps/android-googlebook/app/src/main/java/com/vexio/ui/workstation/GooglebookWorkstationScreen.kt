@@ -8,6 +8,7 @@ import android.content.Intent
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.util.Base64
+import android.util.LruCache
 import android.view.DragEvent
 import android.view.GestureDetector
 import android.view.MotionEvent
@@ -81,6 +82,7 @@ import androidx.compose.material.icons.filled.Hexagon
 import androidx.compose.material.icons.filled.HorizontalRule
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.NearMe
 import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.PanTool
@@ -140,7 +142,9 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusTarget
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
@@ -171,6 +175,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.DpOffset
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.input.motionprediction.MotionEventPredictor
@@ -2902,12 +2908,14 @@ private fun StencilMasterDrawerPane(
                                 color = MaterialTheme.colorScheme.surfaceContainer,
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .clip(RoundedCornerShape(10.dp))
                                     .clickable {
-                                        expandedCategories = if (category in expandedCategories) {
-                                            expandedCategories - category
+                                        if (isExpanded) {
+                                            expandedCategories = expandedCategories - category
+                                            if (uiState.selectedStencilCategory == category) {
+                                                onSelectCategory("All")
+                                            }
                                         } else {
-                                            expandedCategories + category
+                                            expandedCategories = expandedCategories + category
                                         }
                                     }
                             ) {
@@ -3129,10 +3137,12 @@ private fun parseStencilSvgDoc(svg: String, defaultAccent: Color): ParsedCompose
     return ParsedComposeSvgDoc(viewW, viewH, list)
 }
 
+private val stencilPreviewBitmapCache = LruCache<String, ImageBitmap>(512)
+
 /**
  * Stencil Master card acting as a cross-window Drag & Drop source (`DRAG_FLAG_GLOBAL`),
- * rendering crisp multi-geometry SVG vector previews via Compose `PathParser`, and exposing
- * right-click / long-press context menus.
+ * rendering crisp Retina PNG / multi-geometry SVG vector previews directly without
+ * `CacheDrawScopeDragShadowCallback` offscreen layer recycling artifacts inside `LazyColumn`.
  */
 @Composable
 private fun DraggableStencilMasterCard(
@@ -3143,19 +3153,28 @@ private fun DraggableStencilMasterCard(
 ) {
     var cardMenuExpanded by remember { mutableStateOf(false) }
     val primaryStroke = MaterialTheme.colorScheme.primary
-    val decodedPngPreview = remember(master.pngDataUrl) {
+    val dragCardBg = MaterialTheme.colorScheme.surfaceContainerHigh
+    val dragCardBorder = MaterialTheme.colorScheme.primary
+    val decodedPngPreview = remember(master.masterId, master.pngDataUrl) {
         val prefix = "data:image/png;base64,"
         if (master.pngDataUrl.startsWith(prefix)) {
-            runCatching {
+            val cacheKey = "${master.masterId}::${master.pngDataUrl.hashCode()}"
+            stencilPreviewBitmapCache.get(cacheKey) ?: runCatching {
                 val raw = Base64.decode(master.pngDataUrl.removePrefix(prefix), Base64.DEFAULT)
-                BitmapFactory.decodeByteArray(raw, 0, raw.size)?.asImageBitmap()
+                BitmapFactory.decodeByteArray(raw, 0, raw.size)?.asImageBitmap()?.also { bmp ->
+                    stencilPreviewBitmapCache.put(cacheKey, bmp)
+                }
             }.getOrNull()
         } else {
             null
         }
     }
-    val parsedSvgDoc = remember(master.svgPreview, primaryStroke) {
-        parseStencilSvgDoc(master.svgPreview, primaryStroke)
+    val parsedSvgDoc = remember(master.svgPreview, primaryStroke, decodedPngPreview != null) {
+        if (decodedPngPreview != null) {
+            ParsedComposeSvgDoc(144f, 96f, emptyList())
+        } else {
+            parseStencilSvgDoc(master.svgPreview, primaryStroke)
+        }
     }
 
     val jsonPayload = remember(windowInstanceId, master) {
@@ -3172,19 +3191,54 @@ private fun DraggableStencilMasterCard(
         )
     }
 
-    Box {
+    Box(modifier = Modifier.fillMaxWidth()) {
         Surface(
             shape = RoundedCornerShape(12.dp),
             color = MaterialTheme.colorScheme.surfaceContainerLowest,
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(12.dp))
-                .combinedClickable(
-                    onClick = onClick,
-                    onLongClick = { cardMenuExpanded = true }
-                )
+                .clickable(onClick = onClick)
                 .dragAndDropSource(
+                    drawDragDecoration = {
+                        val cr = CornerRadius(12.dp.toPx(), 12.dp.toPx())
+                        drawRoundRect(
+                            color = dragCardBg.copy(alpha = 0.94f),
+                            size = size,
+                            cornerRadius = cr
+                        )
+                        drawRoundRect(
+                            color = dragCardBorder,
+                            size = size,
+                            cornerRadius = cr,
+                            style = Stroke(width = 1.5.dp.toPx())
+                        )
+                        val pad = 8.dp.toPx()
+                        val boxW = 56.dp.toPx().coerceAtMost((size.width - pad * 2f).coerceAtLeast(1f))
+                        val boxH = 40.dp.toPx().coerceAtMost((size.height - pad * 2f).coerceAtLeast(1f))
+                        val boxTop = ((size.height - boxH) * 0.5f).coerceAtLeast(0f)
+                        drawRoundRect(
+                            color = Color.White,
+                            topLeft = Offset(pad, boxTop),
+                            size = Size(boxW, boxH),
+                            cornerRadius = CornerRadius(8.dp.toPx(), 8.dp.toPx())
+                        )
+                        if (decodedPngPreview != null && decodedPngPreview.width > 0 && decodedPngPreview.height > 0) {
+                            val innerPad = 3.dp.toPx()
+                            val availW = (boxW - innerPad * 2f).coerceAtLeast(1f)
+                            val availH = (boxH - innerPad * 2f).coerceAtLeast(1f)
+                            val fit = minOf(availW / decodedPngPreview.width.toFloat(), availH / decodedPngPreview.height.toFloat())
+                            val dstW = (decodedPngPreview.width * fit).toInt().coerceAtLeast(1)
+                            val dstH = (decodedPngPreview.height * fit).toInt().coerceAtLeast(1)
+                            val dstX = (pad + (boxW - dstW) * 0.5f).toInt()
+                            val dstY = (boxTop + (boxH - dstH) * 0.5f).toInt()
+                            drawImage(
+                                image = decodedPngPreview,
+                                dstOffset = IntOffset(dstX, dstY),
+                                dstSize = IntSize(dstW, dstH)
+                            )
+                        }
+                    },
                     transferData = { _: Offset ->
                         val item = ClipData.Item(jsonPayload)
                         val clipData = ClipData(
@@ -3352,6 +3406,17 @@ private fun DraggableStencilMasterCard(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
+                    )
+                }
+                IconButton(
+                    onClick = { cardMenuExpanded = true },
+                    modifier = Modifier.size(28.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.MoreVert,
+                        contentDescription = "Stencil Options",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(16.dp)
                     )
                 }
             }

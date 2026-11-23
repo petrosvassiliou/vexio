@@ -21,7 +21,7 @@ public struct GitHubReleasePayload: Decodable, Sendable {
 @MainActor
 public final class VexioUpdateManager: ObservableObject {
     public static let shared = VexioUpdateManager()
-    public static let currentVersion = "0.3.3-alpha"
+    public static let currentVersion = "0.3.4-alpha"
     private static let releasesEndpoint = "https://api.github.com/repos/petrosvassiliou/vexio/releases"
 
     @Published public var autoCheckEnabled: Bool {
