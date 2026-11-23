@@ -125,6 +125,141 @@ fn scale_physical_master_subtree(node: &mut VisioShape, scale: f64, is_root: boo
     }
 }
 
+fn format_baked_cell_formula(val: &vexio_shapesheet::CellValue) -> String {
+    match val {
+        vexio_shapesheet::CellValue::Num { internal, unit } => match unit {
+            Unit::Inch
+            | Unit::Millimeter
+            | Unit::Centimeter
+            | Unit::Meter
+            | Unit::Foot
+            | Unit::Point
+            | Unit::Pica => format!("{} in", format_clean_f64(*internal)),
+            Unit::Radian | Unit::Degree => format!("{} rad", format_clean_f64(*internal)),
+            _ => format_clean_f64(*internal),
+        },
+        vexio_shapesheet::CellValue::Bool(b) => {
+            if *b {
+                "TRUE".into()
+            } else {
+                "FALSE".into()
+            }
+        }
+        vexio_shapesheet::CellValue::Color(c) => format!("RGB({},{},{})", c.r, c.g, c.b),
+        vexio_shapesheet::CellValue::Str(s) => format!("\"{}\"", s.replace('"', "\"\"")),
+        vexio_shapesheet::CellValue::Point { x, y } => {
+            format!("PNT({} in, {} in)", format_clean_f64(*x), format_clean_f64(*y))
+        }
+        _ => "0".into(),
+    }
+}
+
+fn bake_parent_group_refs_in_subtree(node: &mut VisioShape, parent_gid: u64) {
+    let sheet_needle = format!("sheet.{parent_gid}!");
+    let mut baked_map: std::collections::BTreeMap<String, String> = std::collections::BTreeMap::new();
+    for (k, cell) in &mut node.sheet.cells {
+        let low = cell.formula.to_ascii_lowercase();
+        if low.contains(&sheet_needle) || low.contains("theparent!") {
+            let baked = format_baked_cell_formula(&cell.value);
+            let nm = cell.name.clone();
+            let hint = cell.unit_hint;
+            let val_keep = cell.value.clone();
+            *cell = vexio_shapesheet::Cell::from_formula(nm, baked.clone(), hint);
+            cell.value = val_keep;
+            baked_map.insert(k.clone(), baked);
+        }
+    }
+    if !baked_map.is_empty() {
+        for geom in &mut node.sheet.geometries {
+            let prefix = format!("geometry{}", geom.index);
+            if let Some(v) = baked_map.get(&format!("{prefix}.nofill")) {
+                geom.no_fill = v.clone();
+            }
+            if let Some(v) = baked_map.get(&format!("{prefix}.noline")) {
+                geom.no_line = v.clone();
+            }
+            if let Some(v) = baked_map.get(&format!("{prefix}.noshow")) {
+                geom.no_show = v.clone();
+            }
+            if let Some(v) = baked_map.get(&format!("{prefix}.nosnap")) {
+                geom.no_snap = v.clone();
+            }
+            if let Some(v) = baked_map.get(&format!("{prefix}.noquickdrag")) {
+                geom.no_quick_drag = v.clone();
+            }
+            for row in &mut geom.rows {
+                let ix = row.ix;
+                if let Some(v) = baked_map.get(&format!("{prefix}.x{ix}")) {
+                    row.x = v.clone();
+                }
+                if let Some(v) = baked_map.get(&format!("{prefix}.y{ix}")) {
+                    row.y = v.clone();
+                }
+                if let Some(v) = baked_map.get(&format!("{prefix}.a{ix}")) {
+                    row.a = Some(v.clone());
+                }
+                if let Some(v) = baked_map.get(&format!("{prefix}.b{ix}")) {
+                    row.b = Some(v.clone());
+                }
+                if let Some(v) = baked_map.get(&format!("{prefix}.c{ix}")) {
+                    row.c = Some(v.clone());
+                }
+                if let Some(v) = baked_map.get(&format!("{prefix}.d{ix}")) {
+                    row.d = Some(v.clone());
+                }
+                if let Some(v) = baked_map.get(&format!("{prefix}.e{ix}")) {
+                    row.e = Some(v.clone());
+                }
+            }
+        }
+        for urow in node.sheet.user_cells.values_mut() {
+            let k = format!("user.{}", urow.name.to_ascii_lowercase());
+            if let Some(v) = baked_map.get(&k) {
+                urow.value = v.clone();
+            }
+        }
+        for crow in &mut node.sheet.controls {
+            let n = crow.name.to_ascii_lowercase();
+            if let Some(v) = baked_map.get(&format!("controls.{n}.x")) {
+                crow.x = v.clone();
+            }
+            if let Some(v) = baked_map.get(&format!("controls.{n}.y")) {
+                crow.y = v.clone();
+            }
+            if let Some(v) = baked_map.get(&format!("controls.{n}.xdyn")) {
+                crow.x_dyn = v.clone();
+            }
+            if let Some(v) = baked_map.get(&format!("controls.{n}.ydyn")) {
+                crow.y_dyn = v.clone();
+            }
+        }
+        for cp in &mut node.sheet.connection_points {
+            let ix = cp.ix;
+            if let Some(v) = baked_map.get(&format!("connections.x{ix}")) {
+                cp.x = v.clone();
+            }
+            if let Some(v) = baked_map.get(&format!("connections.y{ix}")) {
+                cp.y = v.clone();
+            }
+            if let Some(v) = baked_map.get(&format!("connections.dirx{ix}")) {
+                cp.dir_x = v.clone();
+            }
+            if let Some(v) = baked_map.get(&format!("connections.diry{ix}")) {
+                cp.dir_y = v.clone();
+            }
+        }
+        for prow in node.sheet.shape_data.values_mut() {
+            let k = format!("prop.{}", prow.name.to_ascii_lowercase());
+            if let Some(v) = baked_map.get(&k) {
+                prow.value = v.clone();
+            }
+        }
+    }
+    for child in &mut node.children {
+        bake_parent_group_refs_in_subtree(child, parent_gid);
+    }
+}
+
 fn remap_dropped_shape_subtree(root: &mut VisioShape, alloc_id: &mut u64) -> u64 {
     fn assign_ids(node: &mut VisioShape, alloc_id: &mut u64, id_map: &mut std::collections::BTreeMap<u64, u64>, depth: u8) {
         let old_id = node.id;
@@ -1845,31 +1980,62 @@ impl DocumentSession {
         })
     }
 
-    /// Group 2+ top-level shapes on `page_id` into a new `ShapeKind::Group` container (`⌘G` / `Ctrl+G`),
-    /// converting child coordinates into group-local space and preserving undo/redo & connectors.
+    /// Group 2+ shapes on `page_id` into a new `ShapeKind::Group` container (`⌘G` / `Ctrl+G`),
+    /// resolving any descendant IDs to top-level page shapes, converting child coordinates into
+    /// proportional group-local formulas (`=Sheet.<gid>!Width*r`) so 8-handle group resize scales
+    /// all members smoothly, and preserving undo/redo & external dynamic connectors.
     pub fn group_shapes(&mut self, page_id: u32, shape_ids: &[u64]) -> Result<u64, CoreError> {
-        let id_set: std::collections::BTreeSet<u64> = shape_ids.iter().copied().collect();
-        if id_set.len() < 2 {
+        let top_id_set: std::collections::BTreeSet<u64> = {
+            let Some(page) = self.doc.page(page_id) else {
+                return Ok(0);
+            };
+            shape_ids
+                .iter()
+                .filter_map(|&id| page.top_level_shape_id(id))
+                .collect()
+        };
+        if top_id_set.len() < 2 {
             return Ok(0);
         }
+
+        ReactiveEngine::recalculate_document(&mut self.doc);
         let visuals = ReactiveEngine::evaluate_page_visuals(&self.doc, page_id);
+        let vis_by_id: std::collections::BTreeMap<u64, &vexio_shapesheet::EvaluatedShapeVisual> =
+            visuals.iter().map(|v| (v.shape_id, v)).collect();
+
         let mut g_min_x = f64::INFINITY;
         let mut g_min_y = f64::INFINITY;
         let mut g_max_x = f64::NEG_INFINITY;
         let mut g_max_y = f64::NEG_INFINITY;
         let mut matched_count = 0usize;
-        for v in &visuals {
-            if id_set.contains(&v.shape_id) {
-                let (bmn, bmx) = if v.kind == ShapeKind::Connector1D {
-                    (v.aabb_min, v.aabb_max)
-                } else {
-                    v.transform.world_aabb()
-                };
-                g_min_x = g_min_x.min(bmn[0]);
-                g_min_y = g_min_y.min(bmn[1]);
-                g_max_x = g_max_x.max(bmx[0]);
-                g_max_y = g_max_y.max(bmx[1]);
-                matched_count += 1;
+
+        if let Some(page) = self.doc.page(page_id) {
+            for top_sh in &page.shapes {
+                if !top_id_set.contains(&top_sh.id) {
+                    continue;
+                }
+                let mut sub_ids = std::collections::BTreeSet::new();
+                vexio_shapesheet::VisioPage::collect_subtree_ids(top_sh, &mut sub_ids);
+                let mut hit_any = false;
+                for sid in sub_ids {
+                    if let Some(v) = vis_by_id.get(&sid) {
+                        let (bmn, bmx) = if v.kind == ShapeKind::Connector1D {
+                            (v.aabb_min, v.aabb_max)
+                        } else {
+                            v.transform.world_aabb()
+                        };
+                        if bmn[0].is_finite() && bmx[0].is_finite() {
+                            g_min_x = g_min_x.min(bmn[0]);
+                            g_min_y = g_min_y.min(bmn[1]);
+                            g_max_x = g_max_x.max(bmx[0]);
+                            g_max_y = g_max_y.max(bmx[1]);
+                            hit_any = true;
+                        }
+                    }
+                }
+                if hit_any {
+                    matched_count += 1;
+                }
             }
         }
         if matched_count < 2 || !g_min_x.is_finite() || !g_max_x.is_finite() {
@@ -1893,7 +2059,7 @@ impl DocumentSession {
                 let mut remaining = Vec::with_capacity(page.shapes.len());
 
                 for (idx, mut sh) in page.shapes.drain(..).enumerate() {
-                    if id_set.contains(&sh.id) {
+                    if top_id_set.contains(&sh.id) {
                         if insert_pos.is_none() {
                             insert_pos = Some(remaining.len().max(idx.min(remaining.len())));
                         }
@@ -1902,51 +2068,89 @@ impl DocumentSession {
                             let by = sh.sheet.get_f64("BeginY").unwrap_or(g_min_y) - g_min_y;
                             let ex = sh.sheet.get_f64("EndX").unwrap_or(g_min_x + 1.0) - g_min_x;
                             let ey = sh.sheet.get_f64("EndY").unwrap_or(g_min_y) - g_min_y;
+                            let rbx = bx / gw;
+                            let rby = by / gh;
+                            let rex = ex / gw;
+                            let rey = ey / gh;
                             sh.sheet.set_formula(
                                 "BeginX",
-                                format!("{} in", format_clean_f64(bx)),
+                                format!("=Sheet.{gid}!Width*{}", format_clean_f64(rbx)),
                                 Some(Unit::Inch),
                             );
                             sh.sheet.set_formula(
                                 "BeginY",
-                                format!("{} in", format_clean_f64(by)),
+                                format!("=Sheet.{gid}!Height*{}", format_clean_f64(rby)),
                                 Some(Unit::Inch),
                             );
                             sh.sheet.set_formula(
                                 "EndX",
-                                format!("{} in", format_clean_f64(ex)),
+                                format!("=Sheet.{gid}!Width*{}", format_clean_f64(rex)),
                                 Some(Unit::Inch),
                             );
                             sh.sheet.set_formula(
                                 "EndY",
-                                format!("{} in", format_clean_f64(ey)),
+                                format!("=Sheet.{gid}!Height*{}", format_clean_f64(rey)),
                                 Some(Unit::Inch),
                             );
-                            let cpx = sh.sheet.get_f64("PinX").unwrap_or(g_min_x) - g_min_x;
-                            let cpy = sh.sheet.get_f64("PinY").unwrap_or(g_min_y) - g_min_y;
+                            let cpx = (sh.sheet.get_f64("PinX").unwrap_or(g_min_x) - g_min_x) / gw;
+                            let cpy = (sh.sheet.get_f64("PinY").unwrap_or(g_min_y) - g_min_y) / gh;
                             sh.sheet.set_formula(
                                 "PinX",
-                                format!("{} in", format_clean_f64(cpx)),
+                                format!("=Sheet.{gid}!Width*{}", format_clean_f64(cpx)),
                                 Some(Unit::Inch),
                             );
                             sh.sheet.set_formula(
                                 "PinY",
-                                format!("{} in", format_clean_f64(cpy)),
+                                format!("=Sheet.{gid}!Height*{}", format_clean_f64(cpy)),
                                 Some(Unit::Inch),
                             );
                         } else {
                             let px = sh.sheet.get_f64("PinX").unwrap_or(g_cx) - g_min_x;
                             let py = sh.sheet.get_f64("PinY").unwrap_or(g_cy) - g_min_y;
+                            let cw = sh.sheet.get_f64("Width").unwrap_or(1.0).abs().max(0.02);
+                            let ch = sh.sheet.get_f64("Height").unwrap_or(1.0).abs().max(0.02);
+                            let clx = sh.sheet.get_f64("LocPinX").unwrap_or(cw * 0.5);
+                            let cly = sh.sheet.get_f64("LocPinY").unwrap_or(ch * 0.5);
+                            let rx = px / gw;
+                            let ry = py / gh;
+                            let rw = cw / gw;
+                            let rh = ch / gh;
+                            let rlx = clx / cw;
+                            let rly = cly / ch;
                             sh.sheet.set_formula(
                                 "PinX",
-                                format!("{} in", format_clean_f64(px)),
+                                format!("=Sheet.{gid}!Width*{}", format_clean_f64(rx)),
                                 Some(Unit::Inch),
                             );
                             sh.sheet.set_formula(
                                 "PinY",
-                                format!("{} in", format_clean_f64(py)),
+                                format!("=Sheet.{gid}!Height*{}", format_clean_f64(ry)),
                                 Some(Unit::Inch),
                             );
+                            if !sh.sheet.get_cell("Width").is_some_and(|c| c.is_guarded()) {
+                                sh.sheet.set_formula(
+                                    "Width",
+                                    format!("=Sheet.{gid}!Width*{}", format_clean_f64(rw)),
+                                    Some(Unit::Inch),
+                                );
+                                sh.sheet.set_formula(
+                                    "LocPinX",
+                                    format!("=Width*{}", format_clean_f64(rlx)),
+                                    Some(Unit::Inch),
+                                );
+                            }
+                            if !sh.sheet.get_cell("Height").is_some_and(|c| c.is_guarded()) {
+                                sh.sheet.set_formula(
+                                    "Height",
+                                    format!("=Sheet.{gid}!Height*{}", format_clean_f64(rh)),
+                                    Some(Unit::Inch),
+                                );
+                                sh.sheet.set_formula(
+                                    "LocPinY",
+                                    format!("=Height*{}", format_clean_f64(rly)),
+                                    Some(Unit::Inch),
+                                );
+                            }
                         }
                         children.push(sh);
                     } else {
@@ -1964,6 +2168,7 @@ impl DocumentSession {
                 grp.kind = ShapeKind::Group;
                 grp.sheet.set_formula("FillPattern", "0", Some(Unit::Number));
                 grp.sheet.set_formula("LinePattern", "0", Some(Unit::Number));
+                grp.sheet.set_formula("SelectMode", "1", Some(Unit::Number));
                 grp.sheet
                     .set_formula("User.OrigWidth", format!("{} in", format_clean_f64(gw)), Some(Unit::Inch));
                 grp.sheet
@@ -1978,7 +2183,8 @@ impl DocumentSession {
 
                 // Re-target external dynamic connectors pointing at grouped member shapes to the group container
                 for c in &mut page.connects {
-                    if !id_set.contains(&c.connector_shape_id) && id_set.contains(&c.target_shape_id)
+                    if !top_id_set.contains(&c.connector_shape_id)
+                        && top_id_set.contains(&c.target_shape_id)
                     {
                         c.target_shape_id = gid;
                         c.to_cell = "PinX".into();
@@ -1990,43 +2196,67 @@ impl DocumentSession {
                 remaining.insert(pos, grp);
                 page.shapes = remaining;
                 created_gid = gid;
+                ReactiveEngine::recalculate_document(doc);
                 route_page_connectors(doc, page_id);
             });
         Ok(created_gid)
     }
 
-    /// Ungroup one or more `ShapeKind::Group` shapes (`⇧⌘G` / `Ctrl+Shift+G`), restoring member
-    /// shapes back to page-space coordinates at the group's Z-order position.
+    /// Ungroup one or more `ShapeKind::Group` shapes (`⇧⌘G` / `Ctrl+Shift+G`), resolving descendant
+    /// IDs to their enclosing group, baking parent-group ShapeSheet references (`Sheet.N!` / `TheParent!`),
+    /// preserving any group-root own geometry/text, and restoring member shapes to exact world coordinates.
     pub fn ungroup_shapes(
         &mut self,
         page_id: u32,
         group_ids: &[u64],
     ) -> Result<Vec<u64>, CoreError> {
-        let id_set: std::collections::BTreeSet<u64> = group_ids.iter().copied().collect();
-        if id_set.is_empty() {
+        let top_id_set: std::collections::BTreeSet<u64> = {
+            let Some(page) = self.doc.page(page_id) else {
+                return Ok(Vec::new());
+            };
+            group_ids
+                .iter()
+                .filter_map(|&id| page.top_level_shape_id(id))
+                .collect()
+        };
+        if top_id_set.is_empty() {
             return Ok(Vec::new());
         }
+
+        ReactiveEngine::recalculate_document(&mut self.doc);
+        let pre_visuals = ReactiveEngine::evaluate_page_visuals(&self.doc, page_id);
+        let vis_by_id: std::collections::BTreeMap<u64, vexio_shapesheet::EvaluatedShapeVisual> =
+            pre_visuals.into_iter().map(|v| (v.shape_id, v)).collect();
+
         let mut restored_ids = Vec::new();
         self.journal
             .record_mutation(&mut self.doc, "Ungroup Shapes", |doc| {
                 let Some(page) = doc.page_mut(page_id) else {
                     return;
                 };
-                let mut used_ids: std::collections::BTreeSet<u64> = page
-                    .shapes
-                    .iter()
-                    .filter(|e| !id_set.contains(&e.id))
-                    .map(|e| e.id)
-                    .collect();
+
+                let mut used_ids = std::collections::BTreeSet::new();
+                for existing in &page.shapes {
+                    if !top_id_set.contains(&existing.id)
+                        || existing.children.is_empty()
+                    {
+                        vexio_shapesheet::VisioPage::collect_subtree_ids(existing, &mut used_ids);
+                    }
+                }
+                let mut next_alloc_id = page.next_shape_id().max(
+                    used_ids.iter().copied().max().unwrap_or(0) + 1,
+                );
+
                 let mut out_shapes = Vec::with_capacity(page.shapes.len() + 4);
                 let mut any_ungrouped = false;
 
                 for sh in page.shapes.drain(..) {
-                    if id_set.contains(&sh.id)
+                    if top_id_set.contains(&sh.id)
                         && (sh.kind == ShapeKind::Group || !sh.children.is_empty())
                         && !sh.children.is_empty()
                     {
                         any_ungrouped = true;
+                        let parent_gid = sh.id;
                         let gw = sh.sheet.get_f64("Width").unwrap_or(1.0);
                         let gh = sh.sheet.get_f64("Height").unwrap_or(1.0);
                         let orig_gw = sh.sheet.get_f64("User.OrigWidth").unwrap_or(gw).max(1e-4);
@@ -2038,6 +2268,8 @@ impl DocumentSession {
                         let glpx = sh.sheet.get_f64("LocPinX").unwrap_or(gw * 0.5);
                         let glpy = sh.sheet.get_f64("LocPinY").unwrap_or(gh * 0.5);
                         let gang = sh.sheet.get_f64("Angle").unwrap_or(0.0);
+                        let g_flip_x = sh.sheet.get_bool("FlipX").unwrap_or(false);
+                        let g_flip_y = sh.sheet.get_bool("FlipY").unwrap_or(false);
                         let g_tf = vexio_shapesheet::ShapeTransform2D {
                             pin_x: gpx,
                             pin_y: gpy,
@@ -2046,26 +2278,91 @@ impl DocumentSession {
                             loc_pin_x: glpx,
                             loc_pin_y: glpy,
                             angle_rad: gang,
-                            flip_x: sh.sheet.get_bool("FlipX").unwrap_or(false),
-                            flip_y: sh.sheet.get_bool("FlipY").unwrap_or(false),
+                            flip_x: g_flip_x,
+                            flip_y: g_flip_y,
                         };
 
-                        let first_child_id = sh.children.first().map(|c| c.id);
-                        for mut child in sh.children {
-                            let cid = if used_ids.contains(&child.id) {
-                                let nid = used_ids.iter().copied().max().unwrap_or(sh.id) + 1;
-                                child.id = nid;
-                                nid
+                        let is_flag_true = |s: &str| {
+                            let t = s.trim();
+                            t.eq_ignore_ascii_case("true") || t == "1"
+                        };
+                        let has_own_visible_geom = sh.sheet.geometries.iter().any(|g| {
+                            !is_flag_true(&g.no_show)
+                                && (!is_flag_true(&g.no_fill) || !is_flag_true(&g.no_line))
+                        });
+                        let has_own_foreign = sh
+                            .foreign_data
+                            .as_ref()
+                            .is_some_and(|fd| !fd.data.is_empty());
+                        let has_own_text = !sh.text.trim().is_empty();
+
+                        if has_own_visible_geom || has_own_foreign || has_own_text {
+                            let mut base_sh = sh.clone();
+                            base_sh.children.clear();
+                            base_sh.kind = if has_own_foreign {
+                                ShapeKind::ForeignObject
                             } else {
-                                child.id
+                                ShapeKind::Shape2D
                             };
-                            used_ids.insert(cid);
+                            if used_ids.contains(&base_sh.id) {
+                                base_sh.id = next_alloc_id;
+                                next_alloc_id += 1;
+                            }
+                            used_ids.insert(base_sh.id);
+                            restored_ids.push(base_sh.id);
+                            out_shapes.push(base_sh);
+                        }
+
+                        let parent_master_id = sh.master_id;
+                        let parent_line_style = sh.line_style_id;
+                        let parent_fill_style = sh.fill_style_id;
+                        let parent_text_style = sh.text_style_id;
+                        let first_orig_child_id = sh.children.first().map(|c| c.id);
+                        let mut first_restored_child_id: Option<u64> = None;
+
+                        for mut child in sh.children {
+                            let orig_child_id = child.id;
+                            if child.master_id.is_none() && child.master_shape_id.is_some() {
+                                child.master_id = parent_master_id;
+                            }
+                            if child.line_style_id.is_none() {
+                                child.line_style_id = parent_line_style;
+                            }
+                            if child.fill_style_id.is_none() {
+                                child.fill_style_id = parent_fill_style;
+                            }
+                            if child.text_style_id.is_none() {
+                                child.text_style_id = parent_text_style;
+                            }
+
+                            let bx_uses_parent = child
+                                .sheet
+                                .get_cell("BeginX")
+                                .is_some_and(|c| c.formula.to_ascii_lowercase().contains("sheet."));
+                            bake_parent_group_refs_in_subtree(&mut child, parent_gid);
+
+                            let mut child_sub_ids = std::collections::BTreeSet::new();
+                            vexio_shapesheet::VisioPage::collect_subtree_ids(&child, &mut child_sub_ids);
+                            if child_sub_ids.iter().any(|id| used_ids.contains(id)) {
+                                remap_dropped_shape_subtree(&mut child, &mut next_alloc_id);
+                            }
+                            vexio_shapesheet::VisioPage::collect_subtree_ids(&child, &mut used_ids);
+                            next_alloc_id = next_alloc_id.max(
+                                used_ids.iter().copied().max().unwrap_or(0) + 1,
+                            );
+
+                            let cid = child.id;
+                            if Some(orig_child_id) == first_orig_child_id {
+                                first_restored_child_id = Some(cid);
+                            }
 
                             if child.kind == ShapeKind::Connector1D {
-                                let cbx = child.sheet.get_f64("BeginX").unwrap_or(0.0) * sx;
-                                let cby = child.sheet.get_f64("BeginY").unwrap_or(0.0) * sy;
-                                let cex = child.sheet.get_f64("EndX").unwrap_or(1.0) * sx;
-                                let cey = child.sheet.get_f64("EndY").unwrap_or(0.0) * sy;
+                                let eff_sx = if bx_uses_parent { 1.0 } else { sx };
+                                let eff_sy = if bx_uses_parent { 1.0 } else { sy };
+                                let cbx = child.sheet.get_f64("BeginX").unwrap_or(0.0) * eff_sx;
+                                let cby = child.sheet.get_f64("BeginY").unwrap_or(0.0) * eff_sy;
+                                let cex = child.sheet.get_f64("EndX").unwrap_or(1.0) * eff_sx;
+                                let cey = child.sheet.get_f64("EndY").unwrap_or(0.0) * eff_sy;
                                 let (wbx, wby) = g_tf.local_to_parent(cbx, cby);
                                 let (wex, wey) = g_tf.local_to_parent(cex, cey);
                                 child.sheet.set_formula(
@@ -2090,13 +2387,60 @@ impl DocumentSession {
                                 );
                                 child.sheet.set_formula(
                                     "PinX",
-                                    format!("{} in", format_clean_f64(wbx)),
+                                    format!("{} in", format_clean_f64(0.5 * (wbx + wex))),
                                     Some(Unit::Inch),
                                 );
                                 child.sheet.set_formula(
                                     "PinY",
-                                    format!("{} in", format_clean_f64(wby)),
+                                    format!("{} in", format_clean_f64(0.5 * (wby + wey))),
                                     Some(Unit::Inch),
+                                );
+                            } else if let Some(ev) = vis_by_id.get(&orig_child_id) {
+                                let wtf = &ev.transform;
+                                child.sheet.set_formula(
+                                    "PinX",
+                                    format!("{} in", format_clean_f64(wtf.pin_x)),
+                                    Some(Unit::Inch),
+                                );
+                                child.sheet.set_formula(
+                                    "PinY",
+                                    format!("{} in", format_clean_f64(wtf.pin_y)),
+                                    Some(Unit::Inch),
+                                );
+                                child.sheet.set_formula(
+                                    "Width",
+                                    format!("{} in", format_clean_f64(wtf.width.abs().max(0.01))),
+                                    Some(Unit::Inch),
+                                );
+                                child.sheet.set_formula(
+                                    "Height",
+                                    format!("{} in", format_clean_f64(wtf.height.abs().max(0.01))),
+                                    Some(Unit::Inch),
+                                );
+                                child.sheet.set_formula(
+                                    "LocPinX",
+                                    format!("{} in", format_clean_f64(wtf.loc_pin_x)),
+                                    Some(Unit::Inch),
+                                );
+                                child.sheet.set_formula(
+                                    "LocPinY",
+                                    format!("{} in", format_clean_f64(wtf.loc_pin_y)),
+                                    Some(Unit::Inch),
+                                );
+                                child.sheet.set_formula(
+                                    "Angle",
+                                    format!("{} rad", format_clean_f64(wtf.angle_rad)),
+                                    Some(Unit::Radian),
+                                );
+                                child.sheet.set_formula(
+                                    "FlipX",
+                                    if wtf.flip_x { "TRUE" } else { "FALSE" },
+                                    Some(Unit::Boolean),
+                                );
+                                child.sheet.set_formula(
+                                    "FlipY",
+                                    if wtf.flip_y { "TRUE" } else { "FALSE" },
+                                    Some(Unit::Boolean),
                                 );
                             } else {
                                 let cpx = child.sheet.get_f64("PinX").unwrap_or(0.0) * sx;
@@ -2112,52 +2456,14 @@ impl DocumentSession {
                                     format!("{} in", format_clean_f64(wpy)),
                                     Some(Unit::Inch),
                                 );
-                                if (sx - 1.0).abs() > 1e-4 {
-                                    if let Some(cw) = child.sheet.get_f64("Width") {
-                                        let new_w = cw * sx;
-                                        child.sheet.set_formula(
-                                            "Width",
-                                            format!("{} in", format_clean_f64(new_w)),
-                                            Some(Unit::Inch),
-                                        );
-                                        child.sheet.set_formula(
-                                            "LocPinX",
-                                            format!("{} in", format_clean_f64(new_w * 0.5)),
-                                            Some(Unit::Inch),
-                                        );
-                                    }
-                                }
-                                if (sy - 1.0).abs() > 1e-4 {
-                                    if let Some(ch_h) = child.sheet.get_f64("Height") {
-                                        let new_h = ch_h * sy;
-                                        child.sheet.set_formula(
-                                            "Height",
-                                            format!("{} in", format_clean_f64(new_h)),
-                                            Some(Unit::Inch),
-                                        );
-                                        child.sheet.set_formula(
-                                            "LocPinY",
-                                            format!("{} in", format_clean_f64(new_h * 0.5)),
-                                            Some(Unit::Inch),
-                                        );
-                                    }
-                                }
-                                if gang.abs() > 1e-6 {
-                                    let cang = child.sheet.get_f64("Angle").unwrap_or(0.0) + gang;
-                                    child.sheet.set_formula(
-                                        "Angle",
-                                        format!("{} rad", format_clean_f64(cang)),
-                                        Some(Unit::Radian),
-                                    );
-                                }
                             }
                             restored_ids.push(cid);
                             out_shapes.push(child);
                         }
 
-                        if let Some(fcid) = first_child_id {
+                        if let Some(fcid) = first_restored_child_id {
                             for c in &mut page.connects {
-                                if c.target_shape_id == sh.id {
+                                if c.target_shape_id == parent_gid {
                                     c.target_shape_id = fcid;
                                 }
                             }
@@ -2169,6 +2475,7 @@ impl DocumentSession {
 
                 page.shapes = out_shapes;
                 if any_ungrouped {
+                    ReactiveEngine::recalculate_document(doc);
                     route_page_connectors(doc, page_id);
                 }
             });

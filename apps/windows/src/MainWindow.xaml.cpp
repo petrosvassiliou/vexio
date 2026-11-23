@@ -494,6 +494,7 @@ void MainWindow::OnCanvasPointerMoved(IInspectable const&, PointerRoutedEventArg
 void MainWindow::OnCanvasPointerReleased(IInspectable const&, PointerRoutedEventArgs const& e) {
     DispatchCanvasPointerEvent(static_cast<uint32_t>(vexio::win::PointerEventKind::Up), e);
     DiagramSwapChainPanel().ReleasePointerCapture(e.Pointer());
+    SyncMultiSelectionFromViewport();
 
     const uint64_t createdTextId = m_viewport ? m_viewport.PopCreatedTextShape() : 0;
 
@@ -538,6 +539,23 @@ void MainWindow::OnCanvasPointerWheelChanged(IInspectable const&, PointerRoutedE
 void MainWindow::OnCanvasRightTapped(IInspectable const&, RightTappedRoutedEventArgs const& e) {
     auto panel = DiagramSwapChainPanel();
     const Point pt = e.GetPosition(panel);
+    const float scaleX = std::clamp(panel.CompositionScaleX(), 0.5f, 8.0f);
+    const float scaleY = std::clamp(panel.CompositionScaleY(), 0.5f, 8.0f);
+    if (m_viewport && m_doc) {
+        SyncMultiSelectionFromViewport();
+        const uint64_t hitId = m_viewport.HitTestShape(
+            m_doc,
+            static_cast<double>(pt.X) * static_cast<double>(scaleX),
+            static_cast<double>(pt.Y) * static_cast<double>(scaleY));
+        if (hitId > 0 && std::find(m_selectedShapeIds.begin(), m_selectedShapeIds.end(), hitId) == m_selectedShapeIds.end()) {
+            m_selectedShapeId = hitId;
+            m_selectedShapeIds = {hitId};
+            (void)m_viewport.SetSelection(m_doc, m_selectedShapeIds);
+            PresentViewportFrame();
+            SyncInspectorFromShapeSheet();
+            RefreshShapeSheetSectionRows();
+        }
+    }
     const double pxPerIn = std::max(16.0, 96.0 * (m_zoomPercent / 100.0));
     const double clickXIn = std::clamp(pt.X / pxPerIn, 0.5, 10.5);
     const double clickYIn = std::clamp(8.5 - (pt.Y / pxPerIn), 0.5, 8.0);
@@ -4530,7 +4548,7 @@ fire_and_forget MainWindow::ShowOfficialStencilCatalogDialogAsync() {
     }
 
     Windows::Web::Http::HttpClient client{};
-    client.DefaultRequestHeaders().UserAgent().TryParseAdd(L"Vexio-Windows/0.3.2-alpha");
+    client.DefaultRequestHeaders().UserAgent().TryParseAdd(L"Vexio-Windows/0.3.3-alpha");
     uint32_t installedCount = 0;
 
     for (auto const& target : targets) {
@@ -4792,7 +4810,7 @@ void MainWindow::OnCheckUpdatesClick(IInspectable const&, RoutedEventArgs const&
 }
 
 fire_and_forget MainWindow::CheckForUpdatesAsync(bool userInitiated) {
-    constexpr std::wstring_view kCurrentVersion = L"0.3.2-alpha";
+    constexpr std::wstring_view kCurrentVersion = L"0.3.3-alpha";
     const auto weakSelf = get_weak();
 
     if (userInitiated) {
@@ -4806,7 +4824,7 @@ fire_and_forget MainWindow::CheckForUpdatesAsync(bool userInitiated) {
 
     try {
         Windows::Web::Http::HttpClient client{};
-        client.DefaultRequestHeaders().UserAgent().TryParseAdd(L"Vexio-Windows/0.3.2-alpha");
+        client.DefaultRequestHeaders().UserAgent().TryParseAdd(L"Vexio-Windows/0.3.3-alpha");
         client.DefaultRequestHeaders().Accept().TryParseAdd(L"application/vnd.github+json");
 
         const Uri apiUri{L"https://api.github.com/repos/petrosvassiliou/vexio/releases"};
@@ -4815,7 +4833,7 @@ fire_and_forget MainWindow::CheckForUpdatesAsync(bool userInitiated) {
         Windows::Data::Json::JsonArray releasesArr{nullptr};
         if (Windows::Data::Json::JsonArray::TryParse(body, releasesArr) && releasesArr.Size() > 0) {
             const auto relObj = releasesArr.GetObjectAt(0);
-            latestTag = relObj.GetNamedString(L"tag_name", L"v0.3.2-alpha").c_str();
+            latestTag = relObj.GetNamedString(L"tag_name", L"v0.3.3-alpha").c_str();
             releaseUrl = relObj.GetNamedString(L"html_url", releaseUrl).c_str();
             if (relObj.HasKey(L"assets")) {
                 const auto assets = relObj.GetNamedArray(L"assets");
@@ -4877,7 +4895,7 @@ fire_and_forget MainWindow::CheckForUpdatesAsync(bool userInitiated) {
         }
     } else {
         self->BackstageUpdateStatusText().Text(hstring{
-            std::format(L"Vexio is up to date ({}).", latestTag.empty() ? L"v0.3.2-alpha" : latestTag)
+            std::format(L"Vexio is up to date ({}).", latestTag.empty() ? L"v0.3.3-alpha" : latestTag)
         });
         if (userInitiated) {
             ContentDialog dlg{};
@@ -4885,7 +4903,7 @@ fire_and_forget MainWindow::CheckForUpdatesAsync(bool userInitiated) {
             dlg.Title(box_value(L"Vexio is Up to Date"));
             dlg.Content(box_value(hstring{std::format(
                 L"You are running the latest version of Vexio Professional ({}).",
-                latestTag.empty() ? L"v0.3.2-alpha" : latestTag)}));
+                latestTag.empty() ? L"v0.3.3-alpha" : latestTag)}));
             dlg.PrimaryButtonText(L"View Release Notes");
             dlg.CloseButtonText(L"OK");
             dlg.DefaultButton(ContentDialogButton::Close);

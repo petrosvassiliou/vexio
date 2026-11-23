@@ -169,6 +169,7 @@ struct WasmShapeInfo {
     id: u64,
     name: String,
     kind: String,
+    is_group: bool,
     text: String,
     pin_x: f64,
     pin_y: f64,
@@ -471,14 +472,22 @@ impl WasmVexioSession {
     pub fn hit_test_page(&self, page_id: u32, x_in: f64, y_in: f64) -> u32 {
         let visuals = ReactiveEngine::evaluate_page_visuals(&self.inner.doc, page_id);
         let index = vexio_render::SpatialIndex::build(&visuals);
-        index
+        let raw_hit = index
             .hit_test_visuals(&visuals, x_in, y_in, 0.08)
             .into_iter()
-            .next()
+            .next();
+        raw_hit
+            .map(|hid| {
+                self.inner
+                    .doc
+                    .page(page_id)
+                    .and_then(|p| p.top_level_shape_id(hid))
+                    .unwrap_or(hid)
+            })
             .unwrap_or(0) as u32
     }
 
-    /// Marquee Lasso Multi-Select via `O(log N)` R*-tree viewport query.
+    /// Marquee Lasso Multi-Select resolving top-level page shapes & groups via Visio enclosure rules.
     pub fn query_box_shapes(
         &self,
         page_id: u32,
@@ -490,20 +499,37 @@ impl WasmVexioSession {
         let min_pt = [x1_in.min(x2_in), y1_in.min(y2_in)];
         let max_pt = [x1_in.max(x2_in), y1_in.max(y2_in)];
         let visuals = ReactiveEngine::evaluate_page_visuals(&self.inner.doc, page_id);
-        let index = vexio_render::SpatialIndex::build(&visuals);
         let Some(page) = self.inner.doc.page(page_id) else {
             return Vec::new();
         };
-        index
-            .query_viewport(min_pt, max_pt)
-            .into_iter()
-            .filter(|&id| {
-                page.find_shape(id)
-                    .map(|s| matches!(s.kind, ShapeKind::Shape2D | ShapeKind::Group))
-                    .unwrap_or(false)
-            })
-            .map(|id| id as u32)
-            .collect()
+        let vis_map: std::collections::BTreeMap<u64, &vexio_shapesheet::EvaluatedShapeVisual> =
+            visuals.iter().map(|v| (v.shape_id, v)).collect();
+        let mut out = Vec::new();
+        for top_sh in &page.shapes {
+            let mut sub_ids = std::collections::BTreeSet::new();
+            vexio_shapesheet::VisioPage::collect_subtree_ids(top_sh, &mut sub_ids);
+            let mut s_min = [f64::INFINITY, f64::INFINITY];
+            let mut s_max = [f64::NEG_INFINITY, f64::NEG_INFINITY];
+            for sid in sub_ids {
+                if let Some(v) = vis_map.get(&sid) {
+                    if v.aabb_min[0].is_finite() && v.aabb_max[0].is_finite() {
+                        s_min[0] = s_min[0].min(v.aabb_min[0]);
+                        s_min[1] = s_min[1].min(v.aabb_min[1]);
+                        s_max[0] = s_max[0].max(v.aabb_max[0]);
+                        s_max[1] = s_max[1].max(v.aabb_max[1]);
+                    }
+                }
+            }
+            if s_min[0].is_finite()
+                && s_min[0] >= min_pt[0] - 0.02
+                && s_min[1] >= min_pt[1] - 0.02
+                && s_max[0] <= max_pt[0] + 0.02
+                && s_max[1] <= max_pt[1] + 0.02
+            {
+                out.push(top_sh.id as u32);
+            }
+        }
+        out
     }
 
     /// Compute Dynamic Grid Smart Alignment & Equal-Spacing Guides (center-X, center-Y, left/right/top/bottom edges,
@@ -1645,6 +1671,7 @@ impl WasmVexioSession {
                             id: s.id,
                             name: s.name.clone(),
                             kind: format!("{:?}", s.kind),
+                            is_group: s.kind == ShapeKind::Group || !s.children.is_empty(),
                             text: s.text.clone(),
                             pin_x,
                             pin_y,

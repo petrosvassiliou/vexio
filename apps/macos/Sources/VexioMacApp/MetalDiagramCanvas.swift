@@ -339,16 +339,29 @@ public final class VexioMetalNSView: NSView {
 
     override public func rightMouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
+        let localPoint = convert(event.locationInWindow, from: nil)
+        let scale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2.0
+        session?.selectShapeOnRightClickIfNeeded(
+            xPx: Double(localPoint.x * scale),
+            yPx: Double(localPoint.y * scale)
+        )
         lastContextCanvasPoint = canvasInchesPoint(from: event)
         forwardPointer(event: event, kind: 0)
         super.rightMouseDown(with: event)
     }
 
     override public func menu(for event: NSEvent) -> NSMenu? {
-        guard session != nil else { return nil }
+        guard let session else { return nil }
+        let localPoint = convert(event.locationInWindow, from: nil)
+        let scale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2.0
+        session.selectShapeOnRightClickIfNeeded(
+            xPx: Double(localPoint.x * scale),
+            yPx: Double(localPoint.y * scale)
+        )
         lastContextCanvasPoint = canvasInchesPoint(from: event)
 
         let menu = NSMenu(title: "Canvas Context Menu")
+        menu.autoenablesItems = false
 
         let editLabelItem = NSMenuItem(title: "Edit Text Label…", action: #selector(ctxEditSelectedLabel(_:)), keyEquivalent: "\r")
         editLabelItem.keyEquivalentModifierMask = []
@@ -381,6 +394,20 @@ public final class VexioMetalNSView: NSView {
         deleteItem.keyEquivalentModifierMask = []
         deleteItem.target = self
         menu.addItem(deleteItem)
+
+        menu.addItem(.separator())
+
+        let groupItem = NSMenuItem(title: "Group Selection", action: #selector(ctxGroupSelection(_:)), keyEquivalent: "g")
+        groupItem.keyEquivalentModifierMask = [.command]
+        groupItem.target = self
+        groupItem.isEnabled = session.canGroupSelectedShapes
+        menu.addItem(groupItem)
+
+        let ungroupItem = NSMenuItem(title: "Ungroup", action: #selector(ctxUngroupSelection(_:)), keyEquivalent: "g")
+        ungroupItem.keyEquivalentModifierMask = [.command, .shift]
+        ungroupItem.target = self
+        ungroupItem.isEnabled = session.canUngroupSelectedShapes
+        menu.addItem(ungroupItem)
 
         menu.addItem(.separator())
 
@@ -430,7 +457,7 @@ public final class VexioMetalNSView: NSView {
         for style in ConnectorRoutingStyle.allCases {
             let item = NSMenuItem(title: style.rawValue, action: #selector(ctxSelectRouting(_:)), keyEquivalent: "")
             item.representedObject = style.rawValue
-            item.state = (session?.connectorRouting == style) ? .on : .off
+            item.state = (session.connectorRouting == style) ? .on : .off
             item.target = self
             routingSubmenu.addItem(item)
         }
@@ -489,6 +516,14 @@ public final class VexioMetalNSView: NSView {
         session?.deleteSelectedShapes(undoManager: activeUndoManager)
     }
 
+    @objc private func ctxGroupSelection(_ sender: NSMenuItem) {
+        session?.groupSelectedShapes(undoManager: activeUndoManager)
+    }
+
+    @objc private func ctxUngroupSelection(_ sender: NSMenuItem) {
+        session?.ungroupSelectedShapes(undoManager: activeUndoManager)
+    }
+
     @objc private func ctxBringToFront(_ sender: NSMenuItem) {
         session?.reorderSelectedShapes(mode: "front", undoManager: activeUndoManager)
     }
@@ -542,6 +577,17 @@ public final class VexioMetalNSView: NSView {
         if event.keyCode == 53 {
             session.activeTool = .pointer
             return
+        }
+        // Command+G -> Group Shapes; Shift+Command+G -> Ungroup Shapes
+        let cmdFlags = event.modifierFlags.intersection([.command, .shift, .control, .option])
+        if let chars = event.charactersIgnoringModifiers?.lowercased(), chars == "g" {
+            if cmdFlags == [.command] {
+                session.groupSelectedShapes(undoManager: activeUndoManager)
+                return
+            } else if cmdFlags == [.command, .shift] {
+                session.ungroupSelectedShapes(undoManager: activeUndoManager)
+                return
+            }
         }
         if event.modifierFlags.intersection([.command, .control]).isEmpty,
            let chars = event.charactersIgnoringModifiers?.lowercased() {

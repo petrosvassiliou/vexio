@@ -868,9 +868,11 @@ public struct VexioHeaderAndRibbonBar: View {
                     ribbonCompactButton("square.3.layers.3d", "Group", tip: "Group Selected Shapes (⌘G)") {
                         session.groupSelectedShapes(undoManager: undoManager)
                     }
+                    .disabled(!session.canGroupSelectedShapes)
                     ribbonCompactButton("square.stack.3d.up.slash", "Ungroup", tip: "Ungroup Selected Group (⇧⌘G)") {
                         session.ungroupSelectedShapes(undoManager: undoManager)
                     }
+                    .disabled(!session.canUngroupSelectedShapes)
 
                     ribbonCompactButton("rotate.left", "↺ 90°", tip: i18n.t("rotateLeft")) {
                         session.rotateOrFlipSelectedShapes(deltaDegrees: 90.0, undoManager: undoManager)

@@ -56,6 +56,7 @@ export interface EngineShapeSummary {
   linePattern?: number;
   subprocessPage: string | null;
   screentip: string | null;
+  isGroup?: boolean;
   isContainer?: boolean;
   isSwimlane?: boolean;
   containerMembers?: number[];

@@ -1364,7 +1364,7 @@ data class WorkstationUiState(
     val inlineTextEditor: InlineCanvasEditorModel? = null,
     val smartGuidesEnabled: Boolean = true,
     val autoCheckUpdates: Boolean = true,
-    val updateStatusMessage: String = "Vexio v0.3.2-alpha • Automatic update check enabled",
+    val updateStatusMessage: String = "Vexio v0.3.3-alpha • Automatic update check enabled",
     val availableUpdateTag: String? = null,
     val availableUpdateUrl: String? = null,
     val showUpdateDialog: Boolean = false,
@@ -2084,6 +2084,13 @@ class VexioSessionViewModel(
                     }
                     if (mappedAction == MotionBatchFormat.ACTION_UP) {
                         refreshSelectedShapeFormulas()
+                    }
+                } else if (mappedAction == MotionBatchFormat.ACTION_UP && multiIds.isEmpty() && primarySel == 0L) {
+                    _uiState.update {
+                        it.copy(
+                            selectedShapeId = 0L,
+                            selectedShapeIds = emptyList()
+                        )
                     }
                 }
                 if (mappedAction == MotionBatchFormat.ACTION_UP) {
@@ -4233,7 +4240,7 @@ class VexioSessionViewModel(
                     instanceFollowRedirects = true
                     connectTimeout = 20_000
                     readTimeout = 45_000
-                    setRequestProperty("User-Agent", "Vexio-Android-Workstation/0.3.2-alpha")
+                    setRequestProperty("User-Agent", "Vexio-Android-Workstation/0.3.3-alpha")
                 }
                 try {
                     val code = conn.responseCode
@@ -4787,7 +4794,7 @@ class VexioSessionViewModel(
             }
         }
         viewModelScope.launch(ioDispatcher) {
-            val currentVersion = "0.3.2-alpha"
+            val currentVersion = "0.3.3-alpha"
             var latestTag: String? = null
             var downloadUrl = "https://github.com/petrosvassiliou/vexio/releases"
             var ok = false
@@ -4798,7 +4805,7 @@ class VexioSessionViewModel(
                     requestMethod = "GET"
                     connectTimeout = 4500
                     readTimeout = 4500
-                    setRequestProperty("User-Agent", "Vexio-Android-Googlebook/0.3.2-alpha")
+                    setRequestProperty("User-Agent", "Vexio-Android-Googlebook/0.3.3-alpha")
                     setRequestProperty("Accept", "application/vnd.github+json")
                 }
                 if (conn.responseCode in 200..299) {

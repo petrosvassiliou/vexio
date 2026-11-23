@@ -209,13 +209,13 @@ public struct VexioGlobalMenuCommands: Commands {
                 session?.groupSelectedShapes(undoManager: NSApp.keyWindow?.undoManager)
             }
             .keyboardShortcut("g", modifiers: [.command])
-            .disabled(session == nil)
+            .disabled(!(session?.canGroupSelectedShapes ?? false))
 
             Button("Ungroup Shapes") {
                 session?.ungroupSelectedShapes(undoManager: NSApp.keyWindow?.undoManager)
             }
             .keyboardShortcut("g", modifiers: [.command, .shift])
-            .disabled(session == nil)
+            .disabled(!(session?.canUngroupSelectedShapes ?? false))
 
             Menu("Align Shapes") {
                 Button("Align Left") { session?.alignSelectedShapes(mode: "left", undoManager: NSApp.keyWindow?.undoManager) }

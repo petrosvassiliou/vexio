@@ -684,13 +684,22 @@ impl VexioViewport {
         let snap_tol_in = (7.5 / eff_ppi.max(12.0)).clamp(0.03, 0.14);
         let visuals = ReactiveEngine::evaluate_page_visuals(&session.doc, pid);
         let index = vexio_render::SpatialIndex::build(&visuals);
-        let top_hit = index
+        let raw_top_hit = index
             .hit_test_visuals(&visuals, page_pt[0], page_pt[1], 0.09)
             .into_iter()
             .next();
+        let top_hit = raw_top_hit.map(|hid| {
+            session
+                .doc
+                .page(pid)
+                .and_then(|p| p.top_level_shape_id(hid))
+                .unwrap_or(hid)
+        });
 
         let is_middle_btn = (ev.buttons & 4) != 0;
         let is_shift = (ev.modifiers & 1) != 0;
+        let is_cmd = (ev.modifiers & 8) != 0;
+        let is_multi_toggle = is_shift || is_cmd;
         let is_alt = (ev.modifiers & 4) != 0;
 
         match ev.kind {
@@ -869,7 +878,7 @@ impl VexioViewport {
 
                         // 3. Hit a shape -> select / multi-select & enter multi-shape MoveShapes
                         if let Some(sid) = top_hit {
-                            if is_shift {
+                            if is_multi_toggle {
                                 if let Some(pos) = self.selected_ids.iter().position(|&x| x == sid)
                                 {
                                     self.selected_ids.remove(pos);
@@ -882,12 +891,23 @@ impl VexioViewport {
                             self.sync_glued_ends(&session.doc);
 
                             if !self.selected_ids.is_empty() {
-                                let sel_set: std::collections::BTreeSet<u64> =
-                                    self.selected_ids.iter().copied().collect();
+                                let mut sel_sub_set = std::collections::BTreeSet::new();
+                                if let Some(page) = session.doc.page(pid) {
+                                    for &sel_id in &self.selected_ids {
+                                        if let Some(sh) = page.find_shape(sel_id) {
+                                            vexio_shapesheet::VisioPage::collect_subtree_ids(
+                                                sh,
+                                                &mut sel_sub_set,
+                                            );
+                                        } else {
+                                            sel_sub_set.insert(sel_id);
+                                        }
+                                    }
+                                }
                                 let mut u_min = [f64::INFINITY, f64::INFINITY];
                                 let mut u_max = [f64::NEG_INFINITY, f64::NEG_INFINITY];
                                 for v in &visuals {
-                                    if sel_set.contains(&v.shape_id) {
+                                    if sel_sub_set.contains(&v.shape_id) {
                                         u_min[0] = u_min[0].min(v.aabb_min[0]);
                                         u_min[1] = u_min[1].min(v.aabb_min[1]);
                                         u_max[0] = u_max[0].max(v.aabb_max[0]);
@@ -911,7 +931,7 @@ impl VexioViewport {
                             return 1;
                         } else {
                             // 4. Empty canvas in Pointer mode -> Rubber-Band Marquee Multi-Select!
-                            let prior = if is_shift {
+                            let prior = if is_multi_toggle {
                                 self.selected_ids.clone()
                             } else {
                                 self.selected_ids.clear();
@@ -921,7 +941,7 @@ impl VexioViewport {
                             self.drag_state = Some(NativeDragState::MarqueeSelect {
                                 start_page: page_pt,
                                 cur_page: page_pt,
-                                additive: is_shift,
+                                additive: is_multi_toggle,
                                 prior_ids: prior,
                             });
                             self.present_if_attached(&session.doc);
@@ -1022,9 +1042,50 @@ impl VexioViewport {
                                 Vec::new()
                             };
                             if (max_q[0] - min_q[0]).hypot(max_q[1] - min_q[1]) > 0.03 {
-                                for id in index.query_viewport(min_q, max_q) {
-                                    if !next_sel.contains(&id) {
-                                        next_sel.push(id);
+                                if let Some(page) = session.doc.page(pid) {
+                                    let vis_map: std::collections::BTreeMap<
+                                        u64,
+                                        &vexio_shapesheet::EvaluatedShapeVisual,
+                                    > = visuals.iter().map(|v| (v.shape_id, v)).collect();
+                                    for top_sh in &page.shapes {
+                                        let mut sub_ids = std::collections::BTreeSet::new();
+                                        vexio_shapesheet::VisioPage::collect_subtree_ids(
+                                            top_sh,
+                                            &mut sub_ids,
+                                        );
+                                        let mut s_min = [f64::INFINITY, f64::INFINITY];
+                                        let mut s_max = [f64::NEG_INFINITY, f64::NEG_INFINITY];
+                                        for sid in sub_ids {
+                                            if let Some(v) = vis_map.get(&sid) {
+                                                if v.aabb_min[0].is_finite()
+                                                    && v.aabb_max[0].is_finite()
+                                                {
+                                                    s_min[0] = s_min[0].min(v.aabb_min[0]);
+                                                    s_min[1] = s_min[1].min(v.aabb_min[1]);
+                                                    s_max[0] = s_max[0].max(v.aabb_max[0]);
+                                                    s_max[1] = s_max[1].max(v.aabb_max[1]);
+                                                }
+                                            }
+                                        }
+                                        if !s_min[0].is_finite() {
+                                            continue;
+                                        }
+                                        let matched = if is_alt {
+                                            // Option/Alt + Marquee = Visio Intersecting Area Select
+                                            s_max[0] >= min_q[0]
+                                                && s_min[0] <= max_q[0]
+                                                && s_max[1] >= min_q[1]
+                                                && s_min[1] <= max_q[1]
+                                        } else {
+                                            // Default Visio Enclosure Marquee (ignores outer surrounding containers)
+                                            s_min[0] >= min_q[0] - 0.02
+                                                && s_min[1] >= min_q[1] - 0.02
+                                                && s_max[0] <= max_q[0] + 0.02
+                                                && s_max[1] <= max_q[1] + 0.02
+                                        };
+                                        if matched && !next_sel.contains(&top_sh.id) {
+                                            next_sel.push(top_sh.id);
+                                        }
                                     }
                                 }
                             }
@@ -1992,6 +2053,7 @@ struct NativeShapeDto {
     id: u64,
     name: String,
     kind: String,
+    is_group: bool,
     text: String,
     pin_x: f64,
     pin_y: f64,
@@ -2130,6 +2192,7 @@ pub(crate) fn build_native_state_json(session: &DocumentSession, active_page_id:
                         id: s.id,
                         name: s.name.clone(),
                         kind: format!("{:?}", s.kind),
+                        is_group: s.kind == ShapeKind::Group || !s.children.is_empty(),
                         text: s.text.clone(),
                         pin_x: s.sheet.get_f64("PinX").unwrap_or(0.0),
                         pin_y: s.sheet.get_f64("PinY").unwrap_or(0.0),
@@ -3676,12 +3739,20 @@ pub unsafe extern "C" fn vexio_viewport_hit_test_shape(
         let page_pt = vp_ref.camera.screen_to_page_in(x_px, y_px);
         let visuals = ReactiveEngine::evaluate_page_visuals(&doc_ref.session.doc, vp_ref.page_id);
         let index = vexio_render::SpatialIndex::build(&visuals);
+        let resolve_top = |hid: u64| -> u64 {
+            doc_ref
+                .session
+                .doc
+                .page(vp_ref.page_id)
+                .and_then(|p| p.top_level_shape_id(hid))
+                .unwrap_or(hid)
+        };
         if let Some(hit_id) = index
             .hit_test_visuals(&visuals, page_pt[0], page_pt[1], 0.10)
             .into_iter()
             .next()
         {
-            return hit_id;
+            return resolve_top(hit_id);
         }
         // Fallback: hit-test external/below-icon stencil text captions (`vis.txt_pos`) topmost-first
         for vis in visuals.iter().rev() {
@@ -3689,7 +3760,7 @@ pub unsafe extern "C" fn vexio_viewport_hit_test_shape(
             if (page_pt[0] - vis.txt_pos[0]).abs() <= cap_half_w
                 && (page_pt[1] - vis.txt_pos[1]).abs() <= 0.24
             {
-                return vis.shape_id;
+                return resolve_top(vis.shape_id);
             }
         }
         0

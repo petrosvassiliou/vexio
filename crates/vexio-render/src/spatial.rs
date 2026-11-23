@@ -488,20 +488,116 @@ fn min_dist_sq_to_visual_strokes(vis: &EvaluatedShapeVisual, pt: [f64; 2]) -> f6
     best_sq
 }
 
+fn path_verbs_aabb(verbs: &[EvaluatedPathVerb]) -> Option<([f64; 2], [f64; 2])> {
+    let mut min_x = f64::INFINITY;
+    let mut min_y = f64::INFINITY;
+    let mut max_x = f64::NEG_INFINITY;
+    let mut max_y = f64::NEG_INFINITY;
+    let mut any = false;
+    let mut include = |p: [f64; 2]| {
+        if p[0].is_finite() && p[1].is_finite() {
+            min_x = min_x.min(p[0]);
+            min_y = min_y.min(p[1]);
+            max_x = max_x.max(p[0]);
+            max_y = max_y.max(p[1]);
+            any = true;
+        }
+    };
+    for v in verbs {
+        match *v {
+            EvaluatedPathVerb::MoveTo(p) | EvaluatedPathVerb::LineTo(p) => include(p),
+            EvaluatedPathVerb::QuadTo { ctrl, to } => {
+                include(ctrl);
+                include(to);
+            }
+            EvaluatedPathVerb::CubicTo { ctrl1, ctrl2, to } => {
+                include(ctrl1);
+                include(ctrl2);
+                include(to);
+            }
+            EvaluatedPathVerb::ArcTo { to, .. } => include(to),
+            EvaluatedPathVerb::Ellipse { center, rx, ry, .. } => {
+                let r = rx.abs().max(ry.abs());
+                include([center[0] - r, center[1] - r]);
+                include([center[0] + r, center[1] + r]);
+            }
+            EvaluatedPathVerb::Close => {}
+        }
+    }
+    if any {
+        Some(([min_x, min_y], [max_x, max_y]))
+    } else {
+        None
+    }
+}
+
 fn visual_narrowphase_hit(vis: &EvaluatedShapeVisual, x_in: f64, y_in: f64, tol_in: f64) -> bool {
     let stroke_tol = (vis.stroke_weight_in.max(0.02) * 0.5 + tol_in).max(0.075);
     if vis.kind == ShapeKind::Connector1D {
         return min_dist_sq_to_visual_strokes(vis, [x_in, y_in]) <= stroke_tol * stroke_tol;
     }
 
+    let has_text = !vis.text.trim().is_empty();
+    let has_foreign = vis.foreign_media.as_ref().is_some_and(|fm| !fm.data.is_empty());
+    let visible_paths_count = vis.paths.iter().filter(|p| !p.no_show).count();
+
+    // Invisible Group / NoShow wrapper with no own fill, stroke, foreign media, or text must never steal clicks.
+    if visible_paths_count == 0 && !has_foreign && !has_text {
+        if vis.paths.is_empty() && vis.kind != ShapeKind::Group && vis.fill_color.is_some() {
+            let (lx, ly) = vis.transform.parent_to_local(x_in, y_in);
+            let w = vis.transform.width.max(0.0);
+            let h = vis.transform.height.max(0.0);
+            return lx >= -tol_in && lx <= w + tol_in && ly >= -tol_in && ly <= h + tol_in;
+        }
+        return false;
+    }
+
     let (lx, ly) = vis.transform.parent_to_local(x_in, y_in);
     let w = vis.transform.width.max(0.0);
     let h = vis.transform.height.max(0.0);
-    if lx >= -tol_in && lx <= w + tol_in && ly >= -tol_in && ly <= h + tol_in {
+
+    if has_foreign && lx >= -tol_in && lx <= w + tol_in && ly >= -tol_in && ly <= h + tol_in {
         return true;
     }
 
-    // Fallback for freeform/boolean shapes whose evaluated path vertices extend beyond [0..w, 0..h]
+    let all_visible_filled = visible_paths_count > 0
+        && vis
+            .paths
+            .iter()
+            .filter(|p| !p.no_show)
+            .all(|p| !p.no_fill && (p.fill_color.is_some() || vis.fill_color.is_some()));
+
+    if all_visible_filled {
+        if lx >= -tol_in && lx <= w + tol_in && ly >= -tol_in && ly <= h + tol_in {
+            return true;
+        }
+    } else {
+        // Mixed filled + unfilled paths (e.g. Container / Layer box with filled top header & unfilled body)
+        // or purely unfilled boundary frame: only filled sub-paths hit on interior; unfilled paths hit on stroke!
+        for p in vis.paths.iter().filter(|p| !p.no_show) {
+            let p_has_fill = !p.no_fill && (p.fill_color.is_some() || vis.fill_color.is_some());
+            if p_has_fill {
+                if let Some((mn, mx)) = path_verbs_aabb(&p.verbs_page_space) {
+                    if x_in >= mn[0] - tol_in
+                        && x_in <= mx[0] + tol_in
+                        && y_in >= mn[1] - tol_in
+                        && y_in <= mx[1] + tol_in
+                    {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+
+    if has_text {
+        let tw = vis.txt_width.unwrap_or(vis.transform.width).abs().max(0.35) * 0.5 + tol_in;
+        let th = vis.txt_height.unwrap_or(0.28).abs().min(0.60).max(0.18) * 0.5 + tol_in;
+        if (x_in - vis.txt_pos[0]).abs() <= tw && (y_in - vis.txt_pos[1]).abs() <= th {
+            return true;
+        }
+    }
+
     min_dist_sq_to_visual_strokes(vis, [x_in, y_in]) <= stroke_tol * stroke_tol
 }
 

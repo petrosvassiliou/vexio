@@ -779,7 +779,7 @@ class VexioChromeOsApp {
       return true;
     }
   })();
-  private updateStatusText = 'Vexio v0.3.2-alpha • Automatic updates enabled';
+  private updateStatusText = 'Vexio v0.3.3-alpha • Automatic updates enabled';
   private latestReleaseTag: string | null = null;
   private latestReleaseUrl = 'https://github.com/petrosvassiliou/vexio/releases';
 
@@ -1208,7 +1208,7 @@ class VexioChromeOsApp {
       return;
     }
 
-    const currentVersion = '0.3.2-alpha';
+    const currentVersion = '0.3.3-alpha';
     try {
       const resp = await fetch('https://api.github.com/repos/petrosvassiliou/vexio/releases', {
         headers: { Accept: 'application/vnd.github+json' },
@@ -1365,10 +1365,10 @@ class VexioChromeOsApp {
     if (!this.snapshot) return 0;
     const shapes = this.snapshot.shapes;
 
-    // Pass 1: Exact 2D shape bodies (topmost Z-order first)
+    // Pass 1: Non-container / non-swimlane 2D & Group shapes (topmost Z-order first)
     for (let i = shapes.length - 1; i >= 0; i--) {
       const sh = shapes[i];
-      if (sh.kind === 'Connector1D') continue;
+      if (sh.kind === 'Connector1D' || sh.isContainer || sh.isSwimlane) continue;
       const dx = xIn - sh.pinX;
       const dy = yIn - sh.pinY;
       const rad = (-sh.angleDeg * Math.PI) / 180;
@@ -1395,6 +1395,28 @@ class VexioChromeOsApp {
           ly >= -sh.height * 0.5 - 0.46 &&
           ly <= -sh.height * 0.5 + 0.08
         ) {
+          return sh.id;
+        }
+      }
+    }
+
+    // Pass 2b: Containers & Swimlanes (headers & borders hit after interior member shapes)
+    for (let i = shapes.length - 1; i >= 0; i--) {
+      const sh = shapes[i];
+      if (!sh.isContainer && !sh.isSwimlane) continue;
+      const dx = xIn - sh.pinX;
+      const dy = yIn - sh.pinY;
+      const rad = (-sh.angleDeg * Math.PI) / 180;
+      const lx = dx * Math.cos(rad) - dy * Math.sin(rad);
+      const ly = dx * Math.sin(rad) + dy * Math.cos(rad);
+      const hw = sh.width * 0.5;
+      const hh = sh.height * 0.5;
+      if (Math.abs(lx) <= hw + 0.08 && Math.abs(ly) <= hh + 0.08) {
+        const onBorderOrHeader =
+          Math.abs(Math.abs(lx) - hw) <= 0.14 ||
+          Math.abs(Math.abs(ly) - hh) <= 0.14 ||
+          ly >= hh - 0.42;
+        if (onBorderOrHeader) {
           return sh.id;
         }
       }
@@ -2509,7 +2531,7 @@ class VexioChromeOsApp {
           <button class="ctx-item" data-ctx="bring-front"><span>Bring to Front</span><span class="ctx-kbd">Top</span></button>
           <button class="ctx-item" data-ctx="send-back"><span>Send to Back</span><span class="ctx-kbd">Back</span></button>
           <button class="ctx-item" data-ctx="group" ${this.selectedShapeIds.length >= 2 ? '' : 'disabled'}><span>Group</span><span class="ctx-kbd">Ctrl+G</span></button>
-          <button class="ctx-item" data-ctx="ungroup" ${sh?.kind === 'Group' || snap.shapes.some((s) => this.selectedShapeIds.includes(s.id) && s.kind === 'Group') ? '' : 'disabled'}><span>Ungroup</span><span class="ctx-kbd">Ctrl+Shift+G</span></button>
+          <button class="ctx-item" data-ctx="ungroup" ${sh?.isGroup || sh?.kind === 'Group' || snap.shapes.some((s) => this.selectedShapeIds.includes(s.id) && (s.isGroup || s.kind === 'Group')) ? '' : 'disabled'}><span>Ungroup</span><span class="ctx-kbd">Ctrl+Shift+G</span></button>
           ${
             is1D
               ? `
@@ -4118,7 +4140,7 @@ class VexioChromeOsApp {
             </div>
             <div class="list-row-card" style="flex-direction:column;align-items:flex-start;gap:6px">
               <strong>${this.updateStatusText}</strong>
-              <span style="font-size:11.5px;color:var(--m3-text-muted)">Installed build: Vexio v0.3.2-alpha • Offline-First Workbox PWA + GitHub Releases channel</span>
+              <span style="font-size:11.5px;color:var(--m3-text-muted)">Installed build: Vexio v0.3.3-alpha • Offline-First Workbox PWA + GitHub Releases channel</span>
             </div>
             <label style="display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer">
               <input type="checkbox" id="chk-auto-updates" ${this.autoCheckUpdates ? 'checked' : ''} />

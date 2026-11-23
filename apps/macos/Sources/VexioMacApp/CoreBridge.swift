@@ -1918,6 +1918,7 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
     }
     @Published public var cursorCanvasInches: CGPoint = .zero
     @Published public var activeCursorKind: UInt32 = 0
+    @Published public var selectedShapeIsGroup: Bool = false
 
     @Published public var connectorRouting: ConnectorRoutingStyle = .orthogonalJumps
     @Published public var smartGuidesEnabled: Bool = true {
@@ -2205,15 +2206,22 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
         do {
             let cursorCode = try core.dispatchPointer(pointerEvent)
             activeCursorKind = cursorCode
-            if pointerEvent.kind == 1 || pointerEvent.kind == 2 {
+            if pointerEvent.kind == 1 || pointerEvent.kind == 2 || (pointerEvent.kind == 0 && pointerEvent.buttons != 0) {
                 let ids = core.selectionIds()
                 if ids != selectedShapeIds {
                     selectedShapeIds = ids
                 }
-                if let first = ids.first, first != selectedShapeId {
-                    selectedShapeId = first
-                    reloadSelectedShapeSheetCells()
-                    syncSelectedShapeMetadataFromCore()
+                if let first = ids.first {
+                    if first != selectedShapeId {
+                        selectedShapeId = first
+                        reloadSelectedShapeSheetCells()
+                        syncSelectedShapeMetadataFromCore()
+                    } else if pointerEvent.kind == 2 {
+                        syncSelectedShapeMetadataFromCore()
+                    }
+                } else if selectedShapeId != 0 || selectedShapeIsGroup {
+                    selectedShapeId = 0
+                    selectedShapeIsGroup = false
                 }
             }
             return resolveNSCursor(for: cursorCode)
@@ -3346,8 +3354,19 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
                 }
             }
         }
-        guard let shapes = root["shapes"] as? [[String: Any]],
-              let matched = shapes.first(where: { ($0["id"] as? UInt64) == selectedShapeId || ($0["id"] as? Int) == Int(selectedShapeId) })
+        guard let shapes = root["shapes"] as? [[String: Any]] else {
+            selectedShapeIsGroup = false
+            return
+        }
+        let activeSelSet = Set(selectedShapeIds.isEmpty ? (selectedShapeId != 0 ? [selectedShapeId] : []) : selectedShapeIds)
+        selectedShapeIsGroup = shapes.contains { sh in
+            let sid: UInt64 = (sh["id"] as? UInt64) ?? UInt64(max((sh["id"] as? Int) ?? 0, 0))
+            guard activeSelSet.contains(sid) else { return false }
+            if let ig = sh["isGroup"] as? Bool { return ig }
+            return (sh["kind"] as? String) == "Group"
+        }
+
+        guard let matched = shapes.first(where: { ($0["id"] as? UInt64) == selectedShapeId || ($0["id"] as? Int) == Int(selectedShapeId) })
         else { return }
 
         if let ff = matched["fontFamily"] as? String, !ff.isEmpty {
@@ -3640,6 +3659,46 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
         }
     }
 
+    public var canGroupSelectedShapes: Bool {
+        let vpIds = core.selectionIds()
+        let count = !vpIds.isEmpty ? vpIds.count : selectedShapeIds.count
+        return count >= 2
+    }
+
+    public var canUngroupSelectedShapes: Bool {
+        if selectedShapeIsGroup { return true }
+        let vpIds = core.selectionIds()
+        let targets = Set(!vpIds.isEmpty ? vpIds : (selectedShapeIds.isEmpty ? (selectedShapeId != 0 ? [selectedShapeId] : []) : selectedShapeIds))
+        guard !targets.isEmpty else { return false }
+        let jsonStr = core.getStateJSON(activePageId: activePageId)
+        guard let data = jsonStr.data(using: .utf8),
+              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let shapes = root["shapes"] as? [[String: Any]]
+        else { return false }
+        return shapes.contains { sh in
+            let sid: UInt64 = (sh["id"] as? UInt64) ?? UInt64(max((sh["id"] as? Int) ?? 0, 0))
+            guard targets.contains(sid) else { return false }
+            if let ig = sh["isGroup"] as? Bool { return ig }
+            return (sh["kind"] as? String) == "Group"
+        }
+    }
+
+    public func selectShapeOnRightClickIfNeeded(xPx: Double, yPx: Double) {
+        let hitId = core.hitTestShape(xPx: xPx, yPx: yPx)
+        guard hitId != 0 else { return }
+        let currentIds = !core.selectionIds().isEmpty ? core.selectionIds() : selectedShapeIds
+        if !currentIds.contains(hitId) {
+            selectedShapeId = hitId
+            selectedShapeIds = [hitId]
+            core.setSelectionIds([hitId])
+            reloadSelectedShapeSheetCells()
+            syncSelectedShapeMetadataFromCore()
+            core.renderViewportFrame()
+        } else {
+            syncSelectedShapeMetadataFromCore()
+        }
+    }
+
     public func groupSelectedShapes(undoManager: UndoManager?) {
         let vpIds = core.selectionIds()
         let targets = !vpIds.isEmpty ? vpIds : selectedShapeIds
@@ -3652,6 +3711,7 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
             guard gid > 0 else { return }
             selectedShapeId = gid
             selectedShapeIds = [gid]
+            selectedShapeIsGroup = true
             core.setSelectionIds([gid])
             registerJournalUndoStep(actionName: "Group Shapes", undoManager: undoManager)
             reloadSelectedShapeSheetCells()

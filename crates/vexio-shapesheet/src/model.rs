@@ -301,6 +301,24 @@ impl VisioPage {
         }
         self.shapes.iter().map(max_id).max().unwrap_or(0) + 1
     }
+
+    /// Resolve any shape or nested group descendant `shape_id` to its top-level root shape ID in `self.shapes`.
+    pub fn top_level_shape_id(&self, shape_id: u64) -> Option<u64> {
+        for top in &self.shapes {
+            if top.id == shape_id || top.find_shape(shape_id).is_some() {
+                return Some(top.id);
+            }
+        }
+        None
+    }
+
+    /// Collect `shape.id` and all nested descendant IDs into `out`.
+    pub fn collect_subtree_ids(shape: &VisioShape, out: &mut std::collections::BTreeSet<u64>) {
+        out.insert(shape.id);
+        for child in &shape.children {
+            Self::collect_subtree_ids(child, out);
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
