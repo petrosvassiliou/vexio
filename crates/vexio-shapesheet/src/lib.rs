@@ -7,14 +7,18 @@ pub mod sections;
 pub mod units;
 
 pub use dag::{
-    EvaluatedConnectionPort, EvaluatedControlHandle, EvaluatedGeometryPath, EvaluatedGradientStop,
-    EvaluatedPathVerb, EvaluatedShapeVisual, GlobalCellId, PendingSetf, ReactiveEngine,
-    ShapeTransform2D, SheetKey,
+    DataGraphicIconKind, EvaluatedConnectionPort, EvaluatedControlHandle, EvaluatedDataBar,
+    EvaluatedDataGraphicOverlay, EvaluatedGeometryPath, EvaluatedGradientStop, EvaluatedIconBadge,
+    EvaluatedPathVerb, EvaluatedShapeVisual, EvaluatedTextCallout, GlobalCellId, PendingSetf,
+    ReactiveEngine, ShapeTransform2D, SheetKey, parse_prop_numeric_value,
+    resolve_categorical_data_color, resolve_icon_badge_kind, resolve_shape_prop_cell,
+    sanitize_prop_identifier,
 };
 pub use model::{
-    CommentAnnotation, DocumentProperties, ForeignMediaData, GlueEndpoint, HeaderFooter, LayerDef,
-    MarkupInkPoint, MarkupInkStroke, OpaqueOpcBag, ShapeKind, StencilPack, StyleSheetDef, ThemeDef,
-    VisioDocument, VisioMaster, VisioPage, VisioShape,
+    CommentAnnotation, DocumentProperties, ExternalDataRecordset, ForeignMediaData, GlueEndpoint,
+    HeaderFooter, LayerDef, MarkupInkPoint, MarkupInkStroke, OpaqueOpcBag, PageDataGraphicConfig,
+    ShapeKind, StencilPack, StyleSheetDef, ThemeDef, VisioDocument, VisioMaster, VisioPage,
+    VisioShape,
 };
 pub use parser::{
     BinaryOp, CellRefPath, Expr, FormulaParseError, SheetTarget, UnaryOp, canonical_cell_name,

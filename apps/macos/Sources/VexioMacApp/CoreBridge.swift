@@ -520,12 +520,31 @@ public struct InspectedObjectState: Equatable, Sendable {
 }
 
 public struct DataGraphicRuleConfig: Equatable, Sendable {
-    public var isEnabled: Bool = true
-    public var iconSetField: String = "Prop.Status"
-    public var dataBarField: String = "Prop.CompletionPct"
-    public var textCalloutField: String = "Prop.Owner"
+    public var isEnabled: Bool = false
+    public var iconSetField: String = "Status"
+    public var iconGreenMin: Double = 75.0
+    public var iconAmberMin: Double = 40.0
+    public var dataBarField: String = "CompletionPct"
+    public var dataBarMin: Double = 0.0
+    public var dataBarMax: Double = 100.0
+    public var dataBarColorHex: String = "#2563EB"
+    public var textCalloutField: String = "Owner"
+    public var textCalloutPrefix: String = ""
     public var colorByValueEnabled: Bool = true
+    public var colorByValueField: String = "Status"
     public var showLegendOnPage: Bool = false
+    public var legendField: String = "Status"
+}
+
+public struct ExternalDataRecordsetSummary: Identifiable, Equatable, Sendable {
+    public let id: UInt32
+    public let name: String
+    public let sourceKind: String
+    public let sourceName: String
+    public let keyColumn: String
+    public let columns: [String]
+    public let rows: [[String: String]]
+    public let boundShapeIdsByRow: [Int: [UInt64]]
 }
 
 public enum ValidationStandardKind: String, CaseIterable, Identifiable, Sendable {
@@ -1999,6 +2018,173 @@ private final class NativeDocumentCore: @unchecked Sendable {
             throw err
         }
     }
+
+    // MARK: - Pillar #4 C-ABI: Live Data Graphics, Legends & Two-Way External Data Linking
+
+    func setPageDataGraphicsJSON(pageId: UInt32, configJSON: String) throws -> UInt32 {
+        lock.lock()
+        defer { lock.unlock() }
+        var outCount: UInt32 = 0
+        let status = configJSON.withCString { jsonCStr in
+            vexio_doc_set_page_data_graphics_json(doc, pageId, jsonCStr, &outCount)
+        }
+        if let err = VexioBridgeError.from(status: status, context: "set_page_data_graphics") {
+            throw err
+        }
+        return outCount
+    }
+
+    func importExternalRecordset(
+        pageId: UInt32,
+        fileName: String,
+        bytes: Data,
+        keyColumn: String = "",
+        tableName: String = "",
+        autoBind: Bool = true,
+        autoEnableGraphics: Bool = true
+    ) throws -> (recordsetId: UInt32, linkedCount: UInt32) {
+        lock.lock()
+        defer { lock.unlock() }
+        var rsId: UInt32 = 0
+        var linked: UInt32 = 0
+        let status: VexioStatus = bytes.withUnsafeBytes { rawBuf in
+            let ptr = rawBuf.bindMemory(to: UInt8.self).baseAddress
+            let slice = VexioByteSlice(ptr: ptr, len: rawBuf.count)
+            return fileName.withCString { fCStr in
+                keyColumn.withCString { kCStr in
+                    tableName.withCString { tCStr in
+                        vexio_doc_import_external_recordset(
+                            doc,
+                            pageId,
+                            fCStr,
+                            slice,
+                            kCStr,
+                            tCStr,
+                            autoBind,
+                            autoEnableGraphics,
+                            &rsId,
+                            &linked
+                        )
+                    }
+                }
+            }
+        }
+        if let err = VexioBridgeError.from(status: status, context: "import_external_recordset(\(fileName))") {
+            throw err
+        }
+        return (rsId, linked)
+    }
+
+    func bindExternalRow(
+        pageId: UInt32,
+        recordsetId: UInt32,
+        rowIndex: UInt32,
+        shapeIds: [UInt64]
+    ) throws -> UInt32 {
+        lock.lock()
+        defer { lock.unlock() }
+        var outBound: UInt32 = 0
+        let status: VexioStatus = shapeIds.withUnsafeBufferPointer { buf in
+            vexio_doc_bind_external_row(
+                doc,
+                pageId,
+                recordsetId,
+                rowIndex,
+                buf.baseAddress,
+                buf.count,
+                &outBound
+            )
+        }
+        if let err = VexioBridgeError.from(status: status, context: "bind_external_row(\(recordsetId),\(rowIndex))") {
+            throw err
+        }
+        return outBound
+    }
+
+    func refreshExternalRecordset(
+        pageId: UInt32,
+        recordsetId: UInt32 = 0,
+        newBytes: Data? = nil,
+        formatHint: String = ""
+    ) throws -> UInt32 {
+        lock.lock()
+        defer { lock.unlock() }
+        var outRefreshed: UInt32 = 0
+        let status: VexioStatus
+        if let payload = newBytes, !payload.isEmpty {
+            status = payload.withUnsafeBytes { rawBuf in
+                let ptr = rawBuf.bindMemory(to: UInt8.self).baseAddress
+                let slice = VexioByteSlice(ptr: ptr, len: payload.count)
+                return formatHint.withCString { fmtCStr in
+                    vexio_doc_refresh_external_recordset(doc, pageId, recordsetId, slice, fmtCStr, &outRefreshed)
+                }
+            }
+        } else {
+            let emptySlice = VexioByteSlice(ptr: nil, len: 0)
+            status = formatHint.withCString { fmtCStr in
+                vexio_doc_refresh_external_recordset(doc, pageId, recordsetId, emptySlice, fmtCStr, &outRefreshed)
+            }
+        }
+        if let err = VexioBridgeError.from(status: status, context: "refresh_external_recordset") {
+            throw err
+        }
+        return outRefreshed
+    }
+
+    func syncAndExportRecordset(pageId: UInt32, recordsetId: UInt32, formatExt: String) throws -> Data {
+        lock.lock()
+        defer { lock.unlock() }
+        var outBuf = VexioOwnedBuffer(ptr: nil, len: 0, cap: 0)
+        let status = formatExt.withCString { fmtCStr in
+            vexio_doc_sync_and_export_recordset(doc, pageId, recordsetId, fmtCStr, &outBuf)
+        }
+        if let err = VexioBridgeError.from(status: status, context: "sync_and_export_recordset(\(formatExt))") {
+            vexio_buffer_free(outBuf)
+            throw err
+        }
+        return Self.consumeOwnedBufferAsData(outBuf)
+    }
+
+    func deleteExternalRecordset(recordsetId: UInt32) throws {
+        lock.lock()
+        defer { lock.unlock() }
+        let status = vexio_doc_delete_external_recordset(doc, recordsetId)
+        if let err = VexioBridgeError.from(status: status, context: "delete_external_recordset(\(recordsetId))") {
+            throw err
+        }
+    }
+
+    func insertDataLegend(
+        pageId: UInt32,
+        propName: String = "",
+        pinXIn: Double = 0.0,
+        pinYIn: Double = 0.0
+    ) throws -> UInt64 {
+        lock.lock()
+        defer { lock.unlock() }
+        var lid: UInt64 = 0
+        let status = propName.withCString { propCStr in
+            vexio_doc_insert_data_legend(doc, pageId, propCStr, pinXIn, pinYIn, &lid)
+        }
+        if let err = VexioBridgeError.from(status: status, context: "insert_data_legend") {
+            throw err
+        }
+        return lid
+    }
+
+    func exportBomReport(formatExt: String) throws -> Data {
+        lock.lock()
+        defer { lock.unlock() }
+        var outBuf = VexioOwnedBuffer(ptr: nil, len: 0, cap: 0)
+        let status = formatExt.withCString { fmtCStr in
+            vexio_doc_export_bom_report(doc, fmtCStr, &outBuf)
+        }
+        if let err = VexioBridgeError.from(status: status, context: "export_bom_report(\(formatExt))") {
+            vexio_buffer_free(outBuf)
+            throw err
+        }
+        return Self.consumeOwnedBufferAsData(outBuf)
+    }
 }
 
 // MARK: - SwiftUI Color <-> Hex RGB Helpers for Native OS ColorPicker
@@ -2179,6 +2365,9 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
     ]
 
     @Published public var dataGraphicConfig = DataGraphicRuleConfig()
+    @Published public var externalRecordsets: [ExternalDataRecordsetSummary] = []
+    @Published public var availablePropFields: [String] = []
+    private var linkedRecordsetURLs: [UInt32: URL] = [:]
     @Published public var validationDiagnostics: [DiagramValidationDiagnostic] = []
     @Published public var forceTouchQuickInspect: ForceTouchQuickInspectContext?
     @Published public var lastBannerError: VexioBridgeError?
@@ -3648,6 +3837,74 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
             }
         }
 
+        if let dlState = root["dataLinkState"] as? [String: Any] {
+            if let props = dlState["availablePropFields"] as? [String] {
+                availablePropFields = props
+            }
+            if let dg = dlState["dataGraphics"] as? [String: Any] {
+                dataGraphicConfig = DataGraphicRuleConfig(
+                    isEnabled: (dg["enabled"] as? Bool) ?? false,
+                    iconSetField: (dg["iconSetField"] as? String) ?? "",
+                    iconGreenMin: (dg["iconGreenMin"] as? Double) ?? 75.0,
+                    iconAmberMin: (dg["iconAmberMin"] as? Double) ?? 40.0,
+                    dataBarField: (dg["dataBarField"] as? String) ?? "",
+                    dataBarMin: (dg["dataBarMin"] as? Double) ?? 0.0,
+                    dataBarMax: (dg["dataBarMax"] as? Double) ?? 100.0,
+                    dataBarColorHex: (dg["dataBarColorHex"] as? String) ?? "#2563EB",
+                    textCalloutField: (dg["textCalloutField"] as? String) ?? "",
+                    textCalloutPrefix: (dg["textCalloutPrefix"] as? String) ?? "",
+                    colorByValueEnabled: (dg["colorByValueEnabled"] as? Bool) ?? true,
+                    colorByValueField: (dg["colorByValueField"] as? String) ?? "",
+                    showLegendOnPage: (dg["legendVisible"] as? Bool) ?? false,
+                    legendField: (dg["legendField"] as? String) ?? "Status"
+                )
+            }
+            if let rawRs = dlState["recordsets"] as? [[String: Any]] {
+                externalRecordsets = rawRs.compactMap { item in
+                    guard let rid = item["id"] as? Int, rid > 0 else { return nil }
+                    let name = (item["name"] as? String) ?? "Recordset \(rid)"
+                    let kind = (item["sourceKind"] as? String) ?? "csv"
+                    let srcName = (item["sourceName"] as? String) ?? ""
+                    let keyCol = (item["keyColumn"] as? String) ?? ""
+                    let cols = (item["columns"] as? [String]) ?? []
+                    let rawRows = (item["rows"] as? [[String: Any]]) ?? []
+                    let rows: [[String: String]] = rawRows.map { r in
+                        var dict: [String: String] = [:]
+                        for (k, v) in r {
+                            if let s = v as? String {
+                                dict[k] = s
+                            } else {
+                                dict[k] = "\(v)"
+                            }
+                        }
+                        return dict
+                    }
+                    var boundMap: [Int: [UInt64]] = [:]
+                    if let rawBound = item["boundShapeIds"] as? [String: Any] {
+                        for (k, v) in rawBound {
+                            if let rowIdx = Int(k) {
+                                if let ints = v as? [Int] {
+                                    boundMap[rowIdx] = ints.filter { $0 > 0 }.map { UInt64($0) }
+                                } else if let nums = v as? [NSNumber] {
+                                    boundMap[rowIdx] = nums.map { $0.uint64Value }.filter { $0 > 0 }
+                                }
+                            }
+                        }
+                    }
+                    return ExternalDataRecordsetSummary(
+                        id: UInt32(rid),
+                        name: name,
+                        sourceKind: kind,
+                        sourceName: srcName,
+                        keyColumn: keyCol,
+                        columns: cols,
+                        rows: rows,
+                        boundShapeIdsByRow: boundMap
+                    )
+                }
+            }
+        }
+
         guard let shapes = root["shapes"] as? [[String: Any]] else {
             activePageShapeCount = 0
             selectedShapeIsGroup = false
@@ -4704,6 +4961,237 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
             }
         } catch {
             statusMessage = error.localizedDescription
+        }
+    }
+
+    // MARK: - Pillar #4 High-Level Session Actions (Data Graphics, Legends & Two-Way External Data)
+
+    public func commitDataGraphicConfig(undoManager: UndoManager? = nil) {
+        let cfg = dataGraphicConfig
+        let payload: [String: Any] = [
+            "enabled": cfg.isEnabled,
+            "iconSetField": cfg.iconSetField,
+            "iconGreenMin": cfg.iconGreenMin,
+            "iconAmberMin": cfg.iconAmberMin,
+            "dataBarField": cfg.dataBarField,
+            "dataBarMin": cfg.dataBarMin,
+            "dataBarMax": cfg.dataBarMax,
+            "dataBarColorHex": cfg.dataBarColorHex,
+            "textCalloutField": cfg.textCalloutField,
+            "textCalloutPrefix": cfg.textCalloutPrefix,
+            "colorByValueEnabled": cfg.colorByValueEnabled,
+            "colorByValueField": cfg.colorByValueField,
+            "legendVisible": cfg.showLegendOnPage,
+            "legendField": cfg.legendField,
+        ]
+        guard let jsonData = try? JSONSerialization.data(withJSONObject: payload),
+              let jsonStr = String(data: jsonData, encoding: .utf8)
+        else { return }
+        do {
+            let decorated = try core.setPageDataGraphicsJSON(pageId: activePageId, configJSON: jsonStr)
+            registerJournalUndoStep(actionName: "Update Data Graphics", undoManager: undoManager)
+            reloadSelectedShapeSheetCells()
+            syncSelectedShapeMetadataFromCore()
+            core.renderViewportFrame()
+            statusMessage = cfg.isEnabled
+                ? "Applied Data Graphics across \(decorated) shape(s)"
+                : "Data Graphics overlay hidden"
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    public func insertOrRefreshPageLegend(propName: String = "", undoManager: UndoManager? = nil) {
+        do {
+            let effProp = propName.isEmpty ? dataGraphicConfig.legendField : propName
+            let lid = try core.insertDataLegend(pageId: activePageId, propName: effProp)
+            registerJournalUndoStep(actionName: "Insert Diagram Legend", undoManager: undoManager)
+            reloadSelectedShapeSheetCells()
+            syncSelectedShapeMetadataFromCore()
+            core.renderViewportFrame()
+            statusMessage = lid > 0
+                ? "Updated live Diagram Legend (Sheet.\(lid))"
+                : "Inserted Diagram Legend"
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    public func importExternalDataFile(from url: URL, undoManager: UndoManager? = nil) {
+        let accessed = url.startAccessingSecurityScopedResource()
+        defer { if accessed { url.stopAccessingSecurityScopedResource() } }
+        do {
+            let bytes = try Data(contentsOf: url)
+            let result = try core.importExternalRecordset(
+                pageId: activePageId,
+                fileName: url.lastPathComponent,
+                bytes: bytes,
+                autoBind: true,
+                autoEnableGraphics: true
+            )
+            linkedRecordsetURLs[result.recordsetId] = url
+            registerJournalUndoStep(actionName: "Import External Data", undoManager: undoManager)
+            reloadSelectedShapeSheetCells()
+            syncSelectedShapeMetadataFromCore()
+            core.renderViewportFrame()
+            showInspectorSidebar = true
+            statusMessage = "Imported '\(url.lastPathComponent)' — linked \(result.linkedCount) shape(s)"
+        } catch {
+            statusMessage = "External data import failed: \(error.localizedDescription)"
+        }
+    }
+
+    public func bindExternalRecordsetRow(
+        recordsetId: UInt32,
+        rowIndex: Int,
+        undoManager: UndoManager? = nil
+    ) {
+        guard rowIndex >= 0 else { return }
+        let targets: [UInt64] = {
+            if !selectedShapeIds.isEmpty {
+                return selectedShapeIds.filter { $0 > 0 }
+            }
+            return selectedShapeId > 0 ? [selectedShapeId] : []
+        }()
+        do {
+            let cnt = try core.bindExternalRow(
+                pageId: activePageId,
+                recordsetId: recordsetId,
+                rowIndex: UInt32(rowIndex),
+                shapeIds: targets
+            )
+            registerJournalUndoStep(actionName: "Bind External Data Row", undoManager: undoManager)
+            reloadSelectedShapeSheetCells()
+            syncSelectedShapeMetadataFromCore()
+            core.renderViewportFrame()
+            statusMessage = targets.isEmpty
+                ? "Created & bound shape from Row #\(rowIndex + 1)"
+                : "Bound Row #\(rowIndex + 1) to \(cnt) shape(s)"
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    public func refreshExternalDataSources(undoManager: UndoManager? = nil) {
+        var totalRefreshed: UInt32 = 0
+        do {
+            if externalRecordsets.isEmpty {
+                totalRefreshed = try core.refreshExternalRecordset(pageId: activePageId)
+            } else {
+                for rs in externalRecordsets {
+                    var freshBytes: Data? = nil
+                    if let url = linkedRecordsetURLs[rs.id] {
+                        let accessed = url.startAccessingSecurityScopedResource()
+                        freshBytes = try? Data(contentsOf: url)
+                        if accessed { url.stopAccessingSecurityScopedResource() }
+                    }
+                    totalRefreshed += try core.refreshExternalRecordset(
+                        pageId: activePageId,
+                        recordsetId: rs.id,
+                        newBytes: freshBytes,
+                        formatHint: rs.sourceName
+                    )
+                }
+            }
+            registerJournalUndoStep(actionName: "Refresh External Data", undoManager: undoManager)
+            reloadSelectedShapeSheetCells()
+            syncSelectedShapeMetadataFromCore()
+            core.renderViewportFrame()
+            statusMessage = "Refreshed External Data (\(totalRefreshed) shape(s) synchronized)"
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    public func removeExternalRecordset(recordsetId: UInt32, undoManager: UndoManager? = nil) {
+        do {
+            try core.deleteExternalRecordset(recordsetId: recordsetId)
+            linkedRecordsetURLs.removeValue(forKey: recordsetId)
+            registerJournalUndoStep(actionName: "Remove External Data", undoManager: undoManager)
+            syncSelectedShapeMetadataFromCore()
+            core.renderViewportFrame()
+            statusMessage = "Unlinked External Data recordset"
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    public func presentImportExternalDataModal(undoManager: UndoManager? = nil) {
+        let panel = NSOpenPanel()
+        panel.title = "Link External Data (.xlsx, .csv, .sqlite, .json)"
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        var types: [UTType] = [.commaSeparatedText, .tabSeparatedText, .json, .spreadsheet, .data]
+        for ext in ["xlsx", "csv", "tsv", "sqlite", "db", "sqlite3", "json"] {
+            if let t = UTType(filenameExtension: ext), !types.contains(t) {
+                types.append(t)
+            }
+        }
+        panel.allowedContentTypes = types
+        if let window = NSApp.keyWindow ?? NSApp.windows.first {
+            panel.beginSheetModal(for: window) { [weak self] response in
+                guard response == .OK, let url = panel.url else { return }
+                Task { @MainActor in
+                    self?.importExternalDataFile(from: url, undoManager: undoManager)
+                }
+            }
+        }
+    }
+
+    public func presentTwoWayWritebackModal(recordsetId: UInt32 = 0, undoManager: UndoManager? = nil) {
+        let matched = externalRecordsets.first(where: { recordsetId == 0 || $0.id == recordsetId })
+        let defaultExt: String = matched?.sourceKind ?? "xlsx"
+        let baseName: String = matched?.name ?? "\(documentTitle)_Synced"
+        let panel = NSSavePanel()
+        panel.title = "Two-Way Writeback Export (.xlsx / .csv / .sqlite / .json)"
+        panel.nameFieldStringValue = "\(baseName).\(defaultExt)"
+        panel.canCreateDirectories = true
+        panel.isExtensionHidden = false
+        if let window = NSApp.keyWindow ?? NSApp.windows.first {
+            panel.beginSheetModal(for: window) { [weak self] response in
+                guard response == .OK, let url = panel.url else { return }
+                Task { @MainActor in
+                    guard let self else { return }
+                    let ext = url.pathExtension.isEmpty ? defaultExt : url.pathExtension.lowercased()
+                    do {
+                        let data = try self.core.syncAndExportRecordset(
+                            pageId: self.activePageId,
+                            recordsetId: recordsetId,
+                            formatExt: ext
+                        )
+                        try data.write(to: url, options: .atomic)
+                        self.registerJournalUndoStep(actionName: "Two-Way Writeback", undoManager: undoManager)
+                        self.syncSelectedShapeMetadataFromCore()
+                        self.statusMessage = "Synced Prop.* edits & exported '\(url.lastPathComponent)' (\(data.count) bytes)"
+                    } catch {
+                        self.statusMessage = "Writeback export failed: \(error.localizedDescription)"
+                    }
+                }
+            }
+        }
+    }
+
+    public func presentBomReportExportModal() {
+        let panel = NSSavePanel()
+        panel.title = "Export BOM Shape Inventory Report (.xlsx / .csv / .json / .sqlite)"
+        panel.nameFieldStringValue = "\(documentTitle)_BOM_Report.xlsx"
+        panel.canCreateDirectories = true
+        panel.isExtensionHidden = false
+        if let window = NSApp.keyWindow ?? NSApp.windows.first {
+            panel.beginSheetModal(for: window) { [weak self] response in
+                guard response == .OK, let url = panel.url else { return }
+                Task { @MainActor in
+                    guard let self else { return }
+                    let ext = url.pathExtension.isEmpty ? "xlsx" : url.pathExtension.lowercased()
+                    do {
+                        let data = try self.core.exportBomReport(formatExt: ext)
+                        try data.write(to: url, options: .atomic)
+                        self.statusMessage = "Exported BOM Shape Report '\(url.lastPathComponent)' (\(data.count) bytes)"
+                    } catch {
+                        self.statusMessage = "BOM Report export failed: \(error.localizedDescription)"
+                    }
+                }
+            }
         }
     }
 }

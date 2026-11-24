@@ -589,6 +589,78 @@ object NativeBridge {
         layerIx: Int,
         assigned: Boolean
     ): Boolean
+
+    @JvmStatic
+    external fun nativeGetDataLinkStateJson(
+        docPtr: Long,
+        pageId: Int
+    ): String?
+
+    @JvmStatic
+    external fun nativeSetPageDataGraphicsJson(
+        docPtr: Long,
+        pageId: Int,
+        configJson: String
+    ): Int
+
+    @JvmStatic
+    external fun nativeImportExternalRecordset(
+        docPtr: Long,
+        pageId: Int,
+        fileName: String,
+        rawBytes: ByteArray,
+        keyColHint: String,
+        tableHint: String,
+        autoBind: Boolean,
+        autoEnableGraphics: Boolean
+    ): IntArray?
+
+    @JvmStatic
+    external fun nativeBindExternalRow(
+        docPtr: Long,
+        pageId: Int,
+        recordsetId: Int,
+        rowIndex: Int,
+        shapeIds: LongArray
+    ): Int
+
+    @JvmStatic
+    external fun nativeRefreshExternalRecordset(
+        docPtr: Long,
+        pageId: Int,
+        recordsetId: Int,
+        optionalNewBytes: ByteArray?,
+        formatHint: String
+    ): Int
+
+    @JvmStatic
+    external fun nativeSyncAndExportRecordset(
+        docPtr: Long,
+        pageId: Int,
+        recordsetId: Int,
+        formatExt: String
+    ): ByteArray?
+
+    @JvmStatic
+    external fun nativeDeleteExternalRecordset(
+        docPtr: Long,
+        recordsetId: Int
+    ): Boolean
+
+    @JvmStatic
+    external fun nativeInsertDataLegend(
+        docPtr: Long,
+        pageId: Int,
+        propName: String,
+        pinXIn: Double,
+        pinYIn: Double
+    ): Long
+
+    @JvmStatic
+    external fun nativeExportBomReport(
+        docPtr: Long,
+        formatExt: String
+    ): ByteArray?
 }
 
 /**
@@ -1395,6 +1467,34 @@ data class DiagramLayerUiItem(
     val memberCount: Int = 0
 )
 
+data class DataGraphicUiState(
+    val enabled: Boolean = false,
+    val iconSetField: String = "Status",
+    val iconGreenMin: Double = 75.0,
+    val iconAmberMin: Double = 40.0,
+    val dataBarField: String = "CompletionPct",
+    val dataBarMin: Double = 0.0,
+    val dataBarMax: Double = 100.0,
+    val dataBarColorHex: String = "#2563EB",
+    val textCalloutField: String = "Owner",
+    val textCalloutPrefix: String = "",
+    val colorByValueEnabled: Boolean = true,
+    val colorByValueField: String = "Status",
+    val legendVisible: Boolean = false,
+    val legendField: String = "Status"
+)
+
+data class ExternalRecordsetUiItem(
+    val id: Int,
+    val name: String,
+    val sourceKind: String = "xlsx",
+    val sourceName: String = "",
+    val keyColumn: String = "",
+    val columns: List<String> = emptyList(),
+    val rows: List<Map<String, String>> = emptyList(),
+    val boundShapeIdsByRow: Map<Int, List<Long>> = emptyMap()
+)
+
 data class InspectedObjectUiState(
     val id: Long,
     val name: String,
@@ -1503,7 +1603,7 @@ data class WorkstationUiState(
     val inlineTextEditor: InlineCanvasEditorModel? = null,
     val smartGuidesEnabled: Boolean = true,
     val autoCheckUpdates: Boolean = true,
-    val updateStatusMessage: String = "Vexio v0.3.8-alpha • Automatic update check enabled",
+    val updateStatusMessage: String = "Vexio v0.3.9-alpha • Automatic update check enabled",
     val availableUpdateTag: String? = null,
     val availableUpdateUrl: String? = null,
     val showUpdateDialog: Boolean = false,
@@ -1534,6 +1634,9 @@ data class WorkstationUiState(
     val pageShapeCount: Int = 1,
     val inspectedObject: InspectedObjectUiState? = InspectedObjectUiState(id = 1L, name = "Process.1"),
     val shapeDataItems: List<ShapeDataUiItem> = emptyList(),
+    val dataGraphics: DataGraphicUiState = DataGraphicUiState(),
+    val externalRecordsets: List<ExternalRecordsetUiItem> = emptyList(),
+    val availablePropFields: List<String> = emptyList(),
     val pageLayers: List<DiagramLayerUiItem> = listOf(
         DiagramLayerUiItem(0, "Flowchart"),
         DiagramLayerUiItem(1, "Connector"),
@@ -1709,6 +1812,7 @@ class VexioSessionViewModel(
     private var directViewportRgbaBuffer: ByteBuffer? = null
     private val lenientJson = Json { ignoreUnknownKeys = true }
     private val syntheticGroups = linkedMapOf<Long, List<Long>>()
+    private val linkedRecordsetUris = linkedMapOf<Int, Uri>()
 
     init {
         initializeEngineAndBlankDocument("Architecture_Blueprint.vsdx")
@@ -2750,6 +2854,77 @@ class VexioSessionViewModel(
             }
         }
 
+        var parsedDataGraphics = state.dataGraphics
+        var parsedRecordsets = state.externalRecordsets
+        var parsedPropFields = state.availablePropFields
+        val dlsObj = rootObj?.get("dataLinkState") as? JsonObject
+        if (dlsObj != null) {
+            val dgObj = dlsObj["dataGraphics"] as? JsonObject
+            if (dgObj != null) {
+                parsedDataGraphics = DataGraphicUiState(
+                    enabled = dgObj["enabled"]?.jsonPrimitive?.booleanOrNull ?: false,
+                    iconSetField = dgObj["iconSetField"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                    iconGreenMin = dgObj["iconGreenMin"]?.jsonPrimitive?.doubleOrNull ?: 75.0,
+                    iconAmberMin = dgObj["iconAmberMin"]?.jsonPrimitive?.doubleOrNull ?: 40.0,
+                    dataBarField = dgObj["dataBarField"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                    dataBarMin = dgObj["dataBarMin"]?.jsonPrimitive?.doubleOrNull ?: 0.0,
+                    dataBarMax = dgObj["dataBarMax"]?.jsonPrimitive?.doubleOrNull ?: 100.0,
+                    dataBarColorHex = dgObj["dataBarColorHex"]?.jsonPrimitive?.contentOrNull ?: "#2563EB",
+                    textCalloutField = dgObj["textCalloutField"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                    textCalloutPrefix = dgObj["textCalloutPrefix"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                    colorByValueEnabled = dgObj["colorByValueEnabled"]?.jsonPrimitive?.booleanOrNull ?: true,
+                    colorByValueField = dgObj["colorByValueField"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                    legendVisible = dgObj["legendVisible"]?.jsonPrimitive?.booleanOrNull ?: false,
+                    legendField = dgObj["legendField"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                )
+            }
+            val rawProps = dlsObj["availablePropFields"] as? JsonArray
+            if (rawProps != null) {
+                parsedPropFields = rawProps.mapNotNull { it.jsonPrimitive.contentOrNull?.takeIf { s -> s.isNotEmpty() } }
+            }
+            val rawRs = dlsObj["recordsets"] as? JsonArray
+            if (rawRs != null) {
+                parsedRecordsets = rawRs.mapNotNull { rsEl ->
+                    val rsObj = rsEl as? JsonObject ?: return@mapNotNull null
+                    val rsId = rsObj["id"]?.jsonPrimitive?.intOrNull ?: return@mapNotNull null
+                    val cols = (rsObj["columns"] as? JsonArray)
+                        ?.mapNotNull { it.jsonPrimitive.contentOrNull }
+                        .orEmpty()
+                    val rows = (rsObj["rows"] as? JsonArray)?.mapNotNull { rEl ->
+                        val rObj = rEl as? JsonObject ?: return@mapNotNull null
+                        val map = linkedMapOf<String, String>()
+                        for ((k, v) in rObj) {
+                            map[k] = (v as? kotlinx.serialization.json.JsonPrimitive)?.contentOrNull.orEmpty()
+                        }
+                        map
+                    }.orEmpty()
+                    val boundMap = linkedMapOf<Int, List<Long>>()
+                    val bObj = rsObj["boundShapeIds"] as? JsonObject
+                    if (bObj != null) {
+                        for ((rKey, arrEl) in bObj) {
+                            val rIdx = rKey.toIntOrNull() ?: continue
+                            val ids = (arrEl as? JsonArray)
+                                ?.mapNotNull { it.jsonPrimitive.longOrNull }
+                                .orEmpty()
+                            if (ids.isNotEmpty()) {
+                                boundMap[rIdx] = ids
+                            }
+                        }
+                    }
+                    ExternalRecordsetUiItem(
+                        id = rsId,
+                        name = rsObj["name"]?.jsonPrimitive?.contentOrNull ?: "Recordset $rsId",
+                        sourceKind = rsObj["sourceKind"]?.jsonPrimitive?.contentOrNull ?: "xlsx",
+                        sourceName = rsObj["sourceName"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                        keyColumn = rsObj["keyColumn"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                        columns = cols,
+                        rows = rows,
+                        boundShapeIdsByRow = boundMap
+                    )
+                }
+            }
+        }
+
         _uiState.update {
             it.copy(
                 shapeSheetCells = refreshed,
@@ -2760,6 +2935,9 @@ class VexioSessionViewModel(
                 pageLayers = parsedLayers,
                 inspectedObject = parsedInspected,
                 shapeDataItems = parsedShapeData,
+                dataGraphics = parsedDataGraphics,
+                externalRecordsets = parsedRecordsets,
+                availablePropFields = parsedPropFields,
                 shapeFillColorHex = resolvedFillHex,
                 shapeLineColorHex = resolvedLineHex,
                 selectedShapeName = parsedInspected?.name ?: it.selectedShapeName
@@ -4610,7 +4788,7 @@ class VexioSessionViewModel(
                     instanceFollowRedirects = true
                     connectTimeout = 20_000
                     readTimeout = 45_000
-                    setRequestProperty("User-Agent", "Vexio-Android-Workstation/0.3.8-alpha")
+                    setRequestProperty("User-Agent", "Vexio-Android-Workstation/0.3.9-alpha")
                 }
                 try {
                     val code = conn.responseCode
@@ -5303,6 +5481,254 @@ class VexioSessionViewModel(
         return ok
     }
 
+    @Synchronized
+    fun updatePageDataGraphics(next: DataGraphicUiState): Int {
+        val cur = _uiState.value
+        val cfgJson = """
+            {
+              "enabled": ${next.enabled},
+              "iconSetField": "${escapeJson(next.iconSetField)}",
+              "iconGreenMin": ${next.iconGreenMin},
+              "iconAmberMin": ${next.iconAmberMin},
+              "dataBarField": "${escapeJson(next.dataBarField)}",
+              "dataBarMin": ${next.dataBarMin},
+              "dataBarMax": ${next.dataBarMax},
+              "dataBarColorHex": "${escapeJson(next.dataBarColorHex)}",
+              "textCalloutField": "${escapeJson(next.textCalloutField)}",
+              "textCalloutPrefix": "${escapeJson(next.textCalloutPrefix)}",
+              "colorByValueEnabled": ${next.colorByValueEnabled},
+              "colorByValueField": "${escapeJson(next.colorByValueField)}",
+              "legendVisible": ${next.legendVisible},
+              "legendField": "${escapeJson(next.legendField)}"
+            }
+        """.trimIndent()
+        var decorated = 0
+        if (NativeBridge.isNativeAvailable && docPtr != 0L) {
+            decorated = NativeBridge.nativeSetPageDataGraphicsJson(
+                docPtr = docPtr,
+                pageId = resolveNativePageId(cur.activePageId),
+                configJson = cfgJson
+            ).coerceAtLeast(0)
+            refreshSelectedShapeFormulas()
+            presentViewportOrFallback()
+        }
+        _uiState.update {
+            it.copy(
+                dataGraphics = if (NativeBridge.isNativeAvailable && docPtr != 0L) it.dataGraphics else next,
+                isDirty = true,
+                canUndo = true,
+                statusBanner = if (next.enabled) {
+                    "Applied Data Graphics across $decorated shape(s)"
+                } else {
+                    "Data Graphics overlay hidden"
+                }
+            )
+        }
+        return decorated
+    }
+
+    @Synchronized
+    fun importExternalRecordsetBytes(
+        fileName: String,
+        rawBytes: ByteArray,
+        uri: Uri? = null,
+        keyColHint: String = "",
+        tableHint: String = ""
+    ): Int {
+        if (rawBytes.isEmpty()) return 0
+        val cur = _uiState.value
+        var rsId = 1
+        var linkedCount = 0
+        if (NativeBridge.isNativeAvailable && docPtr != 0L) {
+            val res = NativeBridge.nativeImportExternalRecordset(
+                docPtr = docPtr,
+                pageId = resolveNativePageId(cur.activePageId),
+                fileName = fileName,
+                rawBytes = rawBytes,
+                keyColHint = keyColHint,
+                tableHint = tableHint,
+                autoBind = true,
+                autoEnableGraphics = true
+            )
+            if (res != null && res.size >= 2) {
+                rsId = res[0]
+                linkedCount = res[1]
+            }
+            if (uri != null && rsId > 0) {
+                linkedRecordsetUris[rsId] = uri
+            }
+            refreshSelectedShapeFormulas()
+            presentViewportOrFallback()
+        }
+        _uiState.update {
+            it.copy(
+                isInspectorExpanded = true,
+                isDirty = true,
+                canUndo = true,
+                statusBanner = "Linked '$fileName' ($linkedCount shape(s) bound to External Data)"
+            )
+        }
+        return linkedCount
+    }
+
+    @Synchronized
+    fun getLinkedRecordsetUrisSnapshot(): Map<Int, Uri> = LinkedHashMap(linkedRecordsetUris)
+
+    @Synchronized
+    fun bindExternalRecordsetRow(recordsetId: Int, rowIndex: Int): Int {
+        if (recordsetId <= 0 || rowIndex < 0) return 0
+        val cur = _uiState.value
+        val targets = cur.selectedShapeIds.filter { it > 0L }.distinct().toLongArray()
+        var bound = 0
+        if (NativeBridge.isNativeAvailable && docPtr != 0L) {
+            bound = NativeBridge.nativeBindExternalRow(
+                docPtr = docPtr,
+                pageId = resolveNativePageId(cur.activePageId),
+                recordsetId = recordsetId,
+                rowIndex = rowIndex,
+                shapeIds = targets
+            )
+            refreshSelectedShapeFormulas()
+            presentViewportOrFallback()
+        }
+        if (bound > 0) {
+            _uiState.update {
+                it.copy(
+                    isDirty = true,
+                    canUndo = true,
+                    statusBanner = if (targets.isEmpty()) {
+                        "Stamped & bound new shape from row #${rowIndex + 1}"
+                    } else {
+                        "Bound row #${rowIndex + 1} to $bound shape(s)"
+                    }
+                )
+            }
+        }
+        return bound
+    }
+
+    @Synchronized
+    fun refreshExternalRecordsets(
+        recordsetId: Int = 0,
+        optionalBytes: ByteArray? = null,
+        formatHint: String = ""
+    ): Int {
+        val cur = _uiState.value
+        var refreshed = 0
+        if (NativeBridge.isNativeAvailable && docPtr != 0L) {
+            refreshed = NativeBridge.nativeRefreshExternalRecordset(
+                docPtr = docPtr,
+                pageId = resolveNativePageId(cur.activePageId),
+                recordsetId = recordsetId,
+                optionalNewBytes = optionalBytes,
+                formatHint = formatHint
+            )
+            refreshSelectedShapeFormulas()
+            presentViewportOrFallback()
+        }
+        _uiState.update {
+            it.copy(
+                isDirty = true,
+                canUndo = true,
+                statusBanner = "Refreshed External Data ($refreshed shape(s) synchronized)"
+            )
+        }
+        return refreshed
+    }
+
+    @Synchronized
+    fun syncAndExportRecordsetBytes(recordsetId: Int = 0, formatExt: String = "xlsx"): ByteArray {
+        val cleanExt = formatExt.trim().trimStart('.').lowercase(Locale.US).ifEmpty { "xlsx" }
+        val cur = _uiState.value
+        if (NativeBridge.isNativeAvailable && docPtr != 0L) {
+            val out = NativeBridge.nativeSyncAndExportRecordset(
+                docPtr = docPtr,
+                pageId = resolveNativePageId(cur.activePageId),
+                recordsetId = recordsetId,
+                formatExt = cleanExt
+            )
+            if (out != null && out.isNotEmpty()) {
+                refreshSelectedShapeFormulas()
+                _uiState.update {
+                    it.copy(
+                        isDirty = true,
+                        canUndo = true,
+                        statusBanner = "Two-Way Writeback exported (.${cleanExt}, ${out.size} bytes)"
+                    )
+                }
+                return out
+            }
+        }
+        return ByteArray(0)
+    }
+
+    @Synchronized
+    fun deleteExternalRecordset(recordsetId: Int): Boolean {
+        if (recordsetId <= 0) return false
+        var deleted = false
+        if (NativeBridge.isNativeAvailable && docPtr != 0L) {
+            deleted = NativeBridge.nativeDeleteExternalRecordset(docPtr, recordsetId)
+            linkedRecordsetUris.remove(recordsetId)
+            refreshSelectedShapeFormulas()
+            presentViewportOrFallback()
+        }
+        if (deleted) {
+            _uiState.update {
+                it.copy(
+                    isDirty = true,
+                    canUndo = true,
+                    statusBanner = "Unlinked External Data recordset #$recordsetId"
+                )
+            }
+        }
+        return deleted
+    }
+
+    @Synchronized
+    fun insertOrUpdateDataLegend(propName: String = ""): Long {
+        val cur = _uiState.value
+        val effProp = propName.trim().ifEmpty { cur.dataGraphics.legendField.ifEmpty { "Status" } }
+        var lid = 0L
+        if (NativeBridge.isNativeAvailable && docPtr != 0L) {
+            lid = NativeBridge.nativeInsertDataLegend(
+                docPtr = docPtr,
+                pageId = resolveNativePageId(cur.activePageId),
+                propName = effProp,
+                pinXIn = 0.0,
+                pinYIn = 0.0
+            )
+            refreshSelectedShapeFormulas()
+            presentViewportOrFallback()
+        }
+        _uiState.update {
+            it.copy(
+                isDirty = true,
+                canUndo = true,
+                statusBanner = if (lid > 0L) {
+                    "Updated live Diagram Legend (Sheet.$lid • Prop.$effProp)"
+                } else {
+                    "Inserted Diagram Legend"
+                }
+            )
+        }
+        return lid
+    }
+
+    @Synchronized
+    fun exportBomReportBytes(formatExt: String = "xlsx"): ByteArray {
+        val cleanExt = formatExt.trim().trimStart('.').lowercase(Locale.US).ifEmpty { "xlsx" }
+        if (NativeBridge.isNativeAvailable && docPtr != 0L) {
+            val out = NativeBridge.nativeExportBomReport(docPtr, cleanExt)
+            if (out != null && out.isNotEmpty()) {
+                _uiState.update {
+                    it.copy(statusBanner = "Exported BOM Shape Report (.${cleanExt}, ${out.size} bytes)")
+                }
+                return out
+            }
+        }
+        return ByteArray(0)
+    }
+
     fun setAutoCheckUpdates(enabled: Boolean) {
         _uiState.update { it.copy(autoCheckUpdates = enabled) }
     }
@@ -5319,7 +5745,7 @@ class VexioSessionViewModel(
             }
         }
         viewModelScope.launch(ioDispatcher) {
-            val currentVersion = "0.3.8-alpha"
+            val currentVersion = "0.3.9-alpha"
             var latestTag: String? = null
             var downloadUrl = "https://github.com/petrosvassiliou/vexio/releases"
             var ok = false
@@ -5330,7 +5756,7 @@ class VexioSessionViewModel(
                     requestMethod = "GET"
                     connectTimeout = 4500
                     readTimeout = 4500
-                    setRequestProperty("User-Agent", "Vexio-Android-Googlebook/0.3.8-alpha")
+                    setRequestProperty("User-Agent", "Vexio-Android-Googlebook/0.3.9-alpha")
                     setRequestProperty("Accept", "application/vnd.github+json")
                 }
                 if (conn.responseCode in 200..299) {

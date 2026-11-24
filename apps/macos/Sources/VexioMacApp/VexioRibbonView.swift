@@ -1053,18 +1053,76 @@ public struct VexioHeaderAndRibbonBar: View {
     // 4. DATA RIBBON
     private var dataRibbonGroups: some View {
         HStack(spacing: 12) {
-            ribbonGroup(title: "External Data & Discovery") {
+            ribbonGroup(title: "Two-Way External Data") {
                 HStack(spacing: 6) {
-                    ribbonCompactButton("tablecells", "Data Visualizer") {
+                    ribbonCompactButton(
+                        "tray.and.arrow.down",
+                        "Link Data…",
+                        tip: "Link Excel (.xlsx), CSV, SQLite (.sqlite/.db), or JSON to shapes"
+                    ) {
+                        session.presentImportExternalDataModal(undoManager: undoManager)
+                    }
+                    ribbonCompactButton(
+                        "arrow.clockwise",
+                        "Refresh",
+                        tip: "Refresh all linked External Data recordsets on active page"
+                    ) {
+                        session.refreshExternalDataSources(undoManager: undoManager)
+                    }
+                    ribbonCompactButton(
+                        "arrow.up.doc",
+                        "Writeback…",
+                        tip: "Push edited Shape Data (Prop.*) back to .xlsx / .csv / .sqlite / .json"
+                    ) {
+                        session.presentTwoWayWritebackModal(recordsetId: 0, undoManager: undoManager)
+                    }
+                }
+            }
+
+            Divider().frame(height: 44)
+
+            ribbonGroup(title: "Data Graphics & Legends") {
+                HStack(spacing: 6) {
+                    LiquidGlassIconButton(
+                        systemImage: "chart.bar.xaxis",
+                        title: "Toggle Live Data Graphics Overlay (Icon Sets, Data Bars, Callouts, Color by Value)",
+                        isActive: session.dataGraphicConfig.isEnabled
+                    ) {
+                        session.dataGraphicConfig.isEnabled.toggle()
+                        session.commitDataGraphicConfig(undoManager: undoManager)
+                    }
+                    ribbonCompactButton(
+                        "list.bullet.rectangle.portrait",
+                        "Insert Legend",
+                        tip: "Insert or update live Color-by-Value / Category Legend on page"
+                    ) {
+                        session.dataGraphicConfig.showLegendOnPage = true
+                        session.insertOrRefreshPageLegend(undoManager: undoManager)
+                    }
+                    ribbonCompactButton(
+                        "doc.text.magnifyingglass",
+                        "BOM Report…",
+                        tip: "Export Bill of Materials (BOM) Shape Inventory (.xlsx / .csv / .json / .sqlite)"
+                    ) {
+                        session.presentBomReportExportModal()
+                    }
+                }
+            }
+
+            Divider().frame(height: 44)
+
+            ribbonGroup(title: "Plan 2 Discovery") {
+                HStack(spacing: 6) {
+                    ribbonCompactButton("tablecells", "Data Visualizer", tip: "Generate Cross-Functional Flowchart") {
                         session.importDataVisualizerSample(undoManager: undoManager)
                     }
-                    ribbonCompactButton("cloud", "Cloud Topology") {
+                    ribbonCompactButton("cloud", "Cloud Topology", tip: "Import AWS / Azure / GCP Topology") {
                         session.importCloudTopologySample(undoManager: undoManager)
                     }
-                    ribbonCompactButton("person.3", "Entra / LDIF Org") {
+                    ribbonCompactButton("person.3", "Entra / LDIF Org", tip: "Import Entra ID / LDIF Org Chart") {
                         session.importEntraLdifSample(undoManager: undoManager)
                     }
-                    ribbonCompactButton("square.and.arrow.up", "Export .xlsx") {
+                    ribbonCompactButton("square.and.arrow.up", "Export .xlsx", tip: "Export Data Visualizer Workbook") {
                         onRequestDataVisualizerExport()
                     }
                 }

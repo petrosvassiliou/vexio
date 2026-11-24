@@ -1182,6 +1182,162 @@ public:
             m_ptr, pageId, shapeId, row.c_str(), pageXIn, pageYIn);
     }
 
+    // -----------------------------------------------------------------------
+    // Pillar #4: Live Data Graphics, Legends & Two-Way External Data Linking
+    // -----------------------------------------------------------------------
+
+    [[nodiscard]] VexioResult<std::string> GetDataLinkStateJson(uint32_t pageId) const {
+        if (m_ptr == nullptr) {
+            return VexioResult<std::string>{VEXIO_ERR_INVALID_ARG, std::nullopt};
+        }
+        OwnedBufferGuard jsonBuf;
+        const VexioStatus status = vexio_doc_get_data_link_state_json(m_ptr, pageId, jsonBuf.OutPtr());
+        if (status != VEXIO_OK) {
+            return VexioResult<std::string>{status, std::nullopt};
+        }
+        return VexioResult<std::string>{VEXIO_OK, jsonBuf.ToUtf8String()};
+    }
+
+    [[nodiscard]] VexioResult<uint32_t> SetPageDataGraphicsJson(
+        uint32_t pageId,
+        std::string_view configJsonUtf8)
+    {
+        if (m_ptr == nullptr || configJsonUtf8.empty()) {
+            return VexioResult<uint32_t>{VEXIO_ERR_INVALID_ARG, std::nullopt};
+        }
+        const std::string cfg{configJsonUtf8};
+        uint32_t count = 0;
+        const VexioStatus status = vexio_doc_set_page_data_graphics_json(m_ptr, pageId, cfg.c_str(), &count);
+        if (status != VEXIO_OK) {
+            return VexioResult<uint32_t>{status, std::nullopt};
+        }
+        return VexioResult<uint32_t>{VEXIO_OK, count};
+    }
+
+    [[nodiscard]] VexioResult<std::pair<uint32_t, uint32_t>> ImportExternalRecordset(
+        uint32_t pageId,
+        std::string_view fileNameUtf8,
+        std::span<const uint8_t> bytes,
+        std::string_view keyColUtf8 = {},
+        std::string_view tableNameUtf8 = {},
+        bool autoBind = true,
+        bool autoEnableGraphics = true)
+    {
+        if (m_ptr == nullptr || bytes.empty()) {
+            return VexioResult<std::pair<uint32_t, uint32_t>>{VEXIO_ERR_INVALID_ARG, std::nullopt};
+        }
+        const std::string fname{fileNameUtf8};
+        const std::string keyCol{keyColUtf8};
+        const std::string tbl{tableNameUtf8};
+        const VexioByteSlice slice{bytes.data(), bytes.size()};
+        uint32_t rsId = 0;
+        uint32_t linked = 0;
+        const VexioStatus status = vexio_doc_import_external_recordset(
+            m_ptr, pageId, fname.c_str(), slice, keyCol.c_str(), tbl.c_str(),
+            autoBind, autoEnableGraphics, &rsId, &linked);
+        if (status != VEXIO_OK) {
+            return VexioResult<std::pair<uint32_t, uint32_t>>{status, std::nullopt};
+        }
+        return VexioResult<std::pair<uint32_t, uint32_t>>{VEXIO_OK, std::make_pair(rsId, linked)};
+    }
+
+    [[nodiscard]] VexioResult<uint32_t> BindExternalRow(
+        uint32_t pageId,
+        uint32_t recordsetId,
+        uint32_t rowIndex,
+        std::span<const uint64_t> shapeIds)
+    {
+        if (m_ptr == nullptr || recordsetId == 0) {
+            return VexioResult<uint32_t>{VEXIO_ERR_INVALID_ARG, std::nullopt};
+        }
+        uint32_t bound = 0;
+        const VexioStatus status = vexio_doc_bind_external_row(
+            m_ptr,
+            pageId,
+            recordsetId,
+            rowIndex,
+            shapeIds.empty() ? nullptr : shapeIds.data(),
+            shapeIds.size(),
+            &bound);
+        if (status != VEXIO_OK) {
+            return VexioResult<uint32_t>{status, std::nullopt};
+        }
+        return VexioResult<uint32_t>{VEXIO_OK, bound};
+    }
+
+    [[nodiscard]] VexioResult<uint32_t> RefreshExternalRecordset(
+        uint32_t pageId,
+        uint32_t recordsetId = 0,
+        std::span<const uint8_t> optionalNewBytes = {},
+        std::string_view formatHintUtf8 = {})
+    {
+        if (m_ptr == nullptr) {
+            return VexioResult<uint32_t>{VEXIO_ERR_INVALID_ARG, std::nullopt};
+        }
+        const std::string fmt{formatHintUtf8};
+        const VexioByteSlice slice{
+            optionalNewBytes.empty() ? nullptr : optionalNewBytes.data(),
+            optionalNewBytes.size()
+        };
+        uint32_t refreshed = 0;
+        const VexioStatus status = vexio_doc_refresh_external_recordset(
+            m_ptr, pageId, recordsetId, slice, fmt.c_str(), &refreshed);
+        if (status != VEXIO_OK) {
+            return VexioResult<uint32_t>{status, std::nullopt};
+        }
+        return VexioResult<uint32_t>{VEXIO_OK, refreshed};
+    }
+
+    [[nodiscard]] VexioResult<OwnedBufferGuard> SyncAndExportRecordset(
+        uint32_t pageId,
+        uint32_t recordsetId,
+        std::string_view formatExtUtf8)
+    {
+        if (m_ptr == nullptr) {
+            return VexioResult<OwnedBufferGuard>{VEXIO_ERR_INVALID_ARG, std::nullopt};
+        }
+        const std::string fmt{formatExtUtf8.empty() ? "xlsx" : formatExtUtf8};
+        OwnedBufferGuard outBuf;
+        const VexioStatus status = vexio_doc_sync_and_export_recordset(
+            m_ptr, pageId, recordsetId, fmt.c_str(), outBuf.OutPtr());
+        if (status != VEXIO_OK) {
+            return VexioResult<OwnedBufferGuard>{status, std::nullopt};
+        }
+        return VexioResult<OwnedBufferGuard>{VEXIO_OK, std::move(outBuf)};
+    }
+
+    [[nodiscard]] VexioResult<uint64_t> InsertDataLegend(
+        uint32_t pageId,
+        std::string_view propNameUtf8 = {},
+        double pinXIn = 0.0,
+        double pinYIn = 0.0)
+    {
+        if (m_ptr == nullptr) {
+            return VexioResult<uint64_t>{VEXIO_ERR_INVALID_ARG, std::nullopt};
+        }
+        const std::string prop{propNameUtf8};
+        uint64_t lid = 0;
+        const VexioStatus status = vexio_doc_insert_data_legend(
+            m_ptr, pageId, prop.c_str(), pinXIn, pinYIn, &lid);
+        if (status != VEXIO_OK) {
+            return VexioResult<uint64_t>{status, std::nullopt};
+        }
+        return VexioResult<uint64_t>{VEXIO_OK, lid};
+    }
+
+    [[nodiscard]] VexioResult<OwnedBufferGuard> ExportBomReport(std::string_view formatExtUtf8) const {
+        if (m_ptr == nullptr) {
+            return VexioResult<OwnedBufferGuard>{VEXIO_ERR_INVALID_ARG, std::nullopt};
+        }
+        const std::string fmt{formatExtUtf8.empty() ? "xlsx" : formatExtUtf8};
+        OwnedBufferGuard outBuf;
+        const VexioStatus status = vexio_doc_export_bom_report(m_ptr, fmt.c_str(), outBuf.OutPtr());
+        if (status != VEXIO_OK) {
+            return VexioResult<OwnedBufferGuard>{status, std::nullopt};
+        }
+        return VexioResult<OwnedBufferGuard>{VEXIO_OK, std::move(outBuf)};
+    }
+
 private:
     VexioDoc* m_ptr{nullptr};
 };

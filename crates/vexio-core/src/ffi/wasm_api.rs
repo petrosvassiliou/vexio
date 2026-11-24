@@ -19,7 +19,7 @@ use crate::containers::{is_container_shape, is_swimlane_shape, parse_container_m
 use crate::crdt::CrdtDocumentState;
 use crate::data_link::{
     DataGraphicItem, DataGraphicSpec, DataRecordset, apply_data_graphics, bind_recordset_to_page,
-    generate_bom_shape_report, insert_page_legend,
+    insert_page_legend,
 };
 use crate::domains::{
     GanttTaskInput, PertTaskInput, TimelineMilestone, build_gantt_chart, build_org_chart_from_csv,
@@ -226,6 +226,7 @@ struct WasmShapeInfo {
     is_swimlane: bool,
     container_members: Vec<u32>,
     control_handles: Vec<ControlHandleInfo>,
+    bound_recordset_row: Option<[u64; 2]>,
     shape_data: Vec<crate::workspace::ShapeDataItemDto>,
     cells: Vec<WasmCellInfo>,
 }
@@ -278,6 +279,7 @@ struct WasmStateJson {
     layers: Vec<WasmLayerInfo>,
     comments: Vec<WasmCommentInfo>,
     shapes: Vec<WasmShapeInfo>,
+    data_link_state: crate::workspace::PageDataLinkStateDto,
     svg_preview: String,
     can_undo: bool,
     can_redo: bool,
@@ -1400,12 +1402,8 @@ impl WasmVexioSession {
     }
 
     pub fn export_bom_xlsx(&self) -> Result<Vec<u8>, JsValue> {
-        let report = generate_bom_shape_report(
-            &self.inner.doc,
-            &["Status", "Load", "Function", "AreaSqFt", "RackU", "Title", "Department"],
-        );
-        report
-            .to_xlsx_bytes()
+        self.inner
+            .export_bom_report_bytes("xlsx")
             .map_err(|e| JsValue::from_str(&e.to_string()))
     }
 
@@ -1800,6 +1798,7 @@ impl WasmVexioSession {
                                 .map(|id| id as u32)
                                 .collect(),
                             control_handles,
+                            bound_recordset_row: s.bound_data_row.map(|(rs_id, row_id)| [rs_id as u64, row_id]),
                             shape_data: crate::workspace::collect_shape_data_items(&self.inner.doc, s),
                             cells,
                         }
@@ -1823,6 +1822,7 @@ impl WasmVexioSession {
             layers,
             comments,
             shapes,
+            data_link_state: self.inner.get_page_data_link_state(pid),
             svg_preview: export_page_svg(&self.inner.doc, pid),
             can_undo: self.inner.journal.can_undo(),
             can_redo: self.inner.journal.can_redo(),
@@ -2438,5 +2438,121 @@ impl WasmVexioSession {
         self.inner
             .set_shape_layer_membership(page_id, shape_id as u64, layer_ix, assigned)
             .unwrap_or(false)
+    }
+
+    // --- Pillar #4: Live Data Graphics, Legends & Two-Way External Data Linking ---
+
+    pub fn get_page_data_link_state_json(&self, page_id: u32) -> String {
+        self.inner.get_page_data_link_state_json(page_id)
+    }
+
+    pub fn set_page_data_graphics_json(
+        &mut self,
+        page_id: u32,
+        config_json: &str,
+    ) -> Result<usize, JsValue> {
+        self.inner
+            .set_page_data_graphics_json(page_id, config_json)
+            .map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn import_external_recordset_bytes(
+        &mut self,
+        page_id: u32,
+        file_name: &str,
+        bytes: &[u8],
+        key_col_hint: &str,
+        table_hint: &str,
+        auto_bind: bool,
+        auto_enable_graphics: bool,
+    ) -> Result<String, JsValue> {
+        let (rs_id, linked) = self
+            .inner
+            .import_external_recordset(
+                page_id,
+                file_name,
+                bytes,
+                key_col_hint,
+                table_hint,
+                auto_bind,
+                auto_enable_graphics,
+            )
+            .map_err(|e| JsValue::from_str(&e.to_string()))?;
+        Ok(format!(
+            "{{\"recordsetId\":{rs_id},\"linkedCount\":{linked}}}"
+        ))
+    }
+
+    pub fn bind_external_row(
+        &mut self,
+        page_id: u32,
+        recordset_id: u32,
+        row_index: u32,
+        shape_ids: &[u32],
+    ) -> Result<usize, JsValue> {
+        let ids: Vec<u64> = shape_ids
+            .iter()
+            .filter(|&&id| id > 0)
+            .map(|&id| id as u64)
+            .collect();
+        self.inner
+            .bind_external_row_to_shapes(page_id, recordset_id, row_index as usize, &ids)
+            .map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
+    pub fn refresh_external_recordset_bytes(
+        &mut self,
+        page_id: u32,
+        recordset_id: u32,
+        new_bytes: &[u8],
+        format_hint: &str,
+    ) -> Result<usize, JsValue> {
+        let bytes_opt = if new_bytes.is_empty() {
+            None
+        } else {
+            Some(new_bytes)
+        };
+        self.inner
+            .refresh_external_recordset(page_id, recordset_id, bytes_opt, format_hint)
+            .map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
+    pub fn sync_and_export_recordset_bytes(
+        &mut self,
+        page_id: u32,
+        recordset_id: u32,
+        format_ext: &str,
+    ) -> Result<Vec<u8>, JsValue> {
+        self.inner
+            .sync_and_export_recordset(page_id, recordset_id, format_ext)
+            .map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
+    pub fn delete_external_recordset(&mut self, recordset_id: u32) -> bool {
+        self.inner
+            .delete_external_recordset(recordset_id)
+            .unwrap_or(false)
+    }
+
+    pub fn insert_data_legend(
+        &mut self,
+        page_id: u32,
+        prop_name: &str,
+        pin_x_in: f64,
+        pin_y_in: f64,
+    ) -> Result<u32, JsValue> {
+        let px = if pin_x_in > 0.0 { Some(pin_x_in) } else { None };
+        let py = if pin_y_in > 0.0 { Some(pin_y_in) } else { None };
+        self.inner
+            .insert_or_update_data_legend(page_id, prop_name, px, py)
+            .map(|id| id as u32)
+            .map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
+    pub fn export_bom_report_bytes(&self, format_ext: &str) -> Result<Vec<u8>, JsValue> {
+        self.inner
+            .export_bom_report_bytes(format_ext)
+            .map_err(|e| JsValue::from_str(&e.to_string()))
     }
 }

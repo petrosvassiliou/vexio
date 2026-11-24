@@ -2232,6 +2232,7 @@ struct NativeShapeDto {
     vert_align: u8,
     bullet_style: u8,
     control_handles_count: usize,
+    bound_recordset_row: Option<[u64; 2]>,
     shape_data: Vec<crate::workspace::ShapeDataItemDto>,
     cells: Vec<NativeCellDto>,
 }
@@ -2271,6 +2272,7 @@ struct NativeStateDto {
     pages: Vec<NativePageDto>,
     layers: Vec<NativeLayerDto>,
     shapes: Vec<NativeShapeDto>,
+    data_link_state: crate::workspace::PageDataLinkStateDto,
     svg_preview: String,
     can_undo: bool,
     can_redo: bool,
@@ -2430,6 +2432,7 @@ pub(crate) fn build_native_state_json(session: &DocumentSession, active_page_id:
                         vert_align: s.sheet.get_f64("VerticalAlign").unwrap_or(1.0).round().clamp(0.0, 2.0) as u8,
                         bullet_style: s.sheet.get_f64("Para.Bullet").unwrap_or(0.0).round().clamp(0.0, 4.0) as u8,
                         control_handles_count: list_control_handles(&session.doc, pid, s.id).len(),
+                        bound_recordset_row: s.bound_data_row.map(|(rs_id, row_id)| [rs_id as u64, row_id]),
                         shape_data: crate::workspace::collect_shape_data_items(&session.doc, s),
                         cells,
                     }
@@ -2447,6 +2450,7 @@ pub(crate) fn build_native_state_json(session: &DocumentSession, active_page_id:
         pages,
         layers,
         shapes,
+        data_link_state: session.get_page_data_link_state(pid),
         svg_preview: export_page_svg(&session.doc, pid),
         can_undo: session.journal.can_undo(),
         can_redo: session.journal.can_redo(),
@@ -4863,6 +4867,342 @@ pub unsafe extern "C" fn vexio_doc_set_shape_layer_membership(
     })
 }
 
+// ============================================================================
+// Pillar #4 C-ABI: Live Data Graphics, Legends & Two-Way External Data Linking
+// ============================================================================
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_doc_get_data_link_state_json(
+    doc: *const VexioDoc,
+    page_id: u32,
+    out_json: *mut VexioOwnedBuffer,
+) -> VexioStatus {
+    catch_ffi_status(|| {
+        if doc.is_null() || out_json.is_null() {
+            return VexioStatus::ErrInvalidArg;
+        }
+        // SAFETY: `doc` and `out_json` verified non-null.
+        let d = unsafe { &*doc };
+        let json = d.session.get_page_data_link_state_json(page_id);
+        unsafe { *out_json = VexioOwnedBuffer::from_vec(json.into_bytes()) };
+        VexioStatus::Ok
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_doc_set_page_data_graphics_json(
+    doc: *mut VexioDoc,
+    page_id: u32,
+    config_json_utf8: *const c_char,
+    out_decorated_count: *mut u32,
+) -> VexioStatus {
+    catch_ffi_status(|| {
+        if doc.is_null() || config_json_utf8.is_null() {
+            return VexioStatus::ErrInvalidArg;
+        }
+        // SAFETY: `config_json_utf8` verified non-null NUL-terminated UTF-8 string; `doc` verified non-null.
+        let Ok(cfg_str) = unsafe { CStr::from_ptr(config_json_utf8) }.to_str() else {
+            return VexioStatus::ErrInvalidArg;
+        };
+        let d = unsafe { &mut *doc };
+        match d.session.set_page_data_graphics_json(page_id, cfg_str) {
+            Ok(cnt) => {
+                if !out_decorated_count.is_null() {
+                    // SAFETY: `out_decorated_count` verified non-null.
+                    unsafe { *out_decorated_count = cnt as u32 };
+                }
+                VexioStatus::Ok
+            }
+            Err(e) => map_core_err(e),
+        }
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_doc_import_external_recordset(
+    doc: *mut VexioDoc,
+    page_id: u32,
+    file_name_utf8: *const c_char,
+    data_bytes: VexioByteSlice,
+    key_col_utf8: *const c_char,
+    table_name_utf8: *const c_char,
+    auto_bind: bool,
+    auto_enable_graphics: bool,
+    out_recordset_id: *mut u32,
+    out_linked_count: *mut u32,
+) -> VexioStatus {
+    catch_ffi_status(|| {
+        if doc.is_null() || (data_bytes.ptr.is_null() && data_bytes.len > 0) {
+            return VexioStatus::ErrInvalidArg;
+        }
+        let fname = if file_name_utf8.is_null() {
+            "external_data.csv"
+        } else {
+            // SAFETY: `file_name_utf8` verified non-null.
+            unsafe { CStr::from_ptr(file_name_utf8) }
+                .to_str()
+                .unwrap_or("external_data.csv")
+        };
+        let key_col = if key_col_utf8.is_null() {
+            ""
+        } else {
+            // SAFETY: `key_col_utf8` verified non-null.
+            unsafe { CStr::from_ptr(key_col_utf8) }
+                .to_str()
+                .unwrap_or("")
+        };
+        let table_name = if table_name_utf8.is_null() {
+            ""
+        } else {
+            // SAFETY: `table_name_utf8` verified non-null.
+            unsafe { CStr::from_ptr(table_name_utf8) }
+                .to_str()
+                .unwrap_or("")
+        };
+        // SAFETY: `data_bytes` verified non-null when `len > 0`.
+        let slice = if data_bytes.len == 0 {
+            &[][..]
+        } else {
+            unsafe { std::slice::from_raw_parts(data_bytes.ptr, data_bytes.len) }
+        };
+        // SAFETY: `doc` verified non-null.
+        let d = unsafe { &mut *doc };
+        match d.session.import_external_recordset(
+            page_id,
+            fname,
+            slice,
+            key_col,
+            table_name,
+            auto_bind,
+            auto_enable_graphics,
+        ) {
+            Ok((rs_id, linked)) => {
+                if !out_recordset_id.is_null() {
+                    // SAFETY: `out_recordset_id` verified non-null.
+                    unsafe { *out_recordset_id = rs_id };
+                }
+                if !out_linked_count.is_null() {
+                    // SAFETY: `out_linked_count` verified non-null.
+                    unsafe { *out_linked_count = linked as u32 };
+                }
+                VexioStatus::Ok
+            }
+            Err(e) => map_core_err(e),
+        }
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_doc_bind_external_row(
+    doc: *mut VexioDoc,
+    page_id: u32,
+    recordset_id: u32,
+    row_index: u32,
+    shape_ids_ptr: *const u64,
+    shape_ids_len: usize,
+    out_bound_count: *mut u32,
+) -> VexioStatus {
+    catch_ffi_status(|| {
+        if doc.is_null() || (shape_ids_ptr.is_null() && shape_ids_len > 0) {
+            return VexioStatus::ErrInvalidArg;
+        }
+        // SAFETY: `shape_ids_ptr` verified non-null when `shape_ids_len > 0`.
+        let shape_ids = if shape_ids_len == 0 {
+            &[][..]
+        } else {
+            unsafe { std::slice::from_raw_parts(shape_ids_ptr, shape_ids_len) }
+        };
+        // SAFETY: `doc` verified non-null.
+        let d = unsafe { &mut *doc };
+        match d
+            .session
+            .bind_external_row_to_shapes(page_id, recordset_id, row_index as usize, shape_ids)
+        {
+            Ok(cnt) => {
+                if !out_bound_count.is_null() {
+                    // SAFETY: `out_bound_count` verified non-null.
+                    unsafe { *out_bound_count = cnt as u32 };
+                }
+                VexioStatus::Ok
+            }
+            Err(e) => map_core_err(e),
+        }
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_doc_refresh_external_recordset(
+    doc: *mut VexioDoc,
+    page_id: u32,
+    recordset_id: u32,
+    optional_new_bytes: VexioByteSlice,
+    format_hint_utf8: *const c_char,
+    out_refreshed_count: *mut u32,
+) -> VexioStatus {
+    catch_ffi_status(|| {
+        if doc.is_null() || (optional_new_bytes.ptr.is_null() && optional_new_bytes.len > 0) {
+            return VexioStatus::ErrInvalidArg;
+        }
+        let fmt_hint = if format_hint_utf8.is_null() {
+            ""
+        } else {
+            // SAFETY: `format_hint_utf8` verified non-null.
+            unsafe { CStr::from_ptr(format_hint_utf8) }
+                .to_str()
+                .unwrap_or("")
+        };
+        let new_bytes_opt = if optional_new_bytes.len == 0 || optional_new_bytes.ptr.is_null() {
+            None
+        } else {
+            // SAFETY: `optional_new_bytes` verified non-null with `len > 0`.
+            Some(unsafe { std::slice::from_raw_parts(optional_new_bytes.ptr, optional_new_bytes.len) })
+        };
+        // SAFETY: `doc` verified non-null.
+        let d = unsafe { &mut *doc };
+        match d
+            .session
+            .refresh_external_recordset(page_id, recordset_id, new_bytes_opt, fmt_hint)
+        {
+            Ok(cnt) => {
+                if !out_refreshed_count.is_null() {
+                    // SAFETY: `out_refreshed_count` verified non-null.
+                    unsafe { *out_refreshed_count = cnt as u32 };
+                }
+                VexioStatus::Ok
+            }
+            Err(e) => map_core_err(e),
+        }
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_doc_sync_and_export_recordset(
+    doc: *mut VexioDoc,
+    page_id: u32,
+    recordset_id: u32,
+    format_ext_utf8: *const c_char,
+    out_bytes: *mut VexioOwnedBuffer,
+) -> VexioStatus {
+    catch_ffi_status(|| {
+        if doc.is_null() || out_bytes.is_null() {
+            return VexioStatus::ErrInvalidArg;
+        }
+        let fmt = if format_ext_utf8.is_null() {
+            "xlsx"
+        } else {
+            // SAFETY: `format_ext_utf8` verified non-null.
+            unsafe { CStr::from_ptr(format_ext_utf8) }
+                .to_str()
+                .unwrap_or("xlsx")
+        };
+        // SAFETY: `doc` verified non-null.
+        let d = unsafe { &mut *doc };
+        match d.session.sync_and_export_recordset(page_id, recordset_id, fmt) {
+            Ok(bytes) => {
+                // SAFETY: `out_bytes` verified non-null.
+                unsafe { *out_bytes = VexioOwnedBuffer::from_vec(bytes) };
+                VexioStatus::Ok
+            }
+            Err(e) => map_core_err(e),
+        }
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_doc_delete_external_recordset(
+    doc: *mut VexioDoc,
+    recordset_id: u32,
+) -> VexioStatus {
+    catch_ffi_status(|| {
+        if doc.is_null() {
+            return VexioStatus::ErrInvalidArg;
+        }
+        // SAFETY: `doc` verified non-null.
+        let d = unsafe { &mut *doc };
+        match d.session.delete_external_recordset(recordset_id) {
+            Ok(true) => VexioStatus::Ok,
+            Ok(false) => VexioStatus::ErrInvalidArg,
+            Err(e) => map_core_err(e),
+        }
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_doc_insert_data_legend(
+    doc: *mut VexioDoc,
+    page_id: u32,
+    prop_name_utf8: *const c_char,
+    pin_x_in: f64,
+    pin_y_in: f64,
+    out_legend_id: *mut u64,
+) -> VexioStatus {
+    catch_ffi_status(|| {
+        if doc.is_null() {
+            return VexioStatus::ErrInvalidArg;
+        }
+        let prop = if prop_name_utf8.is_null() {
+            ""
+        } else {
+            // SAFETY: `prop_name_utf8` verified non-null.
+            unsafe { CStr::from_ptr(prop_name_utf8) }
+                .to_str()
+                .unwrap_or("")
+        };
+        let px = if pin_x_in > 0.0 { Some(pin_x_in) } else { None };
+        let py = if pin_y_in > 0.0 { Some(pin_y_in) } else { None };
+        // SAFETY: `doc` verified non-null.
+        let d = unsafe { &mut *doc };
+        match d
+            .session
+            .insert_or_update_data_legend(page_id, prop, px, py)
+        {
+            Ok(lid) => {
+                if !out_legend_id.is_null() {
+                    // SAFETY: `out_legend_id` verified non-null.
+                    unsafe { *out_legend_id = lid };
+                }
+                if lid > 0 {
+                    VexioStatus::Ok
+                } else {
+                    VexioStatus::ErrInvalidArg
+                }
+            }
+            Err(e) => map_core_err(e),
+        }
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_doc_export_bom_report(
+    doc: *const VexioDoc,
+    format_ext_utf8: *const c_char,
+    out_bytes: *mut VexioOwnedBuffer,
+) -> VexioStatus {
+    catch_ffi_status(|| {
+        if doc.is_null() || out_bytes.is_null() {
+            return VexioStatus::ErrInvalidArg;
+        }
+        let fmt = if format_ext_utf8.is_null() {
+            "xlsx"
+        } else {
+            // SAFETY: `format_ext_utf8` verified non-null.
+            unsafe { CStr::from_ptr(format_ext_utf8) }
+                .to_str()
+                .unwrap_or("xlsx")
+        };
+        // SAFETY: `doc` verified non-null.
+        let d = unsafe { &*doc };
+        match d.session.export_bom_report_bytes(fmt) {
+            Ok(bytes) => {
+                // SAFETY: `out_bytes` verified non-null.
+                unsafe { *out_bytes = VexioOwnedBuffer::from_vec(bytes) };
+                VexioStatus::Ok
+            }
+            Err(e) => map_core_err(e),
+        }
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -5842,6 +6182,133 @@ mod tests {
             assert!(rt_shape.layer_membership.contains(&sec_layer_ix));
             assert!(rt_shape.sheet.shape_data.contains_key("environment"));
             vexio_doc_destroy(rt_doc);
+
+            // Pillar #4 C-ABI smoke verification across all 9 Data Linking & Data Graphics endpoints
+            let csv_payload = b"Label,Status,CompletionPct,Owner\nExchangeEdge.01,Healthy,95,SecOps\n";
+            let csv_fname = CString::new("edge_nodes.csv").unwrap();
+            let key_hint = CString::new("Label").unwrap();
+            let empty_c = CString::new("").unwrap();
+            let mut out_rs_id: u32 = 0;
+            let mut out_linked: u32 = 0;
+            assert_eq!(
+                vexio_doc_import_external_recordset(
+                    doc,
+                    added_pid,
+                    csv_fname.as_ptr(),
+                    VexioByteSlice {
+                        ptr: csv_payload.as_ptr(),
+                        len: csv_payload.len(),
+                    },
+                    key_hint.as_ptr(),
+                    empty_c.as_ptr(),
+                    true,
+                    true,
+                    &mut out_rs_id,
+                    &mut out_linked,
+                ),
+                VexioStatus::Ok
+            );
+            assert!(out_rs_id >= 1);
+
+            let bind_ids = [rot_sid];
+            let mut bound_cnt: u32 = 0;
+            assert_eq!(
+                vexio_doc_bind_external_row(
+                    doc,
+                    added_pid,
+                    out_rs_id,
+                    0,
+                    bind_ids.as_ptr(),
+                    bind_ids.len(),
+                    &mut bound_cnt,
+                ),
+                VexioStatus::Ok
+            );
+            assert_eq!(bound_cnt, 1);
+
+            let mut legend_sid: u64 = 0;
+            let status_prop = CString::new("Status").unwrap();
+            assert_eq!(
+                vexio_doc_insert_data_legend(
+                    doc,
+                    added_pid,
+                    status_prop.as_ptr(),
+                    8.5,
+                    2.0,
+                    &mut legend_sid,
+                ),
+                VexioStatus::Ok
+            );
+            assert!(legend_sid > 0);
+
+            let mut dls_buf = VexioOwnedBuffer {
+                ptr: std::ptr::null_mut(),
+                len: 0,
+                cap: 0,
+            };
+            assert_eq!(
+                vexio_doc_get_data_link_state_json(doc, added_pid, &mut dls_buf),
+                VexioStatus::Ok
+            );
+            let dls_str =
+                std::str::from_utf8(std::slice::from_raw_parts(dls_buf.ptr, dls_buf.len))
+                    .unwrap()
+                    .to_string();
+            vexio_buffer_free(dls_buf);
+            assert!(dls_str.contains("edge_nodes"));
+
+            let mut refreshed_cnt: u32 = 0;
+            assert_eq!(
+                vexio_doc_refresh_external_recordset(
+                    doc,
+                    added_pid,
+                    out_rs_id,
+                    VexioByteSlice {
+                        ptr: std::ptr::null(),
+                        len: 0,
+                    },
+                    empty_c.as_ptr(),
+                    &mut refreshed_cnt,
+                ),
+                VexioStatus::Ok
+            );
+            assert_eq!(refreshed_cnt, 1);
+
+            let xlsx_ext = CString::new("xlsx").unwrap();
+            let mut wb_buf = VexioOwnedBuffer {
+                ptr: std::ptr::null_mut(),
+                len: 0,
+                cap: 0,
+            };
+            assert_eq!(
+                vexio_doc_sync_and_export_recordset(
+                    doc,
+                    added_pid,
+                    out_rs_id,
+                    xlsx_ext.as_ptr(),
+                    &mut wb_buf,
+                ),
+                VexioStatus::Ok
+            );
+            assert!(wb_buf.len > 100);
+            vexio_buffer_free(wb_buf);
+
+            let mut bom_buf = VexioOwnedBuffer {
+                ptr: std::ptr::null_mut(),
+                len: 0,
+                cap: 0,
+            };
+            assert_eq!(
+                vexio_doc_export_bom_report(doc, xlsx_ext.as_ptr(), &mut bom_buf),
+                VexioStatus::Ok
+            );
+            assert!(bom_buf.len > 100);
+            vexio_buffer_free(bom_buf);
+
+            assert_eq!(
+                vexio_doc_delete_external_recordset(doc, out_rs_id),
+                VexioStatus::Ok
+            );
 
             let _ = vexio_viewport_get_primary_selection(vp);
             vexio_viewport_destroy(vp);

@@ -97,6 +97,43 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private var pendingWritebackRecordsetId: Int = 0
+    private var pendingWritebackFormatExt: String = "xlsx"
+
+    /**
+     * SAF OpenDocument contract for linking External Data (`.xlsx`, `.csv`, `.tsv`, `.sqlite`, `.db`, `.json`).
+     */
+    private val importExternalDataLauncher = registerForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            takePersistableReadWritePermissionsIfPossible(uri)
+            loadExternalDataFromSafUri(uri)
+        }
+    }
+
+    /**
+     * SAF CreateDocument contract for Two-Way Writeback Export (`.xlsx`, `.csv`, `.sqlite`, `.json`).
+     */
+    private val exportWritebackLauncher = registerForActivityResult(
+        ActivityResultContracts.CreateDocument("*/*")
+    ) { targetUri: Uri? ->
+        if (targetUri != null) {
+            writeTwoWayWritebackToSafUri(targetUri, pendingWritebackRecordsetId, pendingWritebackFormatExt)
+        }
+    }
+
+    /**
+     * SAF CreateDocument contract for BOM Shape Inventory Report (`.xlsx`).
+     */
+    private val exportBomReportLauncher = registerForActivityResult(
+        ActivityResultContracts.CreateDocument("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    ) { targetUri: Uri? ->
+        if (targetUri != null) {
+            writeBomReportToSafUri(targetUri)
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
@@ -138,6 +175,10 @@ class MainActivity : ComponentActivity() {
                     onSaveDocumentRequested = ::triggerSaveInPlaceOrPicker,
                     onSaveAsDocumentRequested = ::triggerSaveAsSafPicker,
                     onImportStencilRequested = ::triggerImportStencilSafPicker,
+                    onLinkExternalDataRequested = ::triggerLinkExternalDataSafPicker,
+                    onRefreshExternalDataRequested = ::triggerRefreshExternalDataFromDisk,
+                    onTwoWayWritebackRequested = ::triggerTwoWayWritebackSafPicker,
+                    onExportBomReportRequested = ::triggerExportBomReportSafPicker,
                     onExportJpgRequested = ::triggerExportJpgSafPicker,
                     onExportFormatRequested = ::triggerExportFormatSafPicker,
                     onExternalUriDropped = ::loadDiagramFromSafUri,
@@ -318,12 +359,142 @@ class MainActivity : ComponentActivity() {
                 contentResolver.openInputStream(uri)?.use { it.readBytes() }
             }.getOrNull() ?: return@launch
 
+            val ext = resolvedName.substringAfterLast('.', "").lowercase()
             withContext(Dispatchers.Main) {
-                sessionViewModel.openDocumentFromBytes(
-                    displayName = resolvedName,
-                    uri = uri,
-                    rawBytes = bytes
+                if (ext in setOf("xlsx", "csv", "tsv", "sqlite", "db", "sqlite3", "json")) {
+                    sessionViewModel.importExternalRecordsetBytes(
+                        fileName = resolvedName,
+                        rawBytes = bytes,
+                        uri = uri
+                    )
+                } else {
+                    sessionViewModel.openDocumentFromBytes(
+                        displayName = resolvedName,
+                        uri = uri,
+                        rawBytes = bytes
+                    )
+                }
+            }
+        }
+    }
+
+    private fun triggerLinkExternalDataSafPicker() {
+        importExternalDataLauncher.launch(
+            arrayOf(
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                "text/csv",
+                "text/comma-separated-values",
+                "text/tab-separated-values",
+                "application/json",
+                "application/vnd.sqlite3",
+                "application/x-sqlite3",
+                "application/octet-stream",
+                "*/*"
+            )
+        )
+    }
+
+    private fun loadExternalDataFromSafUri(uri: Uri) {
+        lifecycleScope.launch(Dispatchers.IO) {
+            val resolvedName = queryDisplayName(uri)
+                ?: uri.lastPathSegment?.substringAfterLast('/')
+                ?: "External_Data.xlsx"
+            val bytes = runCatching {
+                contentResolver.openInputStream(uri)?.use { it.readBytes() }
+            }.getOrNull() ?: return@launch
+
+            withContext(Dispatchers.Main) {
+                sessionViewModel.importExternalRecordsetBytes(
+                    fileName = resolvedName,
+                    rawBytes = bytes,
+                    uri = uri
                 )
+            }
+        }
+    }
+
+    private fun triggerRefreshExternalDataFromDisk() {
+        val urisByRs = sessionViewModel.getLinkedRecordsetUrisSnapshot()
+        if (urisByRs.isEmpty()) {
+            sessionViewModel.refreshExternalRecordsets()
+            return
+        }
+        lifecycleScope.launch(Dispatchers.IO) {
+            val loaded = linkedMapOf<Int, Pair<String, ByteArray>>()
+            for ((rsId, uri) in urisByRs) {
+                val name = queryDisplayName(uri).orEmpty()
+                val bytes = runCatching {
+                    contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                }.getOrNull()
+                if (bytes != null && bytes.isNotEmpty()) {
+                    loaded[rsId] = name to bytes
+                }
+            }
+            withContext(Dispatchers.Main) {
+                if (loaded.isEmpty()) {
+                    sessionViewModel.refreshExternalRecordsets()
+                } else {
+                    for ((rsId, pair) in loaded) {
+                        sessionViewModel.refreshExternalRecordsets(
+                            recordsetId = rsId,
+                            optionalBytes = pair.second,
+                            formatHint = pair.first
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    private fun triggerTwoWayWritebackSafPicker(recordsetId: Int) {
+        val state = sessionViewModel.uiState.value
+        val matched = state.externalRecordsets.firstOrNull { recordsetId == 0 || it.id == recordsetId }
+        val ext = matched?.sourceKind?.ifBlank { "xlsx" } ?: "xlsx"
+        val base = matched?.name?.ifBlank { state.documentTitle.substringBeforeLast('.') }
+            ?: "${state.documentTitle.substringBeforeLast('.')}_Synced"
+        pendingWritebackRecordsetId = recordsetId
+        pendingWritebackFormatExt = ext
+        exportWritebackLauncher.launch("$base.$ext")
+    }
+
+    private fun writeTwoWayWritebackToSafUri(uri: Uri, recordsetId: Int, defaultExt: String) {
+        lifecycleScope.launch(Dispatchers.IO) {
+            val resolvedName = queryDisplayName(uri).orEmpty()
+            val ext = resolvedName.substringAfterLast('.', defaultExt).ifBlank { defaultExt }.lowercase()
+            val bytes = sessionViewModel.syncAndExportRecordsetBytes(recordsetId, ext)
+            if (bytes.isEmpty()) return@launch
+            runCatching {
+                contentResolver.openOutputStream(uri, "wt")?.use { s ->
+                    s.write(bytes)
+                    s.flush()
+                } ?: contentResolver.openOutputStream(uri)?.use { s ->
+                    s.write(bytes)
+                    s.flush()
+                }
+            }
+        }
+    }
+
+    private fun triggerExportBomReportSafPicker() {
+        val stem = sessionViewModel.uiState.value.documentTitle.substringBeforeLast('.')
+            .ifBlank { "Diagram" }
+        exportBomReportLauncher.launch("${stem}_BOM_Report.xlsx")
+    }
+
+    private fun writeBomReportToSafUri(uri: Uri) {
+        lifecycleScope.launch(Dispatchers.IO) {
+            val resolvedName = queryDisplayName(uri).orEmpty()
+            val ext = resolvedName.substringAfterLast('.', "xlsx").ifBlank { "xlsx" }.lowercase()
+            val bytes = sessionViewModel.exportBomReportBytes(ext)
+            if (bytes.isEmpty()) return@launch
+            runCatching {
+                contentResolver.openOutputStream(uri, "wt")?.use { s ->
+                    s.write(bytes)
+                    s.flush()
+                } ?: contentResolver.openOutputStream(uri)?.use { s ->
+                    s.write(bytes)
+                    s.flush()
+                }
             }
         }
     }

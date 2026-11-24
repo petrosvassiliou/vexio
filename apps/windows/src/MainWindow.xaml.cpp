@@ -1489,6 +1489,41 @@ void MainWindow::InitializeExternalDataAndLayers() {
 }
 
 void MainWindow::RefreshExternalDataList() {
+    if (m_doc) {
+        const auto dlRes = m_doc.GetDataLinkStateJson(m_activePageId);
+        if (dlRes.ok() && !dlRes.value->empty()) {
+            Windows::Data::Json::JsonObject root{nullptr};
+            if (Windows::Data::Json::JsonObject::TryParse(vexio::win::ToHString(*dlRes.value), root)
+                && root.HasKey(L"recordsets"))
+            {
+                const auto rsArr = root.GetNamedArray(L"recordsets");
+                if (rsArr.Size() > 0) {
+                    m_externalRecords.clear();
+                    for (uint32_t r = 0; r < rsArr.Size(); ++r) {
+                        const auto rsObj = rsArr.GetObjectAt(r);
+                        const uint32_t rsId = static_cast<uint32_t>(rsObj.GetNamedNumber(L"id", 1.0));
+                        const std::wstring keyCol{rsObj.GetNamedString(L"keyColumn", L"ID").c_str()};
+                        if (!rsObj.HasKey(L"rows")) continue;
+                        const auto rowsArr = rsObj.GetNamedArray(L"rows");
+                        for (uint32_t i = 0; i < rowsArr.Size(); ++i) {
+                            const auto rowObj = rowsArr.GetObjectAt(i);
+                            ExternalDataRecord rec{};
+                            rec.recordsetId = rsId;
+                            rec.rowIndex = i;
+                            rec.rowId = std::format(L"R{}", i + 1);
+                            rec.component = rowObj.GetNamedString(keyCol, rec.rowId).c_str();
+                            rec.department = rowObj.GetNamedString(L"Department", rowObj.GetNamedString(L"Function", L"-")).c_str();
+                            rec.owner = rowObj.GetNamedString(L"Owner", rowObj.GetNamedString(L"Host", L"-")).c_str();
+                            rec.costUsd = rowObj.GetNamedString(L"Cost", rowObj.GetNamedString(L"CompletionPct", rowObj.GetNamedString(L"Load", L"0"))).c_str();
+                            rec.status = rowObj.GetNamedString(L"Status", L"Active").c_str();
+                            m_externalRecords.push_back(std::move(rec));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     auto items = ExternalDataRowsListView().Items();
     items.Clear();
 
@@ -1501,7 +1536,7 @@ void MainWindow::RefreshExternalDataList() {
         primary.FontWeight(Microsoft::UI::Text::FontWeights::SemiBold());
 
         TextBlock secondary{};
-        secondary.Text(hstring{std::format(L"{} | ${} | {}", rec.department, rec.costUsd, rec.status)});
+        secondary.Text(hstring{std::format(L"{} | {} | {}", rec.department, rec.costUsd, rec.status)});
         secondary.FontSize(11.0);
         secondary.Opacity(0.75);
 
@@ -1686,11 +1721,25 @@ void MainWindow::OnBindSelectedDataRowClick(IInspectable const&, RoutedEventArgs
     }
 
     auto const& rec = m_externalRecords[static_cast<size_t>(idx)];
-    PropLabelTextBox().Text(hstring{rec.component});
-    PropDepartmentTextBox().Text(hstring{rec.department});
-    PropOwnerTextBox().Text(hstring{rec.owner});
-    PropCostTextBox().Text(hstring{rec.costUsd});
-    OnApplyShapeDataClick(nullptr, nullptr);
+    if (m_doc && rec.recordsetId > 0) {
+        std::vector<uint64_t> targets{};
+        if (m_selectedShapeId > 0) {
+            targets.push_back(m_selectedShapeId);
+        }
+        const auto bindRes = m_doc.BindExternalRow(m_activePageId, rec.recordsetId, rec.rowIndex, targets);
+        if (bindRes.ok()) {
+            MarkDocumentDirty(true);
+            SyncInspectorFromShapeSheet();
+            RefreshShapeSheetSectionRows();
+            PresentViewportFrame();
+        }
+    } else {
+        PropLabelTextBox().Text(hstring{rec.component});
+        PropDepartmentTextBox().Text(hstring{rec.department});
+        PropOwnerTextBox().Text(hstring{rec.owner});
+        PropCostTextBox().Text(hstring{rec.costUsd});
+        OnApplyShapeDataClick(nullptr, nullptr);
+    }
 
     ShowBanner(InfoBarSeverity::Success, L"Two-Way Data Row Linked",
                std::format(L"Bound {} ({}) to Sheet.{} Shape Data.", rec.rowId, rec.component, m_selectedShapeId));
@@ -2340,11 +2389,13 @@ void MainWindow::OnInsertCalloutClick(IInspectable const&, RoutedEventArgs const
 
 void MainWindow::OnInsertLegendClick(IInspectable const&, RoutedEventArgs const&) {
     if (!m_doc) return;
-    const auto res = m_doc.DropStencil(m_activePageId, "Callouts, Notes & Containers", "Folded Note", 8.75, 2.00);
-    if (res.ok()) {
+    const auto res = m_doc.InsertDataLegend(m_activePageId, "", 0.0, 0.0);
+    if (res.ok() && *res.value > 0) {
         m_selectedShapeId = *res.value;
         MarkDocumentDirty(true);
         PresentViewportFrame();
+        ShowBanner(InfoBarSeverity::Success, L"Live Diagram Legend Inserted",
+                   std::format(L"Inserted auto-updating Color-by-Value & Category Legend (Sheet.{}).", *res.value));
     }
 }
 
@@ -2550,29 +2601,26 @@ void MainWindow::OnLinkExternalDataClick(IInspectable const&, RoutedEventArgs co
         OnToggleRightTaskPanesClick(nullptr, nullptr);
     }
     RightTaskPanesPivot().SelectedIndex(4);
-    ShowBanner(InfoBarSeverity::Informational, L"External Data Inspector Ready",
-               L"Select a linked Excel / CSV / SQLite record in the External Data task pane.");
+    ImportExternalDataPickerAsync();
 }
 
 void MainWindow::OnRefreshExternalDataClick(IInspectable const&, RoutedEventArgs const&) {
+    uint32_t refreshed = 0;
+    if (m_doc) {
+        const auto res = m_doc.RefreshExternalRecordset(m_activePageId, 0);
+        if (res.ok()) refreshed = *res.value;
+    }
     RefreshExternalDataList();
-    ExternalDataSourceStatusText().Text(L"Source: Enterprise_Inventory.xlsx (Refreshed)");
+    SyncInspectorFromShapeSheet();
+    RefreshShapeSheetSectionRows();
+    PresentViewportFrame();
+    ExternalDataSourceStatusText().Text(hstring{std::format(L"Refreshed {} linked shape(s)", refreshed)});
     ShowBanner(InfoBarSeverity::Success, L"External Data Refreshed",
-               L"All linked ShapeSheet Prop.* cells synchronized with external data source.");
+               std::format(L"Synchronized {} shape(s) with linked External Data recordsets.", refreshed));
 }
 
 void MainWindow::OnPushTwoWaySyncClick(IInspectable const&, RoutedEventArgs const&) {
-    const int32_t idx = ExternalDataRowsListView().SelectedIndex();
-    if (idx >= 0 && static_cast<size_t>(idx) < m_externalRecords.size()) {
-        auto& rec = m_externalRecords[static_cast<size_t>(idx)];
-        rec.component  = PropLabelTextBox().Text().c_str();
-        rec.department = PropDepartmentTextBox().Text().c_str();
-        rec.owner      = PropOwnerTextBox().Text().c_str();
-        rec.costUsd    = PropCostTextBox().Text().c_str();
-        RefreshExternalDataList();
-    }
-    ShowBanner(InfoBarSeverity::Success, L"Two-Way Writeback Committed",
-               L"Pushed modified Prop.* Shape Data values back to linked external table.");
+    ExportTwoWayWritebackPickerAsync();
 }
 
 void MainWindow::OnImportDataVisualizerClick(IInspectable const&, RoutedEventArgs const&) {
@@ -2596,18 +2644,42 @@ void MainWindow::OnExportPowerBiClick(IInspectable const&, RoutedEventArgs const
 }
 
 void MainWindow::OnApplyDataBarsClick(IInspectable const&, RoutedEventArgs const&) {
-    (void)m_doc.SetCellFormula(m_activePageId, m_selectedShapeId, "User.DataGraphicMode", "\"DataBar:Prop.Cost\"", true);
-    ShowBanner(InfoBarSeverity::Informational, L"Data Graphic Applied", L"Bound Data Bar callout to Prop.Cost.");
+    if (m_doc) {
+        constexpr std::string_view cfg =
+            R"({"enabled":true,"iconSetField":"Status","dataBarField":"Cost","dataBarMin":0,"dataBarMax":100,"dataBarColorHex":"#2563EB","textCalloutField":"Owner","colorByValueEnabled":true,"colorByValueField":"Department","legendVisible":false,"legendField":"Department"})";
+        const auto res = m_doc.SetPageDataGraphicsJson(m_activePageId, cfg);
+        MarkDocumentDirty(true);
+        PresentViewportFrame();
+        const uint32_t cnt = res.ok() ? *res.value : 0u;
+        ShowBanner(InfoBarSeverity::Success, L"Live Data Bars Applied",
+                   std::format(L"Rendered vector Data Bars across {} shape(s) on active page.", cnt));
+    }
 }
 
 void MainWindow::OnApplyIconSetsClick(IInspectable const&, RoutedEventArgs const&) {
-    (void)m_doc.SetCellFormula(m_activePageId, m_selectedShapeId, "User.DataGraphicMode", "\"IconSet:Prop.Status\"", true);
-    ShowBanner(InfoBarSeverity::Informational, L"Data Graphic Applied", L"Bound Status Traffic-Light Icon Set to Prop.Status.");
+    if (m_doc) {
+        constexpr std::string_view cfg =
+            R"({"enabled":true,"iconSetField":"Status","iconGreenMin":75,"iconAmberMin":40,"dataBarField":"CompletionPct","textCalloutField":"Owner","colorByValueEnabled":true,"colorByValueField":"Status","legendVisible":false,"legendField":"Status"})";
+        const auto res = m_doc.SetPageDataGraphicsJson(m_activePageId, cfg);
+        MarkDocumentDirty(true);
+        PresentViewportFrame();
+        const uint32_t cnt = res.ok() ? *res.value : 0u;
+        ShowBanner(InfoBarSeverity::Success, L"Live Icon Sets Applied",
+                   std::format(L"Rendered vector Traffic-Light Icon Sets across {} shape(s) on active page.", cnt));
+    }
 }
 
 void MainWindow::OnApplyColorByValueClick(IInspectable const&, RoutedEventArgs const&) {
-    (void)m_doc.SetCellFormula(m_activePageId, m_selectedShapeId, "User.DataGraphicMode", "\"ColorByValue:Prop.Department\"", true);
-    ShowBanner(InfoBarSeverity::Informational, L"Data Graphic Applied", L"Applied Color-by-Value palette to Prop.Department.");
+    if (m_doc) {
+        constexpr std::string_view cfg =
+            R"({"enabled":true,"iconSetField":"Status","dataBarField":"CompletionPct","textCalloutField":"Department","colorByValueEnabled":true,"colorByValueField":"Status","legendVisible":true,"legendField":"Status"})";
+        const auto res = m_doc.SetPageDataGraphicsJson(m_activePageId, cfg);
+        MarkDocumentDirty(true);
+        PresentViewportFrame();
+        const uint32_t cnt = res.ok() ? *res.value : 0u;
+        ShowBanner(InfoBarSeverity::Success, L"Color by Value & Legend Applied",
+                   std::format(L"Applied live Color-by-Value palette and Legend across {} shape(s).", cnt));
+    }
 }
 
 void MainWindow::OnGenerateBomReportClick(IInspectable const&, RoutedEventArgs const&) {
@@ -3587,32 +3659,182 @@ fire_and_forget MainWindow::ShowRenamePageDialogAsync() {
     }
 }
 
-fire_and_forget MainWindow::ShowBomReportDialogAsync() {
-    std::wstring report = L"ID          Component                  Department     Cost (USD)\n"
-                          L"----------------------------------------------------------------\n";
-    double totalCost = 0.0;
-    for (auto const& rec : m_externalRecords) {
-        report += std::format(L"{:<11} {:<26} {:<14} ${}\n", rec.rowId, rec.component, rec.department, rec.costUsd);
-        totalCost += std::wcstod(rec.costUsd.c_str(), nullptr);
-    }
-    report += std::format(L"----------------------------------------------------------------\nTotal Estimated BOM Cost: ${:.2f}", totalCost);
+fire_and_forget MainWindow::ImportExternalDataPickerAsync() {
+    const HWND hwnd = GetNativeWindowHandle();
+    if (hwnd == nullptr || !m_doc) co_return;
 
+    FileOpenPicker picker{};
+    if (auto initWithWin = picker.try_as<::IInitializeWithWindow>()) {
+        (void)initWithWin->Initialize(hwnd);
+    }
+    picker.ViewMode(PickerViewMode::List);
+    picker.SuggestedStartLocation(PickerLocationId::DocumentsLibrary);
+    for (wchar_t const* ext : {L".xlsx", L".csv", L".tsv", L".sqlite", L".db", L".sqlite3", L".json"}) {
+        picker.FileTypeFilter().Append(ext);
+    }
+
+    const auto weakSelf = get_weak();
+    StorageFile picked = co_await picker.PickSingleFileAsync();
+    if (!picked) co_return;
+
+    try {
+        const IBuffer buffer = co_await FileIO::ReadBufferAsync(picked);
+        auto self = weakSelf.get();
+        if (!self || !self->m_doc) co_return;
+
+        const std::span<const uint8_t> rawBytes{buffer.data(), buffer.Length()};
+        const std::string fnameUtf8 = vexio::win::ToUtf8(picked.Name());
+        const auto res = self->m_doc.ImportExternalRecordset(
+            self->m_activePageId, fnameUtf8, rawBytes, "", "", true, true);
+        if (!res.ok()) {
+            self->ShowBanner(InfoBarSeverity::Error, L"External Data Link Failed", res.message());
+            co_return;
+        }
+        const auto [rsId, linkedCount] = *res.value;
+        (void)rsId;
+        self->RefreshExternalDataList();
+        self->ExternalDataSourceStatusText().Text(hstring{
+            std::format(L"Source: {} ({} linked)", picked.Name().c_str(), linkedCount)
+        });
+        self->MarkDocumentDirty(true);
+        self->SyncInspectorFromShapeSheet();
+        self->RefreshShapeSheetSectionRows();
+        self->PresentViewportFrame();
+        self->ShowBanner(
+            InfoBarSeverity::Success,
+            L"External Data Linked & Data Graphics Enabled",
+            std::format(L"Imported '{}' and linked {} shape(s) on active page.", picked.Name().c_str(), linkedCount));
+    } catch (...) {
+        if (auto self = weakSelf.get()) {
+            self->ShowBanner(InfoBarSeverity::Error, L"External Data I/O Error", L"Unable to read selected data file.");
+        }
+    }
+}
+
+fire_and_forget MainWindow::ExportTwoWayWritebackPickerAsync() {
+    const HWND hwnd = GetNativeWindowHandle();
+    if (hwnd == nullptr || !m_doc) co_return;
+
+    FileSavePicker picker{};
+    if (auto initWithWin = picker.try_as<::IInitializeWithWindow>()) {
+        (void)initWithWin->Initialize(hwnd);
+    }
+    picker.SuggestedStartLocation(PickerLocationId::DocumentsLibrary);
+    picker.FileTypeChoices().Insert(L"Excel Workbook (.xlsx)", single_threaded_vector<hstring>({L".xlsx"}));
+    picker.FileTypeChoices().Insert(L"CSV Table (.csv)", single_threaded_vector<hstring>({L".csv"}));
+    picker.FileTypeChoices().Insert(L"SQLite 3 Database (.sqlite)", single_threaded_vector<hstring>({L".sqlite"}));
+    picker.FileTypeChoices().Insert(L"JSON Records (.json)", single_threaded_vector<hstring>({L".json"}));
+    picker.SuggestedFileName(hstring{
+        std::filesystem::path{m_documentDisplayName}.stem().wstring() + L"_SyncedData"
+    });
+
+    const auto weakSelf = get_weak();
+    StorageFile targetFile = co_await picker.PickSaveFileAsync();
+    if (!targetFile) co_return;
+
+    auto self = weakSelf.get();
+    if (!self || !self->m_doc) co_return;
+
+    std::string ext = vexio::win::ToUtf8(targetFile.FileType());
+    if (!ext.empty() && ext.front() == '.') ext.erase(ext.begin());
+    if (ext.empty()) ext = "xlsx";
+
+    const auto exportRes = self->m_doc.SyncAndExportRecordset(self->m_activePageId, 0, ext);
+    if (!exportRes.ok()) {
+        self->ShowBanner(InfoBarSeverity::Error, L"Two-Way Writeback Failed", exportRes.message());
+        co_return;
+    }
+
+    const std::vector<uint8_t> payload = exportRes.value->ToVector();
+    CachedFileManager::DeferUpdates(targetFile);
+    co_await FileIO::WriteBytesAsync(targetFile, payload);
+    (void)co_await CachedFileManager::CompleteUpdatesAsync(targetFile);
+
+    if (auto strongSelf = weakSelf.get()) {
+        strongSelf->RefreshExternalDataList();
+        strongSelf->ShowBanner(
+            InfoBarSeverity::Success,
+            L"Two-Way Writeback Exported",
+            std::format(L"Synced edited Prop.* Shape Data values and saved '{}'.", targetFile.Name().c_str()));
+    }
+}
+
+fire_and_forget MainWindow::ExportBomReportPickerAsync() {
+    const HWND hwnd = GetNativeWindowHandle();
+    if (hwnd == nullptr || !m_doc) co_return;
+
+    FileSavePicker picker{};
+    if (auto initWithWin = picker.try_as<::IInitializeWithWindow>()) {
+        (void)initWithWin->Initialize(hwnd);
+    }
+    picker.SuggestedStartLocation(PickerLocationId::DocumentsLibrary);
+    picker.FileTypeChoices().Insert(L"Excel BOM Report (.xlsx)", single_threaded_vector<hstring>({L".xlsx"}));
+    picker.FileTypeChoices().Insert(L"CSV BOM Report (.csv)", single_threaded_vector<hstring>({L".csv"}));
+    picker.FileTypeChoices().Insert(L"JSON BOM Report (.json)", single_threaded_vector<hstring>({L".json"}));
+    picker.FileTypeChoices().Insert(L"SQLite BOM Database (.sqlite)", single_threaded_vector<hstring>({L".sqlite"}));
+    picker.SuggestedFileName(hstring{
+        std::filesystem::path{m_documentDisplayName}.stem().wstring() + L"_BOM_Report"
+    });
+
+    const auto weakSelf = get_weak();
+    StorageFile targetFile = co_await picker.PickSaveFileAsync();
+    if (!targetFile) co_return;
+
+    auto self = weakSelf.get();
+    if (!self || !self->m_doc) co_return;
+
+    std::string ext = vexio::win::ToUtf8(targetFile.FileType());
+    if (!ext.empty() && ext.front() == '.') ext.erase(ext.begin());
+    if (ext.empty()) ext = "xlsx";
+
+    const auto bomRes = self->m_doc.ExportBomReport(ext);
+    if (!bomRes.ok()) {
+        self->ShowBanner(InfoBarSeverity::Error, L"BOM Export Failed", bomRes.message());
+        co_return;
+    }
+
+    const std::vector<uint8_t> payload = bomRes.value->ToVector();
+    CachedFileManager::DeferUpdates(targetFile);
+    co_await FileIO::WriteBytesAsync(targetFile, payload);
+    (void)co_await CachedFileManager::CompleteUpdatesAsync(targetFile);
+
+    if (auto strongSelf = weakSelf.get()) {
+        strongSelf->ShowBanner(
+            InfoBarSeverity::Success,
+            L"BOM Shape Report Saved",
+            std::format(L"Exported BOM inventory across all foreground pages to '{}'.", targetFile.Name().c_str()));
+    }
+}
+
+fire_and_forget MainWindow::ShowBomReportDialogAsync() {
+    std::wstring report = L"Bill of Materials (BOM) — Active Foreground Shapes\n"
+                          L"----------------------------------------------------------------\n";
+    if (m_doc) {
+        const auto csvRes = m_doc.ExportBomReport("csv");
+        if (csvRes.ok()) {
+            report += vexio::win::ToHString(csvRes.value->ToUtf8String()).c_str();
+        }
+    }
+
+    ScrollViewer scroller{};
+    scroller.MaxHeight(340.0);
     TextBlock body{};
     body.FontFamily(FontFamily{L"Consolas"});
     body.FontSize(12.0);
     body.Text(hstring{report});
+    scroller.Content(body);
 
     ContentDialog dlg{};
     dlg.XamlRoot(RootWorkstationGrid().XamlRoot());
     dlg.Title(box_value(L"Bill of Materials (BOM) Shape Inventory Report"));
-    dlg.Content(body);
-    dlg.PrimaryButtonText(L"Export CSV");
+    dlg.Content(scroller);
+    dlg.PrimaryButtonText(L"Export .xlsx / .csv…");
     dlg.CloseButtonText(L"Close");
 
     const auto weakSelf = get_weak();
     if (co_await dlg.ShowAsync() == ContentDialogResult::Primary) {
         if (auto self = weakSelf.get()) {
-            self->ShowBanner(InfoBarSeverity::Success, L"BOM Report Ready", L"Aggregated ShapeSheet Prop.Cost and Prop.Department across active pages.");
+            self->ExportBomReportPickerAsync();
         }
     }
 }
@@ -4551,7 +4773,7 @@ fire_and_forget MainWindow::ShowOfficialStencilCatalogDialogAsync() {
     }
 
     Windows::Web::Http::HttpClient client{};
-    client.DefaultRequestHeaders().UserAgent().TryParseAdd(L"Vexio-Windows/0.3.8-alpha");
+    client.DefaultRequestHeaders().UserAgent().TryParseAdd(L"Vexio-Windows/0.3.9-alpha");
     uint32_t installedCount = 0;
 
     for (auto const& target : targets) {
@@ -4813,7 +5035,7 @@ void MainWindow::OnCheckUpdatesClick(IInspectable const&, RoutedEventArgs const&
 }
 
 fire_and_forget MainWindow::CheckForUpdatesAsync(bool userInitiated) {
-    constexpr std::wstring_view kCurrentVersion = L"0.3.8-alpha";
+    constexpr std::wstring_view kCurrentVersion = L"0.3.9-alpha";
     const auto weakSelf = get_weak();
 
     if (userInitiated) {
@@ -4827,7 +5049,7 @@ fire_and_forget MainWindow::CheckForUpdatesAsync(bool userInitiated) {
 
     try {
         Windows::Web::Http::HttpClient client{};
-        client.DefaultRequestHeaders().UserAgent().TryParseAdd(L"Vexio-Windows/0.3.8-alpha");
+        client.DefaultRequestHeaders().UserAgent().TryParseAdd(L"Vexio-Windows/0.3.9-alpha");
         client.DefaultRequestHeaders().Accept().TryParseAdd(L"application/vnd.github+json");
 
         const Uri apiUri{L"https://api.github.com/repos/petrosvassiliou/vexio/releases"};
@@ -4836,7 +5058,7 @@ fire_and_forget MainWindow::CheckForUpdatesAsync(bool userInitiated) {
         Windows::Data::Json::JsonArray releasesArr{nullptr};
         if (Windows::Data::Json::JsonArray::TryParse(body, releasesArr) && releasesArr.Size() > 0) {
             const auto relObj = releasesArr.GetObjectAt(0);
-            latestTag = relObj.GetNamedString(L"tag_name", L"v0.3.8-alpha").c_str();
+            latestTag = relObj.GetNamedString(L"tag_name", L"v0.3.9-alpha").c_str();
             releaseUrl = relObj.GetNamedString(L"html_url", releaseUrl).c_str();
             if (relObj.HasKey(L"assets")) {
                 const auto assets = relObj.GetNamedArray(L"assets");
@@ -4898,7 +5120,7 @@ fire_and_forget MainWindow::CheckForUpdatesAsync(bool userInitiated) {
         }
     } else {
         self->BackstageUpdateStatusText().Text(hstring{
-            std::format(L"Vexio is up to date ({}).", latestTag.empty() ? L"v0.3.8-alpha" : latestTag)
+            std::format(L"Vexio is up to date ({}).", latestTag.empty() ? L"v0.3.9-alpha" : latestTag)
         });
         if (userInitiated) {
             ContentDialog dlg{};
@@ -4906,7 +5128,7 @@ fire_and_forget MainWindow::CheckForUpdatesAsync(bool userInitiated) {
             dlg.Title(box_value(L"Vexio is Up to Date"));
             dlg.Content(box_value(hstring{std::format(
                 L"You are running the latest version of Vexio Professional ({}).",
-                latestTag.empty() ? L"v0.3.8-alpha" : latestTag)}));
+                latestTag.empty() ? L"v0.3.9-alpha" : latestTag)}));
             dlg.PrimaryButtonText(L"View Release Notes");
             dlg.CloseButtonText(L"OK");
             dlg.DefaultButton(ContentDialogButton::Close);

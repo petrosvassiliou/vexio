@@ -3,11 +3,36 @@
 use crate::opc::{
     NS_RELS_DOC, NS_RELS_PKG, NS_VISIO_MAIN, RawOpcArchive, VsdxError, VsdxPackageKind, xml_escape,
 };
+use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use vexio_shapesheet::{
-    LayerDef, ShapeDataType, ShapeKind, ShapeSheet, VisioDocument, VisioMaster, VisioPage,
-    VisioShape, format_clean_f64,
+    ExternalDataRecordset, LayerDef, PageDataGraphicConfig, ShapeDataType, ShapeKind, ShapeSheet,
+    VisioDocument, VisioMaster, VisioPage, VisioShape, format_clean_f64,
 };
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub(crate) struct VexioVsdxDataState {
+    #[serde(default)]
+    pub recordsets: Vec<ExternalDataRecordset>,
+    #[serde(default)]
+    pub page_data_graphics: BTreeMap<u32, PageDataGraphicConfig>,
+    #[serde(default)]
+    pub shape_bindings: BTreeMap<String, (u32, u64)>,
+}
+
+fn collect_shape_bindings_recursive(
+    page_id: u32,
+    shape: &VisioShape,
+    out: &mut BTreeMap<String, (u32, u64)>,
+) {
+    if let Some(binding) = shape.bound_data_row {
+        out.insert(format!("{page_id}:{}", shape.id), binding);
+    }
+    for c in &shape.children {
+        collect_shape_bindings_recursive(page_id, c, out);
+    }
+}
 
 pub fn write_vsdx(doc: &VisioDocument, mut kind: VsdxPackageKind) -> Result<Vec<u8>, VsdxError> {
     if doc.macro_enabled && !kind.is_macro_enabled() {
@@ -108,6 +133,31 @@ pub fn write_vsdx(doc: &VisioDocument, mut kind: VsdxPackageKind) -> Result<Vec<
         archive
             .files
             .insert("visio/comments.xml".into(), build_comments_xml(doc).into_bytes());
+    }
+
+    // 9. External Data Recordsets, Data Graphics & Shape Row Bindings (`visio/data/vexio_data_state.json`)
+    let mut data_state = VexioVsdxDataState {
+        recordsets: doc.data_recordsets.clone(),
+        page_data_graphics: BTreeMap::new(),
+        shape_bindings: BTreeMap::new(),
+    };
+    for p in &doc.pages {
+        if let Some(cfg) = &p.data_graphic_config {
+            data_state.page_data_graphics.insert(p.id, cfg.clone());
+        }
+        for sh in &p.shapes {
+            collect_shape_bindings_recursive(p.id, sh, &mut data_state.shape_bindings);
+        }
+    }
+    if !data_state.recordsets.is_empty()
+        || !data_state.page_data_graphics.is_empty()
+        || !data_state.shape_bindings.is_empty()
+    {
+        if let Ok(json_bytes) = serde_json::to_vec(&data_state) {
+            archive
+                .files
+                .insert("visio/data/vexio_data_state.json".into(), json_bytes);
+        }
     }
 
     archive.to_bytes()

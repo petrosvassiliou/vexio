@@ -153,6 +153,17 @@ VexioStatus vexio_doc_add_layer(VexioDoc* doc, uint32_t page_id, const char* lay
 VexioStatus vexio_doc_set_layer_flags(VexioDoc* doc, uint32_t page_id, uint32_t layer_ix, bool visible, bool lock_flag, bool print_flag, bool snap_glue);
 VexioStatus vexio_doc_set_shape_layer_membership(VexioDoc* doc, uint32_t page_id, uint64_t shape_id, uint32_t layer_ix, bool assigned);
 
+/* Pillar #4: Live Data Graphics, Auto-Updating Legends & Two-Way External Data Linking (.xlsx / .csv / .sqlite / .json) */
+VexioStatus vexio_doc_get_data_link_state_json(const VexioDoc* doc, uint32_t page_id, VexioOwnedBuffer* out_json);
+VexioStatus vexio_doc_set_page_data_graphics_json(VexioDoc* doc, uint32_t page_id, const char* config_json_utf8, uint32_t* out_decorated_count);
+VexioStatus vexio_doc_import_external_recordset(VexioDoc* doc, uint32_t page_id, const char* file_name_utf8, VexioByteSlice data_bytes, const char* key_col_utf8, const char* table_name_utf8, bool auto_bind, bool auto_enable_graphics, uint32_t* out_recordset_id, uint32_t* out_linked_count);
+VexioStatus vexio_doc_bind_external_row(VexioDoc* doc, uint32_t page_id, uint32_t recordset_id, uint32_t row_index, const uint64_t* shape_ids_ptr, size_t shape_ids_len, uint32_t* out_bound_count);
+VexioStatus vexio_doc_refresh_external_recordset(VexioDoc* doc, uint32_t page_id, uint32_t recordset_id, VexioByteSlice optional_new_bytes, const char* format_hint_utf8, uint32_t* out_refreshed_count);
+VexioStatus vexio_doc_sync_and_export_recordset(VexioDoc* doc, uint32_t page_id, uint32_t recordset_id, const char* format_ext_utf8, VexioOwnedBuffer* out_bytes);
+VexioStatus vexio_doc_delete_external_recordset(VexioDoc* doc, uint32_t recordset_id);
+VexioStatus vexio_doc_insert_data_legend(VexioDoc* doc, uint32_t page_id, const char* prop_name_utf8, double pin_x_in, double pin_y_in, uint64_t* out_legend_id);
+VexioStatus vexio_doc_export_bom_report(const VexioDoc* doc, const char* format_ext_utf8, VexioOwnedBuffer* out_bytes);
+
 #ifdef __cplusplus
 }
 #endif

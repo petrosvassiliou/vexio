@@ -764,6 +764,8 @@ pub fn read_sqlite_table_to_recordset(
     let columns: Vec<String> = col_defs.iter().map(|c| c.name.clone()).collect();
     let canonical_key_col = if columns.is_empty() {
         key_col.to_string()
+    } else if key_col.trim().is_empty() {
+        columns[0].clone()
     } else {
         columns
             .iter()

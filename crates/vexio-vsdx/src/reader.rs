@@ -89,6 +89,27 @@ pub fn read_vsdx(bytes: &[u8]) -> Result<(VisioDocument, VsdxPackageKind), VsdxE
     // 8. Hydrate Master group children, sparse Geometry overrides, and internal Master Sheet.N! references
     hydrate_master_instances(&mut doc);
 
+    // 8b. Restore External Data Recordsets, Page Data Graphics & Shape Row Bindings if present
+    if let Ok(Some(data_json)) = archive.get_str("visio/data/vexio_data_state.json") {
+        if let Ok(state) = serde_json::from_str::<crate::writer::VexioVsdxDataState>(&data_json) {
+            doc.data_recordsets = state.recordsets;
+            for (pid, cfg) in state.page_data_graphics {
+                if let Some(p) = doc.page_mut(pid) {
+                    p.data_graphic_config = Some(cfg);
+                }
+            }
+            for (key, binding) in state.shape_bindings {
+                if let Some((pid_s, sid_s)) = key.split_once(':') {
+                    if let (Ok(pid), Ok(sid)) = (pid_s.parse::<u32>(), sid_s.parse::<u64>()) {
+                        if let Some(sh) = doc.page_mut(pid).and_then(|p| p.find_shape_mut(sid)) {
+                            sh.bound_data_row = Some(binding);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // 9. Recalculate reactive ShapeSheet DAG across all sheets
     ReactiveEngine::recalculate_document(&mut doc);
     Ok((doc, pkg_kind))

@@ -116,6 +116,7 @@ mod tests {
             connection_points: Vec::new(),
             control_handles: Vec::new(),
             is_swimlane: false,
+            data_graphics: None,
         }
     }
 
@@ -316,6 +317,7 @@ mod tests {
             connection_points: Vec::new(),
             control_handles: Vec::new(),
             is_swimlane: false,
+            data_graphics: None,
         };
 
         let mesh = tessellate_shape(&complex_visual, 96.0);

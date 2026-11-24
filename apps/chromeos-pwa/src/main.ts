@@ -779,7 +779,7 @@ class VexioChromeOsApp {
       return true;
     }
   })();
-  private updateStatusText = 'Vexio v0.3.8-alpha • Automatic updates enabled';
+  private updateStatusText = 'Vexio v0.3.9-alpha • Automatic updates enabled';
   private latestReleaseTag: string | null = null;
   private latestReleaseUrl = 'https://github.com/petrosvassiliou/vexio/releases';
 
@@ -1220,7 +1220,7 @@ class VexioChromeOsApp {
       return;
     }
 
-    const currentVersion = '0.3.8-alpha';
+    const currentVersion = '0.3.9-alpha';
     try {
       const resp = await fetch('https://api.github.com/repos/petrosvassiliou/vexio/releases', {
         headers: { Accept: 'application/vnd.github+json' },
@@ -2818,18 +2818,26 @@ class VexioChromeOsApp {
           <button class="m3-btn" data-layout="lr">Left-Right</button>
           <button class="m3-btn" id="btn-iso-title-block">ISO Title Block</button>
         `;
-      case 'Data':
+      case 'Data': {
+        const dgEnabled = Boolean(this.snapshot?.dataLinkState?.dataGraphics?.enabled);
+        const hasRs = (this.snapshot?.dataLinkState?.recordsets?.length ?? 0) > 0;
         return `
-          <span class="ribbon-group-label">External Data &amp; Plan 2 Connectors</span>
-          <button class="m3-btn tonal" id="btn-open-data-modal">Data Link &amp; Graphics...</button>
-          <button class="m3-btn tonal" id="btn-open-dataviz-modal">Excel Data Visualizer...</button>
-          <button class="m3-btn tonal" id="btn-open-cloud-modal">Cloud Discovery (AWS/Azure/GCP)...</button>
-          <button class="m3-btn tonal" id="btn-open-org-modal">Org Chart Wizard...</button>
+          <span class="ribbon-group-label">External Data &amp; Graphics</span>
+          <button class="m3-btn tonal" id="btn-ribbon-link-data" title="Link .xlsx, .csv, .sqlite/.db, or .json">Link Data File...</button>
+          <button class="m3-btn" id="btn-ribbon-refresh-data" ${hasRs ? '' : 'disabled'} title="Refresh bound shapes from linked recordsets">Refresh</button>
+          <button class="m3-btn" id="btn-ribbon-sync-data" ${hasRs ? '' : 'disabled'} title="Push canvas Prop.* edits back to .xlsx / .csv / .sqlite / .json">Two-Way Writeback</button>
+          <button class="m3-btn ${dgEnabled ? 'active' : ''}" id="btn-ribbon-toggle-dg" title="Toggle live Icon Sets, Data Bars, Color-by-Value &amp; Text Callouts">Data Graphics</button>
+          <button class="m3-btn" id="btn-ribbon-insert-legend" title="Insert or update live category Legend on page">Legend</button>
+          <button class="m3-btn tonal" id="btn-open-data-modal">Data Link Studio...</button>
           <div class="ribbon-divider"></div>
-          <span class="ribbon-group-label">Reports</span>
+          <span class="ribbon-group-label">Plan 2 Connectors &amp; Reports</span>
+          <button class="m3-btn tonal" id="btn-open-dataviz-modal">Excel Data Visualizer...</button>
+          <button class="m3-btn tonal" id="btn-open-cloud-modal">Cloud Discovery...</button>
+          <button class="m3-btn tonal" id="btn-open-org-modal">Org Chart Wizard...</button>
           <button class="m3-btn" id="btn-export-pbi">Power BI (.pbi.json)</button>
           <button class="m3-btn" id="btn-export-bom">BOM Report (.xlsx)</button>
         `;
+      }
       case 'Process':
         return `
           <span class="ribbon-group-label">Subprocess</span>
@@ -3907,9 +3915,31 @@ class VexioChromeOsApp {
       `;
     }
 
-    if (this.activeInspectorTab === 'data' && selectedShape) {
-      const sdRows = selectedShape.shapeData ?? [];
-      return `
+    if (this.activeInspectorTab === 'data') {
+      const sdRows = selectedShape?.shapeData ?? [];
+      const dls = snap.dataLinkState;
+      const dg = dls?.dataGraphics ?? {
+        enabled: false,
+        iconSetField: 'Status',
+        iconGreenMin: 75,
+        iconAmberMin: 40,
+        dataBarField: 'CompletionPct',
+        dataBarMin: 0,
+        dataBarMax: 100,
+        dataBarColorHex: '#2563eb',
+        textCalloutField: 'Owner',
+        textCalloutPrefix: '',
+        colorByValueEnabled: true,
+        colorByValueField: 'Status',
+        legendVisible: false,
+        legendField: 'Status',
+      };
+      const recordsets = dls?.recordsets ?? [];
+      const propHints = dls?.availablePropFields ?? [];
+      const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+
+      const shapeDataCard = selectedShape
+        ? `
         <div class="insp-card">
           <div class="insp-card-title">Shape Data (Prop.*)</div>
           ${
@@ -3920,10 +3950,10 @@ class VexioChromeOsApp {
                     (sd) => `
                   <div class="list-row-card" style="flex-direction:column;align-items:stretch;gap:4px">
                     <div style="display:flex;justify-content:space-between;align-items:center">
-                      <strong style="font-size:11.5px">${sd.label}</strong>
-                      <button class="fmt-btn" data-del-prop="${sd.name.replace(/"/g, '&quot;')}" title="Delete Prop.${sd.name}">✕</button>
+                      <strong style="font-size:11.5px">${esc(sd.label)}</strong>
+                      <button class="fmt-btn" data-del-prop="${esc(sd.name)}" title="Delete Prop.${esc(sd.name)}">✕</button>
                     </div>
-                    <input class="cell-input prop-val-input" data-prop-name="${sd.name.replace(/"/g, '&quot;')}" data-prop-label="${sd.label.replace(/"/g, '&quot;')}" data-prop-type="${sd.dataType}" value="${sd.value.replace(/"/g, '&quot;')}" title="Edit Prop.${sd.name} (press Enter to save)" />
+                    <input class="cell-input prop-val-input" data-prop-name="${esc(sd.name)}" data-prop-label="${esc(sd.label)}" data-prop-type="${sd.dataType}" value="${esc(sd.value)}" title="Edit Prop.${esc(sd.name)} (press Enter to save)" />
                   </div>`
                   )
                   .join('')
@@ -3934,8 +3964,100 @@ class VexioChromeOsApp {
             <input class="cell-input" id="new-prop-val-input" placeholder="Value" />
             <button class="m3-btn active" id="btn-insp-add-prop" title="Add custom Prop.* field to selected object">+ Add Field</button>
           </div>
+        </div>`
+        : '';
+
+      const dgCard = `
+        <div class="insp-card">
+          <div class="insp-card-title" style="display:flex;justify-content:space-between;align-items:center">
+            <span>Data Graphics &amp; Legend</span>
+            <label style="display:flex;align-items:center;gap:4px;font-size:11px;text-transform:none;cursor:pointer">
+              <input type="checkbox" id="dg-enabled-chk" ${dg.enabled ? 'checked' : ''} /> Live
+            </label>
+          </div>
+          ${
+            propHints.length > 0
+              ? `<div style="font-size:10.5px;color:var(--m3-text-muted);margin-bottom:4px">Fields: ${propHints.map(esc).join(', ')}</div>`
+              : ''
+          }
+          <div style="display:flex;flex-direction:column;gap:5px">
+            <label style="font-size:10.5px;color:var(--m3-text-secondary)">Icon Set Field
+              <input class="cell-input" id="dg-icon-field" value="${esc(dg.iconSetField)}" placeholder="Status" />
+            </label>
+            <label style="font-size:10.5px;color:var(--m3-text-secondary)">Data Bar Field (0–100)
+              <input class="cell-input" id="dg-bar-field" value="${esc(dg.dataBarField)}" placeholder="CompletionPct" />
+            </label>
+            <label style="font-size:10.5px;color:var(--m3-text-secondary)">Text Callout Field
+              <input class="cell-input" id="dg-callout-field" value="${esc(dg.textCalloutField)}" placeholder="Owner" />
+            </label>
+            <label style="display:flex;align-items:center;gap:6px;font-size:10.5px;color:var(--m3-text-secondary)">
+              <input type="checkbox" id="dg-cbv-chk" ${dg.colorByValueEnabled ? 'checked' : ''} />
+              <span>Color by Value:</span>
+              <input class="cell-input" id="dg-color-field" value="${esc(dg.colorByValueField)}" placeholder="Status" style="flex:1" />
+            </label>
+            <div style="display:flex;gap:6px;margin-top:4px">
+              <button class="m3-btn active" id="btn-insp-apply-dg" style="flex:1">Apply</button>
+              <button class="m3-btn tonal" id="btn-insp-insert-legend" style="flex:1">Legend</button>
+            </div>
+          </div>
         </div>
       `;
+
+      const rsCard = `
+        <div class="insp-card">
+          <div class="insp-card-title">External Data (.xlsx / .csv / .sqlite / .json)</div>
+          <div style="display:flex;gap:6px;margin-bottom:6px">
+            <button class="m3-btn tonal" id="btn-insp-link-file" style="flex:1">Link File...</button>
+            <button class="m3-btn" id="btn-insp-bom-xlsx" style="flex:1">BOM .xlsx</button>
+          </div>
+          ${
+            recordsets.length === 0
+              ? '<div style="color:var(--m3-text-muted);font-size:11.5px">Link an Excel (.xlsx), CSV, SQLite (.sqlite/.db), or JSON file to bind rows to shapes with two-way sync.</div>'
+              : recordsets
+                  .map(
+                    (rs) => `
+                  <div style="border:1px solid var(--m3-outline-variant);border-radius:8px;padding:6px;margin-top:6px;display:flex;flex-direction:column;gap:4px">
+                    <div style="display:flex;justify-content:space-between;align-items:center;gap:4px">
+                      <div style="min-width:0;flex:1">
+                        <strong style="font-size:11.5px;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(rs.name)}</strong>
+                        <span style="font-size:10px;color:var(--m3-text-muted)">${esc(rs.sourceKind.toUpperCase())} • ${rs.rows.length} rows • key: ${esc(rs.keyColumn)}</span>
+                      </div>
+                      <button class="fmt-btn" data-refresh-rs="${rs.id}" title="Refresh bound shapes">↻</button>
+                      <button class="fmt-btn" data-sync-rs="${rs.id}" data-sync-ext="${esc(rs.sourceKind || 'xlsx')}" data-sync-name="${esc(rs.name)}" title="Two-Way Writeback Export">⇪</button>
+                      <button class="fmt-btn" data-del-rs="${rs.id}" title="Unlink recordset">✕</button>
+                    </div>
+                    <div style="max-height:170px;overflow-y:auto;display:flex;flex-direction:column;gap:3px">
+                      ${rs.rows
+                        .slice(0, 40)
+                        .map((row, rIdx) => {
+                          const keyVal = row[rs.keyColumn] || Object.values(row)[0] || `Row #${rIdx + 1}`;
+                          const sub = rs.columns
+                            .filter((c) => c !== rs.keyColumn)
+                            .slice(0, 2)
+                            .map((c) => (row[c] ? `${c}: ${row[c]}` : ''))
+                            .filter(Boolean)
+                            .join(' • ');
+                          const boundIds = rs.boundShapeIds?.[String(rIdx)] ?? [];
+                          return `
+                            <button class="list-row-card" data-bind-rs="${rs.id}" data-bind-row="${rIdx}" style="cursor:pointer;text-align:left;justify-content:space-between;padding:4px 7px" title="Click to bind row to selected shape(s) (or stamp a new shape)">
+                              <span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+                                <strong style="font-size:11px">${esc(keyVal)}</strong>
+                                ${sub ? `<span style="font-size:10px;color:var(--m3-text-muted);margin-left:4px">${esc(sub)}</span>` : ''}
+                              </span>
+                              <span style="font-size:10px;color:var(--m3-primary);flex-shrink:0">${boundIds.length > 0 ? `${boundIds.length} linked` : 'Bind'}</span>
+                            </button>
+                          `;
+                        })
+                        .join('')}
+                    </div>
+                  </div>`
+                  )
+                  .join('')
+          }
+        </div>
+      `;
+
+      return `${shapeDataCard}${dgCard}${rsCard}`;
     }
 
     if (this.activeInspectorTab === 'comments') {
@@ -4271,7 +4393,7 @@ class VexioChromeOsApp {
             </div>
             <div class="list-row-card" style="flex-direction:column;align-items:flex-start;gap:6px">
               <strong>${this.updateStatusText}</strong>
-              <span style="font-size:11.5px;color:var(--m3-text-muted)">Installed build: Vexio v0.3.8-alpha • Offline-First Workbox PWA + GitHub Releases channel</span>
+              <span style="font-size:11.5px;color:var(--m3-text-muted)">Installed build: Vexio v0.3.9-alpha • Offline-First Workbox PWA + GitHub Releases channel</span>
             </div>
             <label style="display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer">
               <input type="checkbox" id="chk-auto-updates" ${this.autoCheckUpdates ? 'checked' : ''} />
@@ -4637,17 +4759,19 @@ class VexioChromeOsApp {
       <div class="modal-backdrop">
         <div class="modal-card">
           <div style="display:flex;justify-content:space-between;align-items:center">
-            <strong>External Data Recordset Binding (CSV / Native SQLite 3 Binary) & Live Data Graphics</strong>
+            <strong>Two-Way External Data Linking (.xlsx / .csv / .sqlite / .json) &amp; Live Data Graphics</strong>
             <button class="m3-btn" id="btn-close-modal">Close</button>
           </div>
           <div style="font-size:12px;color:var(--m3-text-muted)">
-            Matches <code>Label</code> against shape text on the active page, binds <code>Prop.*</code> Shape Data, applies Color-by-Value + Data Bars + Icon Sets + Text Callouts, and inserts a live Page Legend—or bind directly from an offline <code>.sqlite</code> / <code>.db</code> B-tree file!
+            Import an offline <code>.xlsx</code>, <code>.csv</code>, <code>.sqlite</code>/<code>.db</code>, or <code>.json</code> table—or paste CSV/JSON below—to bind <code>Prop.*</code> Shape Data, render live Icon Sets + Data Bars + Color-by-Value + Text Callouts, insert an auto-updating Legend, and export Two-Way Writeback edits!
           </div>
           <textarea class="studio-textarea" id="csv-editor">${this.csvDraft}</textarea>
           ${this.modalOutputMessage ? `<div style="color:var(--m3-secondary);font-size:12px">${this.modalOutputMessage}</div>` : ''}
-          <div style="display:flex;justify-content:flex-end;gap:8px">
-            <button class="m3-btn" id="btn-bind-sqlite-file">Bind Local SQLite (.sqlite / .db)...</button>
-            <button class="m3-btn active" id="btn-apply-csv-dg">Bind CSV & Apply Data Graphics</button>
+          <div style="display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px">
+            <button class="m3-btn tonal" id="btn-link-any-data-file">Link Local File (.xlsx / .csv / .sqlite / .json)...</button>
+            <button class="m3-btn" id="btn-bind-sqlite-file">Bind SQLite (.sqlite / .db)...</button>
+            <button class="m3-btn" id="btn-modal-writeback-xlsx">Two-Way Writeback (.xlsx)</button>
+            <button class="m3-btn active" id="btn-apply-csv-dg">Bind Text &amp; Apply Data Graphics</button>
           </div>
         </div>
       </div>
@@ -5778,8 +5902,204 @@ class VexioChromeOsApp {
     });
 
     document.getElementById('btn-export-bom')?.addEventListener('click', async () => {
-      const { bytes } = await this.callEngine('exportBomXlsx');
+      const { bytes } = await this.callEngine('exportBomReport', { formatExt: 'xlsx' });
       await saveLocalDiagramInPlace(null, 'Vexio-BOM-Inventory-Report.xlsx', bytes);
+    });
+
+    const linkExternalDataFromDisk = async () => {
+      const picked = await pickLocalBinaryFile('.xlsx,.csv,.tsv,.sqlite,.db,.sqlite3,.json');
+      if (!picked) return;
+      const copy = new Uint8Array(picked.bytes);
+      const res = await this.callEngine(
+        'importExternalRecordset',
+        { fileName: picked.name, bytes: copy, autoBind: true, autoEnableGraphics: true },
+        [copy.buffer]
+      );
+      this.snapshot = res.snapshot;
+      this.persistMutationSideEffects(res.wal);
+      this.activeInspectorTab = 'data';
+      this.modalOutputMessage = `Linked "${picked.name}" (${res.linkedCount} shape(s) bound).`;
+      this.showToast(`Linked "${picked.name}" (${res.linkedCount} shape(s) bound)`, 'info');
+      this.render();
+    };
+
+    const exportTwoWayWriteback = async (recordsetId = 0, formatExt = 'xlsx', baseName = 'Synced_Data') => {
+      const res = await this.callEngine('syncAndExportRecordset', { recordsetId, formatExt });
+      this.snapshot = res.snapshot;
+      this.persistMutationSideEffects(res.wal);
+      const cleanExt = formatExt.replace(/^\./, '') || 'xlsx';
+      await saveLocalDiagramInPlace(null, `${baseName}.${cleanExt}`, res.bytes);
+      this.showToast(`Exported Two-Way Writeback (${baseName}.${cleanExt})`, 'info');
+      this.render();
+    };
+
+    document.getElementById('btn-ribbon-link-data')?.addEventListener('click', linkExternalDataFromDisk);
+    document.getElementById('btn-insp-link-file')?.addEventListener('click', linkExternalDataFromDisk);
+    document.getElementById('btn-link-any-data-file')?.addEventListener('click', linkExternalDataFromDisk);
+
+    document.getElementById('btn-insp-bom-xlsx')?.addEventListener('click', async () => {
+      const { bytes } = await this.callEngine('exportBomReport', { formatExt: 'xlsx' });
+      await saveLocalDiagramInPlace(null, 'Vexio-BOM-Inventory-Report.xlsx', bytes);
+    });
+
+    document.getElementById('btn-ribbon-refresh-data')?.addEventListener('click', async () => {
+      const res = await this.callEngine('refreshExternalRecordset', { recordsetId: 0 });
+      this.snapshot = res.snapshot;
+      this.persistMutationSideEffects(res.wal);
+      this.showToast(`Refreshed ${res.refreshedCount} bound shape(s)`, 'info');
+      this.render();
+    });
+
+    document.getElementById('btn-ribbon-sync-data')?.addEventListener('click', () => {
+      const firstRs = this.snapshot?.dataLinkState?.recordsets?.[0];
+      void exportTwoWayWriteback(firstRs?.id ?? 0, firstRs?.sourceKind ?? 'xlsx', firstRs?.name ?? 'Vexio_Writeback');
+    });
+
+    document.getElementById('btn-modal-writeback-xlsx')?.addEventListener('click', () => {
+      const firstRs = this.snapshot?.dataLinkState?.recordsets?.[0];
+      void exportTwoWayWriteback(firstRs?.id ?? 0, 'xlsx', firstRs?.name ?? 'Vexio_Writeback');
+    });
+
+    document.getElementById('btn-ribbon-toggle-dg')?.addEventListener('click', async () => {
+      const cur = this.snapshot?.dataLinkState?.dataGraphics ?? {
+        enabled: false,
+        iconSetField: 'Status',
+        iconGreenMin: 75,
+        iconAmberMin: 40,
+        dataBarField: 'CompletionPct',
+        dataBarMin: 0,
+        dataBarMax: 100,
+        dataBarColorHex: '#2563eb',
+        textCalloutField: 'Owner',
+        textCalloutPrefix: '',
+        colorByValueEnabled: true,
+        colorByValueField: 'Status',
+        legendVisible: false,
+        legendField: 'Status',
+      };
+      const res = await this.callEngine('setPageDataGraphics', {
+        config: { ...cur, enabled: !cur.enabled },
+      });
+      this.snapshot = res.snapshot;
+      this.persistMutationSideEffects(res.wal);
+      this.render();
+    });
+
+    const insertOrRefreshLegend = async () => {
+      const prop =
+        (document.getElementById('dg-color-field') as HTMLInputElement | null)?.value.trim() ||
+        this.snapshot?.dataLinkState?.dataGraphics?.legendField ||
+        'Status';
+      const res = await this.callEngine('insertDataLegend', { propName: prop });
+      this.snapshot = res.snapshot;
+      this.persistMutationSideEffects(res.wal);
+      this.showToast(`Updated live Diagram Legend (Prop.${prop})`, 'info');
+      this.render();
+    };
+
+    document.getElementById('btn-ribbon-insert-legend')?.addEventListener('click', insertOrRefreshLegend);
+    document.getElementById('btn-insp-insert-legend')?.addEventListener('click', insertOrRefreshLegend);
+
+    const commitInspectorDataGraphics = async (forceEnabled?: boolean) => {
+      const prev = this.snapshot?.dataLinkState?.dataGraphics;
+      const enabled =
+        forceEnabled ??
+        Boolean((document.getElementById('dg-enabled-chk') as HTMLInputElement | null)?.checked);
+      const iconSetField =
+        (document.getElementById('dg-icon-field') as HTMLInputElement | null)?.value.trim() ?? 'Status';
+      const dataBarField =
+        (document.getElementById('dg-bar-field') as HTMLInputElement | null)?.value.trim() ?? 'CompletionPct';
+      const textCalloutField =
+        (document.getElementById('dg-callout-field') as HTMLInputElement | null)?.value.trim() ?? 'Owner';
+      const colorByValueEnabled = Boolean(
+        (document.getElementById('dg-cbv-chk') as HTMLInputElement | null)?.checked
+      );
+      const colorByValueField =
+        (document.getElementById('dg-color-field') as HTMLInputElement | null)?.value.trim() ?? 'Status';
+      const res = await this.callEngine('setPageDataGraphics', {
+        config: {
+          enabled,
+          iconSetField,
+          iconGreenMin: prev?.iconGreenMin ?? 75,
+          iconAmberMin: prev?.iconAmberMin ?? 40,
+          dataBarField,
+          dataBarMin: prev?.dataBarMin ?? 0,
+          dataBarMax: prev?.dataBarMax ?? 100,
+          dataBarColorHex: prev?.dataBarColorHex ?? '#2563eb',
+          textCalloutField,
+          textCalloutPrefix: prev?.textCalloutPrefix ?? '',
+          colorByValueEnabled,
+          colorByValueField,
+          legendVisible: prev?.legendVisible ?? false,
+          legendField: colorByValueField || iconSetField,
+        },
+      });
+      this.snapshot = res.snapshot;
+      this.persistMutationSideEffects(res.wal);
+      this.render();
+    };
+
+    document.getElementById('dg-enabled-chk')?.addEventListener('change', () => {
+      void commitInspectorDataGraphics();
+    });
+    document.getElementById('dg-cbv-chk')?.addEventListener('change', () => {
+      void commitInspectorDataGraphics(true);
+    });
+    document.getElementById('btn-insp-apply-dg')?.addEventListener('click', () => {
+      void commitInspectorDataGraphics(true);
+    });
+
+    document.querySelectorAll('[data-bind-rs]').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const el = btn as HTMLElement;
+        const recordsetId = Number(el.dataset.bindRs ?? 1);
+        const rowIndex = Number(el.dataset.bindRow ?? 0);
+        const res = await this.callEngine('bindExternalRow', {
+          recordsetId,
+          rowIndex,
+          shapeIds: this.selectedShapeIds,
+        });
+        this.snapshot = res.snapshot;
+        this.persistMutationSideEffects(res.wal);
+        this.showToast(
+          this.selectedShapeIds.length > 0
+            ? `Bound row #${rowIndex + 1} to ${res.boundCount} shape(s)`
+            : `Stamped & bound shape from row #${rowIndex + 1}`,
+          'info'
+        );
+        this.render();
+      });
+    });
+
+    document.querySelectorAll('[data-refresh-rs]').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const rsId = Number((btn as HTMLElement).dataset.refreshRs ?? 0);
+        const res = await this.callEngine('refreshExternalRecordset', { recordsetId: rsId });
+        this.snapshot = res.snapshot;
+        this.persistMutationSideEffects(res.wal);
+        this.showToast(`Refreshed ${res.refreshedCount} shape(s)`, 'info');
+        this.render();
+      });
+    });
+
+    document.querySelectorAll('[data-sync-rs]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const el = btn as HTMLElement;
+        const rsId = Number(el.dataset.syncRs ?? 0);
+        const ext = el.dataset.syncExt || 'xlsx';
+        const nm = el.dataset.syncName || 'Synced_Data';
+        void exportTwoWayWriteback(rsId, ext, nm);
+      });
+    });
+
+    document.querySelectorAll('[data-del-rs]').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const rsId = Number((btn as HTMLElement).dataset.delRs ?? 0);
+        const res = await this.callEngine('deleteExternalRecordset', { recordsetId: rsId });
+        this.snapshot = res.snapshot;
+        this.persistMutationSideEffects(res.wal);
+        this.render();
+      });
     });
 
     document.getElementById('btn-add-quick-comment')?.addEventListener('click', () => {
@@ -6288,27 +6608,46 @@ class VexioChromeOsApp {
 
     document.getElementById('btn-apply-csv-dg')?.addEventListener('click', async () => {
       this.csvDraft = (document.getElementById('csv-editor') as HTMLTextAreaElement).value;
-      const res = await this.callEngine('linkCsvDataGraphics', {
-        csv: this.csvDraft,
-        keyCol: 'Label',
-      });
-      this.snapshot = res.snapshot;
-      this.persistMutationSideEffects(res.wal);
-      this.modalOutputMessage = `Linked ${res.linked} shapes to External Data & applied Data Graphics + Page Legend!`;
+      const trimmed = this.csvDraft.trim();
+      const ext = trimmed.startsWith('[') || trimmed.startsWith('{') ? 'json' : 'csv';
+      const bytes = new TextEncoder().encode(this.csvDraft);
+      const res = await this.callEngine(
+        'importExternalRecordset',
+        {
+          fileName: `Inline_Data.${ext}`,
+          bytes,
+          keyColHint: 'Label',
+          autoBind: true,
+          autoEnableGraphics: true,
+        },
+        [bytes.buffer]
+      );
+      await this.callEngine('insertDataLegend', { propName: '' });
+      const latest = await this.callEngine('refreshExternalRecordset', { recordsetId: res.recordsetId });
+      this.snapshot = latest.snapshot;
+      this.persistMutationSideEffects(latest.wal);
+      this.modalOutputMessage = `Linked ${res.linkedCount} shape(s) to External Data & applied live Data Graphics + Page Legend!`;
       this.render();
     });
 
     document.getElementById('btn-bind-sqlite-file')?.addEventListener('click', async () => {
       const picked = await pickLocalBinaryFile('.sqlite,.db,.sqlite3');
       if (!picked) return;
-      const res = await this.callEngine('importSqliteRecordset', {
-        bytes: picked.bytes,
-        tableName: '',
-        keyCol: 'Label',
-      });
+      const copy = new Uint8Array(picked.bytes);
+      const res = await this.callEngine(
+        'importExternalRecordset',
+        {
+          fileName: picked.name,
+          bytes: copy,
+          keyColHint: 'Label',
+          autoBind: true,
+          autoEnableGraphics: true,
+        },
+        [copy.buffer]
+      );
       this.snapshot = res.snapshot;
       this.persistMutationSideEffects(res.wal);
-      this.modalOutputMessage = `Bound ${res.count} shapes directly from offline SQLite B-tree database "${picked.name}".`;
+      this.modalOutputMessage = `Bound ${res.linkedCount} shape(s) directly from offline SQLite B-tree database "${picked.name}".`;
       this.render();
     });
 

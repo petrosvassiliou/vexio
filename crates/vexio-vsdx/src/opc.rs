@@ -159,6 +159,7 @@ pub fn is_managed_opc_part(path: &str) -> bool {
         || p == "visio/pages/pages.xml"
         || p == "visio/pages/_rels/pages.xml.rels"
         || (p.starts_with("visio/pages/page") && p.ends_with(".xml"))
+        || p == "visio/data/vexio_data_state.json"
 }
 
 pub fn xml_escape(input: &str) -> String {

@@ -984,6 +984,123 @@ fn render_single_shape_svg(
         );
     }
 
+    // Live Data Graphics (`Icon Sets`, `Data Bars`, `Text Callouts`) vector SVG overlay
+    if let Some(dg) = &vis.data_graphics {
+        body.push_str("<g class=\"vexio-data-graphic\">");
+        if let Some(badge) = &dg.icon_badge {
+            let cx = to_svg_x(badge.center_page_in[0]);
+            let cy = to_svg_y(badge.center_page_in[1]);
+            let r = (badge.radius_in * ppi).max(5.0);
+            let fill_hex = badge.fill_color.to_hex_rgb();
+            let sw = (r * 0.24).max(1.4);
+            let _ = write!(
+                body,
+                "<circle cx=\"{cx:.2}\" cy=\"{cy:.2}\" r=\"{:.2}\" fill=\"#ffffff\"/><circle cx=\"{cx:.2}\" cy=\"{cy:.2}\" r=\"{r:.2}\" fill=\"{fill_hex}\"/>",
+                r + 1.6
+            );
+            match badge.kind {
+                vexio_shapesheet::DataGraphicIconKind::CheckOk => {
+                    let _ = write!(
+                        body,
+                        "<path d=\"M {:.2} {:.2} L {:.2} {:.2} L {:.2} {:.2}\" fill=\"none\" stroke=\"#ffffff\" stroke-width=\"{sw:.2}\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>",
+                        cx - r * 0.42,
+                        cy + r * 0.02,
+                        cx - r * 0.10,
+                        cy + r * 0.34,
+                        cx + r * 0.45,
+                        cy - r * 0.32
+                    );
+                }
+                vexio_shapesheet::DataGraphicIconKind::WarnTriangle => {
+                    let _ = write!(
+                        body,
+                        "<line x1=\"{cx:.2}\" y1=\"{:.2}\" x2=\"{cx:.2}\" y2=\"{:.2}\" stroke=\"#ffffff\" stroke-width=\"{sw:.2}\" stroke-linecap=\"round\"/><circle cx=\"{cx:.2}\" cy=\"{:.2}\" r=\"{:.2}\" fill=\"#ffffff\"/>",
+                        cy - r * 0.42,
+                        cy + r * 0.05,
+                        cy + r * 0.36,
+                        sw * 0.62
+                    );
+                }
+                vexio_shapesheet::DataGraphicIconKind::ErrorCross => {
+                    let _ = write!(
+                        body,
+                        "<path d=\"M {:.2} {:.2} L {:.2} {:.2} M {:.2} {:.2} L {:.2} {:.2}\" fill=\"none\" stroke=\"#ffffff\" stroke-width=\"{sw:.2}\" stroke-linecap=\"round\"/>",
+                        cx - r * 0.34,
+                        cy - r * 0.34,
+                        cx + r * 0.34,
+                        cy + r * 0.34,
+                        cx - r * 0.34,
+                        cy + r * 0.34,
+                        cx + r * 0.34,
+                        cy - r * 0.34
+                    );
+                }
+                vexio_shapesheet::DataGraphicIconKind::InfoCircle => {
+                    let _ = write!(
+                        body,
+                        "<circle cx=\"{cx:.2}\" cy=\"{:.2}\" r=\"{:.2}\" fill=\"#ffffff\"/><line x1=\"{cx:.2}\" y1=\"{:.2}\" x2=\"{cx:.2}\" y2=\"{:.2}\" stroke=\"#ffffff\" stroke-width=\"{sw:.2}\" stroke-linecap=\"round\"/>",
+                        cy - r * 0.35,
+                        sw * 0.58,
+                        cy - r * 0.08,
+                        cy + r * 0.38
+                    );
+                }
+            }
+        }
+        if let Some(bar) = &dg.data_bar {
+            let x = to_svg_x(bar.rect_min_in[0]);
+            let y = to_svg_y(bar.rect_max_in[1]);
+            let w = ((bar.rect_max_in[0] - bar.rect_min_in[0]) * ppi).max(16.0);
+            let h = ((bar.rect_max_in[1] - bar.rect_min_in[1]) * ppi).max(8.0);
+            let fw = ((w - 2.4) * bar.ratio.clamp(0.0, 1.0)).max(0.0);
+            let bcol = bar.bar_color.to_hex_rgb();
+            let tcol = if bar.ratio > 0.55 { "#ffffff" } else { "#0f172a" };
+            let _ = write!(
+                body,
+                "<rect x=\"{x:.2}\" y=\"{y:.2}\" width=\"{w:.2}\" height=\"{h:.2}\" rx=\"3.5\" fill=\"#e2e8f0\" stroke=\"#94a3b8\" stroke-width=\"0.9\"/>"
+            );
+            if fw > 0.5 {
+                let _ = write!(
+                    body,
+                    "<rect x=\"{:.2}\" y=\"{:.2}\" width=\"{fw:.2}\" height=\"{:.2}\" rx=\"2.5\" fill=\"{bcol}\"/>",
+                    x + 1.2,
+                    y + 1.2,
+                    (h - 2.4).max(2.0)
+                );
+            }
+            if !bar.value_label.is_empty() {
+                let _ = write!(
+                    body,
+                    "<text x=\"{:.2}\" y=\"{:.2}\" font-family=\"Inter, Segoe UI, sans-serif\" font-size=\"9.2\" font-weight=\"bold\" fill=\"{tcol}\" text-anchor=\"middle\" dominant-baseline=\"central\">{}</text>",
+                    x + w * 0.5,
+                    y + h * 0.5,
+                    vexio_vsdx::opc::xml_escape(&bar.value_label)
+                );
+            }
+        }
+        if let Some(co) = &dg.text_callout {
+            let x = to_svg_x(co.rect_min_in[0]);
+            let y = to_svg_y(co.rect_max_in[1]);
+            let w = ((co.rect_max_in[0] - co.rect_min_in[0]) * ppi).max(24.0);
+            let h = ((co.rect_max_in[1] - co.rect_min_in[1]) * ppi).max(12.0);
+            let _ = write!(
+                body,
+                "<rect x=\"{x:.2}\" y=\"{y:.2}\" width=\"{w:.2}\" height=\"{h:.2}\" rx=\"5\" fill=\"{}\" stroke=\"{}\" stroke-width=\"1.0\"/><rect x=\"{:.2}\" y=\"{:.2}\" width=\"5.5\" height=\"{:.2}\" rx=\"2.5\" fill=\"{}\"/><text x=\"{:.2}\" y=\"{:.2}\" font-family=\"Inter, Segoe UI, sans-serif\" font-size=\"9.8\" font-weight=\"600\" fill=\"{}\" text-anchor=\"middle\" dominant-baseline=\"central\">{}</text>",
+                co.bg_color.to_hex_rgb(),
+                co.border_color.to_hex_rgb(),
+                x + 2.5,
+                y + 3.0,
+                (h - 6.0).max(4.0),
+                co.accent_color.to_hex_rgb(),
+                x + 5.0 + (w - 6.0) * 0.5,
+                y + h * 0.5,
+                co.text_color.to_hex_rgb(),
+                vexio_vsdx::opc::xml_escape(&co.text)
+            );
+        }
+        body.push_str("</g>\n");
+    }
+
     body.push_str("</g>\n");
 }
 
@@ -1483,6 +1600,7 @@ pub fn export_document_pdf(doc: &VisioDocument) -> Vec<u8> {
                 let mut no_txt = vis.clone();
                 no_txt.text.clear();
                 no_txt.foreign_media = None;
+                no_txt.data_graphics = None;
                 let geom_mesh = vexio_render::tessellate::tessellate_shape(&no_txt, 192.0);
                 emit_pdf_mesh_triangles(&mut stream, &geom_mesh);
             } else {
@@ -1842,6 +1960,15 @@ pub fn export_document_pdf(doc: &VisioDocument) -> Vec<u8> {
                         emit_pdf_mesh_triangles(&mut stream, &glyph_mesh);
                     }
                 }
+            }
+
+            if let Some(dg) = &vis.data_graphics {
+                let dg_mesh = vexio_render::tessellate::tessellate_data_graphics_overlay(
+                    dg,
+                    &vis.font_family,
+                    0.002,
+                );
+                emit_pdf_mesh_triangles(&mut stream, &dg_mesh);
             }
         }
 

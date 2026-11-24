@@ -12,8 +12,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 use std::f64::consts::{FRAC_PI_4, PI, TAU};
 use vexio_shapesheet::{
-    EvaluatedGeometryPath, EvaluatedGradientStop, EvaluatedPathVerb, EvaluatedShapeVisual,
-    MarkupInkStroke, RgbaColor, ShapeKind,
+    DataGraphicIconKind, EvaluatedDataGraphicOverlay, EvaluatedGeometryPath, EvaluatedGradientStop,
+    EvaluatedPathVerb, EvaluatedShapeVisual, MarkupInkStroke, RgbaColor, ShapeKind,
 };
 
 /// Primitive kind constants stored in `GpuVertex::flags[0]`.
@@ -553,7 +553,353 @@ pub fn tessellate_shape_full(
         out_mesh.append(&rich_mesh);
     }
 
+    if let Some(dg) = &visual.data_graphics {
+        let dg_mesh = tessellate_data_graphics_overlay(dg, &visual.font_family, tol);
+        out_mesh.append(&dg_mesh);
+    }
+
     out_mesh
+}
+
+/// Tessellate Visio Plan 2 Data Graphics (`Icon Sets`, `Data Bars`, `Text Callouts`) into crisp GPU/PDF triangles.
+pub fn tessellate_data_graphics_overlay(
+    dg: &EvaluatedDataGraphicOverlay,
+    font_family: &str,
+    tol: f32,
+) -> TessellatedMesh {
+    let mut out = TessellatedMesh::new();
+    let mut lyon_buf: VertexBuffers<GpuVertex, u32> = VertexBuffers::new();
+    let mut fill_tess = FillTessellator::new();
+    let mut stroke_tess = StrokeTessellator::new();
+    let eff_tol = tol.clamp(0.0005, 0.01);
+
+    let emit_disc = |buf: &mut VertexBuffers<GpuVertex, u32>,
+                     ft: &mut FillTessellator,
+                     cx: f32,
+                     cy: f32,
+                     r: f32,
+                     rgba: [f32; 4]| {
+        if r <= 1e-5 {
+            return;
+        }
+        let mut pb = Path::builder();
+        let segs = 20usize;
+        for i in 0..segs {
+            let ang = (i as f32) * (std::f32::consts::TAU / (segs as f32));
+            let (sa, ca) = ang.sin_cos();
+            let p = point(cx + r * ca, cy + r * sa);
+            if i == 0 {
+                pb.begin(p);
+            } else {
+                pb.line_to(p);
+            }
+        }
+        pb.close();
+        let path = pb.build();
+        let _ = ft.tessellate_path(
+            &path,
+            &FillOptions::tolerance(eff_tol),
+            &mut BuffersBuilder::new(buf, |v: FillVertex| {
+                GpuVertex::new(v.position().to_array(), rgba, [PRIM_FLAG_SHAPE, 0.0])
+            }),
+        );
+    };
+
+    let emit_rounded_rect = |buf: &mut VertexBuffers<GpuVertex, u32>,
+                             ft: &mut FillTessellator,
+                             st: &mut StrokeTessellator,
+                             min: [f32; 2],
+                             max: [f32; 2],
+                             radius: f32,
+                             fill_opt: Option<[f32; 4]>,
+                             stroke_opt: Option<([f32; 4], f32)>| {
+        let w = (max[0] - min[0]).max(0.01);
+        let h = (max[1] - min[1]).max(0.01);
+        let r = radius.min(w * 0.48).min(h * 0.48).max(0.0);
+        let mut pb = Path::builder();
+        if r <= 1e-4 {
+            pb.begin(point(min[0], min[1]));
+            pb.line_to(point(max[0], min[1]));
+            pb.line_to(point(max[0], max[1]));
+            pb.line_to(point(min[0], max[1]));
+            pb.close();
+        } else {
+            let k = 0.552_284_8 * r;
+            pb.begin(point(min[0] + r, min[1]));
+            pb.line_to(point(max[0] - r, min[1]));
+            pb.cubic_bezier_to(
+                point(max[0] - r + k, min[1]),
+                point(max[0], min[1] + r - k),
+                point(max[0], min[1] + r),
+            );
+            pb.line_to(point(max[0], max[1] - r));
+            pb.cubic_bezier_to(
+                point(max[0], max[1] - r + k),
+                point(max[0] - r + k, max[1]),
+                point(max[0] - r, max[1]),
+            );
+            pb.line_to(point(min[0] + r, max[1]));
+            pb.cubic_bezier_to(
+                point(min[0] + r - k, max[1]),
+                point(min[0], max[1] - r + k),
+                point(min[0], max[1] - r),
+            );
+            pb.line_to(point(min[0], min[1] + r));
+            pb.cubic_bezier_to(
+                point(min[0], min[1] + r - k),
+                point(min[0] + r - k, min[1]),
+                point(min[0] + r, min[1]),
+            );
+            pb.close();
+        }
+        let path = pb.build();
+        if let Some(fc) = fill_opt {
+            let _ = ft.tessellate_path(
+                &path,
+                &FillOptions::tolerance(eff_tol),
+                &mut BuffersBuilder::new(buf, |v: FillVertex| {
+                    GpuVertex::new(v.position().to_array(), fc, [PRIM_FLAG_SHAPE, 0.0])
+                }),
+            );
+        }
+        if let Some((sc, sw)) = stroke_opt {
+            let opts = StrokeOptions::tolerance(eff_tol)
+                .with_line_width(sw)
+                .with_line_cap(LineCap::Round)
+                .with_line_join(LineJoin::Round);
+            let _ = st.tessellate_path(
+                &path,
+                &opts,
+                &mut BuffersBuilder::new(buf, |v: StrokeVertex| {
+                    GpuVertex::new(v.position().to_array(), sc, [PRIM_FLAG_SHAPE, 0.0])
+                }),
+            );
+        }
+    };
+
+    // 1. Icon Set Vector Badge
+    if let Some(badge) = &dg.icon_badge {
+        let cx = badge.center_page_in[0] as f32;
+        let cy = badge.center_page_in[1] as f32;
+        let r = badge.radius_in.max(0.05) as f32;
+        let white = RgbaColor::WHITE.to_linear_f32();
+        let fill = badge.fill_color.to_linear_f32();
+
+        emit_disc(&mut lyon_buf, &mut fill_tess, cx, cy, r + 0.018, white);
+        emit_disc(&mut lyon_buf, &mut fill_tess, cx, cy, r, fill);
+
+        let glyph_sw = (r * 0.24).max(0.015);
+        let stroke_opts = StrokeOptions::tolerance(eff_tol)
+            .with_line_width(glyph_sw)
+            .with_line_cap(LineCap::Round)
+            .with_line_join(LineJoin::Round);
+        match badge.kind {
+            DataGraphicIconKind::CheckOk => {
+                let mut pb = Path::builder();
+                pb.begin(point(cx - r * 0.42, cy - r * 0.02));
+                pb.line_to(point(cx - r * 0.10, cy - r * 0.34));
+                pb.line_to(point(cx + r * 0.45, cy + r * 0.32));
+                pb.end(false);
+                let _ = stroke_tess.tessellate_path(
+                    &pb.build(),
+                    &stroke_opts,
+                    &mut BuffersBuilder::new(&mut lyon_buf, |v: StrokeVertex| {
+                        GpuVertex::new(v.position().to_array(), white, [PRIM_FLAG_SHAPE, 0.0])
+                    }),
+                );
+            }
+            DataGraphicIconKind::WarnTriangle => {
+                let mut pb = Path::builder();
+                pb.begin(point(cx, cy + r * 0.42));
+                pb.line_to(point(cx, cy - r * 0.05));
+                pb.end(false);
+                let _ = stroke_tess.tessellate_path(
+                    &pb.build(),
+                    &stroke_opts,
+                    &mut BuffersBuilder::new(&mut lyon_buf, |v: StrokeVertex| {
+                        GpuVertex::new(v.position().to_array(), white, [PRIM_FLAG_SHAPE, 0.0])
+                    }),
+                );
+                emit_disc(&mut lyon_buf, &mut fill_tess, cx, cy - r * 0.36, glyph_sw * 0.62, white);
+            }
+            DataGraphicIconKind::ErrorCross => {
+                let mut pb = Path::builder();
+                pb.begin(point(cx - r * 0.34, cy - r * 0.34));
+                pb.line_to(point(cx + r * 0.34, cy + r * 0.34));
+                pb.end(false);
+                pb.begin(point(cx - r * 0.34, cy + r * 0.34));
+                pb.line_to(point(cx + r * 0.34, cy - r * 0.34));
+                pb.end(false);
+                let _ = stroke_tess.tessellate_path(
+                    &pb.build(),
+                    &stroke_opts,
+                    &mut BuffersBuilder::new(&mut lyon_buf, |v: StrokeVertex| {
+                        GpuVertex::new(v.position().to_array(), white, [PRIM_FLAG_SHAPE, 0.0])
+                    }),
+                );
+            }
+            DataGraphicIconKind::InfoCircle => {
+                emit_disc(&mut lyon_buf, &mut fill_tess, cx, cy + r * 0.35, glyph_sw * 0.58, white);
+                let mut pb = Path::builder();
+                pb.begin(point(cx, cy + r * 0.08));
+                pb.line_to(point(cx, cy - r * 0.38));
+                pb.end(false);
+                let _ = stroke_tess.tessellate_path(
+                    &pb.build(),
+                    &stroke_opts,
+                    &mut BuffersBuilder::new(&mut lyon_buf, |v: StrokeVertex| {
+                        GpuVertex::new(v.position().to_array(), white, [PRIM_FLAG_SHAPE, 0.0])
+                    }),
+                );
+            }
+        }
+    }
+
+    // 2. Data Bar Progress Track & Fill
+    if let Some(bar) = &dg.data_bar {
+        let min = [bar.rect_min_in[0] as f32, bar.rect_min_in[1] as f32];
+        let max = [bar.rect_max_in[0] as f32, bar.rect_max_in[1] as f32];
+        let track_col = RgbaColor {
+            r: 226,
+            g: 232,
+            b: 240,
+            a: 255,
+        }
+        .to_linear_f32();
+        let border_col = RgbaColor {
+            r: 148,
+            g: 163,
+            b: 184,
+            a: 255,
+        }
+        .to_linear_f32();
+        emit_rounded_rect(
+            &mut lyon_buf,
+            &mut fill_tess,
+            &mut stroke_tess,
+            min,
+            max,
+            0.04,
+            Some(track_col),
+            Some((border_col, (0.65 / 72.0) as f32)),
+        );
+        let pad = 0.012f32;
+        let inner_w = (max[0] - min[0] - pad * 2.0).max(0.0);
+        let fill_w = (inner_w * (bar.ratio.clamp(0.0, 1.0) as f32)).max(if bar.ratio > 0.0 {
+            0.025
+        } else {
+            0.0
+        });
+        if fill_w > 0.002 {
+            emit_rounded_rect(
+                &mut lyon_buf,
+                &mut fill_tess,
+                &mut stroke_tess,
+                [min[0] + pad, min[1] + pad],
+                [min[0] + pad + fill_w, max[1] - pad],
+                0.03,
+                Some(bar.bar_color.to_linear_f32()),
+                None,
+            );
+        }
+    }
+
+    // 3. Text Callout Pill
+    if let Some(callout) = &dg.text_callout {
+        let min = [callout.rect_min_in[0] as f32, callout.rect_min_in[1] as f32];
+        let max = [callout.rect_max_in[0] as f32, callout.rect_max_in[1] as f32];
+        emit_rounded_rect(
+            &mut lyon_buf,
+            &mut fill_tess,
+            &mut stroke_tess,
+            min,
+            max,
+            0.055,
+            Some(callout.bg_color.to_linear_f32()),
+            Some((callout.border_color.to_linear_f32(), (0.75 / 72.0) as f32)),
+        );
+        // Accent pill indicator on leading edge
+        emit_rounded_rect(
+            &mut lyon_buf,
+            &mut fill_tess,
+            &mut stroke_tess,
+            [min[0] + 0.025, min[1] + 0.035],
+            [min[0] + 0.085, max[1] - 0.035],
+            0.025,
+            Some(callout.accent_color.to_linear_f32()),
+            None,
+        );
+    }
+
+    out.vertices = lyon_buf.vertices;
+    out.indices = lyon_buf.indices;
+
+    // Render crisp glyph labels for Data Bar & Text Callout on top of background shapes
+    if let Some(bar) = &dg.data_bar {
+        if !bar.value_label.is_empty() {
+            let bw = (bar.rect_max_in[0] - bar.rect_min_in[0]).abs().max(0.35);
+            let bh = (bar.rect_max_in[1] - bar.rect_min_in[1]).abs().max(0.12);
+            let txt_col = if bar.ratio > 0.55 {
+                RgbaColor::WHITE
+            } else {
+                RgbaColor {
+                    r: 15,
+                    g: 23,
+                    b: 42,
+                    a: 255,
+                }
+            };
+            let block = crate::typography::parse_inline_rich_text_styled_with_font(
+                &bar.value_label,
+                7.2,
+                txt_col,
+                1,
+                1,
+                1,
+                0,
+                font_family,
+            );
+            let lbl_mesh = crate::typography::tessellate_rich_text_in_box(
+                &block,
+                0.5 * (bar.rect_min_in[0] + bar.rect_max_in[0]),
+                0.5 * (bar.rect_min_in[1] + bar.rect_max_in[1]),
+                bw,
+                bh + 0.06,
+                0.0,
+            );
+            out.append(&lbl_mesh);
+        }
+    }
+
+    if let Some(callout) = &dg.text_callout {
+        if !callout.text.is_empty() {
+            let x0 = callout.rect_min_in[0] + 0.095;
+            let x1 = callout.rect_max_in[0] - 0.03;
+            let bw = (x1 - x0).max(0.4);
+            let bh = (callout.rect_max_in[1] - callout.rect_min_in[1]).abs().max(0.16);
+            let block = crate::typography::parse_inline_rich_text_styled_with_font(
+                &callout.text,
+                7.8,
+                callout.text_color,
+                1,
+                1,
+                1,
+                0,
+                font_family,
+            );
+            let callout_mesh = crate::typography::tessellate_rich_text_in_box(
+                &block,
+                0.5 * (x0 + x1),
+                0.5 * (callout.rect_min_in[1] + callout.rect_max_in[1]),
+                bw,
+                bh + 0.06,
+                0.0,
+            );
+            out.append(&callout_mesh);
+        }
+    }
+
+    out
 }
 
 struct GradientFillSpec<'a> {
@@ -2878,6 +3224,42 @@ pub fn compute_visual_content_hash(v: &EvaluatedShapeVisual) -> u64 {
                 }
             }
         }
+    }
+    if let Some(dg) = &v.data_graphics {
+        hash_u64(&mut h, 0xD6_01);
+        hash_rgba(&mut h, dg.color_by_value_applied);
+        if let Some(b) = &dg.icon_badge {
+            hash_u64(&mut h, (b.kind as u64) + 1);
+            hash_f64(&mut h, b.center_page_in[0]);
+            hash_f64(&mut h, b.center_page_in[1]);
+            hash_f64(&mut h, b.radius_in);
+            hash_rgba(&mut h, Some(b.fill_color));
+        }
+        if let Some(bar) = &dg.data_bar {
+            hash_f64(&mut h, bar.rect_min_in[0]);
+            hash_f64(&mut h, bar.rect_min_in[1]);
+            hash_f64(&mut h, bar.rect_max_in[0]);
+            hash_f64(&mut h, bar.rect_max_in[1]);
+            hash_f64(&mut h, bar.ratio);
+            hash_rgba(&mut h, Some(bar.bar_color));
+            for b in bar.value_label.as_bytes() {
+                h ^= *b as u64;
+                h = h.wrapping_mul(0x0100_0000_01b3);
+            }
+        }
+        if let Some(co) = &dg.text_callout {
+            hash_f64(&mut h, co.rect_min_in[0]);
+            hash_f64(&mut h, co.rect_min_in[1]);
+            hash_f64(&mut h, co.rect_max_in[0]);
+            hash_f64(&mut h, co.rect_max_in[1]);
+            hash_rgba(&mut h, Some(co.accent_color));
+            for b in co.text.as_bytes() {
+                h ^= *b as u64;
+                h = h.wrapping_mul(0x0100_0000_01b3);
+            }
+        }
+    } else {
+        hash_u64(&mut h, 0);
     }
     h
 }

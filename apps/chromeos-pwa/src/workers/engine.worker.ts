@@ -30,6 +30,40 @@ export interface ShapeDataDto {
   value: string;
 }
 
+export interface DataGraphicConfigDto {
+  enabled: boolean;
+  iconSetField: string;
+  iconGreenMin: number;
+  iconAmberMin: number;
+  dataBarField: string;
+  dataBarMin: number;
+  dataBarMax: number;
+  dataBarColorHex: string;
+  textCalloutField: string;
+  textCalloutPrefix: string;
+  colorByValueEnabled: boolean;
+  colorByValueField: string;
+  legendVisible: boolean;
+  legendField: string;
+}
+
+export interface ExternalRecordsetDto {
+  id: number;
+  name: string;
+  sourceKind: string;
+  sourceName: string;
+  keyColumn: string;
+  columns: string[];
+  rows: Array<Record<string, string>>;
+  boundShapeIds: Record<string, number[]>;
+}
+
+export interface PageDataLinkStateDto {
+  dataGraphics: DataGraphicConfigDto;
+  recordsets: ExternalRecordsetDto[];
+  availablePropFields: string[];
+}
+
 export interface EngineShapeSummary {
   id: number;
   name: string;
@@ -91,6 +125,7 @@ export interface EngineShapeSummary {
   isSwimlane?: boolean;
   containerMembers?: number[];
   controlHandles: ControlHandleDto[];
+  boundRecordsetRow?: [number, number] | null;
   shapeData?: ShapeDataDto[];
   cells: Array<{ name: string; formula: string; value: string; guarded: boolean }>;
 }
@@ -146,6 +181,7 @@ export interface EngineSnapshot {
   layers: EngineLayerInfo[];
   comments: EngineCommentInfo[];
   shapes: EngineShapeSummary[];
+  dataLinkState?: PageDataLinkStateDto;
   svgPreview: string;
   canUndo: boolean;
   canRedo: boolean;
@@ -386,6 +422,42 @@ interface WasmSessionInstance {
     snap_glue: boolean
   ): boolean;
   set_shape_layer_membership(page_id: number, shape_id: number, layer_ix: number, assigned: boolean): boolean;
+  get_page_data_link_state_json?(page_id: number): string;
+  set_page_data_graphics_json?(page_id: number, config_json: string): number;
+  import_external_recordset_bytes?(
+    page_id: number,
+    file_name: string,
+    bytes: Uint8Array,
+    key_col_hint: string,
+    table_hint: string,
+    auto_bind: boolean,
+    auto_enable_graphics: boolean
+  ): string;
+  bind_external_row?(
+    page_id: number,
+    recordset_id: number,
+    row_index: number,
+    shape_ids: Uint32Array
+  ): number;
+  refresh_external_recordset_bytes?(
+    page_id: number,
+    recordset_id: number,
+    new_bytes: Uint8Array,
+    format_hint: string
+  ): number;
+  sync_and_export_recordset_bytes?(
+    page_id: number,
+    recordset_id: number,
+    format_ext: string
+  ): Uint8Array;
+  delete_external_recordset?(recordset_id: number): boolean;
+  insert_data_legend?(
+    page_id: number,
+    prop_name: string,
+    pin_x_in: number,
+    pin_y_in: number
+  ): number;
+  export_bom_report_bytes?(format_ext: string): Uint8Array;
 }
 
 let wasmSession: WasmSessionInstance | null = null;
@@ -1437,6 +1509,119 @@ self.onmessage = async (ev: MessageEvent) => {
         }
         const wal = session.export_wal();
         self.postMessage({ id, ok: true, count, wal, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'setPageDataGraphics': {
+        const decoratedCount =
+          typeof session.set_page_data_graphics_json === 'function'
+            ? session.set_page_data_graphics_json(activePageId, JSON.stringify(payload.config ?? {}))
+            : 0;
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, decoratedCount, wal, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'importExternalRecordset': {
+        let recordsetId = 1;
+        let linkedCount = 0;
+        if (typeof session.import_external_recordset_bytes === 'function') {
+          const resJson = session.import_external_recordset_bytes(
+            activePageId,
+            String(payload.fileName ?? 'external_data.xlsx'),
+            (payload.bytes as Uint8Array) ?? new Uint8Array(0),
+            String(payload.keyColHint ?? ''),
+            String(payload.tableHint ?? ''),
+            payload.autoBind !== false,
+            payload.autoEnableGraphics !== false
+          );
+          try {
+            const parsed = JSON.parse(resJson);
+            recordsetId = Number(parsed.recordsetId ?? 1);
+            linkedCount = Number(parsed.linkedCount ?? 0);
+          } catch {
+            // keep defaults
+          }
+        }
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, recordsetId, linkedCount, wal, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'bindExternalRow': {
+        const targets: number[] = Array.isArray(payload.shapeIds)
+          ? payload.shapeIds.map((x: unknown) => Number(x)).filter((x: number) => x > 0)
+          : [];
+        const boundCount =
+          typeof session.bind_external_row === 'function'
+            ? session.bind_external_row(
+                activePageId,
+                Number(payload.recordsetId ?? 1),
+                Number(payload.rowIndex ?? 0),
+                new Uint32Array(targets)
+              )
+            : 0;
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, boundCount, wal, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'refreshExternalRecordset': {
+        const newBytes =
+          payload.bytes instanceof Uint8Array ? payload.bytes : new Uint8Array(0);
+        const refreshedCount =
+          typeof session.refresh_external_recordset_bytes === 'function'
+            ? session.refresh_external_recordset_bytes(
+                activePageId,
+                Number(payload.recordsetId ?? 0),
+                newBytes,
+                String(payload.formatHint ?? '')
+              )
+            : 0;
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, refreshedCount, wal, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'syncAndExportRecordset': {
+        const fmt = String(payload.formatExt ?? 'xlsx');
+        const bytes =
+          typeof session.sync_and_export_recordset_bytes === 'function'
+            ? session.sync_and_export_recordset_bytes(
+                activePageId,
+                Number(payload.recordsetId ?? 0),
+                fmt
+              )
+            : session.export_bom_xlsx();
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, bytes, wal, snapshot: buildSnapshot(session) }, [bytes.buffer]);
+        break;
+      }
+      case 'deleteExternalRecordset': {
+        const deleted =
+          typeof session.delete_external_recordset === 'function'
+            ? session.delete_external_recordset(Number(payload.recordsetId ?? 0))
+            : false;
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, deleted, wal, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'insertDataLegend': {
+        const legendId =
+          typeof session.insert_data_legend === 'function'
+            ? session.insert_data_legend(
+                activePageId,
+                String(payload.propName ?? ''),
+                Number(payload.pinXIn ?? 0),
+                Number(payload.pinYIn ?? 0)
+              )
+            : 0;
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, legendId, wal, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'exportBomReport': {
+        const fmt = String(payload.formatExt ?? 'xlsx');
+        const bytes =
+          typeof session.export_bom_report_bytes === 'function'
+            ? session.export_bom_report_bytes(fmt)
+            : session.export_bom_xlsx();
+        self.postMessage({ id, ok: true, bytes }, [bytes.buffer]);
         break;
       }
     }

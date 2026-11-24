@@ -604,4 +604,186 @@ mod tests {
         let sh = target_sess.doc.page(1).unwrap().find_shape(dropped).unwrap();
         assert!((sh.sheet.get_f64("Width").unwrap() - 2.9).abs() < 1e-6);
     }
+
+    #[test]
+    fn pillar4_live_data_graphics_legends_and_two_way_data_linking_roundtrip() {
+        let mut sess = DocumentSession::new_blank("Enterprise Infrastructure");
+        let s1 = sess
+            .drop_builtin_shape(1, "Basic Shapes", "Rectangle", 2.4, 4.5)
+            .unwrap();
+        let s2 = sess
+            .drop_builtin_shape(1, "Basic Shapes", "Rectangle", 5.1, 4.5)
+            .unwrap();
+        let s3 = sess
+            .drop_builtin_shape(1, "Basic Shapes", "Rectangle", 7.8, 4.5)
+            .unwrap();
+        sess.set_shape_text(1, s1, "Exchange-01").unwrap();
+        sess.set_shape_text(1, s2, "Entra-Connect").unwrap();
+        sess.set_shape_text(1, s3, "Sentinel-Collector").unwrap();
+
+        // Untouched .vsdx must NOT contain `vexio_data_state.json`
+        let clean_vsdx = sess.save_format("vsdx").unwrap();
+        {
+            let cursor = std::io::Cursor::new(&clean_vsdx);
+            let mut zip = zip::ZipArchive::new(cursor).unwrap();
+            assert!(zip.by_name("visio/data/vexio_data_state.json").is_err());
+        }
+
+        // Build initial CSV -> export to .xlsx, .sqlite, .json -> verify multi-format auto-import!
+        let seed_csv = "\
+Label,Status,CompletionPct,Owner
+Exchange-01,Healthy,92,Alice
+Entra-Connect,Warning,54,Bob
+Sentinel-Collector,Critical,18,Clara
+Unplaced-Firewall,Healthy,100,Dan
+";
+        let seed_rs =
+            crate::data_link::DataRecordset::from_csv(1, "Infra", "Label", seed_csv).unwrap();
+        let xlsx_bytes = seed_rs.export_bytes("xlsx", "Infra").unwrap();
+        let sqlite_bytes = seed_rs.export_bytes("sqlite", "infra_nodes").unwrap();
+        let json_bytes = seed_rs.export_bytes("json", "Infra").unwrap();
+        assert!(sqlite_bytes.starts_with(b"SQLite format 3\0"));
+
+        // Verify .sqlite and .json auto-parsers decode all 4 rows cleanly
+        let (parsed_sqlite, sqlite_kind) = crate::data_link::DataRecordset::from_auto_bytes(
+            1,
+            "Nodes",
+            "nodes.sqlite",
+            &sqlite_bytes,
+            "Label",
+            "",
+        )
+        .unwrap();
+        assert_eq!(sqlite_kind, "sqlite");
+        assert_eq!(parsed_sqlite.rows.len(), 4);
+        let (parsed_json, json_kind) = crate::data_link::DataRecordset::from_auto_bytes(
+            1,
+            "Nodes",
+            "nodes.json",
+            &json_bytes,
+            "Label",
+            "",
+        )
+        .unwrap();
+        assert_eq!(json_kind, "json");
+        assert_eq!(parsed_json.rows.len(), 4);
+
+        // Import .xlsx recordset onto page 1 with auto-bind & live Data Graphics
+        let (rs_id, linked) = sess
+            .import_external_recordset(1, "Infra_Inventory.xlsx", &xlsx_bytes, "Label", "", true, true)
+            .unwrap();
+        assert_eq!(rs_id, 1);
+        assert_eq!(linked, 3);
+
+        // Insert live Diagram Legend for `Status`
+        let legend_id = sess
+            .insert_or_update_data_legend(1, "Status", Some(9.2), Some(2.4))
+            .unwrap();
+        assert!(legend_id > 0);
+
+        // Verify EvaluatedShapeVisual.data_graphics on Exchange-01 (CheckOk, 92%, Alice) & Sentinel-Collector (ErrorCross, 18%, Clara)
+        let visuals = vexio_shapesheet::ReactiveEngine::evaluate_page_visuals(&sess.doc, 1);
+        let v1 = visuals.iter().find(|v| v.shape_id == s1).unwrap();
+        let dg1 = v1.data_graphics.as_ref().expect("Data graphics overlay present");
+        assert_eq!(
+            dg1.icon_badge.as_ref().unwrap().kind,
+            vexio_shapesheet::DataGraphicIconKind::CheckOk
+        );
+        assert!((dg1.data_bar.as_ref().unwrap().ratio - 0.92).abs() < 1e-4);
+        assert!(dg1.text_callout.as_ref().unwrap().text.contains("Alice"));
+        assert!(dg1.color_by_value_applied.is_some());
+
+        let v3 = visuals.iter().find(|v| v.shape_id == s3).unwrap();
+        let dg3 = v3.data_graphics.as_ref().unwrap();
+        assert_eq!(
+            dg3.icon_badge.as_ref().unwrap().kind,
+            vexio_shapesheet::DataGraphicIconKind::ErrorCross
+        );
+        assert!((dg3.data_bar.as_ref().unwrap().ratio - 0.18).abs() < 1e-4);
+
+        // Verify GPU/software vector tessellation emits triangles for badges, bars & callouts
+        let mesh1 = vexio_render::tessellate_shape_full(v1, 0.005);
+        assert!(mesh1.indices.len() >= 36);
+
+        // Verify SVG & PDF exports include live Data Graphics & Legend
+        let svg_out = sess.save_format("svg").unwrap();
+        let svg_str = std::str::from_utf8(&svg_out).unwrap();
+        assert!(svg_str.contains("class=\"vexio-data-graphic\""));
+        assert!(svg_str.contains("92"));
+        assert!(svg_str.contains("Healthy: 1"));
+        let pdf_out = sess.save_format("pdf").unwrap();
+        assert!(pdf_out.starts_with(b"%PDF-"));
+        assert!(pdf_out.len() > 800);
+
+        // Stamp & bind row #3 ("Unplaced-Firewall") when `shape_ids` is empty
+        let stamped = sess.bind_external_row_to_shapes(1, rs_id, 3, &[]).unwrap();
+        assert_eq!(stamped, 1);
+
+        // Live reactivity: change Sentinel-Collector's Prop.Status from "Critical" -> "Healthy" and CompletionPct -> "100"
+        sess.upsert_shape_data(1, s3, "Status", "Status", 0, "Healthy")
+            .unwrap();
+        sess.upsert_shape_data(1, s3, "CompletionPct", "CompletionPct", 2, "100")
+            .unwrap();
+
+        let visuals_after = vexio_shapesheet::ReactiveEngine::evaluate_page_visuals(&sess.doc, 1);
+        let v3_after = visuals_after.iter().find(|v| v.shape_id == s3).unwrap();
+        assert_eq!(
+            v3_after
+                .data_graphics
+                .as_ref()
+                .unwrap()
+                .icon_badge
+                .as_ref()
+                .unwrap()
+                .kind,
+            vexio_shapesheet::DataGraphicIconKind::CheckOk
+        );
+        // Legend auto-recalculated: Healthy now has 3 shapes (Exchange-01 + Unplaced-Firewall + Sentinel-Collector)!
+        let legend_sh = sess.doc.page(1).unwrap().find_shape(legend_id).unwrap();
+        assert!(
+            legend_sh.text.contains("Healthy: 3"),
+            "Expected Legend to auto-update to Healthy: 3, got: {}",
+            legend_sh.text
+        );
+
+        // Two-Way Writeback Export: push canvas Prop.* edits back to .xlsx, .sqlite, .json, and .csv!
+        for fmt in ["xlsx", "sqlite", "json", "csv"] {
+            let exported = sess.sync_and_export_recordset(1, rs_id, fmt).unwrap();
+            let (rt_rs, _) = crate::data_link::DataRecordset::from_auto_bytes(
+                1,
+                "Writeback",
+                &format!("writeback.{fmt}"),
+                &exported,
+                "Label",
+                "",
+            )
+            .unwrap();
+            let sentinel_row = rt_rs
+                .rows
+                .iter()
+                .find(|r| r.get("Label").map(String::as_str) == Some("Sentinel-Collector"))
+                .unwrap();
+            assert_eq!(sentinel_row.get("Status").map(String::as_str), Some("Healthy"));
+            assert_eq!(
+                sentinel_row.get("CompletionPct").map(String::as_str),
+                Some("100")
+            );
+        }
+
+        // Lossless .vsdx persistence round-trip of recordsets, page Data Graphics, and shape row bindings!
+        let saved_vsdx = sess.save_format("vsdx").unwrap();
+        let mut reopened = DocumentSession::new_blank("Reopened");
+        reopened.open_bytes(&saved_vsdx, "vsdx").unwrap();
+        assert_eq!(reopened.doc.data_recordsets.len(), 1);
+        let rt_page = reopened.doc.page(1).unwrap();
+        assert!(rt_page.data_graphic_config.as_ref().unwrap().enabled);
+        assert_eq!(rt_page.find_shape(s1).unwrap().bound_data_row, Some((1, 0)));
+
+        // Undo/Redo journal check + Auto-discovered BOM report check
+        assert!(sess.journal.undo(&mut sess.doc).is_ok());
+        assert!(sess.journal.redo(&mut sess.doc).is_ok());
+        let bom_csv = String::from_utf8(sess.export_bom_report_bytes("csv").unwrap()).unwrap();
+        assert!(bom_csv.contains("Exchange-01"));
+        assert!(bom_csv.contains("Owner"));
+    }
 }

@@ -1245,6 +1245,11 @@ private struct VexioInspectorSidebar: View {
                         } else {
                             if selectedTab == .layers {
                                 layersPane(selectedObject: nil)
+                            } else if selectedTab == .shapeData {
+                                VStack(alignment: .leading, spacing: 10) {
+                                    dataGraphicsAndLegendCard
+                                    externalDataRecordsetsCard(selectedObject: nil)
+                                }
                             } else {
                                 pagePropertiesInspectorPane
                             }
@@ -2226,35 +2231,284 @@ private struct VexioInspectorSidebar: View {
                 }
             }
 
-            // Data Graphics Overlay Bindings
-            inspectorCard(title: "Data Graphics", icon: "chart.bar.xaxis") {
-                VStack(alignment: .leading, spacing: 6) {
-                    Toggle("Show Data Graphics Overlay", isOn: $session.dataGraphicConfig.isEnabled)
-                        .font(.system(size: 11.5, weight: .medium))
+            dataGraphicsAndLegendCard
+            externalDataRecordsetsCard(selectedObject: obj)
+        }
+    }
 
-                    LabeledContent("Icon Set") {
-                        TextField("Prop.Status", text: $session.dataGraphicConfig.iconSetField)
-                            .textFieldStyle(.roundedBorder)
-                            .frame(width: 128)
-                    }
+    @ViewBuilder
+    private var dataGraphicsAndLegendCard: some View {
+        inspectorCard(title: "Data Graphics & Legend", icon: "chart.bar.xaxis") {
+            VStack(alignment: .leading, spacing: 7) {
+                Toggle(
+                    "Show Data Graphics Overlay",
+                    isOn: Binding(
+                        get: { session.dataGraphicConfig.isEnabled },
+                        set: { val in
+                            session.dataGraphicConfig.isEnabled = val
+                            session.commitDataGraphicConfig(undoManager: undoManager)
+                        }
+                    )
+                )
+                .font(.system(size: 11.5, weight: .medium))
+
+                dataGraphicFieldRow(
+                    title: "Icon Set",
+                    placeholder: "Status",
+                    text: Binding(
+                        get: { session.dataGraphicConfig.iconSetField },
+                        set: { session.dataGraphicConfig.iconSetField = $0 }
+                    )
+                )
+
+                dataGraphicFieldRow(
+                    title: "Data Bar",
+                    placeholder: "CompletionPct",
+                    text: Binding(
+                        get: { session.dataGraphicConfig.dataBarField },
+                        set: { session.dataGraphicConfig.dataBarField = $0 }
+                    )
+                )
+
+                dataGraphicFieldRow(
+                    title: "Callout",
+                    placeholder: "Owner",
+                    text: Binding(
+                        get: { session.dataGraphicConfig.textCalloutField },
+                        set: { session.dataGraphicConfig.textCalloutField = $0 }
+                    )
+                )
+
+                Toggle(
+                    "Color by Value",
+                    isOn: Binding(
+                        get: { session.dataGraphicConfig.colorByValueEnabled },
+                        set: { val in
+                            session.dataGraphicConfig.colorByValueEnabled = val
+                            session.commitDataGraphicConfig(undoManager: undoManager)
+                        }
+                    )
+                )
+                .font(.system(size: 11))
+
+                if session.dataGraphicConfig.colorByValueEnabled {
+                    dataGraphicFieldRow(
+                        title: "Color Field",
+                        placeholder: "Status",
+                        text: Binding(
+                            get: { session.dataGraphicConfig.colorByValueField },
+                            set: {
+                                session.dataGraphicConfig.colorByValueField = $0
+                                session.dataGraphicConfig.legendField = $0
+                            }
+                        )
+                    )
+                }
+
+                Divider()
+
+                HStack(spacing: 6) {
+                    Toggle(
+                        "Live Legend",
+                        isOn: Binding(
+                            get: { session.dataGraphicConfig.showLegendOnPage },
+                            set: { val in
+                                session.dataGraphicConfig.showLegendOnPage = val
+                                session.commitDataGraphicConfig(undoManager: undoManager)
+                            }
+                        )
+                    )
                     .font(.system(size: 11))
 
-                    LabeledContent("Data Bar") {
-                        TextField("Prop.CompletionPct", text: $session.dataGraphicConfig.dataBarField)
-                            .textFieldStyle(.roundedBorder)
-                            .frame(width: 128)
-                    }
-                    .font(.system(size: 11))
+                    Spacer()
 
-                    LabeledContent("Callout") {
-                        TextField("Prop.Owner", text: $session.dataGraphicConfig.textCalloutField)
-                            .textFieldStyle(.roundedBorder)
-                            .frame(width: 128)
+                    Button("Apply") {
+                        session.dataGraphicConfig.isEnabled = true
+                        session.commitDataGraphicConfig(undoManager: undoManager)
                     }
-                    .font(.system(size: 11))
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                    .help("Apply Icon Set, Data Bar, Callout & Color-by-Value rules to active page")
+                }
+            }
+        }
+    }
 
-                    Toggle("Color by Value", isOn: $session.dataGraphicConfig.colorByValueEnabled)
-                        .font(.system(size: 11))
+    @ViewBuilder
+    private func dataGraphicFieldRow(
+        title: String,
+        placeholder: String,
+        text: Binding<String>
+    ) -> some View {
+        HStack(spacing: 4) {
+            Text(title)
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+                .frame(width: 68, alignment: .leading)
+            TextField(placeholder, text: text)
+                .textFieldStyle(.roundedBorder)
+                .font(.system(size: 11))
+                .onSubmit {
+                    session.commitDataGraphicConfig(undoManager: undoManager)
+                }
+            if !session.availablePropFields.isEmpty {
+                Menu {
+                    Button("None (Disabled)") {
+                        text.wrappedValue = ""
+                        session.commitDataGraphicConfig(undoManager: undoManager)
+                    }
+                    Divider()
+                    ForEach(session.availablePropFields, id: \.self) { field in
+                        Button(field) {
+                            text.wrappedValue = field
+                            session.commitDataGraphicConfig(undoManager: undoManager)
+                        }
+                    }
+                } label: {
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.system(size: 9.5, weight: .semibold))
+                        .frame(width: 18, height: 18)
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+                .help("Pick discovered Prop.* field")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func externalDataRecordsetsCard(selectedObject: InspectedObjectState?) -> some View {
+        inspectorCard(title: "External Data (.xlsx / .csv / .sqlite / .json)", icon: "tablecells") {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 5) {
+                    Button {
+                        session.presentImportExternalDataModal(undoManager: undoManager)
+                    } label: {
+                        Label("Link Data…", systemImage: "tray.and.arrow.down")
+                            .font(.system(size: 11, weight: .medium))
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                    .help("Import & link .xlsx, .csv, .sqlite/.db, or .json recordset")
+
+                    Button {
+                        session.refreshExternalDataSources(undoManager: undoManager)
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .help("Refresh linked External Data sources")
+
+                    Button {
+                        session.presentTwoWayWritebackModal(recordsetId: 0, undoManager: undoManager)
+                    } label: {
+                        Image(systemName: "arrow.up.doc")
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .help("Two-Way Writeback: Export updated Prop.* values to .xlsx / .csv / .sqlite / .json")
+
+                    Spacer()
+
+                    Button {
+                        session.presentBomReportExportModal()
+                    } label: {
+                        Image(systemName: "doc.text.magnifyingglass")
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .help("Export BOM Shape Inventory Report (.xlsx)")
+                }
+
+                if session.externalRecordsets.isEmpty {
+                    Text("No External Data linked yet. Import an Excel (.xlsx), CSV, SQLite (.sqlite), or JSON table to bind rows to shapes.")
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    ForEach(session.externalRecordsets) { rs in
+                        VStack(alignment: .leading, spacing: 5) {
+                            HStack {
+                                Text("\(rs.name) (\(rs.sourceKind.uppercased()))")
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .lineLimit(1)
+                                Spacer()
+                                Text("\(rs.rows.count) rows")
+                                    .font(.system(size: 10, design: .monospaced))
+                                    .foregroundStyle(.secondary)
+                                Button {
+                                    session.removeExternalRecordset(recordsetId: rs.id, undoManager: undoManager)
+                                } label: {
+                                    Image(systemName: "trash")
+                                        .font(.system(size: 10))
+                                        .foregroundStyle(.secondary)
+                                }
+                                .buttonStyle(.plain)
+                                .help("Unlink '\(rs.name)'")
+                            }
+
+                            ForEach(Array(rs.rows.prefix(25).enumerated()), id: \.offset) { rowIdx, rowMap in
+                                let keyVal = rowMap[rs.keyColumn] ?? "Row \(rowIdx + 1)"
+                                let summaryPairs = rs.columns
+                                    .filter { $0 != rs.keyColumn }
+                                    .prefix(2)
+                                    .compactMap { col -> String? in
+                                        guard let v = rowMap[col], !v.isEmpty else { return nil }
+                                        return "\(col): \(v)"
+                                    }
+                                    .joined(separator: " • ")
+                                let boundIds = rs.boundShapeIdsByRow[rowIdx] ?? []
+
+                                HStack(spacing: 6) {
+                                    VStack(alignment: .leading, spacing: 1) {
+                                        HStack(spacing: 4) {
+                                            Text(keyVal)
+                                                .font(.system(size: 11, weight: .medium))
+                                                .lineLimit(1)
+                                            if !boundIds.isEmpty {
+                                                Text("✓ \(boundIds.count)")
+                                                    .font(.system(size: 9.5, weight: .semibold, design: .monospaced))
+                                                    .foregroundStyle(.green)
+                                            }
+                                        }
+                                        if !summaryPairs.isEmpty {
+                                            Text(summaryPairs)
+                                                .font(.system(size: 9.5))
+                                                .foregroundStyle(.secondary)
+                                                .lineLimit(1)
+                                        }
+                                    }
+                                    Spacer()
+                                    Button(selectedObject != nil ? "Link" : "+ Stamp") {
+                                        session.bindExternalRecordsetRow(
+                                            recordsetId: rs.id,
+                                            rowIndex: rowIdx,
+                                            undoManager: undoManager
+                                        )
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .controlSize(.mini)
+                                    .help(
+                                        selectedObject != nil
+                                            ? "Bind row '\(keyVal)' onto selected shape(s)"
+                                            : "Create & bind new shape on canvas for '\(keyVal)'"
+                                    )
+                                }
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 4)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                        .fill(Color.primary.opacity(0.04))
+                                )
+                            }
+                        }
+                        .padding(6)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .fill(Color.primary.opacity(0.03))
+                        )
+                    }
                 }
             }
         }

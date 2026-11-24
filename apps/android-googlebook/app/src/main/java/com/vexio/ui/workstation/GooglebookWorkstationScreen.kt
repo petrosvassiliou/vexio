@@ -190,7 +190,9 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.input.motionprediction.MotionEventPredictor
 import com.vexio.MainActivity
 import com.vexio.core.CrossWindowShapePayload
+import com.vexio.core.DataGraphicUiState
 import com.vexio.core.DiagramLayerUiItem
+import com.vexio.core.ExternalRecordsetUiItem
 import com.vexio.core.FormulaCommitStatus
 import com.vexio.core.InspectedObjectUiState
 import com.vexio.core.Plan2SamplePayloads
@@ -220,7 +222,8 @@ const val EXTRA_DOCUMENT_TEMPLATE = "vexio.template"
 const val VEXIO_MASTER_CLIP_MIME = "application/vnd.vexio.master+json"
 
 private val SUPPORTED_DIAGRAM_EXTENSIONS = setOf(
-    "vsdx", "vsdm", "vssx", "vssm", "vstx", "vstm", "vsd", "vss", "vst", "vdx", "vdw", "dwg", "dxf"
+    "vsdx", "vsdm", "vssx", "vssm", "vstx", "vstm", "vsd", "vss", "vst", "vdx", "vdw", "dwg", "dxf",
+    "xlsx", "csv", "tsv", "sqlite", "db", "sqlite3", "json"
 )
 
 /**
@@ -307,6 +310,10 @@ fun GooglebookWorkstationScreen(
     onSaveAsDocumentRequested: () -> Unit,
     onExternalUriDropped: (Uri) -> Unit,
     onImportStencilRequested: () -> Unit = {},
+    onLinkExternalDataRequested: () -> Unit = {},
+    onRefreshExternalDataRequested: () -> Unit = { viewModel.refreshExternalRecordsets() },
+    onTwoWayWritebackRequested: (Int) -> Unit = {},
+    onExportBomReportRequested: () -> Unit = {},
     onExportJpgRequested: () -> Unit = { viewModel.exportPlan2Artifact("jpg") },
     onExportFormatRequested: (String) -> Unit = { fmt -> viewModel.exportPlan2Artifact(fmt) },
     onPrintRequested: () -> Unit = { }
@@ -509,6 +516,10 @@ fun GooglebookWorkstationScreen(
                 viewModel = viewModel,
                 onOpenBackstage = { viewModel.setStartBackstageVisible(true) },
                 onImportStencilClick = onImportStencilRequested,
+                onLinkExternalDataClick = onLinkExternalDataRequested,
+                onRefreshExternalDataClick = onRefreshExternalDataRequested,
+                onTwoWayWritebackClick = { onTwoWayWritebackRequested(0) },
+                onExportBomReportClick = onExportBomReportRequested,
                 onOpenColorPicker = { target -> activeColorPickerTarget = target },
                 onTogglePlan2Strip = {
                     viewModel.togglePlan2Ribbon()
@@ -730,6 +741,10 @@ fun GooglebookWorkstationScreen(
                         uiState = uiState,
                         viewModel = viewModel,
                         onOpenColorPicker = { target -> activeColorPickerTarget = target },
+                        onLinkExternalDataClick = onLinkExternalDataRequested,
+                        onRefreshExternalDataClick = onRefreshExternalDataRequested,
+                        onTwoWayWritebackClick = onTwoWayWritebackRequested,
+                        onExportBomReportClick = onExportBomReportRequested,
                         onSelectCell = { cellName ->
                             viewModel.selectShapeSheetCell(cellName)
                             formulaFocusRequester.requestFocus()
@@ -1412,6 +1427,10 @@ private fun ClassicVisioM3Ribbon(
     viewModel: VexioSessionViewModel,
     onOpenBackstage: () -> Unit,
     onImportStencilClick: () -> Unit,
+    onLinkExternalDataClick: () -> Unit = {},
+    onRefreshExternalDataClick: () -> Unit = {},
+    onTwoWayWritebackClick: () -> Unit = {},
+    onExportBomReportClick: () -> Unit = {},
     onOpenColorPicker: (VexioColorPickerTarget) -> Unit,
     onTogglePlan2Strip: () -> Unit
 ) {
@@ -1845,6 +1864,39 @@ private fun ClassicVisioM3Ribbon(
                         }
 
                         "Data" -> {
+                            ExpressivePlan2ActionPill(
+                                label = "Link Data (.xlsx / .csv / .sqlite / .json)",
+                                selected = uiState.externalRecordsets.isNotEmpty(),
+                                onClick = onLinkExternalDataClick
+                            )
+                            ExpressivePlan2ActionPill(
+                                label = "Refresh Data",
+                                selected = false,
+                                onClick = onRefreshExternalDataClick
+                            )
+                            ExpressivePlan2ActionPill(
+                                label = "Two-Way Writeback",
+                                selected = false,
+                                onClick = onTwoWayWritebackClick
+                            )
+                            ExpressivePlan2ActionPill(
+                                label = "Data Graphics",
+                                selected = uiState.dataGraphics.enabled,
+                                onClick = {
+                                    val dg = uiState.dataGraphics
+                                    viewModel.updatePageDataGraphics(dg.copy(enabled = !dg.enabled))
+                                }
+                            )
+                            ExpressivePlan2ActionPill(
+                                label = "Insert Legend",
+                                selected = uiState.dataGraphics.legendVisible,
+                                onClick = { viewModel.insertOrUpdateDataLegend() }
+                            )
+                            ExpressivePlan2ActionPill(
+                                label = "BOM Report (.xlsx)",
+                                selected = false,
+                                onClick = onExportBomReportClick
+                            )
                             ExpressivePlan2ActionPill(
                                 label = VexioI18n.dataVisualizerPill(lang),
                                 selected = uiState.lastDataVisualizerShapeCount > 0,
@@ -4380,6 +4432,10 @@ private fun ShapeInspectorPane(
     uiState: WorkstationUiState,
     viewModel: VexioSessionViewModel,
     onOpenColorPicker: (VexioColorPickerTarget) -> Unit,
+    onLinkExternalDataClick: () -> Unit = {},
+    onRefreshExternalDataClick: () -> Unit = {},
+    onTwoWayWritebackClick: (Int) -> Unit = {},
+    onExportBomReportClick: () -> Unit = {},
     onSelectCell: (String) -> Unit,
     onQuickGuardToggle: (ShapeSheetCellEntry) -> Unit
 ) {
@@ -4554,7 +4610,7 @@ private fun ShapeInspectorPane(
                 }
             }
 
-            if (obj == null && selectedTab != 3) {
+            if (obj == null && selectedTab != 2 && selectedTab != 3) {
                 // Page Inspector fallback when no object is selected on canvas
                 Surface(
                     shape = RoundedCornerShape(14.dp),
@@ -4908,7 +4964,102 @@ private fun ShapeInspectorPane(
                     }
 
                     2 -> {
-                        // TAB 2: SHAPE DATA (Prop.*)
+                        // TAB 2: SHAPE DATA (Prop.*) + LIVE DATA GRAPHICS & TWO-WAY EXTERNAL DATA
+                        if (obj != null) {
+                            Surface(
+                                shape = RoundedCornerShape(14.dp),
+                                color = MaterialTheme.colorScheme.surfaceContainerLowest,
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(
+                                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                                    modifier = Modifier.padding(12.dp)
+                                ) {
+                                    Text("Shape Data (Prop.*)", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+                                    if (uiState.shapeDataItems.isEmpty()) {
+                                        Text(
+                                            text = "No Prop.* fields defined on this object.",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    } else {
+                                        uiState.shapeDataItems.forEach { sd: ShapeDataUiItem ->
+                                            var sdValDraft by remember(sd.rowName, sd.value) { mutableStateOf(sd.value) }
+                                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                                    Text(sd.label, style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f))
+                                                    Text(sd.dataTypeLabel, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                                    IconButton(
+                                                        onClick = { viewModel.deleteSelectedShapeData(sd.rowName) },
+                                                        modifier = Modifier.size(24.dp)
+                                                    ) {
+                                                        Icon(Icons.Default.DeleteOutline, contentDescription = "Delete", modifier = Modifier.size(15.dp))
+                                                    }
+                                                }
+                                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                                    OutlinedTextField(
+                                                        value = sdValDraft,
+                                                        onValueChange = { sdValDraft = it },
+                                                        singleLine = true,
+                                                        textStyle = MaterialTheme.typography.bodySmall,
+                                                        modifier = Modifier.weight(1f)
+                                                    )
+                                                    TextButton(
+                                                        onClick = { viewModel.upsertSelectedShapeData(sd.rowName, sd.label, sd.dataTypeCode, sdValDraft) },
+                                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                                                    ) {
+                                                        Text(VexioI18n.applyButton(lang), style = MaterialTheme.typography.labelSmall)
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    HorizontalDivider()
+
+                                    OutlinedTextField(
+                                        value = newPropName,
+                                        onValueChange = { newPropName = it },
+                                        label = { Text("Prop. Name (e.g. Owner)", style = MaterialTheme.typography.labelSmall) },
+                                        singleLine = true,
+                                        textStyle = MaterialTheme.typography.bodySmall,
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                    OutlinedTextField(
+                                        value = newPropValue,
+                                        onValueChange = { newPropValue = it },
+                                        label = { Text("Value", style = MaterialTheme.typography.labelSmall) },
+                                        singleLine = true,
+                                        textStyle = MaterialTheme.typography.bodySmall,
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                    FilledTonalButton(
+                                        onClick = {
+                                            if (newPropName.isNotBlank()) {
+                                                viewModel.upsertSelectedShapeData(newPropName, newPropName, 0, newPropValue)
+                                                newPropName = ""
+                                                newPropValue = ""
+                                            }
+                                        },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        shape = RoundedCornerShape(10.dp)
+                                    ) {
+                                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(Modifier.width(4.dp))
+                                        Text(VexioI18n.addFieldLabel(lang), style = MaterialTheme.typography.labelSmall)
+                                    }
+                                }
+                            }
+                        }
+
+                        // PAGE-LEVEL LIVE DATA GRAPHICS & LEGEND CARD
+                        val dg: DataGraphicUiState = uiState.dataGraphics
+                        var iconFieldDraft by remember(dg.iconSetField) { mutableStateOf(dg.iconSetField) }
+                        var barFieldDraft by remember(dg.dataBarField) { mutableStateOf(dg.dataBarField) }
+                        var calloutFieldDraft by remember(dg.textCalloutField) { mutableStateOf(dg.textCalloutField) }
+                        var colorFieldDraft by remember(dg.colorByValueField) { mutableStateOf(dg.colorByValueField) }
+
                         Surface(
                             shape = RoundedCornerShape(14.dp),
                             color = MaterialTheme.colorScheme.surfaceContainerLowest,
@@ -4919,78 +5070,254 @@ private fun ShapeInspectorPane(
                                 verticalArrangement = Arrangement.spacedBy(8.dp),
                                 modifier = Modifier.padding(12.dp)
                             ) {
-                                Text("Shape Data (Prop.*)", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
-                                if (uiState.shapeDataItems.isEmpty()) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
                                     Text(
-                                        text = "No Prop.* fields defined on this object.",
+                                        text = "Data Graphics & Legend",
+                                        style = MaterialTheme.typography.labelLarge,
+                                        fontWeight = FontWeight.SemiBold,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    Checkbox(
+                                        checked = dg.enabled,
+                                        onCheckedChange = { checked ->
+                                            viewModel.updatePageDataGraphics(
+                                                dg.copy(
+                                                    enabled = checked,
+                                                    iconSetField = iconFieldDraft,
+                                                    dataBarField = barFieldDraft,
+                                                    textCalloutField = calloutFieldDraft,
+                                                    colorByValueField = colorFieldDraft
+                                                )
+                                            )
+                                        }
+                                    )
+                                }
+
+                                if (uiState.availablePropFields.isNotEmpty()) {
+                                    Text(
+                                        text = "Available Prop.*: ${uiState.availablePropFields.joinToString(", ")}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+
+                                OutlinedTextField(
+                                    value = iconFieldDraft,
+                                    onValueChange = { iconFieldDraft = it },
+                                    label = { Text("Icon Set Field (e.g. Status)", style = MaterialTheme.typography.labelSmall) },
+                                    singleLine = true,
+                                    textStyle = MaterialTheme.typography.bodySmall,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                                OutlinedTextField(
+                                    value = barFieldDraft,
+                                    onValueChange = { barFieldDraft = it },
+                                    label = { Text("Data Bar Field (0–100, e.g. CompletionPct)", style = MaterialTheme.typography.labelSmall) },
+                                    singleLine = true,
+                                    textStyle = MaterialTheme.typography.bodySmall,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                                OutlinedTextField(
+                                    value = calloutFieldDraft,
+                                    onValueChange = { calloutFieldDraft = it },
+                                    label = { Text("Text Callout Field (e.g. Owner)", style = MaterialTheme.typography.labelSmall) },
+                                    singleLine = true,
+                                    textStyle = MaterialTheme.typography.bodySmall,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Checkbox(
+                                        checked = dg.colorByValueEnabled,
+                                        onCheckedChange = { cbv ->
+                                            viewModel.updatePageDataGraphics(
+                                                dg.copy(
+                                                    enabled = true,
+                                                    colorByValueEnabled = cbv,
+                                                    iconSetField = iconFieldDraft,
+                                                    dataBarField = barFieldDraft,
+                                                    textCalloutField = calloutFieldDraft,
+                                                    colorByValueField = colorFieldDraft
+                                                )
+                                            )
+                                        }
+                                    )
+                                    OutlinedTextField(
+                                        value = colorFieldDraft,
+                                        onValueChange = { colorFieldDraft = it },
+                                        label = { Text("Color by Value Field", style = MaterialTheme.typography.labelSmall) },
+                                        singleLine = true,
+                                        textStyle = MaterialTheme.typography.bodySmall,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                }
+                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                                    FilledTonalButton(
+                                        onClick = {
+                                            viewModel.updatePageDataGraphics(
+                                                dg.copy(
+                                                    enabled = true,
+                                                    iconSetField = iconFieldDraft,
+                                                    dataBarField = barFieldDraft,
+                                                    textCalloutField = calloutFieldDraft,
+                                                    colorByValueField = colorFieldDraft,
+                                                    legendField = colorFieldDraft.ifBlank { iconFieldDraft }
+                                                )
+                                            )
+                                        },
+                                        modifier = Modifier.weight(1f),
+                                        shape = RoundedCornerShape(10.dp)
+                                    ) {
+                                        Text(VexioI18n.applyButton(lang), style = MaterialTheme.typography.labelSmall)
+                                    }
+                                    FilledTonalButton(
+                                        onClick = {
+                                            viewModel.insertOrUpdateDataLegend(
+                                                colorFieldDraft.ifBlank { iconFieldDraft }
+                                            )
+                                        },
+                                        modifier = Modifier.weight(1f),
+                                        shape = RoundedCornerShape(10.dp)
+                                    ) {
+                                        Text("Legend", style = MaterialTheme.typography.labelSmall)
+                                    }
+                                }
+                            }
+                        }
+
+                        // TWO-WAY EXTERNAL DATA RECORDSETS CARD (.xlsx / .csv / .sqlite / .json)
+                        Surface(
+                            shape = RoundedCornerShape(14.dp),
+                            color = MaterialTheme.colorScheme.surfaceContainerLowest,
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.padding(12.dp)
+                            ) {
+                                Text(
+                                    text = "External Data (.xlsx / .csv / .sqlite / .json)",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                                    FilledTonalButton(
+                                        onClick = onLinkExternalDataClick,
+                                        modifier = Modifier.weight(1f),
+                                        shape = RoundedCornerShape(10.dp)
+                                    ) {
+                                        Icon(Icons.Default.FolderOpen, contentDescription = null, modifier = Modifier.size(15.dp))
+                                        Spacer(Modifier.width(4.dp))
+                                        Text("Link File", style = MaterialTheme.typography.labelSmall)
+                                    }
+                                    FilledTonalButton(
+                                        onClick = onExportBomReportClick,
+                                        modifier = Modifier.weight(1f),
+                                        shape = RoundedCornerShape(10.dp)
+                                    ) {
+                                        Icon(Icons.Default.TableChart, contentDescription = null, modifier = Modifier.size(15.dp))
+                                        Spacer(Modifier.width(4.dp))
+                                        Text("BOM .xlsx", style = MaterialTheme.typography.labelSmall)
+                                    }
+                                }
+
+                                if (uiState.externalRecordsets.isEmpty()) {
+                                    Text(
+                                        text = "Link an Excel (.xlsx), CSV, SQLite (.sqlite/.db), or JSON file to bind rows to shapes with two-way sync.",
                                         style = MaterialTheme.typography.labelSmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 } else {
-                                    uiState.shapeDataItems.forEach { sd: ShapeDataUiItem ->
-                                        var sdValDraft by remember(sd.rowName, sd.value) { mutableStateOf(sd.value) }
-                                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    uiState.externalRecordsets.forEach { rs: ExternalRecordsetUiItem ->
+                                        Column(
+                                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(10.dp))
+                                                .padding(8.dp)
+                                        ) {
                                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                                Text(sd.label, style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f))
-                                                Text(sd.dataTypeLabel, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                                Column(modifier = Modifier.weight(1f)) {
+                                                    Text(rs.name, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+                                                    Text(
+                                                        text = "${rs.sourceKind.uppercase()} • ${rs.rows.size} rows • key: ${rs.keyColumn}",
+                                                        style = MaterialTheme.typography.labelSmall,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                    )
+                                                }
+                                                TextButton(
+                                                    onClick = onRefreshExternalDataClick,
+                                                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
+                                                ) {
+                                                    Text("Refresh", style = MaterialTheme.typography.labelSmall)
+                                                }
+                                                TextButton(
+                                                    onClick = { onTwoWayWritebackClick(rs.id) },
+                                                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
+                                                ) {
+                                                    Text("Sync", style = MaterialTheme.typography.labelSmall)
+                                                }
                                                 IconButton(
-                                                    onClick = { viewModel.deleteSelectedShapeData(sd.rowName) },
+                                                    onClick = { viewModel.deleteExternalRecordset(rs.id) },
                                                     modifier = Modifier.size(24.dp)
                                                 ) {
-                                                    Icon(Icons.Default.DeleteOutline, contentDescription = "Delete", modifier = Modifier.size(15.dp))
+                                                    Icon(Icons.Default.DeleteOutline, contentDescription = "Unlink", modifier = Modifier.size(15.dp))
                                                 }
                                             }
-                                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                                OutlinedTextField(
-                                                    value = sdValDraft,
-                                                    onValueChange = { sdValDraft = it },
-                                                    singleLine = true,
-                                                    textStyle = MaterialTheme.typography.bodySmall,
-                                                    modifier = Modifier.weight(1f)
-                                                )
-                                                TextButton(
-                                                    onClick = { viewModel.upsertSelectedShapeData(sd.rowName, sd.label, sd.dataTypeCode, sdValDraft) },
-                                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                                            rs.rows.take(25).forEachIndexed { rIdx, rowMap ->
+                                                val keyVal = rowMap[rs.keyColumn]?.takeIf { it.isNotEmpty() }
+                                                    ?: rowMap.values.firstOrNull().orEmpty()
+                                                val previewCols = rs.columns
+                                                    .filter { it != rs.keyColumn }
+                                                    .take(2)
+                                                    .mapNotNull { col -> rowMap[col]?.takeIf { it.isNotEmpty() }?.let { "$col: $it" } }
+                                                    .joinToString(" • ")
+                                                val linkedIds = rs.boundShapeIdsByRow[rIdx].orEmpty()
+                                                Surface(
+                                                    shape = RoundedCornerShape(8.dp),
+                                                    color = if (linkedIds.isNotEmpty()) {
+                                                        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
+                                                    } else {
+                                                        MaterialTheme.colorScheme.surfaceContainerLow
+                                                    },
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .clip(RoundedCornerShape(8.dp))
+                                                        .clickable {
+                                                            viewModel.bindExternalRecordsetRow(rs.id, rIdx)
+                                                        }
                                                 ) {
-                                                    Text(VexioI18n.applyButton(lang), style = MaterialTheme.typography.labelSmall)
+                                                    Row(
+                                                        verticalAlignment = Alignment.CenterVertically,
+                                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)
+                                                    ) {
+                                                        Column(modifier = Modifier.weight(1f)) {
+                                                            Text(
+                                                                text = keyVal.ifEmpty { "Row #${rIdx + 1}" },
+                                                                style = MaterialTheme.typography.labelMedium,
+                                                                maxLines = 1,
+                                                                overflow = TextOverflow.Ellipsis
+                                                            )
+                                                            if (previewCols.isNotEmpty()) {
+                                                                Text(
+                                                                    text = previewCols,
+                                                                    style = MaterialTheme.typography.labelSmall,
+                                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                                    maxLines = 1,
+                                                                    overflow = TextOverflow.Ellipsis
+                                                                )
+                                                            }
+                                                        }
+                                                        Text(
+                                                            text = if (linkedIds.isNotEmpty()) "${linkedIds.size} linked" else "Bind",
+                                                            style = MaterialTheme.typography.labelSmall,
+                                                            color = MaterialTheme.colorScheme.primary
+                                                        )
+                                                    }
                                                 }
                                             }
                                         }
                                     }
-                                }
-
-                                HorizontalDivider()
-
-                                OutlinedTextField(
-                                    value = newPropName,
-                                    onValueChange = { newPropName = it },
-                                    label = { Text("Prop. Name (e.g. Owner)", style = MaterialTheme.typography.labelSmall) },
-                                    singleLine = true,
-                                    textStyle = MaterialTheme.typography.bodySmall,
-                                    modifier = Modifier.fillMaxWidth()
-                                )
-                                OutlinedTextField(
-                                    value = newPropValue,
-                                    onValueChange = { newPropValue = it },
-                                    label = { Text("Value", style = MaterialTheme.typography.labelSmall) },
-                                    singleLine = true,
-                                    textStyle = MaterialTheme.typography.bodySmall,
-                                    modifier = Modifier.fillMaxWidth()
-                                )
-                                FilledTonalButton(
-                                    onClick = {
-                                        if (newPropName.isNotBlank()) {
-                                            viewModel.upsertSelectedShapeData(newPropName, newPropName, 0, newPropValue)
-                                            newPropName = ""
-                                            newPropValue = ""
-                                        }
-                                    },
-                                    modifier = Modifier.fillMaxWidth(),
-                                    shape = RoundedCornerShape(10.dp)
-                                ) {
-                                    Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
-                                    Spacer(Modifier.width(4.dp))
-                                    Text(VexioI18n.addFieldLabel(lang), style = MaterialTheme.typography.labelSmall)
                                 }
                             }
                         }

@@ -6,10 +6,12 @@
 //! - Math, trig, logical, string, color (`RGB`, `HSL`, `LUM`, `HUE`, `SAT`), lookup (`LOOKUP`, `INDEX`), and date/time functions
 //! - Cycle-safe topological recalculation across Document, Pages, Masters, Styles, and Shapes with 3-tier inheritance.
 
-use crate::model::{ForeignMediaData, ShapeKind, VisioDocument, VisioPage, VisioShape};
+use crate::model::{
+    ForeignMediaData, PageDataGraphicConfig, ShapeKind, VisioDocument, VisioPage, VisioShape,
+};
 use crate::parser::{BinaryOp, CellRefPath, Expr, SheetTarget, UnaryOp, canonical_cell_name};
-use crate::sections::{GeometryRowKind, default_unit_for_cell, visio_standard_palette_color};
-use crate::units::{CellError, CellValue, RgbaColor, Unit, normalize_f64};
+use crate::sections::{GeometryRowKind, ShapeSheet, default_unit_for_cell, visio_standard_palette_color};
+use crate::units::{CellError, CellValue, RgbaColor, Unit, format_clean_f64, normalize_f64};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashSet};
 
@@ -154,6 +156,51 @@ pub struct EvaluatedControlHandle {
     pub prompt: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DataGraphicIconKind {
+    CheckOk,
+    WarnTriangle,
+    ErrorCross,
+    InfoCircle,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EvaluatedIconBadge {
+    pub kind: DataGraphicIconKind,
+    pub center_page_in: [f64; 2],
+    pub radius_in: f64,
+    pub fill_color: RgbaColor,
+    pub tooltip: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EvaluatedDataBar {
+    pub rect_min_in: [f64; 2],
+    pub rect_max_in: [f64; 2],
+    pub ratio: f64,
+    pub bar_color: RgbaColor,
+    pub value_label: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EvaluatedTextCallout {
+    pub rect_min_in: [f64; 2],
+    pub rect_max_in: [f64; 2],
+    pub text: String,
+    pub bg_color: RgbaColor,
+    pub border_color: RgbaColor,
+    pub text_color: RgbaColor,
+    pub accent_color: RgbaColor,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct EvaluatedDataGraphicOverlay {
+    pub icon_badge: Option<EvaluatedIconBadge>,
+    pub data_bar: Option<EvaluatedDataBar>,
+    pub text_callout: Option<EvaluatedTextCallout>,
+    pub color_by_value_applied: Option<RgbaColor>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct EvaluatedShapeVisual {
     pub shape_id: u64,
@@ -210,6 +257,8 @@ pub struct EvaluatedShapeVisual {
     pub control_handles: Vec<EvaluatedControlHandle>,
     #[serde(default)]
     pub is_swimlane: bool,
+    #[serde(default)]
+    pub data_graphics: Option<EvaluatedDataGraphicOverlay>,
 }
 
 fn default_arrow_size() -> u8 {
@@ -269,6 +318,23 @@ impl ReactiveEngine {
             if !changed {
                 break;
             }
+        }
+
+        // Keep any live Page Legend shapes (`User.msvStructureType == "Legend"` + `User.vexioLegendProp`)
+        // automatically synchronized with the page's current `Prop.*` categories, swatches, and counts!
+        if refresh_live_page_legends(doc) {
+            let mut eval = EvalSession {
+                doc,
+                cache: BTreeMap::new(),
+                visiting: HashSet::new(),
+                pending_setf: Vec::new(),
+            };
+            let all_cells = eval.collect_all_cell_ids();
+            for cid in all_cells {
+                let _ = eval.eval_cell_id(&cid);
+            }
+            let computed = eval.cache;
+            apply_computed_values(doc, &computed);
         }
     }
 
@@ -2745,7 +2811,7 @@ fn collect_shape_visuals(
     let line_trans = ss.get_f64("LineColorTrans").unwrap_or(0.0).clamp(0.0, 1.0);
 
     let has_drawable_paths = !paths.is_empty();
-    let fill_color = if fill_pat == 0
+    let mut fill_color = if fill_pat == 0
         || fill_trans >= 0.995
         || !has_drawable_paths
         || matches!(
@@ -3012,14 +3078,43 @@ fn collect_shape_visuals(
         String::new()
     };
 
+    let base_geom_aabb_min = aabb_min;
+    let base_geom_aabb_max = aabb_max;
+
     // Expand AABB to encompass external captions / connector labels so R*-tree frustum culling never clips text!
     if !effective_text.trim().is_empty() && txt_px.is_finite() && txt_py.is_finite() {
         let half_tw = txt_width.unwrap_or_else(|| w.abs().max(1.2)) * 0.5;
         let half_th = txt_height.unwrap_or(0.32) * 0.5;
         aabb_min[0] = aabb_min[0].min(txt_px - half_tw);
-        aabb_min[1] = aabb_min[1].min(txt_py - half_th);
+        aabb_min[1] = aabb_min[1].min(txt_px.mul_add(0.0, txt_py - half_th));
         aabb_max[0] = aabb_max[0].max(txt_px + half_tw);
         aabb_max[1] = aabb_max[1].max(txt_py + half_th);
+    }
+
+    // Evaluate live Data Graphics (`Icon Sets`, `Data Bars`, `Text Callouts`, `Color by Value`) on top-level 2D objects!
+    let data_graphics = evaluate_shape_data_graphics_overlay(
+        page,
+        shape,
+        master_shape,
+        parent_tf.is_some(),
+        base_geom_aabb_min,
+        base_geom_aabb_max,
+        &effective_text,
+        txt_py,
+        txt_height,
+        &mut aabb_min,
+        &mut aabb_max,
+    );
+    if let Some(cbv_col) = data_graphics.as_ref().and_then(|dg| dg.color_by_value_applied) {
+        if has_drawable_paths {
+            fill_color = Some(cbv_col);
+            gradient_stops.clear();
+            for p in &mut paths {
+                if !p.no_fill && p.fill_color.is_some() {
+                    p.fill_color = Some(cbv_col);
+                }
+            }
+        }
     }
 
     let page_bg = page
@@ -3261,9 +3356,20 @@ fn collect_shape_visuals(
         connection_points,
         control_handles,
         is_swimlane,
+        data_graphics,
     });
 
     if !shape.children.is_empty() {
+        let only_overlay_children = shape.children.iter().all(|c| {
+            c.name_u.starts_with("DG_SubShape") || c.name_u.starts_with("LegendSwatch")
+        });
+        if only_overlay_children {
+            if let Some(ms) = master_shape {
+                for child in &ms.children {
+                    collect_shape_visuals(doc, page, child, Some(&world_tf), out);
+                }
+            }
+        }
         for child in &shape.children {
             collect_shape_visuals(doc, page, child, Some(&world_tf), out);
         }
@@ -3272,6 +3378,578 @@ fn collect_shape_visuals(
             collect_shape_visuals(doc, page, child, Some(&world_tf), out);
         }
     }
+}
+
+// ============================================================================
+// Live Data Graphics, Categorical Palettes & Auto-Updating Legends
+// ============================================================================
+
+pub fn sanitize_prop_identifier(raw: &str) -> String {
+    let stripped = raw.trim();
+    let without_prefix = if stripped.len() >= 5 && stripped[..5].eq_ignore_ascii_case("prop.") {
+        &stripped[5..]
+    } else {
+        stripped
+    };
+    without_prefix
+        .trim()
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+        .collect()
+}
+
+/// Resolve a `Prop.*` cell on `sheet` (with optional `master_sheet` fallback) matching by row name,
+/// sanitized identifier, or display label (case-insensitive). Returns `(display_label, clean_value)`.
+pub fn resolve_shape_prop_cell(
+    sheet: &ShapeSheet,
+    master_sheet: Option<&ShapeSheet>,
+    raw_prop: &str,
+) -> Option<(String, String)> {
+    let trimmed = raw_prop.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let bare = if trimmed.len() >= 5 && trimmed[..5].eq_ignore_ascii_case("prop.") {
+        trimmed[5..].trim()
+    } else {
+        trimmed
+    };
+    if bare.is_empty() {
+        return None;
+    }
+    let sanitized = sanitize_prop_identifier(bare);
+
+    let read_from = |ss: &ShapeSheet| -> Option<(String, String)> {
+        for row in ss.shape_data.values() {
+            if row.invisible {
+                continue;
+            }
+            let name_match = row.name.eq_ignore_ascii_case(bare)
+                || row.name.eq_ignore_ascii_case(&sanitized)
+                || sanitize_prop_identifier(&row.name).eq_ignore_ascii_case(&sanitized)
+                || (!row.label.is_empty() && row.label.eq_ignore_ascii_case(bare));
+            if name_match {
+                let cell_key = format!("Prop.{}", row.name);
+                let val_str = ss
+                    .get_cell(&cell_key)
+                    .and_then(|c| c.value.as_str_coerced().ok())
+                    .unwrap_or_else(|| row.value.clone());
+                let clean = val_str.trim().trim_matches('"').trim().to_string();
+                if !clean.is_empty() && !clean.starts_with('#') {
+                    let lbl = if row.label.trim().is_empty() {
+                        row.name.clone()
+                    } else {
+                        row.label.clone()
+                    };
+                    return Some((lbl, clean));
+                }
+            }
+        }
+        for candidate in [format!("Prop.{bare}"), format!("Prop.{sanitized}")] {
+            if let Some(cell) = ss.get_cell(&candidate) {
+                if let Ok(raw_s) = cell.value.as_str_coerced() {
+                    let clean = raw_s.trim().trim_matches('"').trim().to_string();
+                    if !clean.is_empty() && !clean.starts_with('#') {
+                        return Some((bare.to_string(), clean));
+                    }
+                }
+            }
+        }
+        None
+    };
+
+    read_from(sheet).or_else(|| master_sheet.and_then(read_from))
+}
+
+/// Extract a numeric scalar from a formatted Shape Data string (e.g. `"85%"`, `"$1,250.50"`, `"42"`).
+pub fn parse_prop_numeric_value(val_str: &str) -> Option<f64> {
+    let mut cleaned = String::with_capacity(val_str.len());
+    for ch in val_str.trim().chars() {
+        if ch.is_ascii_digit() || ch == '.' || ch == '-' || ch == '+' || ch == 'e' || ch == 'E' {
+            cleaned.push(ch);
+        } else if ch == ',' || ch == '$' || ch == '€' || ch == '£' || ch == '%' || ch == ' ' {
+            continue;
+        } else {
+            return None;
+        }
+    }
+    if cleaned.is_empty() || cleaned == "-" || cleaned == "+" || cleaned == "." {
+        return None;
+    }
+    cleaned.parse::<f64>().ok().filter(|v| v.is_finite())
+}
+
+/// Deterministic semantic + categorical color resolver for Color-by-Value and Page Legends.
+pub fn resolve_categorical_data_color(
+    val_str: &str,
+    custom_palette: Option<&BTreeMap<String, RgbaColor>>,
+) -> RgbaColor {
+    let clean = val_str.trim().trim_matches('"').trim();
+    if let Some(pal) = custom_palette {
+        if let Some(&exact) = pal.get(clean) {
+            return exact;
+        }
+        if let Some((_, &ci)) = pal.iter().find(|(k, _)| k.eq_ignore_ascii_case(clean)) {
+            return ci;
+        }
+    }
+    let lower = clean.to_ascii_lowercase();
+    match lower.as_str() {
+        "healthy" | "ok" | "active" | "online" | "up" | "running" | "pass" | "passed"
+        | "completed" | "complete" | "done" | "approved" | "green" | "normal" | "low" => {
+            RgbaColor {
+                r: 220,
+                g: 252,
+                b: 231,
+                a: 255,
+            }
+        }
+        "warning" | "warn" | "degraded" | "pending" | "in progress" | "in-progress"
+        | "review" | "at risk" | "amber" | "yellow" | "medium" | "standby" => RgbaColor {
+            r: 254,
+            g: 243,
+            b: 199,
+            a: 255,
+        },
+        "critical" | "crit" | "error" | "err" | "failed" | "fail" | "down" | "offline"
+        | "blocked" | "rejected" | "red" | "high" | "overdue" | "alert" => RgbaColor {
+            r: 254,
+            g: 226,
+            b: 226,
+            a: 255,
+        },
+        "info" | "planned" | "queued" | "draft" | "new" | "blue" => RgbaColor {
+            r: 219,
+            g: 234,
+            b: 254,
+            a: 255,
+        },
+        _ => {
+            const CATEGORICAL_PASTELS: [RgbaColor; 8] = [
+                RgbaColor { r: 219, g: 234, b: 254, a: 255 }, // Sky
+                RgbaColor { r: 224, g: 231, b: 255, a: 255 }, // Indigo
+                RgbaColor { r: 243, g: 232, b: 255, a: 255 }, // Violet
+                RgbaColor { r: 252, g: 231, b: 243, a: 255 }, // Pink
+                RgbaColor { r: 204, g: 251, b: 241, a: 255 }, // Teal
+                RgbaColor { r: 254, g: 249, b: 195, a: 255 }, // Warm Yellow
+                RgbaColor { r: 255, g: 237, b: 213, a: 255 }, // Soft Orange
+                RgbaColor { r: 226, g: 232, b: 240, a: 255 }, // Cool Slate
+            ];
+            let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+            for b in lower.bytes() {
+                hash ^= b as u64;
+                hash = hash.wrapping_mul(0x0100_0000_01b3);
+            }
+            CATEGORICAL_PASTELS[(hash as usize) % CATEGORICAL_PASTELS.len()]
+        }
+    }
+}
+
+/// Resolve semantic `DataGraphicIconKind` and badge color for numeric thresholds or status strings.
+pub fn resolve_icon_badge_kind(
+    val_str: &str,
+    green_min: f64,
+    amber_min: f64,
+) -> (DataGraphicIconKind, RgbaColor) {
+    if let Some(num) = parse_prop_numeric_value(val_str) {
+        if num >= green_min {
+            return (
+                DataGraphicIconKind::CheckOk,
+                RgbaColor { r: 22, g: 163, b: 74, a: 255 },
+            );
+        } else if num >= amber_min {
+            return (
+                DataGraphicIconKind::WarnTriangle,
+                RgbaColor { r: 217, g: 119, b: 6, a: 255 },
+            );
+        } else {
+            return (
+                DataGraphicIconKind::ErrorCross,
+                RgbaColor { r: 220, g: 38, b: 38, a: 255 },
+            );
+        }
+    }
+    match val_str.trim().to_ascii_lowercase().as_str() {
+        "healthy" | "ok" | "active" | "online" | "up" | "running" | "pass" | "passed"
+        | "completed" | "complete" | "done" | "approved" | "yes" | "true" | "green" => (
+            DataGraphicIconKind::CheckOk,
+            RgbaColor { r: 22, g: 163, b: 74, a: 255 },
+        ),
+        "warning" | "warn" | "degraded" | "pending" | "in progress" | "in-progress"
+        | "review" | "at risk" | "amber" | "yellow" | "medium" | "standby" => (
+            DataGraphicIconKind::WarnTriangle,
+            RgbaColor { r: 217, g: 119, b: 6, a: 255 },
+        ),
+        "critical" | "crit" | "error" | "err" | "failed" | "fail" | "down" | "offline"
+        | "blocked" | "rejected" | "no" | "false" | "red" | "overdue" | "alert" => (
+            DataGraphicIconKind::ErrorCross,
+            RgbaColor { r: 220, g: 38, b: 38, a: 255 },
+        ),
+        _ => (
+            DataGraphicIconKind::InfoCircle,
+            RgbaColor { r: 37, g: 99, b: 235, a: 255 },
+        ),
+    }
+}
+
+fn is_structural_non_data_shape(shape: &VisioShape) -> bool {
+    if !matches!(
+        shape.kind,
+        ShapeKind::Shape2D | ShapeKind::Group | ShapeKind::ForeignObject
+    ) {
+        return true;
+    }
+    if shape.name_u == "Legend" || shape.name_u.starts_with("Legend.") {
+        return true;
+    }
+    if shape.sheet.get_f64("User.visSwimlane").unwrap_or(0.0) > 0.5 {
+        return true;
+    }
+    if shape.sheet.get_bool("User.vexioDataGraphicDisabled").unwrap_or(false) {
+        return true;
+    }
+    if let Some(st) = shape.sheet.get_str("User.msvStructureType") {
+        let clean = st.trim().trim_matches('"');
+        if clean.eq_ignore_ascii_case("Container")
+            || clean.eq_ignore_ascii_case("List")
+            || clean.eq_ignore_ascii_case("Callout")
+            || clean.eq_ignore_ascii_case("Legend")
+        {
+            return true;
+        }
+    }
+    false
+}
+
+#[allow(clippy::too_many_arguments)]
+fn evaluate_shape_data_graphics_overlay(
+    page: &VisioPage,
+    shape: &VisioShape,
+    master_shape: Option<&VisioShape>,
+    has_parent: bool,
+    base_min: [f64; 2],
+    base_max: [f64; 2],
+    effective_text: &str,
+    txt_py: f64,
+    txt_height: Option<f64>,
+    aabb_min: &mut [f64; 2],
+    aabb_max: &mut [f64; 2],
+) -> Option<EvaluatedDataGraphicOverlay> {
+    if has_parent || is_structural_non_data_shape(shape) {
+        return None;
+    }
+    let cfg: &PageDataGraphicConfig = page.data_graphic_config.as_ref().filter(|c| c.enabled)?;
+    if !base_min[0].is_finite() || !base_max[0].is_finite() {
+        return None;
+    }
+
+    let ms_sheet = master_shape.map(|m| &m.sheet);
+    let bw = (base_max[0] - base_min[0]).abs().max(0.35);
+    let bh = (base_max[1] - base_min[1]).abs().max(0.28);
+    let cx = 0.5 * (base_min[0] + base_max[0]);
+
+    let mut overlay = EvaluatedDataGraphicOverlay::default();
+    let mut any = false;
+
+    // 1. Color by Value
+    if cfg.color_by_value_enabled && !cfg.color_by_value_field.trim().is_empty() {
+        if let Some((_, val_str)) =
+            resolve_shape_prop_cell(&shape.sheet, ms_sheet, &cfg.color_by_value_field)
+        {
+            let palette_opt = if cfg.color_palette.is_empty() {
+                None
+            } else {
+                Some(&cfg.color_palette)
+            };
+            overlay.color_by_value_applied =
+                Some(resolve_categorical_data_color(&val_str, palette_opt));
+            any = true;
+        }
+    }
+
+    // 2. Icon Set Badge (Top-Right Shoulder)
+    if !cfg.icon_set_field.trim().is_empty() {
+        if let Some((lbl, val_str)) =
+            resolve_shape_prop_cell(&shape.sheet, ms_sheet, &cfg.icon_set_field)
+        {
+            let (kind, fill_color) =
+                resolve_icon_badge_kind(&val_str, cfg.icon_green_min, cfg.icon_amber_min);
+            let radius_in = (bw.min(bh) * 0.17).clamp(0.085, 0.13);
+            let bx = base_max[0] - radius_in * 0.30;
+            let by = base_max[1] - radius_in * 0.30;
+            aabb_min[0] = aabb_min[0].min(bx - radius_in - 0.02);
+            aabb_min[1] = aabb_min[1].min(by - radius_in - 0.02);
+            aabb_max[0] = aabb_max[0].max(bx + radius_in + 0.02);
+            aabb_max[1] = aabb_max[1].max(by + radius_in + 0.02);
+            overlay.icon_badge = Some(EvaluatedIconBadge {
+                kind,
+                center_page_in: [bx, by],
+                radius_in,
+                fill_color,
+                tooltip: format!("{lbl}: {val_str}"),
+            });
+            any = true;
+        }
+    }
+
+    // 3. Data Bar (Below Bottom Edge, clearing any external caption below stencil icons)
+    if !cfg.data_bar_field.trim().is_empty() {
+        if let Some((_, val_str)) =
+            resolve_shape_prop_cell(&shape.sheet, ms_sheet, &cfg.data_bar_field)
+        {
+            if let Some(num) = parse_prop_numeric_value(&val_str) {
+                let span = (cfg.data_bar_max - cfg.data_bar_min).abs().max(1e-9);
+                let ratio = ((num - cfg.data_bar_min) / span).clamp(0.0, 1.0);
+                let bar_w = (bw * 0.92).clamp(0.60, 2.40);
+                let bar_h = 0.135;
+                let below_anchor_y = if !effective_text.trim().is_empty() && txt_py.is_finite() {
+                    base_min[1].min(txt_py - txt_height.unwrap_or(0.26) * 0.5)
+                } else {
+                    base_min[1]
+                };
+                let y_top = below_anchor_y - 0.04;
+                let y_bot = y_top - bar_h;
+                let x0 = cx - bar_w * 0.5;
+                let x1 = cx + bar_w * 0.5;
+                aabb_min[0] = aabb_min[0].min(x0 - 0.02);
+                aabb_min[1] = aabb_min[1].min(y_bot - 0.02);
+                aabb_max[0] = aabb_max[0].max(x1 + 0.02);
+                aabb_max[1] = aabb_max[1].max(y_top + 0.02);
+                let value_label = if val_str.contains('%')
+                    || ((cfg.data_bar_min - 0.0).abs() < 1e-6
+                        && (cfg.data_bar_max - 100.0).abs() < 1e-6)
+                {
+                    format!("{}%", format_clean_f64((num * 10.0).round() / 10.0))
+                } else {
+                    format_clean_f64((num * 100.0).round() / 100.0)
+                };
+                overlay.data_bar = Some(EvaluatedDataBar {
+                    rect_min_in: [x0, y_bot],
+                    rect_max_in: [x1, y_top],
+                    ratio,
+                    bar_color: cfg.data_bar_color,
+                    value_label,
+                });
+                any = true;
+            }
+        }
+    }
+
+    // 4. Text Callout Pill (Above Top Edge)
+    if !cfg.text_callout_field.trim().is_empty() {
+        if let Some((lbl, val_str)) =
+            resolve_shape_prop_cell(&shape.sheet, ms_sheet, &cfg.text_callout_field)
+        {
+            let text = if cfg.text_callout_prefix.is_empty() {
+                format!("{lbl}: {val_str}")
+            } else {
+                format!("{}{val_str}", cfg.text_callout_prefix)
+            };
+            let est_w = (0.18 + (text.chars().count() as f64) * 0.064)
+                .clamp(0.76, (bw * 1.55).max(1.90));
+            let pill_h = 0.19;
+            let top_clear = if overlay.icon_badge.is_some() {
+                0.085
+            } else {
+                0.045
+            };
+            let y_bot = base_max[1] + top_clear;
+            let y_top = y_bot + pill_h;
+            let x0 = cx - est_w * 0.5;
+            let x1 = cx + est_w * 0.5;
+            aabb_min[0] = aabb_min[0].min(x0 - 0.02);
+            aabb_min[1] = aabb_min[1].min(y_bot - 0.02);
+            aabb_max[0] = aabb_max[0].max(x1 + 0.02);
+            aabb_max[1] = aabb_max[1].max(y_top + 0.02);
+            let accent = resolve_categorical_data_color(&val_str, None);
+            overlay.text_callout = Some(EvaluatedTextCallout {
+                rect_min_in: [x0, y_bot],
+                rect_max_in: [x1, y_top],
+                text,
+                bg_color: RgbaColor {
+                    r: 248,
+                    g: 250,
+                    b: 252,
+                    a: 248,
+                },
+                border_color: RgbaColor {
+                    r: 148,
+                    g: 163,
+                    b: 184,
+                    a: 255,
+                },
+                text_color: RgbaColor {
+                    r: 15,
+                    g: 23,
+                    b: 42,
+                    a: 255,
+                },
+                accent_color: accent,
+            });
+            any = true;
+        }
+    }
+
+    if any { Some(overlay) } else { None }
+}
+
+fn refresh_live_page_legends(doc: &mut VisioDocument) -> bool {
+    let mut updated_any = false;
+    for p_idx in 0..doc.pages.len() {
+        let legend_specs: Vec<(usize, String)> = doc.pages[p_idx]
+            .shapes
+            .iter()
+            .enumerate()
+            .filter_map(|(s_idx, sh)| {
+                let st = sh.sheet.get_str("User.msvStructureType")?;
+                if !st.trim().trim_matches('"').eq_ignore_ascii_case("Legend") {
+                    return None;
+                }
+                let prop = sh
+                    .sheet
+                    .get_str("User.vexioLegendProp")
+                    .map(|s| s.trim().trim_matches('"').trim().to_string())
+                    .filter(|s| !s.is_empty())?;
+                Some((s_idx, prop))
+            })
+            .collect();
+
+        if legend_specs.is_empty() {
+            continue;
+        }
+
+        for (legend_idx, prop_name) in legend_specs {
+            let mut counts: BTreeMap<String, usize> = BTreeMap::new();
+            let mut resolved_label = prop_name
+                .strip_prefix("Prop.")
+                .or_else(|| prop_name.strip_prefix("prop."))
+                .unwrap_or(&prop_name)
+                .to_string();
+
+            for (idx, sh) in doc.pages[p_idx].shapes.iter().enumerate() {
+                if idx == legend_idx || is_structural_non_data_shape(sh) {
+                    continue;
+                }
+                let ms_sheet = sh.master_id.and_then(|mid| {
+                    doc.masters
+                        .iter()
+                        .find(|m| m.id == mid)
+                        .and_then(|m| m.shapes.first())
+                        .map(|ms| &ms.sheet)
+                });
+                if let Some((lbl, val)) = resolve_shape_prop_cell(&sh.sheet, ms_sheet, &prop_name) {
+                    if !lbl.is_empty() {
+                        resolved_label = lbl;
+                    }
+                    *counts.entry(val).or_insert(0) += 1;
+                }
+            }
+
+            let palette_clone = doc.pages[p_idx]
+                .data_graphic_config
+                .as_ref()
+                .map(|c| c.color_palette.clone())
+                .filter(|m| !m.is_empty());
+
+            let next_child_base = doc.pages[p_idx].next_shape_id() + 50_000 + (legend_idx as u64 * 64);
+            let legend = &mut doc.pages[p_idx].shapes[legend_idx];
+            let row_count = counts.len().max(1);
+            let h = (0.44 + 0.24 * (row_count as f64)).max(0.76);
+            let w = legend.sheet.get_f64("Width").unwrap_or(2.35).max(2.15);
+
+            let mut lines = Vec::with_capacity(row_count + 1);
+            lines.push(format!("Legend — {resolved_label}"));
+            if counts.is_empty() {
+                lines.push("    (0 linked shapes)".to_string());
+            } else {
+                for (val, cnt) in &counts {
+                    lines.push(format!("    {val}: {cnt}"));
+                }
+            }
+            legend.text = lines.join("\n");
+            legend
+                .sheet
+                .set_formula("Width", format!("{} in", format_clean_f64(w)), Some(Unit::Inch));
+            legend
+                .sheet
+                .set_formula("Height", format!("{} in", format_clean_f64(h)), Some(Unit::Inch));
+            legend.sheet.set_formula(
+                "LocPinX",
+                format!("{} in", format_clean_f64(w * 0.5)),
+                Some(Unit::Inch),
+            );
+            legend.sheet.set_formula(
+                "LocPinY",
+                format!("{} in", format_clean_f64(h * 0.5)),
+                Some(Unit::Inch),
+            );
+            legend
+                .sheet
+                .set_formula("FillForegnd", "=RGB(248,250,252)", Some(Unit::Color));
+            legend
+                .sheet
+                .set_formula("LineColor", "=RGB(148,163,184)", Some(Unit::Color));
+            legend
+                .sheet
+                .set_formula("Rounding", "0.06 in", Some(Unit::Inch));
+            legend
+                .sheet
+                .set_formula("Char.Size", "9.5 pt", Some(Unit::Point));
+            legend
+                .sheet
+                .set_formula("Para.HorzAlign", "0", Some(Unit::Number));
+            legend
+                .sheet
+                .set_formula("VerticalAlign", "0", Some(Unit::Number));
+            legend
+                .sheet
+                .set_formula("TxtPinX", format!("{} in", format_clean_f64(w * 0.5)), Some(Unit::Inch));
+            legend
+                .sheet
+                .set_formula("TxtPinY", format!("{} in", format_clean_f64(h * 0.5)), Some(Unit::Inch));
+            legend
+                .sheet
+                .set_formula("TxtWidth", format!("{} in", format_clean_f64(w - 0.16)), Some(Unit::Inch));
+            legend
+                .sheet
+                .set_formula("TxtHeight", format!("{} in", format_clean_f64(h - 0.16)), Some(Unit::Inch));
+
+            // Rebuild crisp colored Visio swatches next to each category line
+            legend
+                .children
+                .retain(|c| !c.name_u.starts_with("LegendSwatch."));
+            for (idx, (val, _)) in counts.iter().enumerate() {
+                let sw_col = resolve_categorical_data_color(val, palette_clone.as_ref());
+                let sw_y = (h - 0.43 - (idx as f64) * 0.21).max(0.14);
+                let mut swatch = VisioShape::new_rect(
+                    next_child_base + (idx as u64),
+                    format!("LegendSwatch.{idx}"),
+                    0.20,
+                    sw_y,
+                    0.12,
+                    0.12,
+                );
+                swatch.sheet.set_formula(
+                    "FillForegnd",
+                    format!("=RGB({},{},{})", sw_col.r, sw_col.g, sw_col.b),
+                    Some(Unit::Color),
+                );
+                swatch
+                    .sheet
+                    .set_formula("LineColor", "=RGB(100,116,139)", Some(Unit::Color));
+                swatch
+                    .sheet
+                    .set_formula("LineWeight", "0.75 pt", Some(Unit::Point));
+                swatch
+                    .sheet
+                    .set_formula("Rounding", "0.02 in", Some(Unit::Inch));
+                legend.children.push(swatch);
+            }
+            sync_shape_tree(legend);
+            updated_any = true;
+        }
+    }
+    updated_any
 }
 
 fn quickstyle_base_color(theme: &crate::model::ThemeDef, matrix: i32, color_idx: Option<i32>) -> RgbaColor {

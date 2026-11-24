@@ -14,9 +14,9 @@ use crate::routing::route_page_connectors;
 use crate::validation::{DiagramRuleSet, ValidationIssue, validate_document};
 use thiserror::Error;
 use vexio_shapesheet::{
-    ConnectionPointRow, GeometryRow, GeometryRowKind, GeometrySection, GlueEndpoint,
-    ReactiveEngine, ShapeKind, StencilPack, Unit, UserCellRow, VisioDocument, VisioPage,
-    VisioShape, format_clean_f64,
+    ConnectionPointRow, ExternalDataRecordset, GeometryRow, GeometryRowKind, GeometrySection,
+    GlueEndpoint, ReactiveEngine, RgbaColor, ShapeKind, StencilPack, Unit, UserCellRow,
+    VisioDocument, VisioPage, VisioShape, format_clean_f64,
 };
 use vexio_vsdx::{VsdxPackageKind, read_vsdx, write_vsdx};
 
@@ -32,6 +32,8 @@ pub enum CoreError {
     Journal(#[from] JournalError),
     #[error("Automation error: {0}")]
     Automation(#[from] crate::automation::AutomationError),
+    #[error("Data Linking error: {0}")]
+    DataLink(#[from] crate::data_link::DataLinkError),
     #[error("Unsupported file extension: {0}")]
     UnsupportedExtension(String),
 }
@@ -4434,6 +4436,653 @@ impl DocumentSession {
         );
         Ok(true)
     }
+
+    // =========================================================================
+    // Pillar #4 — Live Data Graphics, Legends & Two-Way External Data Linking
+    // =========================================================================
+
+    /// Return the active page's complete Data Graphics configuration, linked External Data
+    /// recordsets, row-to-shape bindings, and discovered `Prop.*` field catalog.
+    pub fn get_page_data_link_state(&self, page_id: u32) -> PageDataLinkStateDto {
+        let resolved_pid = self
+            .doc
+            .page(page_id)
+            .map(|p| p.id)
+            .or_else(|| {
+                self.doc
+                    .pages
+                    .iter()
+                    .find(|p| !p.is_background)
+                    .or_else(|| self.doc.pages.first())
+                    .map(|p| p.id)
+            })
+            .unwrap_or(page_id);
+
+        let mut legend_visible = false;
+        let mut legend_field = String::from("Status");
+        let mut available_props = std::collections::BTreeSet::new();
+        let mut bindings_by_rs: std::collections::BTreeMap<u32, std::collections::BTreeMap<usize, Vec<u64>>> =
+            std::collections::BTreeMap::new();
+
+        let page_cfg = if let Some(page) = self.doc.page(resolved_pid) {
+            for sh in &page.shapes {
+                if sh
+                    .sheet
+                    .get_str("User.msvStructureType")
+                    .is_some_and(|s| s.trim().trim_matches('"').eq_ignore_ascii_case("Legend"))
+                {
+                    legend_visible = true;
+                    if let Some(lp) = sh.sheet.get_str("User.vexioLegendProp") {
+                        let clean = lp.trim().trim_matches('"').trim();
+                        if !clean.is_empty() {
+                            legend_field = clean.to_string();
+                        }
+                    }
+                    continue;
+                }
+                if let Some((rs_id, row_idx)) = sh.bound_data_row {
+                    bindings_by_rs
+                        .entry(rs_id)
+                        .or_default()
+                        .entry(row_idx as usize)
+                        .or_default()
+                        .push(sh.id);
+                }
+                for row in sh.sheet.shape_data.values() {
+                    if !row.invisible {
+                        available_props.insert(row.name.clone());
+                    }
+                }
+            }
+            page.data_graphic_config.clone().unwrap_or_default()
+        } else {
+            vexio_shapesheet::PageDataGraphicConfig::default()
+        };
+
+        for rs in &self.doc.data_recordsets {
+            for col in &rs.columns {
+                available_props.insert(crate::data_link::sanitize_prop_id(col));
+            }
+        }
+
+        if legend_field == "Status" && !page_cfg.color_by_value_field.trim().is_empty() {
+            legend_field = page_cfg.color_by_value_field.clone();
+        }
+
+        let recordsets = self
+            .doc
+            .data_recordsets
+            .iter()
+            .map(|rs| ExternalRecordsetDto {
+                id: rs.id,
+                name: rs.name.clone(),
+                source_kind: rs.source_kind.clone(),
+                source_name: rs.source_name.clone(),
+                key_column: rs.key_column.clone(),
+                columns: rs.columns.clone(),
+                rows: rs.rows.clone(),
+                bound_shape_ids: bindings_by_rs.remove(&rs.id).unwrap_or_default(),
+            })
+            .collect();
+
+        PageDataLinkStateDto {
+            data_graphics: DataGraphicConfigDto {
+                enabled: page_cfg.enabled,
+                icon_set_field: page_cfg.icon_set_field,
+                icon_green_min: page_cfg.icon_green_min,
+                icon_amber_min: page_cfg.icon_amber_min,
+                data_bar_field: page_cfg.data_bar_field,
+                data_bar_min: page_cfg.data_bar_min,
+                data_bar_max: page_cfg.data_bar_max,
+                data_bar_color_hex: page_cfg.data_bar_color.to_hex_rgb(),
+                text_callout_field: page_cfg.text_callout_field,
+                text_callout_prefix: page_cfg.text_callout_prefix,
+                color_by_value_enabled: page_cfg.color_by_value_enabled,
+                color_by_value_field: page_cfg.color_by_value_field,
+                legend_visible,
+                legend_field,
+            },
+            recordsets,
+            available_prop_fields: available_props.into_iter().collect(),
+        }
+    }
+
+    pub fn get_page_data_link_state_json(&self, page_id: u32) -> String {
+        serde_json::to_string(&self.get_page_data_link_state(page_id))
+            .unwrap_or_else(|_| "{}".into())
+    }
+
+    /// Configure live Data Graphics (`Icon Sets`, `Data Bars`, `Text Callouts`, `Color by Value`)
+    /// and optional Page Legend on `page_id` inside an undoable transaction.
+    pub fn set_page_data_graphics(
+        &mut self,
+        page_id: u32,
+        dto: DataGraphicConfigDto,
+    ) -> Result<usize, CoreError> {
+        if self.doc.page(page_id).is_none() {
+            return Ok(0);
+        }
+        let bar_color = RgbaColor::from_hex(&dto.data_bar_color_hex).unwrap_or(RgbaColor {
+            r: 37,
+            g: 99,
+            b: 235,
+            a: 255,
+        });
+        let existing_palette = self
+            .doc
+            .page(page_id)
+            .and_then(|p| p.data_graphic_config.as_ref())
+            .map(|c| c.color_palette.clone())
+            .unwrap_or_default();
+
+        let new_cfg = vexio_shapesheet::PageDataGraphicConfig {
+            enabled: dto.enabled,
+            icon_set_field: dto.icon_set_field.trim().to_string(),
+            icon_green_min: if dto.icon_green_min.is_finite() {
+                dto.icon_green_min
+            } else {
+                75.0
+            },
+            icon_amber_min: if dto.icon_amber_min.is_finite() {
+                dto.icon_amber_min
+            } else {
+                40.0
+            },
+            data_bar_field: dto.data_bar_field.trim().to_string(),
+            data_bar_min: if dto.data_bar_min.is_finite() {
+                dto.data_bar_min
+            } else {
+                0.0
+            },
+            data_bar_max: if dto.data_bar_max.is_finite() && dto.data_bar_max > dto.data_bar_min {
+                dto.data_bar_max
+            } else {
+                100.0
+            },
+            data_bar_color: bar_color,
+            text_callout_field: dto.text_callout_field.trim().to_string(),
+            text_callout_prefix: dto.text_callout_prefix.clone(),
+            color_by_value_enabled: dto.color_by_value_enabled,
+            color_by_value_field: if dto.color_by_value_field.trim().is_empty() {
+                dto.icon_set_field.trim().to_string()
+            } else {
+                dto.color_by_value_field.trim().to_string()
+            },
+            color_palette: existing_palette,
+        };
+
+        let legend_prop = if !dto.legend_field.trim().is_empty() {
+            dto.legend_field.trim().to_string()
+        } else if !new_cfg.color_by_value_field.is_empty() {
+            new_cfg.color_by_value_field.clone()
+        } else if !new_cfg.icon_set_field.is_empty() {
+            new_cfg.icon_set_field.clone()
+        } else {
+            "Status".to_string()
+        };
+        let want_legend = dto.legend_visible;
+
+        let _ = self.journal.record_mutation(
+            &mut self.doc,
+            "Configure Data Graphics",
+            |doc| {
+                let (pw, ph) = doc
+                    .page(page_id)
+                    .map(|p| (p.width_in(), p.height_in()))
+                    .unwrap_or((11.0, 8.5));
+                if let Some(p) = doc.page_mut(page_id) {
+                    p.data_graphic_config = Some(new_cfg.clone());
+                    if !want_legend {
+                        p.shapes.retain(|sh| {
+                            !sh.sheet
+                                .get_str("User.msvStructureType")
+                                .is_some_and(|s| s.trim().trim_matches('"').eq_ignore_ascii_case("Legend"))
+                        });
+                    }
+                }
+                if want_legend {
+                    let _ = crate::data_link::insert_page_legend(
+                        doc,
+                        page_id,
+                        &legend_prop,
+                        (pw - 1.45).max(1.5),
+                        (ph - 1.20).max(1.2),
+                    );
+                } else {
+                    ReactiveEngine::recalculate_document(doc);
+                }
+            },
+        );
+
+        let visuals = ReactiveEngine::evaluate_page_visuals(&self.doc, page_id);
+        Ok(visuals.iter().filter(|v| v.data_graphics.is_some()).count())
+    }
+
+    pub fn set_page_data_graphics_json(
+        &mut self,
+        page_id: u32,
+        config_json: &str,
+    ) -> Result<usize, CoreError> {
+        let dto: DataGraphicConfigDto = serde_json::from_str(config_json)
+            .map_err(|e| CoreError::DataLink(crate::data_link::DataLinkError::Json(e)))?;
+        self.set_page_data_graphics(page_id, dto)
+    }
+
+    /// Import an External Data Recordset (`.xlsx`, `.csv`, `.sqlite`/`.db`, `.json`), store it in
+    /// `doc.data_recordsets`, optionally auto-bind matching shapes on `page_id`, and optionally
+    /// enable live Data Graphics. Returns `(recordset_id, bound_shape_count)`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn import_external_recordset(
+        &mut self,
+        page_id: u32,
+        file_name: &str,
+        bytes: &[u8],
+        key_col_hint: &str,
+        table_hint: &str,
+        auto_bind: bool,
+        auto_enable_graphics: bool,
+    ) -> Result<(u32, usize), CoreError> {
+        let clean_title = clean_stencil_stem(if file_name.trim().is_empty() {
+            "External Data"
+        } else {
+            file_name
+        });
+        let next_id = self
+            .doc
+            .data_recordsets
+            .iter()
+            .find(|r| r.source_name.eq_ignore_ascii_case(file_name) && !file_name.is_empty())
+            .map(|r| r.id)
+            .unwrap_or_else(|| {
+                self.doc
+                    .data_recordsets
+                    .iter()
+                    .map(|r| r.id)
+                    .max()
+                    .unwrap_or(0)
+                    + 1
+            });
+
+        let (parsed_rs, source_kind) = crate::data_link::DataRecordset::from_auto_bytes(
+            next_id,
+            clean_title,
+            file_name,
+            bytes,
+            key_col_hint,
+            table_hint,
+        )?;
+        let ext_rs = parsed_rs.to_external(source_kind, file_name);
+        let inferred_cfg = crate::data_link::infer_data_graphic_config_from_recordset(&parsed_rs);
+
+        let mut linked = 0usize;
+        let _ = self.journal.record_mutation(
+            &mut self.doc,
+            format!("Import External Data '{}'", ext_rs.name),
+            |doc| {
+                if let Some(existing) = doc.data_recordsets.iter_mut().find(|r| r.id == next_id) {
+                    *existing = ext_rs.clone();
+                } else {
+                    doc.data_recordsets.push(ext_rs.clone());
+                }
+                if auto_bind {
+                    linked = crate::data_link::refresh_recordset_bindings_on_page(
+                        doc, page_id, &parsed_rs,
+                    );
+                }
+                if auto_enable_graphics {
+                    if let Some(p) = doc.page_mut(page_id) {
+                        let needs_seed = p
+                            .data_graphic_config
+                            .as_ref()
+                            .is_none_or(|c| !c.enabled);
+                        if needs_seed {
+                            p.data_graphic_config = Some(inferred_cfg.clone());
+                        }
+                    }
+                }
+                ReactiveEngine::recalculate_document(doc);
+            },
+        );
+
+        Ok((next_id, linked))
+    }
+
+    /// Bind a specific row from `recordset_id` onto `shape_ids` on `page_id` (or stamp a new
+    /// data-bound shape onto the page when `shape_ids` is empty, matching Visio row drag-to-canvas!).
+    pub fn bind_external_row_to_shapes(
+        &mut self,
+        page_id: u32,
+        recordset_id: u32,
+        row_index: usize,
+        shape_ids: &[u64],
+    ) -> Result<usize, CoreError> {
+        let Some(ext_rs) = self
+            .doc
+            .data_recordsets
+            .iter()
+            .find(|r| r.id == recordset_id)
+            .cloned()
+        else {
+            return Ok(0);
+        };
+        let rs = crate::data_link::DataRecordset::from_external(&ext_rs);
+        let Some(row_map) = rs.rows.get(row_index).cloned() else {
+            return Ok(0);
+        };
+
+        let mut bound = 0usize;
+        let targets: Vec<u64> = shape_ids.iter().copied().filter(|&id| id > 0).collect();
+        let _ = self.journal.record_mutation(
+            &mut self.doc,
+            format!("Bind Row #{} from '{}'", row_index + 1, rs.name),
+            |doc| {
+                if targets.is_empty() {
+                    if let Some(page) = doc.page_mut(page_id) {
+                        let new_id = page.next_shape_id();
+                        let label = row_map
+                            .get(&rs.key_column)
+                            .cloned()
+                            .filter(|s| !s.trim().is_empty())
+                            .unwrap_or_else(|| format!("Row {}", row_index + 1));
+                        let offset = (row_index % 6) as f64 * 0.35;
+                        let mut sh = VisioShape::new_rect(
+                            new_id,
+                            format!("DataShape.{new_id}"),
+                            3.0 + offset,
+                            5.2 - offset * 0.6,
+                            1.85,
+                            0.95,
+                        );
+                        sh.text = label;
+                        sh.sheet
+                            .set_formula("Rounding", "0.08 in", Some(Unit::Inch));
+                        sh.sheet
+                            .set_formula("FillForegnd", "=RGB(239,246,255)", Some(Unit::Color));
+                        sh.sheet
+                            .set_formula("LineColor", "=RGB(37,99,235)", Some(Unit::Color));
+                        page.shapes.push(sh);
+                        bound = crate::data_link::bind_recordset_row_to_shapes(
+                            doc,
+                            page_id,
+                            &rs,
+                            row_index,
+                            &[new_id],
+                        );
+                    }
+                } else {
+                    bound = crate::data_link::bind_recordset_row_to_shapes(
+                        doc, page_id, &rs, row_index, &targets,
+                    );
+                }
+            },
+        );
+        Ok(bound)
+    }
+
+    /// Re-bind / refresh one (`recordset_id > 0`) or all (`recordset_id == 0`) External Data
+    /// recordsets on `page_id`, optionally ingesting updated file bytes from disk.
+    pub fn refresh_external_recordset(
+        &mut self,
+        page_id: u32,
+        recordset_id: u32,
+        new_bytes: Option<&[u8]>,
+        format_hint: &str,
+    ) -> Result<usize, CoreError> {
+        let mut updated_rs_opt: Option<(u32, ExternalDataRecordset, crate::data_link::DataRecordset)> =
+            None;
+        if let Some(bytes) = new_bytes.filter(|b| !b.is_empty()) {
+            let existing = self
+                .doc
+                .data_recordsets
+                .iter()
+                .find(|r| recordset_id == 0 || r.id == recordset_id)
+                .cloned();
+            if let Some(ex) = existing {
+                let eff_hint = if format_hint.trim().is_empty() {
+                    if !ex.source_name.is_empty() {
+                        ex.source_name.as_str()
+                    } else {
+                        ex.source_kind.as_str()
+                    }
+                } else {
+                    format_hint
+                };
+                let (parsed, kind) = crate::data_link::DataRecordset::from_auto_bytes(
+                    ex.id,
+                    &ex.name,
+                    eff_hint,
+                    bytes,
+                    &ex.key_column,
+                    "",
+                )?;
+                let ext = parsed.to_external(kind, &ex.source_name);
+                updated_rs_opt = Some((ex.id, ext, parsed));
+            }
+        }
+
+        let mut total_refreshed = 0usize;
+        let _ = self.journal.record_mutation(
+            &mut self.doc,
+            "Refresh External Data",
+            |doc| {
+                if let Some((id, ext_rs, parsed)) = &updated_rs_opt {
+                    if let Some(slot) = doc.data_recordsets.iter_mut().find(|r| r.id == *id) {
+                        *slot = ext_rs.clone();
+                    }
+                    total_refreshed +=
+                        crate::data_link::refresh_recordset_bindings_on_page(doc, page_id, parsed);
+                } else {
+                    let snapshots: Vec<crate::data_link::DataRecordset> = doc
+                        .data_recordsets
+                        .iter()
+                        .filter(|r| recordset_id == 0 || r.id == recordset_id)
+                        .map(crate::data_link::DataRecordset::from_external)
+                        .collect();
+                    for rs in &snapshots {
+                        total_refreshed +=
+                            crate::data_link::refresh_recordset_bindings_on_page(doc, page_id, rs);
+                    }
+                }
+                ReactiveEngine::recalculate_document(doc);
+            },
+        );
+        Ok(total_refreshed)
+    }
+
+    /// Push edited `Prop.*` Shape Data values from shapes across all pages back into `recordset_id`
+    /// (two-way writeback) and serialize the updated recordset to `.xlsx`, `.csv`, `.sqlite`, or `.json`.
+    pub fn sync_and_export_recordset(
+        &mut self,
+        _page_id: u32,
+        recordset_id: u32,
+        format_ext: &str,
+    ) -> Result<Vec<u8>, CoreError> {
+        let target_idx = if recordset_id == 0 {
+            if self.doc.data_recordsets.is_empty() {
+                None
+            } else {
+                Some(0)
+            }
+        } else {
+            self.doc
+                .data_recordsets
+                .iter()
+                .position(|r| r.id == recordset_id)
+        };
+
+        let Some(idx) = target_idx else {
+            // If no external recordset was imported yet, export the full document BOM Shape Report in the requested format!
+            return self.export_bom_report_bytes(format_ext);
+        };
+
+        let mut working_rs =
+            crate::data_link::DataRecordset::from_external(&self.doc.data_recordsets[idx]);
+        let page_ids: Vec<u32> = self.doc.pages.iter().map(|p| p.id).collect();
+        let mut changed_cells = 0usize;
+        for pid in page_ids {
+            changed_cells +=
+                crate::data_link::sync_shapes_back_to_recordset(&self.doc, pid, &mut working_rs);
+        }
+
+        if changed_cells > 0 {
+            let updated_rows = working_rs.rows.clone();
+            let rs_id = working_rs.id;
+            let _ = self.journal.record_mutation(
+                &mut self.doc,
+                "Two-Way Data Writeback",
+                |doc| {
+                    if let Some(slot) = doc.data_recordsets.iter_mut().find(|r| r.id == rs_id) {
+                        slot.rows = updated_rows.clone();
+                    }
+                },
+            );
+        }
+
+        let eff_fmt = if format_ext.trim().is_empty() {
+            let sk = self.doc.data_recordsets[idx].source_kind.as_str();
+            if sk.is_empty() { "xlsx" } else { sk }
+        } else {
+            format_ext
+        };
+        Ok(working_rs.export_bytes(eff_fmt, &working_rs.name)?)
+    }
+
+    pub fn delete_external_recordset(&mut self, recordset_id: u32) -> Result<bool, CoreError> {
+        if !self.doc.data_recordsets.iter().any(|r| r.id == recordset_id) {
+            return Ok(false);
+        }
+        let _ = self.journal.record_mutation(
+            &mut self.doc,
+            format!("Remove External Recordset #{recordset_id}"),
+            |doc| {
+                doc.data_recordsets.retain(|r| r.id != recordset_id);
+                for p in &mut doc.pages {
+                    for sh in &mut p.shapes {
+                        if sh.bound_data_row.is_some_and(|(id, _)| id == recordset_id) {
+                            sh.bound_data_row = None;
+                        }
+                    }
+                }
+            },
+        );
+        Ok(true)
+    }
+
+    /// Insert (or update existing) live Diagram Legend on `page_id` summarizing `prop_name` categories & color swatches.
+    pub fn insert_or_update_data_legend(
+        &mut self,
+        page_id: u32,
+        prop_name: &str,
+        pin_x: Option<f64>,
+        pin_y: Option<f64>,
+    ) -> Result<u64, CoreError> {
+        let Some(page_ref) = self.doc.page(page_id) else {
+            return Ok(0);
+        };
+        let (pw, ph) = (page_ref.width_in(), page_ref.height_in());
+        let resolved_prop = if !prop_name.trim().is_empty() {
+            prop_name.trim().to_string()
+        } else if let Some(cfg) = &page_ref.data_graphic_config {
+            if !cfg.color_by_value_field.trim().is_empty() {
+                cfg.color_by_value_field.clone()
+            } else if !cfg.icon_set_field.trim().is_empty() {
+                cfg.icon_set_field.clone()
+            } else {
+                "Status".to_string()
+            }
+        } else {
+            "Status".to_string()
+        };
+        let px = pin_x
+            .filter(|v| v.is_finite() && *v > 0.0)
+            .unwrap_or_else(|| (pw - 1.45).max(1.5));
+        let py = pin_y
+            .filter(|v| v.is_finite() && *v > 0.0)
+            .unwrap_or_else(|| (ph - 1.20).max(1.2));
+
+        let mut lid = 0u64;
+        let _ = self.journal.record_mutation(
+            &mut self.doc,
+            format!("Insert Legend ({resolved_prop})"),
+            |doc| {
+                lid = crate::data_link::insert_page_legend(doc, page_id, &resolved_prop, px, py)
+                    .unwrap_or(0);
+            },
+        );
+        Ok(lid)
+    }
+
+    /// Export a complete BOM / Inventory Shape Report across all foreground pages in `.xlsx`, `.csv`, `.json`, or `.sqlite`.
+    pub fn export_bom_report_bytes(&self, format_ext: &str) -> Result<Vec<u8>, CoreError> {
+        let report = crate::data_link::generate_bom_shape_report(&self.doc, &[]);
+        Ok(report.export_bytes(format_ext, "bom_shape_report")?)
+    }
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DataGraphicConfigDto {
+    pub enabled: bool,
+    #[serde(default)]
+    pub icon_set_field: String,
+    #[serde(default = "default_dto_green_min")]
+    pub icon_green_min: f64,
+    #[serde(default = "default_dto_amber_min")]
+    pub icon_amber_min: f64,
+    #[serde(default)]
+    pub data_bar_field: String,
+    #[serde(default)]
+    pub data_bar_min: f64,
+    #[serde(default = "default_dto_bar_max")]
+    pub data_bar_max: f64,
+    #[serde(default = "default_dto_bar_color_hex")]
+    pub data_bar_color_hex: String,
+    #[serde(default)]
+    pub text_callout_field: String,
+    #[serde(default)]
+    pub text_callout_prefix: String,
+    #[serde(default)]
+    pub color_by_value_enabled: bool,
+    #[serde(default)]
+    pub color_by_value_field: String,
+    #[serde(default)]
+    pub legend_visible: bool,
+    #[serde(default)]
+    pub legend_field: String,
+}
+
+fn default_dto_green_min() -> f64 {
+    75.0
+}
+fn default_dto_amber_min() -> f64 {
+    40.0
+}
+fn default_dto_bar_max() -> f64 {
+    100.0
+}
+fn default_dto_bar_color_hex() -> String {
+    "#2563eb".into()
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExternalRecordsetDto {
+    pub id: u32,
+    pub name: String,
+    pub source_kind: String,
+    pub source_name: String,
+    pub key_column: String,
+    pub columns: Vec<String>,
+    pub rows: Vec<std::collections::BTreeMap<String, String>>,
+    pub bound_shape_ids: std::collections::BTreeMap<usize, Vec<u64>>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PageDataLinkStateDto {
+    pub data_graphics: DataGraphicConfigDto,
+    pub recordsets: Vec<ExternalRecordsetDto>,
+    pub available_prop_fields: Vec<String>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

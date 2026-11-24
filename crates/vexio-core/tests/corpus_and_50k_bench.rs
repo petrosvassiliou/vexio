@@ -94,6 +94,7 @@ fn make_bench_visual(id: u64, x_in: f64, y_in: f64) -> EvaluatedShapeVisual {
         connection_points: Vec::new(),
         control_handles: Vec::new(),
         is_swimlane: false,
+        data_graphics: None,
     }
 }
 

@@ -2411,3 +2411,324 @@ pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeSetShapeLay
     }))
     .unwrap_or(JNI_FALSE)
 }
+
+// ============================================================================
+// Pillar #4 JNI: Live Data Graphics, Legends & Two-Way External Data Linking
+// ============================================================================
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeGetDataLinkStateJson<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    doc_ptr: jlong,
+    page_id: jint,
+) -> jni::sys::jstring {
+    catch_unwind(AssertUnwindSafe(|| {
+        if doc_ptr == 0 || page_id <= 0 {
+            return std::ptr::null_mut();
+        }
+        // SAFETY: `doc_ptr` verified non-zero handle.
+        let doc = unsafe { &*(doc_ptr as *const VexioDoc) };
+        let json = doc.session.get_page_data_link_state_json(page_id as u32);
+        env.new_string(json)
+            .map(|s| s.into_raw())
+            .unwrap_or(std::ptr::null_mut())
+    }))
+    .unwrap_or(std::ptr::null_mut())
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeSetPageDataGraphicsJson<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    doc_ptr: jlong,
+    page_id: jint,
+    config_json: JString<'local>,
+) -> jint {
+    catch_unwind(AssertUnwindSafe(|| {
+        if doc_ptr == 0 || page_id <= 0 || config_json.is_null() {
+            return -1;
+        }
+        let Ok(cfg_str) = env.get_string(&config_json).map(String::from) else {
+            return -1;
+        };
+        // SAFETY: `doc_ptr` verified non-zero handle.
+        let doc = unsafe { &mut *(doc_ptr as *mut VexioDoc) };
+        doc.session
+            .set_page_data_graphics_json(page_id as u32, &cfg_str)
+            .map(|c| c as jint)
+            .unwrap_or(-1)
+    }))
+    .unwrap_or(-1)
+}
+
+#[no_mangle]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeImportExternalRecordset<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    doc_ptr: jlong,
+    page_id: jint,
+    file_name: JString<'local>,
+    raw_bytes: JByteArray<'local>,
+    key_col_hint: JString<'local>,
+    table_hint: JString<'local>,
+    auto_bind: jboolean,
+    auto_enable_graphics: jboolean,
+) -> jni::sys::jintArray {
+    catch_unwind(AssertUnwindSafe(|| {
+        if doc_ptr == 0 || page_id <= 0 || raw_bytes.is_null() {
+            return std::ptr::null_mut();
+        }
+        let fname = if file_name.is_null() {
+            "external_data.csv".into()
+        } else {
+            env.get_string(&file_name)
+                .map(String::from)
+                .unwrap_or_else(|_| "external_data.csv".into())
+        };
+        let key_col = if key_col_hint.is_null() {
+            String::new()
+        } else {
+            env.get_string(&key_col_hint)
+                .map(String::from)
+                .unwrap_or_default()
+        };
+        let tbl = if table_hint.is_null() {
+            String::new()
+        } else {
+            env.get_string(&table_hint)
+                .map(String::from)
+                .unwrap_or_default()
+        };
+        let Ok(bytes) = env.convert_byte_array(&raw_bytes) else {
+            return std::ptr::null_mut();
+        };
+        // SAFETY: `doc_ptr` verified non-zero handle.
+        let doc = unsafe { &mut *(doc_ptr as *mut VexioDoc) };
+        let Ok((rs_id, linked)) = doc.session.import_external_recordset(
+            page_id as u32,
+            &fname,
+            &bytes,
+            &key_col,
+            &tbl,
+            auto_bind != JNI_FALSE,
+            auto_enable_graphics != JNI_FALSE,
+        ) else {
+            return std::ptr::null_mut();
+        };
+        let pair = [rs_id as i32, linked as i32];
+        let Ok(arr) = env.new_int_array(2) else {
+            return std::ptr::null_mut();
+        };
+        let _ = env.set_int_array_region(&arr, 0, &pair);
+        arr.into_raw()
+    }))
+    .unwrap_or(std::ptr::null_mut())
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeBindExternalRow<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    doc_ptr: jlong,
+    page_id: jint,
+    recordset_id: jint,
+    row_index: jint,
+    shape_ids: JLongArray<'local>,
+) -> jint {
+    catch_unwind(AssertUnwindSafe(|| {
+        if doc_ptr == 0 || page_id <= 0 || recordset_id <= 0 || row_index < 0 {
+            return 0;
+        }
+        let ids: Vec<u64> = if shape_ids.is_null() {
+            Vec::new()
+        } else {
+            let Ok(len) = env.get_array_length(&shape_ids) else {
+                return 0;
+            };
+            let mut raw = vec![0i64; len as usize];
+            if env.get_long_array_region(&shape_ids, 0, &mut raw).is_err() {
+                return 0;
+            }
+            raw.into_iter().filter(|&x| x > 0).map(|x| x as u64).collect()
+        };
+        // SAFETY: `doc_ptr` verified non-zero handle.
+        let doc = unsafe { &mut *(doc_ptr as *mut VexioDoc) };
+        doc.session
+            .bind_external_row_to_shapes(
+                page_id as u32,
+                recordset_id as u32,
+                row_index as usize,
+                &ids,
+            )
+            .unwrap_or(0) as jint
+    }))
+    .unwrap_or(0)
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeRefreshExternalRecordset<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    doc_ptr: jlong,
+    page_id: jint,
+    recordset_id: jint,
+    optional_new_bytes: JByteArray<'local>,
+    format_hint: JString<'local>,
+) -> jint {
+    catch_unwind(AssertUnwindSafe(|| {
+        if doc_ptr == 0 || page_id <= 0 {
+            return 0;
+        }
+        let fmt = if format_hint.is_null() {
+            String::new()
+        } else {
+            env.get_string(&format_hint)
+                .map(String::from)
+                .unwrap_or_default()
+        };
+        let bytes_opt = if optional_new_bytes.is_null() {
+            None
+        } else {
+            env.convert_byte_array(&optional_new_bytes)
+                .ok()
+                .filter(|b| !b.is_empty())
+        };
+        // SAFETY: `doc_ptr` verified non-zero handle.
+        let doc = unsafe { &mut *(doc_ptr as *mut VexioDoc) };
+        doc.session
+            .refresh_external_recordset(
+                page_id as u32,
+                recordset_id.max(0) as u32,
+                bytes_opt.as_deref(),
+                &fmt,
+            )
+            .unwrap_or(0) as jint
+    }))
+    .unwrap_or(0)
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeSyncAndExportRecordset<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    doc_ptr: jlong,
+    page_id: jint,
+    recordset_id: jint,
+    format_ext: JString<'local>,
+) -> jni::sys::jbyteArray {
+    catch_unwind(AssertUnwindSafe(|| {
+        if doc_ptr == 0 {
+            return std::ptr::null_mut();
+        }
+        let fmt = if format_ext.is_null() {
+            "xlsx".into()
+        } else {
+            env.get_string(&format_ext)
+                .map(String::from)
+                .unwrap_or_else(|_| "xlsx".into())
+        };
+        // SAFETY: `doc_ptr` verified non-zero handle.
+        let doc = unsafe { &mut *(doc_ptr as *mut VexioDoc) };
+        let Ok(bytes) = doc.session.sync_and_export_recordset(
+            page_id.max(1) as u32,
+            recordset_id.max(0) as u32,
+            &fmt,
+        ) else {
+            return std::ptr::null_mut();
+        };
+        env.byte_array_from_slice(&bytes)
+            .map(|a| a.into_raw())
+            .unwrap_or(std::ptr::null_mut())
+    }))
+    .unwrap_or(std::ptr::null_mut())
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeDeleteExternalRecordset(
+    _env: JNIEnv<'_>,
+    _class: JClass<'_>,
+    doc_ptr: jlong,
+    recordset_id: jint,
+) -> jboolean {
+    catch_unwind(AssertUnwindSafe(|| {
+        if doc_ptr == 0 || recordset_id <= 0 {
+            return JNI_FALSE;
+        }
+        // SAFETY: `doc_ptr` verified non-zero handle.
+        let doc = unsafe { &mut *(doc_ptr as *mut VexioDoc) };
+        if doc
+            .session
+            .delete_external_recordset(recordset_id as u32)
+            .unwrap_or(false)
+        {
+            JNI_TRUE
+        } else {
+            JNI_FALSE
+        }
+    }))
+    .unwrap_or(JNI_FALSE)
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeInsertDataLegend<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    doc_ptr: jlong,
+    page_id: jint,
+    prop_name: JString<'local>,
+    pin_x_in: jdouble,
+    pin_y_in: jdouble,
+) -> jlong {
+    catch_unwind(AssertUnwindSafe(|| {
+        if doc_ptr == 0 || page_id <= 0 {
+            return 0;
+        }
+        let prop = if prop_name.is_null() {
+            String::new()
+        } else {
+            env.get_string(&prop_name)
+                .map(String::from)
+                .unwrap_or_default()
+        };
+        let px = if pin_x_in > 0.0 { Some(pin_x_in) } else { None };
+        let py = if pin_y_in > 0.0 { Some(pin_y_in) } else { None };
+        // SAFETY: `doc_ptr` verified non-zero handle.
+        let doc = unsafe { &mut *(doc_ptr as *mut VexioDoc) };
+        doc.session
+            .insert_or_update_data_legend(page_id as u32, &prop, px, py)
+            .unwrap_or(0) as jlong
+    }))
+    .unwrap_or(0)
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeExportBomReport<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    doc_ptr: jlong,
+    format_ext: JString<'local>,
+) -> jni::sys::jbyteArray {
+    catch_unwind(AssertUnwindSafe(|| {
+        if doc_ptr == 0 {
+            return std::ptr::null_mut();
+        }
+        let fmt = if format_ext.is_null() {
+            "xlsx".into()
+        } else {
+            env.get_string(&format_ext)
+                .map(String::from)
+                .unwrap_or_else(|_| "xlsx".into())
+        };
+        // SAFETY: `doc_ptr` verified non-zero handle.
+        let doc = unsafe { &*(doc_ptr as *const VexioDoc) };
+        let Ok(bytes) = doc.session.export_bom_report_bytes(&fmt) else {
+            return std::ptr::null_mut();
+        };
+        env.byte_array_from_slice(&bytes)
+            .map(|a| a.into_raw())
+            .unwrap_or(std::ptr::null_mut())
+    }))
+    .unwrap_or(std::ptr::null_mut())
+}

@@ -202,6 +202,89 @@ pub struct MarkupInkStroke {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ExternalDataRecordset {
+    pub id: u32,
+    pub name: String,
+    #[serde(default)]
+    pub source_kind: String,
+    #[serde(default)]
+    pub source_name: String,
+    pub key_column: String,
+    pub columns: Vec<String>,
+    pub rows: Vec<BTreeMap<String, String>>,
+}
+
+fn default_dg_green_min() -> f64 {
+    75.0
+}
+
+fn default_dg_amber_min() -> f64 {
+    40.0
+}
+
+fn default_dg_bar_max() -> f64 {
+    100.0
+}
+
+fn default_dg_bar_color() -> RgbaColor {
+    RgbaColor {
+        r: 37,
+        g: 99,
+        b: 235,
+        a: 255,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PageDataGraphicConfig {
+    pub enabled: bool,
+    #[serde(default)]
+    pub icon_set_field: String,
+    #[serde(default = "default_dg_green_min")]
+    pub icon_green_min: f64,
+    #[serde(default = "default_dg_amber_min")]
+    pub icon_amber_min: f64,
+    #[serde(default)]
+    pub data_bar_field: String,
+    #[serde(default)]
+    pub data_bar_min: f64,
+    #[serde(default = "default_dg_bar_max")]
+    pub data_bar_max: f64,
+    #[serde(default = "default_dg_bar_color")]
+    pub data_bar_color: RgbaColor,
+    #[serde(default)]
+    pub text_callout_field: String,
+    #[serde(default)]
+    pub text_callout_prefix: String,
+    #[serde(default)]
+    pub color_by_value_enabled: bool,
+    #[serde(default)]
+    pub color_by_value_field: String,
+    #[serde(default)]
+    pub color_palette: BTreeMap<String, RgbaColor>,
+}
+
+impl Default for PageDataGraphicConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            icon_set_field: "Status".into(),
+            icon_green_min: default_dg_green_min(),
+            icon_amber_min: default_dg_amber_min(),
+            data_bar_field: "CompletionPct".into(),
+            data_bar_min: 0.0,
+            data_bar_max: default_dg_bar_max(),
+            data_bar_color: default_dg_bar_color(),
+            text_callout_field: "Owner".into(),
+            text_callout_prefix: String::new(),
+            color_by_value_enabled: true,
+            color_by_value_field: "Status".into(),
+            color_palette: BTreeMap::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct VisioPage {
     pub id: u32,
     pub name: String,
@@ -217,6 +300,8 @@ pub struct VisioPage {
     pub shapes: Vec<VisioShape>,
     pub connects: Vec<GlueEndpoint>,
     pub ink_strokes: Vec<MarkupInkStroke>,
+    #[serde(default)]
+    pub data_graphic_config: Option<PageDataGraphicConfig>,
     pub opaque_xml_fragments: Vec<String>,
 }
 
@@ -259,6 +344,7 @@ impl VisioPage {
             shapes: Vec::new(),
             connects: Vec::new(),
             ink_strokes: Vec::new(),
+            data_graphic_config: None,
             opaque_xml_fragments: Vec::new(),
         }
     }
@@ -439,6 +525,8 @@ pub struct VisioDocument {
     pub masters: Vec<VisioMaster>,
     pub pages: Vec<VisioPage>,
     pub comments: Vec<CommentAnnotation>,
+    #[serde(default)]
+    pub data_recordsets: Vec<ExternalDataRecordset>,
     pub opaque_bag: OpaqueOpcBag,
     pub macro_enabled: bool,
 }
@@ -482,6 +570,7 @@ impl VisioDocument {
             masters: Vec::new(),
             pages: vec![VisioPage::new(1, "Page-1", 11.0, 8.5)],
             comments: Vec::new(),
+            data_recordsets: Vec::new(),
             opaque_bag: OpaqueOpcBag::default(),
             macro_enabled: false,
         }

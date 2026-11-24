@@ -54,6 +54,8 @@ struct ExternalDataRecord {
     std::wstring owner;
     std::wstring costUsd;
     std::wstring status;
+    uint32_t recordsetId{0};
+    uint32_t rowIndex{0};
 };
 
 struct DiagramLayerModel {
@@ -409,6 +411,9 @@ private:
     winrt::fire_and_forget ShowMacroEditorDialogAsync();
     winrt::fire_and_forget ShowRenamePageDialogAsync();
     winrt::fire_and_forget ShowBomReportDialogAsync();
+    winrt::fire_and_forget ImportExternalDataPickerAsync();
+    winrt::fire_and_forget ExportTwoWayWritebackPickerAsync();
+    winrt::fire_and_forget ExportBomReportPickerAsync();
     winrt::fire_and_forget ShowPageSetupDialogAsync();
     winrt::fire_and_forget ShowTiledPrintDialogAsync();
 
