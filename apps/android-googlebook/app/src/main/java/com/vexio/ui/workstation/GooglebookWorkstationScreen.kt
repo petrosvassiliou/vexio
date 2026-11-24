@@ -4855,10 +4855,10 @@ private fun ShapeInspectorPane(
 
                                 // Rotate / Flip / Z-Order / Group Row
                                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.fillMaxWidth()) {
-                                    ExpressivePlan2ActionPill(label = "↺ 90°", selected = false, onClick = { viewModel.rotateOrFlipSelectedShapes(deltaAngleDeg = 90.0) })
-                                    ExpressivePlan2ActionPill(label = "↻ 90°", selected = false, onClick = { viewModel.rotateOrFlipSelectedShapes(deltaAngleDeg = -90.0) })
-                                    ExpressivePlan2ActionPill(label = "⇆", selected = curObj.flipX, onClick = { viewModel.rotateOrFlipSelectedShapes(toggleFlipX = true) })
-                                    ExpressivePlan2ActionPill(label = "⇅", selected = curObj.flipY, onClick = { viewModel.rotateOrFlipSelectedShapes(toggleFlipY = true) })
+                                    ExpressivePlan2ActionPill(label = "↺ 90°", selected = false, onClick = { viewModel.rotateOrFlipSelected(deltaAngleDeg = -90.0) })
+                                    ExpressivePlan2ActionPill(label = "↻ 90°", selected = false, onClick = { viewModel.rotateOrFlipSelected(deltaAngleDeg = 90.0) })
+                                    ExpressivePlan2ActionPill(label = "⇆", selected = curObj.flipX, onClick = { viewModel.rotateOrFlipSelected(flipX = true) })
+                                    ExpressivePlan2ActionPill(label = "⇅", selected = curObj.flipY, onClick = { viewModel.rotateOrFlipSelected(flipY = true) })
                                     VexioTooltip(text = "Bring to Front") {
                                         IconButton(onClick = { viewModel.reorderSelectedShapes("front") }, modifier = Modifier.size(28.dp)) {
                                             Icon(Icons.Default.FlipToFront, contentDescription = "Bring to Front", modifier = Modifier.size(16.dp))
