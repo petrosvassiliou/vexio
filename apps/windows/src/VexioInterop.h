@@ -210,6 +210,10 @@ public:
         return std::string{AsUtf8View()};
     }
 
+    [[nodiscard]] std::string ToUtf8String() const {
+        return ToStdString();
+    }
+
     [[nodiscard]] winrt::hstring ToWinRtString() const {
         return ToHString(AsUtf8View());
     }
