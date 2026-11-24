@@ -2732,3 +2732,82 @@ pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeExportBomRe
     }))
     .unwrap_or(std::ptr::null_mut())
 }
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeDuplicatePage(
+    _env: JNIEnv<'_>,
+    _class: JClass<'_>,
+    doc_ptr: jlong,
+    page_id: jint,
+) -> jint {
+    catch_unwind(AssertUnwindSafe(|| {
+        if doc_ptr == 0 || page_id <= 0 {
+            return 0;
+        }
+        // SAFETY: `doc_ptr` verified non-zero handle.
+        let doc = unsafe { &mut *(doc_ptr as *mut VexioDoc) };
+        doc.session
+            .duplicate_page(page_id as u32)
+            .unwrap_or(0) as jint
+    }))
+    .unwrap_or(0)
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeDeletePage(
+    _env: JNIEnv<'_>,
+    _class: JClass<'_>,
+    doc_ptr: jlong,
+    page_id: jint,
+) -> jboolean {
+    catch_unwind(AssertUnwindSafe(|| {
+        if doc_ptr == 0 || page_id <= 0 {
+            return JNI_FALSE;
+        }
+        // SAFETY: `doc_ptr` verified non-zero handle.
+        let doc = unsafe { &mut *(doc_ptr as *mut VexioDoc) };
+        if doc.session.delete_page(page_id as u32) {
+            JNI_TRUE
+        } else {
+            JNI_FALSE
+        }
+    }))
+    .unwrap_or(JNI_FALSE)
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeSetPageBackground<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    doc_ptr: jlong,
+    page_id: jint,
+    is_background: jboolean,
+    back_page_id: jint,
+    page_color_formula: JString<'local>,
+) -> jboolean {
+    catch_unwind(AssertUnwindSafe(|| {
+        if doc_ptr == 0 || page_id <= 0 {
+            return JNI_FALSE;
+        }
+        let color_s = if page_color_formula.is_null() {
+            String::new()
+        } else {
+            env.get_string(&page_color_formula)
+                .map(String::from)
+                .unwrap_or_default()
+        };
+        // SAFETY: `doc_ptr` verified non-zero handle.
+        let doc = unsafe { &mut *(doc_ptr as *mut VexioDoc) };
+        if doc.session.set_page_background(
+            page_id as u32,
+            is_background != JNI_FALSE,
+            back_page_id.max(0) as u32,
+            &color_s,
+        ) {
+            JNI_TRUE
+        } else {
+            JNI_FALSE
+        }
+    }))
+    .unwrap_or(JNI_FALSE)
+}

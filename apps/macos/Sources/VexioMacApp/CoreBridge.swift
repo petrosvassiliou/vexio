@@ -1901,6 +1901,42 @@ private final class NativeDocumentCore: @unchecked Sendable {
         }
     }
 
+    func duplicatePage(pageId: UInt32) throws -> UInt32 {
+        lock.lock()
+        defer { lock.unlock() }
+        var outNewId: UInt32 = 0
+        let status = vexio_doc_duplicate_page(doc, pageId, &outNewId)
+        if let err = VexioBridgeError.from(status: status, context: "duplicate_page(\(pageId))") {
+            throw err
+        }
+        return outNewId
+    }
+
+    func deletePage(pageId: UInt32) throws {
+        lock.lock()
+        defer { lock.unlock() }
+        let status = vexio_doc_delete_page(doc, pageId)
+        if let err = VexioBridgeError.from(status: status, context: "delete_page(\(pageId))") {
+            throw err
+        }
+    }
+
+    func setPageBackground(
+        pageId: UInt32,
+        isBackground: Bool,
+        backPageId: UInt32,
+        pageColorHex: String
+    ) throws {
+        lock.lock()
+        defer { lock.unlock() }
+        let status = pageColorHex.withCString { colorCStr in
+            vexio_doc_set_page_background(doc, pageId, isBackground, backPageId, colorCStr)
+        }
+        if let err = VexioBridgeError.from(status: status, context: "set_page_background(\(pageId))") {
+            throw err
+        }
+    }
+
     func importStencilBytes(fileName: String, bytes: Data) throws -> String {
         guard !bytes.isEmpty else {
             throw VexioBridgeError.emptyDocumentPayload
@@ -4089,6 +4125,57 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
             syncSelectedShapeMetadataFromCore()
             core.renderViewportFrame()
             statusMessage = "Renamed page to '\(trimmed)'"
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    public func duplicatePage(pageId: UInt32, undoManager: UndoManager?) {
+        do {
+            let newId = try core.duplicatePage(pageId: pageId)
+            registerJournalUndoStep(actionName: "Duplicate Page", undoManager: undoManager)
+            syncSelectedShapeMetadataFromCore()
+            selectPage(newId)
+            statusMessage = "Duplicated page (Page-\(newId))"
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    public func deletePage(pageId: UInt32, undoManager: UndoManager?) {
+        do {
+            try core.deletePage(pageId: pageId)
+            registerJournalUndoStep(actionName: "Delete Page", undoManager: undoManager)
+            syncSelectedShapeMetadataFromCore()
+            if activePageId == pageId, let fallback = pages.first(where: { !$0.isBackgroundPage }) ?? pages.first {
+                selectPage(fallback.id)
+            } else {
+                core.renderViewportFrame()
+            }
+            statusMessage = "Deleted page"
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    public func updatePageBackground(
+        pageId: UInt32,
+        isBackground: Bool,
+        backPageId: UInt32 = 0,
+        pageColorHex: String = "",
+        undoManager: UndoManager?
+    ) {
+        do {
+            try core.setPageBackground(
+                pageId: pageId,
+                isBackground: isBackground,
+                backPageId: backPageId,
+                pageColorHex: pageColorHex
+            )
+            registerJournalUndoStep(actionName: "Page Background", undoManager: undoManager)
+            syncSelectedShapeMetadataFromCore()
+            core.renderViewportFrame()
+            statusMessage = "Updated page background"
         } catch {
             statusMessage = error.localizedDescription
         }

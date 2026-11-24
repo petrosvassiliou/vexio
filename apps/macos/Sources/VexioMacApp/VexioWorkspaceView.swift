@@ -533,6 +533,54 @@ public struct VexioWorkspaceView: View {
                                                 renamePageDraft = page.title
                                                 renamingPageId = page.id
                                             }
+                                            Button("Duplicate Page") {
+                                                session.duplicatePage(pageId: page.id, undoManager: undoManager)
+                                            }
+                                            Button("Delete Page", role: .destructive) {
+                                                session.deletePage(pageId: page.id, undoManager: undoManager)
+                                            }
+                                            .disabled(session.pages.filter { !$0.isBackgroundPage && $0.id != page.id }.isEmpty)
+                                            Divider()
+                                            Menu("Page Setup & Size") {
+                                                Button("ISO A4 Landscape (297 × 210 mm)") {
+                                                    session.selectPage(page.id)
+                                                    session.applyPagePreset("a4", landscape: true, undoManager: undoManager)
+                                                }
+                                                Button("ISO A4 Portrait (210 × 297 mm)") {
+                                                    session.selectPage(page.id)
+                                                    session.applyPagePreset("a4", landscape: false, undoManager: undoManager)
+                                                }
+                                                Button("ISO A3 Landscape (420 × 297 mm)") {
+                                                    session.selectPage(page.id)
+                                                    session.applyPagePreset("a3", landscape: true, undoManager: undoManager)
+                                                }
+                                                Button("US Letter Landscape (11 × 8.5 in)") {
+                                                    session.selectPage(page.id)
+                                                    session.applyPagePreset("letter", landscape: true, undoManager: undoManager)
+                                                }
+                                            }
+                                            Menu("Page Background") {
+                                                Button(page.isBackgroundPage ? "✓ Background Page" : "Mark as Background Page") {
+                                                    session.updatePageBackground(
+                                                        pageId: page.id,
+                                                        isBackground: !page.isBackgroundPage,
+                                                        undoManager: undoManager
+                                                    )
+                                                }
+                                                Divider()
+                                                Button("Paper: Pure White") {
+                                                    session.updatePageBackground(pageId: page.id, isBackground: page.isBackgroundPage, pageColorHex: "#FFFFFF", undoManager: undoManager)
+                                                }
+                                                Button("Paper: Warm Ivory") {
+                                                    session.updatePageBackground(pageId: page.id, isBackground: page.isBackgroundPage, pageColorHex: "#FAF8F5", undoManager: undoManager)
+                                                }
+                                                Button("Paper: Soft Slate") {
+                                                    session.updatePageBackground(pageId: page.id, isBackground: page.isBackgroundPage, pageColorHex: "#F1F5F9", undoManager: undoManager)
+                                                }
+                                                Button("Paper: Blueprint Tint") {
+                                                    session.updatePageBackground(pageId: page.id, isBackground: page.isBackgroundPage, pageColorHex: "#EFF6FF", undoManager: undoManager)
+                                                }
+                                            }
                                             Divider()
                                             Button("Insert New Page") {
                                                 session.addNewPage()

@@ -3194,16 +3194,101 @@ impl DocumentSession {
         if self.doc.pages.len() <= 1 || self.doc.page(page_id).is_none() {
             return false;
         }
+        let remaining_foreground = self
+            .doc
+            .pages
+            .iter()
+            .filter(|p| p.id != page_id && !p.is_background)
+            .count();
+        if remaining_foreground == 0 {
+            return false;
+        }
         let mut removed = false;
         let _ = self
             .journal
             .record_mutation(&mut self.doc, "Delete Page", |doc| {
                 let before = doc.pages.len();
                 doc.pages.retain(|p| p.id != page_id);
+                for p in &mut doc.pages {
+                    if p.back_page_id == Some(page_id) {
+                        p.back_page_id = None;
+                    }
+                }
                 doc.comments.retain(|c| c.page_id != page_id);
                 removed = doc.pages.len() < before;
             });
         removed
+    }
+
+    pub fn set_page_background(
+        &mut self,
+        page_id: u32,
+        is_background: bool,
+        back_page_id: u32,
+        page_color_formula: &str,
+    ) -> bool {
+        if self.doc.page(page_id).is_none() {
+            return false;
+        }
+        if is_background {
+            let other_foreground = self
+                .doc
+                .pages
+                .iter()
+                .filter(|p| p.id != page_id && !p.is_background)
+                .count();
+            if other_foreground == 0 {
+                return false;
+            }
+        }
+        let clean_color = page_color_formula.trim();
+        let _ = self
+            .journal
+            .record_mutation(&mut self.doc, "Page Background", |doc| {
+                let valid_back = if !is_background
+                    && back_page_id > 0
+                    && back_page_id != page_id
+                    && doc.page(back_page_id).is_some()
+                {
+                    Some(back_page_id)
+                } else {
+                    None
+                };
+                if let Some(p) = doc.page_mut(page_id) {
+                    p.is_background = is_background;
+                    p.back_page_id = valid_back;
+                    if clean_color.eq_ignore_ascii_case("none")
+                        || clean_color.eq_ignore_ascii_case("default")
+                    {
+                        p.page_sheet.cells.remove("PageColor");
+                    } else if !clean_color.is_empty() {
+                        let formula = if clean_color.starts_with('#') && clean_color.len() == 7 {
+                            if let (Ok(r), Ok(g), Ok(b)) = (
+                                u8::from_str_radix(&clean_color[1..3], 16),
+                                u8::from_str_radix(&clean_color[3..5], 16),
+                                u8::from_str_radix(&clean_color[5..7], 16),
+                            ) {
+                                format!("RGB({r},{g},{b})")
+                            } else {
+                                clean_color.to_string()
+                            }
+                        } else {
+                            clean_color.to_string()
+                        };
+                        p.page_sheet
+                            .set_formula("PageColor", formula, Some(Unit::Color));
+                    }
+                }
+                if is_background {
+                    for p in &mut doc.pages {
+                        if p.is_background && p.back_page_id.is_some() {
+                            p.back_page_id = None;
+                        }
+                    }
+                }
+                ReactiveEngine::recalculate_document(doc);
+            });
+        true
     }
 
     pub fn layout(&mut self, page_id: u32, key: &str) {

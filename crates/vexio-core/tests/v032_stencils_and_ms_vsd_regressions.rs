@@ -143,8 +143,18 @@ fn multi_pack_svg_zip_archive_imports_clean_categories_dedupes_monochrome_and_re
 #[test]
 fn official_stencil_catalog_exposes_verified_https_entries() {
     let catalog = list_official_stencil_catalog();
-    assert!(catalog.len() >= 10);
+    assert!(
+        catalog.len() >= 38,
+        "expected >= 38 official & awesome-visio stencil archive entries, got {}",
+        catalog.len()
+    );
+    let mut ids = std::collections::BTreeSet::new();
     for entry in &catalog {
+        assert!(
+            ids.insert(entry.id.clone()),
+            "duplicate official stencil catalog id: {}",
+            entry.id
+        );
         assert!(!entry.id.is_empty());
         assert!(!entry.title.is_empty());
         assert!(!entry.category_group.is_empty());

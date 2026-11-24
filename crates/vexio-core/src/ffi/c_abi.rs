@@ -2246,6 +2246,8 @@ struct NativePageDto {
     height_in: f64,
     shape_count: usize,
     is_background: bool,
+    back_page_id: Option<u32>,
+    page_color_hex: String,
 }
 
 #[derive(Serialize)]
@@ -2310,6 +2312,12 @@ pub(crate) fn build_native_state_json(session: &DocumentSession, active_page_id:
             height_in: p.height_in(),
             shape_count: p.shapes.len(),
             is_background: p.is_background,
+            back_page_id: p.back_page_id,
+            page_color_hex: p
+                .page_sheet
+                .get_color("PageColor")
+                .map(|c| c.to_hex_rgb())
+                .unwrap_or_else(|| "#FFFFFF".to_string()),
         })
         .collect();
 
@@ -4219,6 +4227,78 @@ pub unsafe extern "C" fn vexio_doc_rename_page(
         }
     }));
     res.unwrap_or(VexioStatus::ErrInternalPanic)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_doc_duplicate_page(
+    doc: *mut VexioDoc,
+    page_id: u32,
+    out_new_page_id: *mut u32,
+) -> VexioStatus {
+    catch_ffi_status(|| {
+        if doc.is_null() {
+            return VexioStatus::ErrInvalidArg;
+        }
+        // SAFETY: `doc` verified non-null.
+        let d = unsafe { &mut *doc };
+        let Ok(new_id) = d.session.duplicate_page(page_id) else {
+            return VexioStatus::ErrInvalidArg;
+        };
+        if !out_new_page_id.is_null() {
+            // SAFETY: `out_new_page_id` verified non-null.
+            unsafe { *out_new_page_id = new_id };
+        }
+        VexioStatus::Ok
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_doc_delete_page(doc: *mut VexioDoc, page_id: u32) -> VexioStatus {
+    catch_ffi_status(|| {
+        if doc.is_null() {
+            return VexioStatus::ErrInvalidArg;
+        }
+        // SAFETY: `doc` verified non-null.
+        let d = unsafe { &mut *doc };
+        if d.session.delete_page(page_id) {
+            VexioStatus::Ok
+        } else {
+            VexioStatus::ErrInvalidArg
+        }
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_doc_set_page_background(
+    doc: *mut VexioDoc,
+    page_id: u32,
+    is_background: bool,
+    back_page_id: u32,
+    page_color_formula_utf8: *const c_char,
+) -> VexioStatus {
+    catch_ffi_status(|| {
+        if doc.is_null() {
+            return VexioStatus::ErrInvalidArg;
+        }
+        let color_str = if page_color_formula_utf8.is_null() {
+            ""
+        } else {
+            // SAFETY: `page_color_formula_utf8` verified non-null.
+            let Ok(s) = unsafe { CStr::from_ptr(page_color_formula_utf8) }.to_str() else {
+                return VexioStatus::ErrInvalidArg;
+            };
+            s
+        };
+        // SAFETY: `doc` verified non-null.
+        let d = unsafe { &mut *doc };
+        if d.session
+            .set_page_background(page_id, is_background, back_page_id, color_str)
+        {
+            VexioStatus::Ok
+        } else {
+            VexioStatus::ErrInvalidArg
+        }
+    })
 }
 
 #[no_mangle]
@@ -6308,6 +6388,63 @@ mod tests {
             assert_eq!(
                 vexio_doc_delete_external_recordset(doc, out_rs_id),
                 VexioStatus::Ok
+            );
+
+            // v0.4.0-alpha: Duplicate Page, Background Page Assignment & Delete Page Guard
+            let mut dup_pid: u32 = 0;
+            assert_eq!(
+                vexio_doc_duplicate_page(doc, added_pid, &mut dup_pid),
+                VexioStatus::Ok
+            );
+            assert!(dup_pid > added_pid);
+
+            let bg_hex = CString::new("#EFF6FF").unwrap();
+            assert_eq!(
+                vexio_doc_set_page_background(doc, dup_pid, true, 0, bg_hex.as_ptr()),
+                VexioStatus::Ok
+            );
+
+            let fg_hex = CString::new("#FAF8F5").unwrap();
+            assert_eq!(
+                vexio_doc_set_page_background(doc, added_pid, false, dup_pid, fg_hex.as_ptr()),
+                VexioStatus::Ok
+            );
+
+            let mut bg_state_buf = VexioOwnedBuffer {
+                ptr: std::ptr::null_mut(),
+                len: 0,
+                cap: 0,
+            };
+            assert_eq!(
+                vexio_doc_get_state_json(doc, added_pid, &mut bg_state_buf),
+                VexioStatus::Ok
+            );
+            let bg_state_str = std::str::from_utf8(std::slice::from_raw_parts(
+                bg_state_buf.ptr,
+                bg_state_buf.len,
+            ))
+            .unwrap()
+            .to_string();
+            vexio_buffer_free(bg_state_buf);
+            assert!(bg_state_str.contains("#FAF8F5"));
+            assert!(bg_state_str.contains(&format!("\"backPageId\":{}", dup_pid)));
+
+            assert_eq!(vexio_doc_delete_page(doc, dup_pid), VexioStatus::Ok);
+            let remaining_fg: Vec<u32> = (*doc)
+                .session
+                .doc
+                .pages
+                .iter()
+                .filter(|p| !p.is_background)
+                .map(|p| p.id)
+                .collect();
+            for &pid in &remaining_fg[1..] {
+                assert_eq!(vexio_doc_delete_page(doc, pid), VexioStatus::Ok);
+            }
+            // Deleting the last remaining foreground page must be rejected cleanly
+            assert_eq!(
+                vexio_doc_delete_page(doc, remaining_fg[0]),
+                VexioStatus::ErrInvalidArg
             );
 
             let _ = vexio_viewport_get_primary_selection(vp);

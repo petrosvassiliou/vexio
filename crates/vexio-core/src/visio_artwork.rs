@@ -538,6 +538,46 @@ pub fn apply_visio_1to1_icon_artwork(sh: &mut VisioShape, category: &str, role: 
             build_cloud_arch_artwork(sh, role);
             true
         }
+        "IT Generic" => {
+            build_it_generic_security_artwork(sh, role);
+            true
+        }
+        "Security Vendors" => {
+            build_security_vendors_artwork(sh, role);
+            true
+        }
+        "Multi-Cloud & K8s" => {
+            build_multicloud_k8s_artwork(sh, role);
+            true
+        }
+        "Rack Power & Cabling" => {
+            build_rack_power_cabling_artwork(sh, role);
+            true
+        }
+        "Storage & Unified Comms" => {
+            build_storage_uc_artwork(sh, role);
+            true
+        }
+        "C4 & EIP" => {
+            build_c4_and_eip_artwork(sh, role);
+            true
+        }
+        "CMMN, DMN & CORAS" => {
+            build_cmmn_dmn_coras_artwork(sh, role);
+            true
+        }
+        "Data Vault & ADAPT" => {
+            build_datavault_adapt_artwork(sh, role);
+            true
+        }
+        "SysML & IDEF" => {
+            build_sysml_idef_artwork(sh, role);
+            true
+        }
+        "IoT, Logic & GDS UX" => {
+            build_iot_phs_gds_artwork(sh, role);
+            true
+        }
         _ => false,
     }
 }
@@ -2191,4 +2231,593 @@ fn build_cloud_arch_artwork(sh: &mut VisioShape, role: &str) {
         art.add_rect(38.0 * s, 38.0 * s, 24.0 * s, 24.0 * s, 4.0 * s, Some("255,255,255"), None, 0.8);
     }
     art.apply_to_shape(sh, bg_rgb, border_rgb, true);
+}
+
+// ============================================================================
+// Awesome-Visio Extended Built-In Packs (IT Generic, Vendors, Methodologies, IoT & UX)
+// ============================================================================
+
+fn build_it_generic_security_artwork(sh: &mut VisioShape, role: &str) {
+    let mut art = IsoArtwork::for_shape(sh);
+    let w = art.vb_w;
+    let h = art.vb_h;
+    let m = w.min(h);
+
+    if role.starts_with("ovas_") {
+        // OpenVAS / Greenbone Vulnerability Management (#48A842 / #166534)
+        art.add_rect(w * 0.08, h * 0.08, w * 0.84, h * 0.84, m * 0.14, Some("240,253,244"), Some("22,101,52"), 1.8);
+        art.add_poly(
+            &[
+                (w * 0.50, h * 0.18),
+                (w * 0.78, h * 0.28),
+                (w * 0.74, h * 0.60),
+                (w * 0.50, h * 0.82),
+                (w * 0.26, h * 0.60),
+                (w * 0.22, h * 0.28),
+            ],
+            Some("34,197,94"),
+            Some("21,128,61"),
+            1.6,
+        );
+        if role.contains("scanner") || role.contains("target") {
+            art.add_ellipse(w * 0.50, h * 0.48, m * 0.15, m * 0.15, None, Some("255,255,255"), 2.0);
+            art.add_lines(
+                &[
+                    ((w * 0.50, h * 0.28), (w * 0.50, h * 0.68)),
+                    ((w * 0.30, h * 0.48), (w * 0.70, h * 0.48)),
+                ],
+                "255,255,255",
+                1.8,
+            );
+        } else {
+            art.add_lines(
+                &[
+                    ((w * 0.36, h * 0.48), (w * 0.46, h * 0.58)),
+                    ((w * 0.46, h * 0.58), (w * 0.66, h * 0.36)),
+                ],
+                "255,255,255",
+                2.4,
+            );
+        }
+        art.apply_to_shape(sh, "34,197,94", "22,101,52", true);
+    } else if role.starts_with("mtm_") {
+        // MTMnet Telecom & Carrier Network Icons (Deep Indigo / Cyan)
+        art.add_rect(w * 0.08, h * 0.08, w * 0.84, h * 0.84, m * 0.12, Some("238,242,255"), Some("49,46,129"), 1.7);
+        if role.contains("cell") || role.contains("sat") {
+            art.add_poly(
+                &[(w * 0.50, h * 0.26), (w * 0.72, h * 0.80), (w * 0.28, h * 0.80)],
+                Some("79,70,229"),
+                Some("49,46,129"),
+                1.5,
+            );
+            art.add_ellipse(w * 0.50, h * 0.24, m * 0.08, m * 0.08, Some("14,165,233"), Some("49,46,129"), 1.3);
+            art.add_open_arc((w * 0.30, h * 0.28), (w * 0.70, h * 0.28), -m * 0.14, "14,165,233", 1.8);
+        } else {
+            art.add_ellipse(w * 0.50, h * 0.50, m * 0.26, m * 0.26, Some("79,70,229"), Some("49,46,129"), 1.6);
+            art.add_ellipse(w * 0.50, h * 0.50, m * 0.12, m * 0.12, Some("255,255,255"), None, 1.0);
+            art.add_lines(
+                &[
+                    ((w * 0.20, h * 0.50), (w * 0.80, h * 0.50)),
+                    ((w * 0.50, h * 0.20), (w * 0.50, h * 0.80)),
+                ],
+                "199,210,254",
+                1.6,
+            );
+        }
+        art.apply_to_shape(sh, "79,70,229", "49,46,129", true);
+    } else {
+        // ECCEMAN Clean Flat 2D Network Symbols (Slate & Sky Blue)
+        art.add_rect(w * 0.08, h * 0.14, w * 0.84, h * 0.72, m * 0.10, Some("14,165,233"), Some("15,23,42"), 1.8);
+        art.add_rect(w * 0.16, h * 0.24, w * 0.68, h * 0.24, m * 0.05, Some("248,250,252"), None, 1.0);
+        art.add_lines(
+            &[
+                ((w * 0.22, h * 0.64), (w * 0.78, h * 0.64)),
+                ((w * 0.66, h * 0.56), (w * 0.78, h * 0.64)),
+                ((w * 0.66, h * 0.72), (w * 0.78, h * 0.64)),
+            ],
+            "255,255,255",
+            2.1,
+        );
+        art.add_ellipse(w * 0.26, h * 0.36, m * 0.045, m * 0.045, Some("34,197,94"), None, 0.8);
+        art.apply_to_shape(sh, "14,165,233", "15,23,42", true);
+    }
+}
+
+fn build_security_vendors_artwork(sh: &mut VisioShape, role: &str) {
+    let mut art = IsoArtwork::for_shape(sh);
+    let w = art.vb_w;
+    let h = art.vb_h;
+    let m = w.min(h);
+
+    let (primary, dark, badge_ltr) = if role.starts_with("pan_") {
+        ("250,88,45", "154,52,18", "P") // Palo Alto Networks Flame Orange
+    } else if role.starts_with("fg_") {
+        ("238,49,36", "153,27,27", "F") // Fortinet Crimson Red
+    } else if role.starts_with("cp_") {
+        ("219,39,119", "131,24,67", "X") // Check Point Magenta
+    } else if role.starts_with("jnp_") {
+        ("2,132,199", "12,74,110", "N") // Juniper Cyan-Slate
+    } else {
+        ("220,38,38", "127,29,29", "A") // Huawei Enterprise Ruby
+    };
+
+    // Appliance chassis / security tile
+    art.add_rect(w * 0.07, h * 0.14, w * 0.86, h * 0.72, m * 0.12, Some("248,250,252"), Some(dark), 1.8);
+    art.add_rect(w * 0.07, h * 0.14, w * 0.86, h * 0.24, m * 0.08, Some(primary), Some(dark), 1.4);
+    art.add_rect(w * 0.15, h * 0.48, w * 0.42, h * 0.24, m * 0.04, Some("30,41,59"), None, 0.9);
+    art.add_ellipse(w * 0.72, h * 0.60, m * 0.12, m * 0.12, Some(primary), Some(dark), 1.3);
+    draw_badge_letter(&mut art, badge_ltr, w * 0.72, h * 0.60, m * 0.07);
+    art.add_ellipse(w * 0.23, h * 0.60, m * 0.035, m * 0.035, Some("34,197,94"), None, 0.8);
+    art.add_ellipse(w * 0.34, h * 0.60, m * 0.035, m * 0.035, Some("56,189,248"), None, 0.8);
+    art.apply_to_shape(sh, primary, dark, true);
+}
+
+fn build_multicloud_k8s_artwork(sh: &mut VisioShape, role: &str) {
+    let mut art = IsoArtwork::for_shape(sh);
+    let w = art.vb_w;
+    let h = art.vb_h;
+    let m = w.min(h);
+
+    if role.starts_with("k8s_") {
+        // CNCF Kubernetes Royal Blue (#326CE5) 7-sided / helm wheel emblem
+        art.add_poly(
+            &[
+                (w * 0.50, h * 0.08),
+                (w * 0.85, h * 0.25),
+                (w * 0.93, h * 0.62),
+                (w * 0.69, h * 0.90),
+                (w * 0.31, h * 0.90),
+                (w * 0.07, h * 0.62),
+                (w * 0.15, h * 0.25),
+            ],
+            Some("50,108,229"),
+            Some("30,58,138"),
+            1.8,
+        );
+        art.add_ellipse(w * 0.50, h * 0.52, m * 0.20, m * 0.20, None, Some("255,255,255"), 2.1);
+        art.add_ellipse(w * 0.50, h * 0.52, m * 0.07, m * 0.07, Some("255,255,255"), None, 0.9);
+        art.add_lines(
+            &[
+                ((w * 0.50, h * 0.24), (w * 0.50, h * 0.80)),
+                ((w * 0.24, h * 0.42), (w * 0.76, h * 0.62)),
+                ((w * 0.76, h * 0.42), (w * 0.24, h * 0.62)),
+            ],
+            "255,255,255",
+            1.8,
+        );
+        art.apply_to_shape(sh, "50,108,229", "30,58,138", true);
+    } else if role.starts_with("aws_") {
+        // AWS Architecture Orange/Amber (#FF9900 / #232F3E)
+        art.add_rect(w * 0.09, h * 0.09, w * 0.82, h * 0.82, m * 0.14, Some("255,153,0"), Some("35,47,62"), 1.8);
+        art.add_poly(
+            &[
+                (w * 0.50, h * 0.22),
+                (w * 0.76, h * 0.36),
+                (w * 0.76, h * 0.66),
+                (w * 0.50, h * 0.78),
+                (w * 0.24, h * 0.66),
+                (w * 0.24, h * 0.36),
+            ],
+            None,
+            Some("255,255,255"),
+            2.2,
+        );
+        art.add_lines(
+            &[
+                ((w * 0.24, h * 0.36), (w * 0.50, h * 0.50)),
+                ((w * 0.76, h * 0.36), (w * 0.50, h * 0.50)),
+                ((w * 0.50, h * 0.50), (w * 0.50, h * 0.78)),
+            ],
+            "255,255,255",
+            1.9,
+        );
+        art.apply_to_shape(sh, "255,153,0", "35,47,62", true);
+    } else if role.starts_with("gcp_") {
+        // Google Cloud Hexagon (#4285F4 + Multi-color accents)
+        art.add_poly(
+            &[
+                (w * 0.26, h * 0.12),
+                (w * 0.74, h * 0.12),
+                (w * 0.94, h * 0.50),
+                (w * 0.74, h * 0.88),
+                (w * 0.26, h * 0.88),
+                (w * 0.06, h * 0.50),
+            ],
+            Some("255,255,255"),
+            Some("66,133,244"),
+            2.0,
+        );
+        art.add_ellipse(w * 0.50, h * 0.50, m * 0.22, m * 0.22, Some("66,133,244"), None, 1.0);
+        art.add_ellipse(w * 0.50, h * 0.50, m * 0.10, m * 0.10, Some("255,255,255"), None, 1.0);
+        art.add_rect(w * 0.50, h * 0.44, w * 0.24, h * 0.12, m * 0.03, Some("52,168,83"), None, 0.8);
+        art.apply_to_shape(sh, "66,133,244", "26,115,232", true);
+    } else if role.starts_with("oci_") {
+        // Oracle Cloud Infrastructure Red (#C74634)
+        art.add_rect(w * 0.08, h * 0.14, w * 0.84, h * 0.72, m * 0.22, Some("199,70,52"), Some("127,29,29"), 1.8);
+        art.add_rect(w * 0.22, h * 0.30, w * 0.56, h * 0.40, m * 0.16, None, Some("255,255,255"), 2.4);
+        art.add_ellipse(w * 0.50, h * 0.50, m * 0.07, m * 0.07, Some("254,215,170"), None, 0.8);
+        art.apply_to_shape(sh, "199,70,52", "127,29,29", true);
+    } else {
+        // VMware vSphere / NSX / vSAN / Tanzu Teal-Blue (#0091DA / #1D4ED8)
+        art.add_rect(w * 0.09, h * 0.09, w * 0.82, h * 0.82, m * 0.14, Some("240,249,255"), Some("3,105,161"), 1.8);
+        art.add_rect(w * 0.20, h * 0.20, w * 0.38, h * 0.38, m * 0.08, None, Some("2,132,199"), 2.4);
+        art.add_rect(w * 0.42, h * 0.42, w * 0.38, h * 0.38, m * 0.08, Some("14,165,233"), Some("3,105,161"), 1.8);
+        art.apply_to_shape(sh, "14,165,233", "3,105,161", true);
+    }
+}
+
+fn build_rack_power_cabling_artwork(sh: &mut VisioShape, role: &str) {
+    let mut art = IsoArtwork::for_shape(sh);
+    let w = art.vb_w;
+    let h = art.vb_h;
+    let m = w.min(h);
+
+    let (chassis_rgb, accent_rgb, border_rgb) = if role.starts_with("cpwr_") {
+        ("30,41,59", "234,179,8", "15,23,42") // CyberPower Slate + Gold LCD
+    } else if role.starts_with("tl_") {
+        ("30,41,59", "22,163,74", "15,23,42") // Tripp Lite Slate + Emerald
+    } else if role.starts_with("rar_") {
+        ("30,58,138", "56,189,248", "23,37,84") // Raritan Dominion/PX Blue
+    } else if role.starts_with("bb_") {
+        ("15,23,42", "239,68,68", "2,6,23") // BlackBox Obsidian + Red Diamond
+    } else if role.starts_with("ht_") || role.starts_with("pnd_") {
+        ("226,232,240", "37,99,235", "71,85,105") // HellermannTyton / Panduit Structured Cabling
+    } else {
+        ("71,85,105", "14,165,233", "30,41,59") // VRT Rack Systems
+    };
+
+    // 19-inch rack mounting ears + faceplate
+    art.add_rect(w * 0.01, h * 0.08, w * 0.05, h * 0.84, m * 0.03, Some("148,163,184"), Some(border_rgb), 1.1);
+    art.add_rect(w * 0.94, h * 0.08, w * 0.05, h * 0.84, m * 0.03, Some("148,163,184"), Some(border_rgb), 1.1);
+    art.add_rect(w * 0.06, h * 0.08, w * 0.88, h * 0.84, m * 0.05, Some(chassis_rgb), Some(border_rgb), 1.5);
+    // LCD telemetry / port bank + status LEDs
+    art.add_rect(w * 0.11, h * 0.24, w * 0.24, h * 0.52, m * 0.04, Some(accent_rgb), None, 0.9);
+    for idx in 0..4 {
+        let px = w * (0.40 + idx as f64 * 0.12);
+        art.add_rect(px, h * 0.26, w * 0.09, h * 0.48, m * 0.03, Some("15,23,42"), Some("203,213,225"), 1.0);
+    }
+    art.add_ellipse(w * 0.90, h * 0.36, m * 0.06, m * 0.06, Some("34,197,94"), None, 0.8);
+    art.apply_to_shape(sh, chassis_rgb, border_rgb, true);
+}
+
+fn build_storage_uc_artwork(sh: &mut VisioShape, role: &str) {
+    let mut art = IsoArtwork::for_shape(sh);
+    let w = art.vb_w;
+    let h = art.vb_h;
+    let m = w.min(h);
+
+    if role.starts_with("syno_") || role.starts_with("qnap_") {
+        let accent = if role.starts_with("syno_") { "249,115,22" } else { "14,165,233" };
+        art.add_rect(w * 0.08, h * 0.12, w * 0.84, h * 0.76, m * 0.10, Some("30,41,59"), Some("15,23,42"), 1.8);
+        for bay in 0..4 {
+            let bx = w * (0.14 + bay as f64 * 0.18);
+            art.add_rect(bx, h * 0.22, w * 0.14, h * 0.56, m * 0.03, Some("51,65,85"), Some("148,163,184"), 1.1);
+            art.add_ellipse(bx + w * 0.07, h * 0.30, m * 0.028, m * 0.028, Some(accent), None, 0.8);
+        }
+        art.apply_to_shape(sh, "30,41,59", "15,23,42", true);
+    } else if role.starts_with("tpl_") {
+        // TP-Link Omada Teal (#00B09B)
+        art.add_rect(w * 0.08, h * 0.16, w * 0.84, h * 0.68, m * 0.14, Some("240,253,250"), Some("13,148,136"), 1.8);
+        art.add_ellipse(w * 0.50, h * 0.50, m * 0.22, m * 0.22, Some("20,184,166"), Some("15,118,110"), 1.5);
+        art.add_ellipse(w * 0.50, h * 0.50, m * 0.09, m * 0.09, Some("255,255,255"), None, 0.8);
+        art.apply_to_shape(sh, "20,184,166", "15,118,110", true);
+    } else {
+        // Poly / Polycom & Avaya Unified Communications (Crimson / Slate Audio-Video)
+        let accent = if role.starts_with("avaya_") { "220,38,38" } else { "79,70,229" };
+        art.add_rect(w * 0.08, h * 0.14, w * 0.84, h * 0.72, m * 0.14, Some("248,250,252"), Some("51,65,85"), 1.7);
+        art.add_ellipse(w * 0.38, h * 0.50, m * 0.18, m * 0.18, Some(accent), Some("30,41,59"), 1.4);
+        art.add_ellipse(w * 0.38, h * 0.50, m * 0.07, m * 0.07, Some("255,255,255"), None, 0.8);
+        art.add_poly(
+            &[(w * 0.62, h * 0.42), (w * 0.82, h * 0.30), (w * 0.82, h * 0.70), (w * 0.62, h * 0.58)],
+            Some(accent),
+            Some("30,41,59"),
+            1.3,
+        );
+        art.apply_to_shape(sh, accent, "30,41,59", true);
+    }
+}
+
+fn build_c4_and_eip_artwork(sh: &mut VisioShape, role: &str) {
+    let mut art = IsoArtwork::for_shape(sh);
+    let w = art.vb_w;
+    let h = art.vb_h;
+    let m = w.min(h);
+
+    if role.starts_with("c4_") {
+        let (fill, stroke) = match role {
+            "c4_person" => ("8,66,123", "5,46,89"),
+            "c4_ext_actor" | "c4_ext_sys" => ("153,153,153", "102,102,102"),
+            "c4_system" => ("17,104,189", "11,72,132"),
+            "c4_comp" => ("133,187,240", "67,141,213"),
+            "c4_boundary" => ("248,250,252", "71,85,105"),
+            _ => ("67,141,213", "29,78,216"), // C4 Container
+        };
+        if role == "c4_person" || role == "c4_ext_actor" {
+            art.add_ellipse(w * 0.50, h * 0.24, m * 0.17, m * 0.17, Some(fill), Some(stroke), 1.8);
+            art.add_rect(w * 0.14, h * 0.42, w * 0.72, h * 0.52, m * 0.16, Some(fill), Some(stroke), 1.8);
+            art.add_lines(&[((w * 0.28, h * 0.84), (w * 0.72, h * 0.84))], "255,255,255", 1.3);
+            art.apply_to_shape(sh, fill, stroke, false);
+            sh.sheet.set_formula("Char.Color", "=RGB(255,255,255)", Some(Unit::Color));
+        } else if role == "c4_boundary" {
+            art.add_rect(w * 0.03, h * 0.03, w * 0.94, h * 0.94, m * 0.05, Some(fill), Some(stroke), 1.6);
+            art.add_rect(w * 0.06, h * 0.06, w * 0.34, h * 0.14, m * 0.03, Some("226,232,240"), Some(stroke), 1.1);
+            art.apply_to_shape(sh, fill, stroke, false);
+            sh.sheet.set_formula("LinePattern", "2", Some(Unit::Number));
+        } else if role == "c4_db" {
+            art.add_rect(w * 0.08, h * 0.18, w * 0.84, h * 0.72, m * 0.06, Some(fill), Some(stroke), 1.8);
+            art.add_ellipse(w * 0.50, h * 0.18, w * 0.42, h * 0.12, Some("96,165,250"), Some(stroke), 1.6);
+            art.apply_to_shape(sh, fill, stroke, false);
+            sh.sheet.set_formula("Char.Color", "=RGB(255,255,255)", Some(Unit::Color));
+        } else {
+            art.add_rect(w * 0.04, h * 0.06, w * 0.92, h * 0.88, m * 0.08, Some(fill), Some(stroke), 1.8);
+            art.add_rect(w * 0.10, h * 0.13, w * 0.26, h * 0.10, m * 0.03, Some("255,255,255"), None, 0.8);
+            art.apply_to_shape(sh, fill, stroke, false);
+            if role != "c4_comp" {
+                sh.sheet.set_formula("Char.Color", "=RGB(255,255,255)", Some(Unit::Color));
+            }
+        }
+    } else {
+        // Gregor Hohpe Enterprise Integration Patterns (Soft Gold / Warm Amber + Routing Arrows)
+        art.add_rect(w * 0.06, h * 0.12, w * 0.88, h * 0.76, m * 0.09, Some("254,249,195"), Some("161,98,7"), 1.8);
+        art.add_lines(
+            &[
+                ((w * 0.18, h * 0.50), (w * 0.82, h * 0.50)),
+                ((w * 0.68, h * 0.36), (w * 0.82, h * 0.50)),
+                ((w * 0.68, h * 0.64), (w * 0.82, h * 0.50)),
+            ],
+            "161,98,7",
+            2.1,
+        );
+        art.add_poly(
+            &[(w * 0.42, h * 0.50), (w * 0.50, h * 0.34), (w * 0.58, h * 0.50), (w * 0.50, h * 0.66)],
+            Some("245,158,11"),
+            Some("146,64,14"),
+            1.4,
+        );
+        art.apply_to_shape(sh, "254,249,195", "161,98,7", true);
+    }
+}
+
+fn build_cmmn_dmn_coras_artwork(sh: &mut VisioShape, role: &str) {
+    let mut art = IsoArtwork::for_shape(sh);
+    let w = art.vb_w;
+    let h = art.vb_h;
+    let m = w.min(h);
+
+    if role.starts_with("cmmn_") {
+        // OMG CMMN 1.1 (Teal-Slate folder / chamfered stage / criterion sentry)
+        if role == "cmmn_case" {
+            art.add_rect(w * 0.06, h * 0.06, w * 0.34, h * 0.14, m * 0.04, Some("204,251,241"), Some("15,118,110"), 1.6);
+            art.add_rect(w * 0.04, h * 0.18, w * 0.92, h * 0.76, m * 0.05, Some("240,253,250"), Some("15,118,110"), 1.8);
+        } else if role == "cmmn_entry" || role == "cmmn_exit" {
+            let fill = if role == "cmmn_entry" { "255,255,255" } else { "15,23,42" };
+            art.add_poly(
+                &[(w * 0.50, h * 0.08), (w * 0.88, h * 0.50), (w * 0.50, h * 0.92), (w * 0.12, h * 0.50)],
+                Some(fill),
+                Some("15,23,42"),
+                2.0,
+            );
+            art.add_ellipse(w * 0.50, h * 0.50, m * 0.08, m * 0.08, Some("20,184,166"), None, 0.8);
+        } else {
+            art.add_poly(
+                &[
+                    (w * 0.12, h * 0.08),
+                    (w * 0.88, h * 0.08),
+                    (w * 0.96, h * 0.22),
+                    (w * 0.96, h * 0.78),
+                    (w * 0.88, h * 0.92),
+                    (w * 0.12, h * 0.92),
+                    (w * 0.04, h * 0.78),
+                    (w * 0.04, h * 0.22),
+                ],
+                Some("240,253,250"),
+                Some("15,118,110"),
+                1.7,
+            );
+            art.add_rect(w * 0.44, h * 0.76, w * 0.12, h * 0.12, m * 0.02, None, Some("15,118,110"), 1.3);
+        }
+        art.apply_to_shape(sh, "240,253,250", "15,118,110", role == "cmmn_entry" || role == "cmmn_exit");
+    } else if role.starts_with("dmn_") {
+        // OMG DMN 1.3 (Indigo Decision, Clipped BKM, Pill Input Data)
+        if role == "dmn_input" {
+            art.add_rect(w * 0.06, h * 0.14, w * 0.88, h * 0.72, h * 0.34, Some("238,242,255"), Some("67,56,202"), 1.8);
+        } else if role == "dmn_bkm" {
+            art.add_poly(
+                &[
+                    (w * 0.16, h * 0.08),
+                    (w * 0.94, h * 0.08),
+                    (w * 0.94, h * 0.78),
+                    (w * 0.84, h * 0.92),
+                    (w * 0.06, h * 0.92),
+                    (w * 0.06, h * 0.22),
+                ],
+                Some("224,231,255"),
+                Some("67,56,202"),
+                1.8,
+            );
+        } else {
+            art.add_rect(w * 0.05, h * 0.08, w * 0.90, h * 0.84, m * 0.04, Some("238,242,255"), Some("67,56,202"), 1.9);
+            art.add_lines(&[((w * 0.10, h * 0.26), (w * 0.32, h * 0.26))], "99,102,241", 1.8);
+        }
+        art.add_ellipse(w * 0.86, h * 0.22, m * 0.05, m * 0.05, Some("99,102,241"), None, 0.8);
+        art.apply_to_shape(sh, "238,242,255", "67,56,202", false);
+    } else {
+        // CORAS Model-Driven Risk Analysis (Crimson / Amber / Emerald Risk Badges)
+        let (fill, stroke) = if role.contains("incident") || role.contains("threat") {
+            ("254,226,226", "185,28,28")
+        } else if role.contains("vuln") {
+            ("254,243,199", "180,83,9")
+        } else {
+            ("220,252,231", "21,128,61")
+        };
+        art.add_poly(
+            &[(w * 0.50, h * 0.10), (w * 0.90, h * 0.84), (w * 0.10, h * 0.84)],
+            Some(fill),
+            Some(stroke),
+            2.0,
+        );
+        art.add_lines(&[((w * 0.50, h * 0.36), (w * 0.50, h * 0.62))], stroke, 2.4);
+        art.add_ellipse(w * 0.50, h * 0.72, m * 0.045, m * 0.045, Some(stroke), None, 0.8);
+        art.apply_to_shape(sh, fill, stroke, true);
+    }
+}
+
+fn build_datavault_adapt_artwork(sh: &mut VisioShape, role: &str) {
+    let mut art = IsoArtwork::for_shape(sh);
+    let w = art.vb_w;
+    let h = art.vb_h;
+    let m = w.min(h);
+
+    if role.starts_with("dv_") {
+        // Data Vault 2.0 Standard Colors: Hub = Sky Blue, Link = Rose/Coral, Satellite = Gold/Yellow, PIT/Bridge = Mint
+        let (hdr, body, border) = if role.contains("hub") {
+            ("59,130,246", "219,234,254", "29,78,216")
+        } else if role.contains("link") {
+            ("239,68,68", "254,226,226", "185,28,28")
+        } else if role.contains("sat") {
+            ("234,179,8", "254,249,195", "161,98,7")
+        } else {
+            ("16,185,129", "209,250,229", "4,120,87")
+        };
+        art.add_rect(w * 0.04, h * 0.06, w * 0.92, h * 0.88, m * 0.08, Some(body), Some(border), 1.8);
+        art.add_rect(w * 0.04, h * 0.06, w * 0.92, h * 0.24, m * 0.06, Some(hdr), Some(border), 1.5);
+        art.add_lines(&[((w * 0.10, h * 0.52), (w * 0.90, h * 0.52))], border, 1.1);
+        art.apply_to_shape(sh, body, border, false);
+    } else {
+        // ADAPT OLAP & Multidimensional BI (Violet / Slate 3D Hypercube & Dimension Axes)
+        art.add_poly(
+            &[
+                (w * 0.50, h * 0.10),
+                (w * 0.88, h * 0.28),
+                (w * 0.88, h * 0.72),
+                (w * 0.50, h * 0.90),
+                (w * 0.12, h * 0.72),
+                (w * 0.12, h * 0.28),
+            ],
+            Some("243,232,255"),
+            Some("109,40,217"),
+            1.9,
+        );
+        art.add_lines(
+            &[
+                ((w * 0.12, h * 0.28), (w * 0.50, h * 0.46)),
+                ((w * 0.88, h * 0.28), (w * 0.50, h * 0.46)),
+                ((w * 0.50, h * 0.46), (w * 0.50, h * 0.90)),
+            ],
+            "124,58,237",
+            1.7,
+        );
+        art.apply_to_shape(sh, "243,232,255", "109,40,217", true);
+    }
+}
+
+fn build_sysml_idef_artwork(sh: &mut VisioShape, role: &str) {
+    let mut art = IsoArtwork::for_shape(sh);
+    let w = art.vb_w;
+    let h = art.vb_h;
+    let m = w.min(h);
+
+    if role.starts_with("sysml_") {
+        let (hdr, body, stroke) = if role.contains("req") {
+            ("254,215,170", "255,247,237", "194,65,12")
+        } else if role.contains("constraint") {
+            ("221,214,254", "245,243,255", "109,40,217")
+        } else {
+            ("226,232,240", "248,250,252", "51,65,85")
+        };
+        art.add_rect(w * 0.04, h * 0.06, w * 0.92, h * 0.88, m * 0.05, Some(body), Some(stroke), 1.7);
+        art.add_rect(w * 0.04, h * 0.06, w * 0.92, h * 0.24, m * 0.04, Some(hdr), Some(stroke), 1.4);
+        art.add_rect(w * 0.01, h * 0.44, w * 0.07, h * 0.14, m * 0.02, Some("56,189,248"), Some(stroke), 1.2);
+        art.add_rect(w * 0.92, h * 0.44, w * 0.07, h * 0.14, m * 0.02, Some("56,189,248"), Some(stroke), 1.2);
+        art.apply_to_shape(sh, body, stroke, false);
+    } else if role.starts_with("idef5_") {
+        // IDEF5 Ontology Kind Circle / Individual Dot-Circle
+        art.add_ellipse(w * 0.50, h * 0.50, w * 0.42, h * 0.42, Some("240,249,255"), Some("3,105,161"), 1.9);
+        if role.contains("indiv") {
+            art.add_ellipse(w * 0.50, h * 0.80, m * 0.07, m * 0.07, Some("3,105,161"), None, 0.9);
+        }
+        art.add_lines(&[((w * 0.22, h * 0.50), (w * 0.78, h * 0.50))], "186,230,253", 1.2);
+        art.apply_to_shape(sh, "240,249,255", "3,105,161", false);
+    } else {
+        // IDEF0 Function Box / IDEF3 UOB & Junction (& / O / X)
+        art.add_rect(w * 0.05, h * 0.08, w * 0.90, h * 0.84, m * 0.03, Some("248,250,252"), Some("30,41,59"), 1.8);
+        art.add_lines(
+            &[
+                ((w * 0.05, h * 0.74), (w * 0.95, h * 0.74)),
+                ((w * 0.28, h * 0.74), (w * 0.28, h * 0.92)),
+            ],
+            "71,85,105",
+            1.3,
+        );
+        art.apply_to_shape(sh, "248,250,252", "30,41,59", false);
+    }
+}
+
+fn build_iot_phs_gds_artwork(sh: &mut VisioShape, role: &str) {
+    let mut art = IsoArtwork::for_shape(sh);
+    let w = art.vb_w;
+    let h = art.vb_h;
+    let m = w.min(h);
+
+    if role.starts_with("iot_") {
+        // Domotics & Smart Home IoT (Cyan / Emerald Wireless Node)
+        art.add_rect(w * 0.10, h * 0.14, w * 0.80, h * 0.76, m * 0.16, Some("236,254,255"), Some("8,145,178"), 1.8);
+        art.add_ellipse(w * 0.50, h * 0.58, m * 0.16, m * 0.16, Some("6,182,212"), Some("14,116,144"), 1.5);
+        art.add_open_arc((w * 0.32, h * 0.34), (w * 0.68, h * 0.34), -m * 0.12, "8,145,178", 2.0);
+        art.add_open_arc((w * 0.22, h * 0.24), (w * 0.78, h * 0.24), -m * 0.16, "14,165,233", 1.8);
+        art.apply_to_shape(sh, "236,254,255", "8,145,178", true);
+    } else if role.starts_with("phs_") {
+        // Paul Herber Digital Logic IC / 66-Block / KNX Bus Coupler
+        art.add_rect(w * 0.18, h * 0.12, w * 0.64, h * 0.76, m * 0.05, Some("30,41,59"), Some("15,23,42"), 1.7);
+        for pin in 0..4 {
+            let py = h * (0.22 + pin as f64 * 0.18);
+            art.add_rect(w * 0.06, py, w * 0.12, h * 0.08, m * 0.01, Some("203,213,225"), Some("71,85,105"), 1.0);
+            art.add_rect(w * 0.82, py, w * 0.12, h * 0.08, m * 0.01, Some("203,213,225"), Some("71,85,105"), 1.0);
+        }
+        art.add_ellipse(w * 0.50, h * 0.22, m * 0.06, m * 0.06, Some("245,158,11"), None, 0.8);
+        art.apply_to_shape(sh, "30,41,59", "15,23,42", true);
+    } else if role.starts_with("gds_") {
+        // UK Government Digital Service (GDS) Design System Components
+        if role == "gds_start_btn" {
+            art.add_rect(w * 0.04, h * 0.10, w * 0.92, h * 0.80, m * 0.06, Some("0,112,60"), Some("0,64,34"), 1.8);
+            art.add_lines(
+                &[
+                    ((w * 0.80, h * 0.34), (w * 0.88, h * 0.50)),
+                    ((w * 0.80, h * 0.66), (w * 0.88, h * 0.50)),
+                ],
+                "255,255,255",
+                2.2,
+            );
+            art.apply_to_shape(sh, "0,112,60", "0,64,34", false);
+            sh.sheet.set_formula("Char.Color", "=RGB(255,255,255)", Some(Unit::Color));
+        } else if role == "gds_header" {
+            art.add_rect(w * 0.02, h * 0.10, w * 0.96, h * 0.80, m * 0.03, Some("11,12,12"), Some("11,12,12"), 1.6);
+            art.add_rect(w * 0.02, h * 0.78, w * 0.96, h * 0.14, 0.0, Some("29,112,184"), None, 0.8);
+            art.apply_to_shape(sh, "11,12,12", "29,112,184", false);
+            sh.sheet.set_formula("Char.Color", "=RGB(255,255,255)", Some(Unit::Color));
+        } else {
+            let accent = if role == "gds_error" { "212,53,28" } else { "29,112,184" };
+            art.add_rect(w * 0.03, h * 0.08, w * 0.94, h * 0.84, m * 0.04, Some("255,255,255"), Some("11,12,12"), 1.8);
+            art.add_rect(w * 0.03, h * 0.08, w * 0.06, h * 0.84, 0.0, Some(accent), None, 0.8);
+            art.apply_to_shape(sh, "255,255,255", "11,12,12", false);
+        }
+    } else {
+        // Paper Plane / Jesse James Garrett Information Architecture (IA Page / Page Stack / Decision)
+        if role == "ia_stack" {
+            art.add_rect(w * 0.12, h * 0.06, w * 0.82, h * 0.78, m * 0.03, Some("226,232,240"), Some("71,85,105"), 1.4);
+            art.add_rect(w * 0.06, h * 0.14, w * 0.82, h * 0.80, m * 0.03, Some("255,255,255"), Some("30,41,59"), 1.7);
+        } else if role == "ia_decision" {
+            art.add_poly(
+                &[(w * 0.50, h * 0.06), (w * 0.94, h * 0.50), (w * 0.50, h * 0.94), (w * 0.06, h * 0.50)],
+                Some("241,245,249"),
+                Some("30,41,59"),
+                1.8,
+            );
+        } else {
+            art.add_rect(w * 0.06, h * 0.08, w * 0.88, h * 0.84, m * 0.03, Some("255,255,255"), Some("30,41,59"), 1.7);
+            art.add_rect(w * 0.06, h * 0.08, w * 0.88, h * 0.20, m * 0.02, Some("226,232,240"), Some("30,41,59"), 1.2);
+        }
+        art.add_ellipse(w * 0.84, h * 0.18, m * 0.04, m * 0.04, Some("59,130,246"), None, 0.8);
+        art.apply_to_shape(sh, "255,255,255", "30,41,59", false);
+    }
 }

@@ -358,9 +358,9 @@ mod tests {
             build_org_chart_from_csv, build_project_timeline, instantiate_starter_template,
         };
 
-        // 1. Verify all 22 built-in stencil packs (525+ masters across M365, Servers, Network, Azure, Power Platform & Visio domains) round-trip cleanly
+        // 1. Verify all 32 built-in stencil packs (725+ masters across Visio Pro & Awesome-Visio domains) round-trip cleanly
         let packs = build_all_builtin_stencils();
-        assert_eq!(packs.len(), 22, "Expected 22 built-in domain stencil packs");
+        assert_eq!(packs.len(), 32, "Expected 32 built-in domain stencil packs");
         for pack in &packs {
             assert!(!pack.masters.is_empty(), "Pack {} must have masters", pack.title);
             let mut sess = DocumentSession::new_blank(&pack.title);
@@ -549,7 +549,7 @@ mod tests {
     #[test]
     fn all_builtin_stencils_resize_freely_and_vssx_import_roundtrips() {
         let packs = crate::domains::build_all_builtin_stencils();
-        assert_eq!(packs.len(), 22);
+        assert_eq!(packs.len(), 32);
         let mut total_tested = 0usize;
         for pack in &packs {
             let mut sess = DocumentSession::new_blank(&pack.title);
@@ -581,7 +581,7 @@ mod tests {
             }
             // Clear page between packs? Actually each pack uses its own fresh `sess`!
         }
-        assert!(total_tested >= 515);
+        assert!(total_tested >= 715);
 
         // Verify .vssx stencil package export & re-import via `import_stencil_package`
         let mut vssx_doc = VisioDocument::new_blank("Custom M365 Stencil");

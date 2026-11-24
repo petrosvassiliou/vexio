@@ -661,6 +661,27 @@ object NativeBridge {
         docPtr: Long,
         formatExt: String
     ): ByteArray?
+
+    @JvmStatic
+    external fun nativeDuplicatePage(
+        docPtr: Long,
+        pageId: Int
+    ): Int
+
+    @JvmStatic
+    external fun nativeDeletePage(
+        docPtr: Long,
+        pageId: Int
+    ): Boolean
+
+    @JvmStatic
+    external fun nativeSetPageBackground(
+        docPtr: Long,
+        pageId: Int,
+        isBackground: Boolean,
+        backPageId: Int,
+        pageColorFormula: String
+    ): Boolean
 }
 
 /**
@@ -1132,7 +1153,11 @@ data class DiagramPageTab(
     val pageId: Int,
     val name: String,
     val scaleLabel: String,
-    val isBackground: Boolean = false
+    val isBackground: Boolean = false,
+    val backPageId: Int? = null,
+    val pageColorHex: String = "#FFFFFF",
+    val widthInches: Double = 297.0 / 25.4,
+    val heightInches: Double = 210.0 / 25.4
 )
 
 data class ValidationBadgeSummary(
@@ -1273,7 +1298,7 @@ enum class VexioAppLanguage(val code: String, val badge: String, val nativeName:
         }
     val inspectorSizePosTab: String
         get() = when (this) {
-            EN -> "Size & Pos"; DE -> "Größe & Pos."; IT -> "Dim. e pos."; FR -> "Taille & pos."; ES -> "Tamaño y pos."; GR -> "Μέγεθος"
+            EN -> "Size"; DE -> "Maße"; IT -> "Misure"; FR -> "Taille"; ES -> "Medidas"; GR -> "Μέγεθος"
         }
     val inspectorDataTab: String
         get() = when (this) {
@@ -1530,15 +1555,59 @@ data class InspectedObjectUiState(
     val isConnector1D: Boolean get() = kind == "Connector1D"
 
     val typeSubtitle: String
-        get() = when {
-            isGroup && !masterName.isNullOrBlank() -> "Master: $masterName (${max(childCount, 1)})"
-            isGroup -> if (childCount > 0) "Group ($childCount shapes)" else "Group"
-            isConnector1D -> "1D Dynamic Connector"
-            kind == "ForeignObject" && !masterName.isNullOrBlank() -> "Vector Icon • $masterName"
-            kind == "ForeignObject" -> "Vector / Foreign Object"
-            !masterName.isNullOrBlank() -> "2D Shape • $masterName"
-            else -> "2D Shape"
+        get() = localizedTypeSubtitle(VexioAppLanguage.EN)
+
+    fun localizedTypeSubtitle(lang: VexioAppLanguage): String = when {
+        isGroup && !masterName.isNullOrBlank() -> "Master: $masterName (${max(childCount, 1)})"
+        isGroup -> when (lang) {
+            VexioAppLanguage.DE -> if (childCount > 0) "Gruppe ($childCount Formen)" else "Gruppe"
+            VexioAppLanguage.IT -> if (childCount > 0) "Gruppo ($childCount forme)" else "Gruppo"
+            VexioAppLanguage.FR -> if (childCount > 0) "Groupe ($childCount formes)" else "Groupe"
+            VexioAppLanguage.ES -> if (childCount > 0) "Grupo ($childCount formas)" else "Grupo"
+            VexioAppLanguage.GR -> if (childCount > 0) "Ομάδα ($childCount)" else "Ομάδα"
+            VexioAppLanguage.EN -> if (childCount > 0) "Group ($childCount shapes)" else "Group"
         }
+        isConnector1D -> when (lang) {
+            VexioAppLanguage.DE -> "1D-Verbinder"
+            VexioAppLanguage.IT -> "Connettore 1D"
+            VexioAppLanguage.FR -> "Connecteur 1D"
+            VexioAppLanguage.ES -> "Conector 1D"
+            VexioAppLanguage.GR -> "Σύνδεσμος 1D"
+            VexioAppLanguage.EN -> "1D Dynamic Connector"
+        }
+        kind == "ForeignObject" && !masterName.isNullOrBlank() -> when (lang) {
+            VexioAppLanguage.DE -> "Vektorsymbol • $masterName"
+            VexioAppLanguage.IT -> "Icona vettoriale • $masterName"
+            VexioAppLanguage.FR -> "Icône vectorielle • $masterName"
+            VexioAppLanguage.ES -> "Icono vectorial • $masterName"
+            VexioAppLanguage.GR -> "Διανυσματικό • $masterName"
+            VexioAppLanguage.EN -> "Vector Icon • $masterName"
+        }
+        kind == "ForeignObject" -> when (lang) {
+            VexioAppLanguage.DE -> "Vektor-Objekt"
+            VexioAppLanguage.IT -> "Oggetto vettoriale"
+            VexioAppLanguage.FR -> "Objet vectoriel"
+            VexioAppLanguage.ES -> "Objeto vectorial"
+            VexioAppLanguage.GR -> "Διανυσματικό αντικείμενο"
+            VexioAppLanguage.EN -> "Vector / Foreign Object"
+        }
+        !masterName.isNullOrBlank() -> when (lang) {
+            VexioAppLanguage.DE -> "2D-Form • $masterName"
+            VexioAppLanguage.IT -> "Forma 2D • $masterName"
+            VexioAppLanguage.FR -> "Forme 2D • $masterName"
+            VexioAppLanguage.ES -> "Forma 2D • $masterName"
+            VexioAppLanguage.GR -> "Σχήμα 2D • $masterName"
+            VexioAppLanguage.EN -> "2D Shape • $masterName"
+        }
+        else -> when (lang) {
+            VexioAppLanguage.DE -> "2D-Form"
+            VexioAppLanguage.IT -> "Forma 2D"
+            VexioAppLanguage.FR -> "Forme 2D"
+            VexioAppLanguage.ES -> "Forma 2D"
+            VexioAppLanguage.GR -> "Σχήμα 2D"
+            VexioAppLanguage.EN -> "2D Shape"
+        }
+    }
 }
 
 data class WorkstationUiState(
@@ -1603,7 +1672,7 @@ data class WorkstationUiState(
     val inlineTextEditor: InlineCanvasEditorModel? = null,
     val smartGuidesEnabled: Boolean = true,
     val autoCheckUpdates: Boolean = true,
-    val updateStatusMessage: String = "Vexio v0.3.9-alpha • Automatic update check enabled",
+    val updateStatusMessage: String = "Vexio v0.4.0-alpha • Automatic update check enabled",
     val availableUpdateTag: String? = null,
     val availableUpdateUrl: String? = null,
     val showUpdateDialog: Boolean = false,
@@ -1696,7 +1765,17 @@ object BuiltInStencilCatalog {
         "P&ID Process Engineering",
         "UI & Application Wireframes",
         "Project Schedule (Gantt & Timeline)",
-        "Value Stream Mapping (Lean VSM)"
+        "Value Stream Mapping (Lean VSM)",
+        "IT Generic & Security Scanning (ECCEMAN / MTMnet / OpenVAS)",
+        "Security & Carrier Vendors (Palo Alto / Fortinet / Check Point / Juniper / Huawei)",
+        "Multi-Cloud, Kubernetes & VMware (AWS / GCP / OCI / K8s / vSphere)",
+        "Rack Power, Cabling & KVM (CyberPower / Tripp Lite / Raritan / BlackBox / HellermannTyton)",
+        "Enterprise NAS, SMB Network & Unified Comms (Synology / QNAP / TP-Link / Poly / Avaya)",
+        "C4 Architecture & Enterprise Integration Patterns (EIP)",
+        "Decision, Case & Risk Modeling (CMMN 1.1 / DMN 1.3 / CORAS)",
+        "Data Vault 2.0 & ADAPT OLAP BI",
+        "Systems Engineering & Ontology (SysML & IDEF0 / IDEF3 / IDEF5)",
+        "Smart Home IoT, Digital Logic & GDS / IA UX"
     )
 
     val masters: List<StencilMasterItem> = listOf(
@@ -1742,7 +1821,17 @@ object BuiltInStencilCatalog {
         StencilMasterItem("P&ID Process Engineering::Centrifugal Pump", "Centrifugal Pump", "P&ID Process Engineering", "0.90 in", "0.90 in", "RGB(240,249,255)", "Circle"),
         StencilMasterItem("UI & Application Wireframes::Browser / Desktop Frame", "Browser / Desktop Frame", "UI & Application Wireframes", "4.20 in", "2.80 in", "RGB(248,250,252)", "ClassBox"),
         StencilMasterItem("Project Schedule (Gantt & Timeline)::Timeline Spine", "Timeline Spine", "Project Schedule (Gantt & Timeline)", "5.00 in", "0.35 in", "RGB(219,234,254)", "Pill"),
-        StencilMasterItem("Value Stream Mapping (Lean VSM)::Customer / Supplier", "Customer / Supplier", "Value Stream Mapping (Lean VSM)", "1.60 in", "1.10 in", "RGB(241,245,249)", "Rect")
+        StencilMasterItem("Value Stream Mapping (Lean VSM)::Customer / Supplier", "Customer / Supplier", "Value Stream Mapping (Lean VSM)", "1.60 in", "1.10 in", "RGB(241,245,249)", "Rect"),
+        StencilMasterItem("IT Generic & Security Scanning (ECCEMAN / MTMnet / OpenVAS)::OpenVAS Scanner Node", "OpenVAS Scanner Node", "IT Generic & Security Scanning (ECCEMAN / MTMnet / OpenVAS)", "1.05 in", "1.05 in", "RGB(240,253,244)", "Hexagon"),
+        StencilMasterItem("Security & Carrier Vendors (Palo Alto / Fortinet / Check Point / Juniper / Huawei)::Fortinet FortiGate NGFW", "Fortinet FortiGate NGFW", "Security & Carrier Vendors (Palo Alto / Fortinet / Check Point / Juniper / Huawei)", "1.45 in", "0.92 in", "RGB(254,242,242)", "RoundedRect"),
+        StencilMasterItem("Multi-Cloud, Kubernetes & VMware (AWS / GCP / OCI / K8s / vSphere)::Kubernetes Pod", "Kubernetes Pod", "Multi-Cloud, Kubernetes & VMware (AWS / GCP / OCI / K8s / vSphere)", "1.00 in", "1.00 in", "RGB(239,246,255)", "Hexagon"),
+        StencilMasterItem("Rack Power, Cabling & KVM (CyberPower / Tripp Lite / Raritan / BlackBox / HellermannTyton)::CyberPower Sinewave UPS (2U)", "CyberPower Sinewave UPS (2U)", "Rack Power, Cabling & KVM (CyberPower / Tripp Lite / Raritan / BlackBox / HellermannTyton)", "1.90 in", "0.62 in", "RGB(241,245,249)", "Rack"),
+        StencilMasterItem("Enterprise NAS, SMB Network & Unified Comms (Synology / QNAP / TP-Link / Poly / Avaya)::Synology RackStation RS", "Synology RackStation RS", "Enterprise NAS, SMB Network & Unified Comms (Synology / QNAP / TP-Link / Poly / Avaya)", "1.65 in", "0.85 in", "RGB(241,245,249)", "Rack"),
+        StencilMasterItem("C4 Architecture & Enterprise Integration Patterns (EIP)::C4 Software System", "C4 Software System", "C4 Architecture & Enterprise Integration Patterns (EIP)", "2.00 in", "1.25 in", "RGB(219,234,254)", "RoundedRect"),
+        StencilMasterItem("Decision, Case & Risk Modeling (CMMN 1.1 / DMN 1.3 / CORAS)::DMN Decision", "DMN Decision", "Decision, Case & Risk Modeling (CMMN 1.1 / DMN 1.3 / CORAS)", "1.75 in", "0.95 in", "RGB(238,242,255)", "Rect"),
+        StencilMasterItem("Data Vault 2.0 & ADAPT OLAP BI::DV2 Hub Entity", "DV2 Hub Entity", "Data Vault 2.0 & ADAPT OLAP BI", "1.95 in", "1.15 in", "RGB(219,234,254)", "ClassBox"),
+        StencilMasterItem("Systems Engineering & Ontology (SysML & IDEF0 / IDEF3 / IDEF5)::SysML Block «block»", "SysML Block «block»", "Systems Engineering & Ontology (SysML & IDEF0 / IDEF3 / IDEF5)", "2.05 in", "1.30 in", "RGB(248,250,252)", "ClassBox"),
+        StencilMasterItem("Smart Home IoT, Digital Logic & GDS / IA UX::IoT Smart Home Gateway", "IoT Smart Home Gateway", "Smart Home IoT, Digital Logic & GDS / IA UX", "1.10 in", "1.10 in", "RGB(236,254,255)", "RoundedRect")
     )
 }
 
@@ -2548,6 +2637,249 @@ class VexioSessionViewModel(
             NativeBridge.nativeSetViewportPage(viewportPtr, docPtr, createdId)
             presentViewportOrFallback()
         }
+        refreshSelectedShapeFormulas()
+    }
+
+    @Synchronized
+    fun duplicatePage(targetPageId: Int = _uiState.value.activePageId): Int {
+        val state = _uiState.value
+        val srcTab = state.pages.firstOrNull { it.pageId == targetPageId } ?: state.pages.firstOrNull()
+        val nextNum = (state.pages.maxOfOrNull { it.pageId } ?: 0) + 1
+        val createdId = if (NativeBridge.isNativeAvailable && docPtr != 0L) {
+            val id = NativeBridge.nativeDuplicatePage(docPtr, resolveNativePageId(targetPageId))
+            if (id > 0) id else nextNum
+        } else {
+            nextNum
+        }
+        val copyName = "${srcTab?.name ?: "Page-$targetPageId"} (Copy)"
+        _uiState.update { cur ->
+            val copiedTab = DiagramPageTab(
+                pageId = createdId,
+                name = copyName,
+                scaleLabel = srcTab?.scaleLabel ?: if (cur.metricUnits) "ISO A4 • mm" else "1 in = 1 in",
+                isBackground = srcTab?.isBackground ?: false,
+                backPageId = srcTab?.backPageId,
+                pageColorHex = srcTab?.pageColorHex ?: "#FFFFFF",
+                widthInches = srcTab?.widthInches ?: cur.pageWidthInches,
+                heightInches = srcTab?.heightInches ?: cur.pageHeightInches
+            )
+            cur.copy(
+                pages = cur.pages + copiedTab,
+                activePageId = createdId,
+                isDirty = true,
+                canUndo = true,
+                statusBanner = "Duplicated '${srcTab?.name ?: "Page"}' -> '$copyName'"
+            )
+        }
+        if (NativeBridge.isNativeAvailable && viewportPtr != 0L && docPtr != 0L) {
+            NativeBridge.nativeSetViewportPage(viewportPtr, docPtr, createdId)
+            NativeBridge.nativeSetViewportZoom(viewportPtr, docPtr, 0.0, 0.0, 0.0)
+        }
+        refreshSelectedShapeFormulas()
+        presentViewportOrFallback()
+        return createdId
+    }
+
+    @Synchronized
+    fun deletePage(targetPageId: Int = _uiState.value.activePageId): Boolean {
+        val cur = _uiState.value
+        val remainingForeground = cur.pages.count { it.pageId != targetPageId && !it.isBackground }
+        if (cur.pages.size <= 1 || remainingForeground == 0) {
+            _uiState.update {
+                it.copy(statusBanner = "Cannot delete the last foreground page")
+            }
+            return false
+        }
+        if (NativeBridge.isNativeAvailable && docPtr != 0L) {
+            val ok = NativeBridge.nativeDeletePage(docPtr, resolveNativePageId(targetPageId))
+            if (!ok) return false
+        }
+        val remaining = cur.pages
+            .filter { it.pageId != targetPageId }
+            .map { if (it.backPageId == targetPageId) it.copy(backPageId = null) else it }
+        val nextActive = if (cur.activePageId == targetPageId) {
+            (remaining.firstOrNull { !it.isBackground } ?: remaining.first()).pageId
+        } else {
+            cur.activePageId
+        }
+        _uiState.update {
+            it.copy(
+                pages = remaining,
+                activePageId = nextActive,
+                isDirty = true,
+                canUndo = true,
+                statusBanner = "Deleted page"
+            )
+        }
+        if (NativeBridge.isNativeAvailable && viewportPtr != 0L && docPtr != 0L) {
+            NativeBridge.nativeSetViewportPage(viewportPtr, docPtr, nextActive)
+            NativeBridge.nativeSetViewportZoom(viewportPtr, docPtr, 0.0, 0.0, 0.0)
+        }
+        refreshSelectedShapeFormulas()
+        presentViewportOrFallback()
+        return true
+    }
+
+    @Synchronized
+    fun setPageBackground(
+        targetPageId: Int = _uiState.value.activePageId,
+        isBackground: Boolean,
+        backPageId: Int? = null,
+        pageColorHex: String = ""
+    ): Boolean {
+        val cur = _uiState.value
+        if (isBackground && cur.pages.count { it.pageId != targetPageId && !it.isBackground } == 0) {
+            _uiState.update {
+                it.copy(statusBanner = "At least one foreground page is required")
+            }
+            return false
+        }
+        val effectiveBackId = if (isBackground) 0 else (backPageId ?: 0).coerceAtLeast(0)
+        if (NativeBridge.isNativeAvailable && docPtr != 0L) {
+            val ok = NativeBridge.nativeSetPageBackground(
+                docPtr = docPtr,
+                pageId = resolveNativePageId(targetPageId),
+                isBackground = isBackground,
+                backPageId = effectiveBackId,
+                pageColorFormula = pageColorHex
+            )
+            if (!ok) return false
+        }
+        _uiState.update { state ->
+            val updated = state.pages.map { tab ->
+                if (tab.pageId == targetPageId) {
+                    tab.copy(
+                        isBackground = isBackground,
+                        backPageId = effectiveBackId.takeIf { it > 0 },
+                        pageColorHex = if (pageColorHex.startsWith("#")) pageColorHex else tab.pageColorHex
+                    )
+                } else {
+                    tab
+                }
+            }
+            state.copy(
+                pages = updated,
+                isDirty = true,
+                canUndo = true,
+                statusBanner = "Updated page background settings"
+            )
+        }
+        refreshSelectedShapeFormulas()
+        presentViewportOrFallback()
+        return true
+    }
+
+    @Synchronized
+    fun addNewBackgroundPage(attachToPageId: Int? = _uiState.value.activePageId): Int {
+        val cur = _uiState.value
+        val bgIndex = cur.pages.count { it.isBackground } + 1
+        val bgName = "Background-$bgIndex"
+        val nextNum = (cur.pages.maxOfOrNull { it.pageId } ?: 0) + 1
+        val bgId = if (NativeBridge.isNativeAvailable && docPtr != 0L) {
+            val id = NativeBridge.nativeAddPage(docPtr, bgName)
+            if (id > 0) id else nextNum
+        } else {
+            nextNum
+        }
+        if (NativeBridge.isNativeAvailable && docPtr != 0L) {
+            NativeBridge.nativeSetPageBackground(docPtr, bgId, true, 0, "#F8FAFC")
+            if (attachToPageId != null && attachToPageId != bgId) {
+                val fgTab = cur.pages.firstOrNull { it.pageId == attachToPageId }
+                if (fgTab?.isBackground != true) {
+                    NativeBridge.nativeSetPageBackground(
+                        docPtr = docPtr,
+                        pageId = resolveNativePageId(attachToPageId),
+                        isBackground = false,
+                        backPageId = bgId,
+                        pageColorFormula = ""
+                    )
+                }
+            }
+        }
+        _uiState.update { state ->
+            val newBgTab = DiagramPageTab(
+                pageId = bgId,
+                name = bgName,
+                scaleLabel = if (state.metricUnits) "ISO A4 • mm" else "1 in = 1 in",
+                isBackground = true,
+                backPageId = null,
+                pageColorHex = "#F8FAFC",
+                widthInches = state.pageWidthInches,
+                heightInches = state.pageHeightInches
+            )
+            val updatedExisting = state.pages.map { tab ->
+                if (attachToPageId != null && tab.pageId == attachToPageId && !tab.isBackground) {
+                    tab.copy(backPageId = bgId)
+                } else {
+                    tab
+                }
+            }
+            state.copy(
+                pages = updatedExisting + newBgTab,
+                isDirty = true,
+                canUndo = true,
+                statusBanner = "Created & linked '$bgName'"
+            )
+        }
+        refreshSelectedShapeFormulas()
+        presentViewportOrFallback()
+        return bgId
+    }
+
+    @Synchronized
+    fun applyCustomPageSetup(
+        pageId: Int,
+        widthInches: Double,
+        heightInches: Double,
+        metricUnits: Boolean,
+        isBackground: Boolean,
+        backPageId: Int?,
+        pageColorHex: String
+    ) {
+        val safeW = widthInches.coerceIn(1.0, 200.0)
+        val safeH = heightInches.coerceIn(1.0, 200.0)
+        val unitSlug = if (metricUnits) "mm" else "in"
+        if (NativeBridge.isNativeAvailable && docPtr != 0L) {
+            NativeBridge.nativeSetPageSetup(docPtr, resolveNativePageId(pageId), safeW, safeH, unitSlug)
+            NativeBridge.nativeSetPageBackground(
+                docPtr = docPtr,
+                pageId = resolveNativePageId(pageId),
+                isBackground = isBackground,
+                backPageId = if (isBackground) 0 else (backPageId ?: 0).coerceAtLeast(0),
+                pageColorFormula = pageColorHex
+            )
+            if (viewportPtr != 0L && pageId == _uiState.value.activePageId) {
+                NativeBridge.nativeSetViewportZoom(viewportPtr, docPtr, 0.0, 0.0, 0.0)
+            }
+        }
+        _uiState.update { state ->
+            val scaleLbl = if (metricUnits) "ISO • mm" else "1 in = 1 in"
+            val updatedPages = state.pages.map { tab ->
+                if (tab.pageId == pageId) {
+                    tab.copy(
+                        scaleLabel = scaleLbl,
+                        isBackground = isBackground,
+                        backPageId = if (isBackground) null else backPageId?.takeIf { it > 0 },
+                        pageColorHex = if (pageColorHex.isNotBlank()) pageColorHex else tab.pageColorHex,
+                        widthInches = safeW,
+                        heightInches = safeH
+                    )
+                } else {
+                    tab
+                }
+            }
+            state.copy(
+                pages = updatedPages,
+                metricUnits = metricUnits,
+                pageWidthInches = if (pageId == state.activePageId) safeW else state.pageWidthInches,
+                pageHeightInches = if (pageId == state.activePageId) safeH else state.pageHeightInches,
+                isDirty = true,
+                canUndo = true,
+                statusBanner = "Updated Page Setup"
+            )
+        }
+        refreshSelectedShapeFormulas()
+        presentViewportOrFallback()
     }
 
     fun selectStencilCategory(category: String) {
@@ -2731,6 +3063,7 @@ class VexioSessionViewModel(
         val rootObj = runCatching { Json.parseToJsonElement(stateJson).jsonObject }.getOrNull()
         var parsedPw = state.pageWidthInches
         var parsedPh = state.pageHeightInches
+        var parsedPages = state.pages
         var parsedShapeCount = state.pageShapeCount
         var parsedLayers = state.pageLayers
         var parsedInspected: InspectedObjectUiState? = if (state.selectedShapeId > 0L) state.inspectedObject else null
@@ -2741,6 +3074,38 @@ class VexioSessionViewModel(
         if (rootObj != null) {
             parsedPw = rootObj["pageWidthIn"]?.jsonPrimitive?.doubleOrNull ?: parsedPw
             parsedPh = rootObj["pageHeightIn"]?.jsonPrimitive?.doubleOrNull ?: parsedPh
+
+            val rawPages = rootObj["pages"] as? JsonArray
+            if (rawPages != null && rawPages.isNotEmpty()) {
+                val mappedPages = rawPages.mapNotNull { el ->
+                    val pObj = el as? JsonObject ?: return@mapNotNull null
+                    val pid = pObj["id"]?.jsonPrimitive?.intOrNull ?: return@mapNotNull null
+                    val pname = pObj["name"]?.jsonPrimitive?.contentOrNull ?: "Page-$pid"
+                    val isBg = pObj["isBackground"]?.jsonPrimitive?.booleanOrNull ?: false
+                    val backId = pObj["backPageId"]?.jsonPrimitive?.intOrNull?.takeIf { it > 0 }
+                    val bgHex = pObj["pageColorHex"]?.jsonPrimitive?.contentOrNull ?: "#FFFFFF"
+                    val wIn = pObj["widthIn"]?.jsonPrimitive?.doubleOrNull ?: parsedPw
+                    val hIn = pObj["heightIn"]?.jsonPrimitive?.doubleOrNull ?: parsedPh
+                    val scaleLbl = if (state.metricUnits) {
+                        "${(wIn * 25.4).toInt()}×${(hIn * 25.4).toInt()} mm"
+                    } else {
+                        "${"%.1f".format(Locale.US, wIn)}×${"%.1f".format(Locale.US, hIn)} in"
+                    }
+                    DiagramPageTab(
+                        pageId = pid,
+                        name = pname,
+                        scaleLabel = scaleLbl,
+                        isBackground = isBg,
+                        backPageId = backId,
+                        pageColorHex = bgHex,
+                        widthInches = wIn,
+                        heightInches = hIn
+                    )
+                }
+                if (mappedPages.isNotEmpty()) {
+                    parsedPages = mappedPages
+                }
+            }
 
             val rawLayers = rootObj["layers"] as? JsonArray
             if (rawLayers != null) {
@@ -2929,6 +3294,7 @@ class VexioSessionViewModel(
             it.copy(
                 shapeSheetCells = refreshed,
                 formulaBarInput = activeFormula,
+                pages = parsedPages,
                 pageWidthInches = parsedPw,
                 pageHeightInches = parsedPh,
                 pageShapeCount = parsedShapeCount,
@@ -4788,7 +5154,7 @@ class VexioSessionViewModel(
                     instanceFollowRedirects = true
                     connectTimeout = 20_000
                     readTimeout = 45_000
-                    setRequestProperty("User-Agent", "Vexio-Android-Workstation/0.3.9-alpha")
+                    setRequestProperty("User-Agent", "Vexio-Android-Workstation/0.4.0-alpha")
                 }
                 try {
                     val code = conn.responseCode
@@ -5745,7 +6111,7 @@ class VexioSessionViewModel(
             }
         }
         viewModelScope.launch(ioDispatcher) {
-            val currentVersion = "0.3.9-alpha"
+            val currentVersion = "0.4.0-alpha"
             var latestTag: String? = null
             var downloadUrl = "https://github.com/petrosvassiliou/vexio/releases"
             var ok = false
@@ -5756,7 +6122,7 @@ class VexioSessionViewModel(
                     requestMethod = "GET"
                     connectTimeout = 4500
                     readTimeout = 4500
-                    setRequestProperty("User-Agent", "Vexio-Android-Googlebook/0.3.9-alpha")
+                    setRequestProperty("User-Agent", "Vexio-Android-Googlebook/0.4.0-alpha")
                     setRequestProperty("Accept", "application/vnd.github+json")
                 }
                 if (conn.responseCode in 200..299) {

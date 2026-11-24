@@ -164,6 +164,11 @@ VexioStatus vexio_doc_delete_external_recordset(VexioDoc* doc, uint32_t recordse
 VexioStatus vexio_doc_insert_data_legend(VexioDoc* doc, uint32_t page_id, const char* prop_name_utf8, double pin_x_in, double pin_y_in, uint64_t* out_legend_id);
 VexioStatus vexio_doc_export_bom_report(const VexioDoc* doc, const char* format_ext_utf8, VexioOwnedBuffer* out_bytes);
 
+/* v0.4.0-alpha: Page Duplicate, Delete & Background Page / Paper Color Management */
+VexioStatus vexio_doc_duplicate_page(VexioDoc* doc, uint32_t page_id, uint32_t* out_new_page_id);
+VexioStatus vexio_doc_delete_page(VexioDoc* doc, uint32_t page_id);
+VexioStatus vexio_doc_set_page_background(VexioDoc* doc, uint32_t page_id, bool is_background, uint32_t back_page_id, const char* page_color_formula_utf8);
+
 #ifdef __cplusplus
 }
 #endif

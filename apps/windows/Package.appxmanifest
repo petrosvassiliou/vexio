@@ -12,7 +12,7 @@
   <Identity
     Name="VexioSuite.VexioWorkstation"
     Publisher="CN=Vexio Suite Engineering"
-    Version="0.3.9.0"
+    Version="0.4.0.0"
     ProcessorArchitecture="x64" />
 
   <mp:PhoneIdentity

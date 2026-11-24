@@ -291,11 +291,11 @@ class NativeBridgePacketTest {
         assertEquals(16, VexioTool.entries.size)
         assertEquals((0..15).toSet(), VexioTool.entries.map { it.nativeCode }.toSet())
 
-        // All 22 Visio Professional, Microsoft, Server & Network stencil categories are present
-        assertEquals(22, BuiltInStencilCatalog.categories.size)
-        assertEquals(22, state.stencilCategories.size)
+        // All 32 Visio Professional & Awesome-Visio stencil categories are present
+        assertEquals(32, BuiltInStencilCatalog.categories.size)
+        assertEquals(32, state.stencilCategories.size)
         val distinctCategories = state.stencilMasters.map { it.category }.distinct()
-        assertEquals(22, distinctCategories.size)
+        assertEquals(32, distinctCategories.size)
         assertTrue(state.stencilCategories.contains("Microsoft 365 & Office"))
         assertTrue(state.stencilCategories.contains("Microsoft Servers & Active Directory"))
         assertTrue(state.stencilCategories.contains("Microsoft Azure & Hybrid Cloud"))
@@ -673,8 +673,8 @@ class NativeBridgePacketTest {
         assertEquals(22, vm.uiState.value.stencilCategories.size)
         assertTrue(vm.uiState.value.stencilMasters.isNotEmpty())
         assertTrue(
-            "Expected 0.3.9-alpha in updateStatusMessage, got: ${vm.uiState.value.updateStatusMessage}",
-            vm.uiState.value.updateStatusMessage.contains("0.3.9-alpha")
+            "Expected 0.4.0-alpha in updateStatusMessage, got: ${vm.uiState.value.updateStatusMessage}",
+            vm.uiState.value.updateStatusMessage.contains("0.4.0-alpha")
         )
 
         val sampleNativeJson = """

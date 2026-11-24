@@ -177,7 +177,7 @@ object VexioI18n {
             }
         }
         if ("Automatic update check enabled" in raw) {
-            val ver = raw.substringAfter("Vexio ", "").substringBefore(" •").ifBlank { "v0.3.9-alpha" }
+            val ver = raw.substringAfter("Vexio ", "").substringBefore(" •").ifBlank { "v0.4.0-alpha" }
             return when (lang) {
                 EN -> "Vexio $ver • Automatic update check enabled"
                 DE -> "Vexio $ver • Automatische Update-Prüfung aktiviert"
@@ -596,6 +596,16 @@ object VexioI18n {
             "Gantt, PERT & Project Timeline" -> when (lang) { DE -> "Gantt-, PERT- & Projektzeitachse"; IT -> "Gantt, PERT e cronologia"; FR -> "Gantt, PERT et chronologie"; ES -> "Gantt, PERT y línea de tiempo"; GR -> "Gantt, PERT & Χρονοδιάγραμμα"; else -> category }
             "Wireframe & UI Mockups" -> when (lang) { DE -> "Wireframe- & UI-Entwürfe"; IT -> "Wireframe e mockup UI"; FR -> "Maquettes UI et wireframes"; ES -> "Wireframes y maquetas UI"; GR -> "Wireframes & προσχέδια UI"; else -> category }
             "Business Matrix, SWOT & Venn" -> when (lang) { DE -> "Business-Matrix, SWOT & Venn"; IT -> "Matrice aziendale, SWOT e Venn"; FR -> "Matrice métier, SWOT et Venn"; ES -> "Matriz empresarial, DAFO y Venn"; GR -> "Πίνακες SWOT & διαγράμματα Venn"; else -> category }
+            "IT Generic & Security Scanning (ECCEMAN / MTMnet / OpenVAS)" -> when (lang) { DE -> "IT-Allgemein & Sicherheits-Scan (ECCEMAN / MTMnet / OpenVAS)"; IT -> "IT generico e sicurezza (ECCEMAN / MTMnet / OpenVAS)"; FR -> "IT générique & sécurité (ECCEMAN / MTMnet / OpenVAS)"; ES -> "TI genérica y seguridad (ECCEMAN / MTMnet / OpenVAS)"; GR -> "Γενικά IT & σάρωση ασφαλείας (OpenVAS)"; else -> category }
+            "Security & Carrier Vendors (Palo Alto / Fortinet / Check Point / Juniper / Huawei)" -> when (lang) { DE -> "Sicherheits- & Netzwerk-Hersteller (Palo Alto / Fortinet / Check Point / Juniper / Huawei)"; IT -> "Fornitori sicurezza e rete (Palo Alto / Fortinet / Check Point / Juniper / Huawei)"; FR -> "Éditeurs sécurité & réseau (Palo Alto / Fortinet / Check Point / Juniper / Huawei)"; ES -> "Fabricantes de seguridad y red (Palo Alto / Fortinet / Check Point / Juniper / Huawei)"; GR -> "Κατασκευαστές ασφαλείας & δικτύων (Palo Alto / Fortinet / Juniper)"; else -> category }
+            "Multi-Cloud, Kubernetes & VMware (AWS / GCP / OCI / K8s / vSphere)" -> when (lang) { DE -> "Multi-Cloud, Kubernetes & VMware (AWS / GCP / OCI / K8s / vSphere)"; IT -> "Multi-Cloud, Kubernetes e VMware (AWS / GCP / OCI / K8s / vSphere)"; FR -> "Multi-Cloud, Kubernetes & VMware (AWS / GCP / OCI / K8s / vSphere)"; ES -> "Multi-Cloud, Kubernetes y VMware (AWS / GCP / OCI / K8s / vSphere)"; GR -> "Multi-Cloud, Kubernetes & VMware (AWS / GCP / OCI / K8s)"; else -> category }
+            "Rack Power, Cabling & KVM (CyberPower / Tripp Lite / Raritan / BlackBox / HellermannTyton)" -> when (lang) { DE -> "Rack-Strom, Verkabelung & KVM (CyberPower / Tripp Lite / Raritan / BlackBox / HellermannTyton)"; IT -> "Alimentazione rack, cablaggio e KVM (CyberPower / Tripp Lite / Raritan / BlackBox)"; FR -> "Alimentation baie, câblage & KVM (CyberPower / Tripp Lite / Raritan / BlackBox)"; ES -> "Energía rack, cableado y KVM (CyberPower / Tripp Lite / Raritan / BlackBox)"; GR -> "Τροφοδοσία Rack, καλωδίωση & KVM (CyberPower / Raritan)"; else -> category }
+            "Enterprise NAS, SMB Network & Unified Comms (Synology / QNAP / TP-Link / Poly / Avaya)" -> when (lang) { DE -> "Enterprise-NAS, Netzwerk & UC (Synology / QNAP / TP-Link / Poly / Avaya)"; IT -> "NAS Enterprise, rete e UC (Synology / QNAP / TP-Link / Poly / Avaya)"; FR -> "NAS d’entreprise, réseau & UC (Synology / QNAP / TP-Link / Poly / Avaya)"; ES -> "NAS empresarial, red y UC (Synology / QNAP / TP-Link / Poly / Avaya)"; GR -> "Συστήματα NAS, δίκτυα & UC (Synology / QNAP / TP-Link / Poly)"; else -> category }
+            "C4 Architecture & Enterprise Integration Patterns (EIP)" -> when (lang) { DE -> "C4-Architektur & Enterprise Integration Patterns (EIP)"; IT -> "Architettura C4 e Enterprise Integration Patterns (EIP)"; FR -> "Architecture C4 & Enterprise Integration Patterns (EIP)"; ES -> "Arquitectura C4 y Enterprise Integration Patterns (EIP)"; GR -> "Αρχιτεκτονική C4 & πρότυπα ολοκλήρωσης (EIP)"; else -> category }
+            "Decision, Case & Risk Modeling (CMMN 1.1 / DMN 1.3 / CORAS)" -> when (lang) { DE -> "Entscheidungs-, Fall- & Risikomodellierung (CMMN / DMN / CORAS)"; IT -> "Modellazione decisioni, casi e rischi (CMMN / DMN / CORAS)"; FR -> "Modélisation décisions, cas & risques (CMMN / DMN / CORAS)"; ES -> "Modelado de decisiones, casos y riesgos (CMMN / DMN / CORAS)"; GR -> "Μοντελοποίηση αποφάσεων, υποθέσεων & κινδύνου (CMMN / DMN / CORAS)"; else -> category }
+            "Data Vault 2.0 & ADAPT OLAP BI" -> when (lang) { DE -> "Data Vault 2.0 & ADAPT OLAP-BI"; IT -> "Data Vault 2.0 e ADAPT OLAP BI"; FR -> "Data Vault 2.0 & BI OLAP ADAPT"; ES -> "Data Vault 2.0 y BI OLAP ADAPT"; GR -> "Data Vault 2.0 & ADAPT OLAP BI"; else -> category }
+            "Systems Engineering & Ontology (SysML & IDEF0 / IDEF3 / IDEF5)" -> when (lang) { DE -> "Systemtechnik & Ontologie (SysML & IDEF0 / IDEF3 / IDEF5)"; IT -> "Ingegneria dei sistemi e ontologia (SysML & IDEF0 / IDEF3 / IDEF5)"; FR -> "Ingénierie système & ontologie (SysML & IDEF0 / IDEF3 / IDEF5)"; ES -> "Ingeniería de sistemas y ontología (SysML e IDEF0 / IDEF3 / IDEF5)"; GR -> "Μηχανική συστημάτων & οντολογία (SysML & IDEF)"; else -> category }
+            "Smart Home IoT, Digital Logic & GDS / IA UX" -> when (lang) { DE -> "Smart-Home-IoT, Digitallogik & GDS / IA UX"; IT -> "Smart Home IoT, logica digitale e UX GDS / IA"; FR -> "Domotique IoT, logique numérique & UX GDS / IA"; ES -> "Domótica IoT, lógica digital y UX GDS / IA"; GR -> "Smart Home IoT, ψηφιακή λογική & UX GDS / IA"; else -> category }
             else -> category
         }
     }
@@ -889,5 +899,166 @@ object VexioI18n {
 
     fun addLayerLabel(lang: VexioAppLanguage): String = when (lang) {
         EN -> "Add Layer"; DE -> "Layer hinzufügen"; IT -> "Aggiungi layer"; FR -> "Ajouter un calque"; ES -> "Añadir capa"; GR -> "Προσθήκη επιπέδου"
+    }
+
+    fun pageSetupMenuLabel(lang: VexioAppLanguage): String = when (lang) {
+        EN -> "Page Setup…"; DE -> "Seite einrichten…"; IT -> "Imposta pagina…"; FR -> "Mise en page…"; ES -> "Configurar página…"; GR -> "Διαμόρφωση σελίδας…"
+    }
+
+    fun duplicatePageMenuLabel(lang: VexioAppLanguage): String = when (lang) {
+        EN -> "Duplicate Page"; DE -> "Seite duplizieren"; IT -> "Duplica pagina"; FR -> "Dupliquer la page"; ES -> "Duplicar página"; GR -> "Διπλότυπο σελίδας"
+    }
+
+    fun deletePageMenuLabel(lang: VexioAppLanguage): String = when (lang) {
+        EN -> "Delete Page"; DE -> "Seite löschen"; IT -> "Elimina pagina"; FR -> "Supprimer la page"; ES -> "Eliminar página"; GR -> "Διαγραφή σελίδας"
+    }
+
+    fun pageBackgroundTitle(lang: VexioAppLanguage): String = when (lang) {
+        EN -> "Background"; DE -> "Hintergrund"; IT -> "Sfondo"; FR -> "Arrière-plan"; ES -> "Fondo"; GR -> "Φόντο"
+    }
+
+    fun newBackgroundPageLabel(lang: VexioAppLanguage): String = when (lang) {
+        EN -> "New Background Page"; DE -> "Neue Hintergrundseite"; IT -> "Nuova pagina di sfondo"; FR -> "Nouvel arrière-plan"; ES -> "Nueva página de fondo"; GR -> "Νέα σελίδα φόντου"
+    }
+
+    fun markAsBackgroundLabel(lang: VexioAppLanguage): String = when (lang) {
+        EN -> "Background Page"; DE -> "Als Hintergrundseite"; IT -> "Pagina di sfondo"; FR -> "Page d’arrière-plan"; ES -> "Página de fondo"; GR -> "Σελίδα φόντου"
+    }
+
+    fun orientationLabel(lang: VexioAppLanguage): String = when (lang) {
+        EN -> "Orientation"; DE -> "Ausrichtung"; IT -> "Orientamento"; FR -> "Orientation"; ES -> "Orientación"; GR -> "Προσανατολισμός"
+    }
+
+    fun landscapeLabel(lang: VexioAppLanguage): String = when (lang) {
+        EN -> "Landscape"; DE -> "Querformat"; IT -> "Orizzontale"; FR -> "Paysage"; ES -> "Horizontal"; GR -> "Οριζόντια"
+    }
+
+    fun portraitLabel(lang: VexioAppLanguage): String = when (lang) {
+        EN -> "Portrait"; DE -> "Hochformat"; IT -> "Verticale"; FR -> "Portrait"; ES -> "Vertical"; GR -> "Κατακόρυφη"
+    }
+
+    fun paperSizeLabel(lang: VexioAppLanguage): String = when (lang) {
+        EN -> "Paper Size & Dimensions"; DE -> "Papierformat & Maße"; IT -> "Formato carta"; FR -> "Format du papier"; ES -> "Tamaño de papel"; GR -> "Μέγεθος χαρτιού"
+    }
+
+    fun paperColorLabel(lang: VexioAppLanguage): String = when (lang) {
+        EN -> "Page Color"; DE -> "Seitenfarbe"; IT -> "Colore pagina"; FR -> "Couleur de page"; ES -> "Color de página"; GR -> "Χρώμα σελίδας"
+    }
+
+    fun linkedBackgroundLabel(lang: VexioAppLanguage): String = when (lang) {
+        EN -> "Assigned Background Page"; DE -> "Zugewiesene Hintergrundseite"; IT -> "Sfondo assegnato"; FR -> "Arrière-plan associé"; ES -> "Página de fondo asignada"; GR -> "Σελίδα φόντου"
+    }
+
+    fun noneLabel(lang: VexioAppLanguage): String = when (lang) {
+        EN -> "None"; DE -> "Keine"; IT -> "Nessuno"; FR -> "Aucun"; ES -> "Ninguno"; GR -> "Καμία"
+    }
+
+    fun fillSectionTitle(lang: VexioAppLanguage): String = when (lang) {
+        EN -> "Fill"; DE -> "Füllung"; IT -> "Riempimento"; FR -> "Remplissage"; ES -> "Relleno"; GR -> "Γέμισμα"
+    }
+
+    fun lineArrowsSectionTitle(lang: VexioAppLanguage): String = when (lang) {
+        EN -> "Line & Arrows"; DE -> "Linie & Pfeile"; IT -> "Linea e frecce"; FR -> "Trait et flèches"; ES -> "Línea y flechas"; GR -> "Γραμμή & βέλη"
+    }
+
+    fun typographySectionTitle(lang: VexioAppLanguage): String = when (lang) {
+        EN -> "Typography"; DE -> "Schrift & Text"; IT -> "Tipografia"; FR -> "Typographie"; ES -> "Tipografía"; GR -> "Τυπογραφία"
+    }
+
+    fun transformSectionTitle(lang: VexioAppLanguage): String = when (lang) {
+        EN -> "Position & Size"; DE -> "Position & Größe"; IT -> "Posizione e dimensioni"; FR -> "Position et taille"; ES -> "Posición y tamaño"; GR -> "Θέση & μέγεθος"
+    }
+
+    fun arrangeSectionTitle(lang: VexioAppLanguage): String = when (lang) {
+        EN -> "Arrange"; DE -> "Anordnen"; IT -> "Disponi"; FR -> "Organiser"; ES -> "Organizar"; GR -> "Διάταξη"
+    }
+
+    fun noFillPill(lang: VexioAppLanguage): String = when (lang) {
+        EN -> "None"; DE -> "Keine"; IT -> "Nessuno"; FR -> "Aucun"; ES -> "Sin"; GR -> "Χωρίς"
+    }
+
+    fun solidPill(lang: VexioAppLanguage): String = when (lang) {
+        EN -> "Solid"; DE -> "Vollton"; IT -> "Unito"; FR -> "Uni"; ES -> "Sólido"; GR -> "Συμπαγές"
+    }
+
+    fun gradientPill(lang: VexioAppLanguage): String = when (lang) {
+        EN -> "Gradient"; DE -> "Verlauf"; IT -> "Sfumatura"; FR -> "Dégradé"; ES -> "Degradado"; GR -> "Διαβάθμιση"
+    }
+
+    fun dashedPill(lang: VexioAppLanguage): String = when (lang) {
+        EN -> "Dashed"; DE -> "Gestrichelt"; IT -> "Tratt."; FR -> "Tirets"; ES -> "Guiones"; GR -> "Παύλες"
+    }
+
+    fun dottedPill(lang: VexioAppLanguage): String = when (lang) {
+        EN -> "Dotted"; DE -> "Gepunktet"; IT -> "Punt."; FR -> "Pointillés"; ES -> "Puntos"; GR -> "Τελείες"
+    }
+
+    fun lockRotateLabel(lang: VexioAppLanguage): String = when (lang) {
+        EN -> "Lock Rotation"; DE -> "Drehung sperren"; IT -> "Blocca rotazione"; FR -> "Verrouiller rotation"; ES -> "Bloquear rotación"; GR -> "Κλείδωμα περιστροφής"
+    }
+
+    fun undoTooltip(lang: VexioAppLanguage): String = when (lang) {
+        EN -> "Undo (Ctrl+Z)"; DE -> "Rückgängig (Ctrl+Z)"; IT -> "Annulla (Ctrl+Z)"; FR -> "Annuler (Ctrl+Z)"; ES -> "Deshacer (Ctrl+Z)"; GR -> "Αναίρεση (Ctrl+Z)"
+    }
+
+    fun redoTooltip(lang: VexioAppLanguage): String = when (lang) {
+        EN -> "Redo (Ctrl+Y)"; DE -> "Wiederholen (Ctrl+Y)"; IT -> "Ripeti (Ctrl+Y)"; FR -> "Rétablir (Ctrl+Y)"; ES -> "Rehacer (Ctrl+Y)"; GR -> "Επανάληψη (Ctrl+Y)"
+    }
+
+    fun zoomOutTooltip(lang: VexioAppLanguage): String = when (lang) {
+        EN -> "Zoom Out"; DE -> "Verkleinern"; IT -> "Riduci zoom"; FR -> "Zoom arrière"; ES -> "Alejar"; GR -> "Σμίκρυνση"
+    }
+
+    fun zoomInTooltip(lang: VexioAppLanguage): String = when (lang) {
+        EN -> "Zoom In"; DE -> "Vergrößern"; IT -> "Ingrandisci"; FR -> "Zoom avant"; ES -> "Acercar"; GR -> "Μεγέθυνση"
+    }
+
+    fun zoomResetTooltip(lang: VexioAppLanguage): String = when (lang) {
+        EN -> "Reset Zoom (100%)"; DE -> "Zoom zurücksetzen (100%)"; IT -> "Reimposta zoom (100%)"; FR -> "Réinitialiser le zoom (100%)"; ES -> "Restablecer zoom (100%)"; GR -> "Επαναφορά ζουμ (100%)"
+    }
+
+    fun floatToolbarTooltip(isFloating: Boolean, lang: VexioAppLanguage): String = when (lang) {
+        EN -> if (isFloating) "Dock Toolbar" else "Float Toolbar"
+        DE -> if (isFloating) "Symbolleiste andocken" else "Symbolleiste abdocken"
+        IT -> if (isFloating) "Ancora barra" else "Barra mobile"
+        FR -> if (isFloating) "Ancrer la barre" else "Barre flottante"
+        ES -> if (isFloating) "Anclar barra" else "Barra flotante"
+        GR -> if (isFloating) "Αγκύρωση γραμμής" else "Πλωτή γραμμή"
+    }
+
+    fun rotateLeftTooltip(lang: VexioAppLanguage): String = when (lang) {
+        EN -> "Rotate 90° Left"; DE -> "90° links drehen"; IT -> "Ruota 90° a sinistra"; FR -> "Rotation 90° gauche"; ES -> "Girar 90° izq."; GR -> "Περιστροφή 90° αριστ."
+    }
+
+    fun rotateRightTooltip(lang: VexioAppLanguage): String = when (lang) {
+        EN -> "Rotate 90° Right"; DE -> "90° rechts drehen"; IT -> "Ruota 90° a destra"; FR -> "Rotation 90° droite"; ES -> "Girar 90° der."; GR -> "Περιστροφή 90° δεξιά"
+    }
+
+    fun flipHorizTooltip(lang: VexioAppLanguage): String = when (lang) {
+        EN -> "Flip Horizontal"; DE -> "Horizontal spiegeln"; IT -> "Rifletti orizz."; FR -> "Retourner horiz."; ES -> "Voltear horiz."; GR -> "Οριζόντια αναστροφή"
+    }
+
+    fun flipVertTooltip(lang: VexioAppLanguage): String = when (lang) {
+        EN -> "Flip Vertical"; DE -> "Vertikal spiegeln"; IT -> "Rifletti vert."; FR -> "Retourner vert."; ES -> "Voltear vert."; GR -> "Κατακόρυφη αναστροφή"
+    }
+
+    fun bringToFrontTooltip(lang: VexioAppLanguage): String = when (lang) {
+        EN -> "Bring to Front"; DE -> "In den Vordergrund"; IT -> "Porta in primo piano"; FR -> "Mettre au premier plan"; ES -> "Traer al frente"; GR -> "Μεταφορά μπροστά"
+    }
+
+    fun sendToBackTooltip(lang: VexioAppLanguage): String = when (lang) {
+        EN -> "Send to Back"; DE -> "In den Hintergrund"; IT -> "Porta in secondo piano"; FR -> "Mettre à l’arrière-plan"; ES -> "Enviar al fondo"; GR -> "Μεταφορά πίσω"
+    }
+
+    fun toggleStencilsTooltip(lang: VexioAppLanguage): String = when (lang) {
+        EN -> "Toggle Stencil Pane"; DE -> "Schablonen ein-/ausblenden"; IT -> "Mostra/nascondi stencil"; FR -> "Afficher/masquer gabarits"; ES -> "Mostrar/ocultar galerías"; GR -> "Εμφάνιση/απόκρυψη stencil"
+    }
+
+    fun toggleShapeSheetTooltip(lang: VexioAppLanguage): String = when (lang) {
+        EN -> "ShapeSheet Studio (Shift+F5)"; DE -> "ShapeSheet-Studio (Shift+F5)"; IT -> "ShapeSheet Studio (Shift+F5)"; FR -> "Studio ShapeSheet (Shift+F5)"; ES -> "Estudio ShapeSheet (Shift+F5)"; GR -> "ShapeSheet Studio (Shift+F5)"
+    }
+
+    fun toggleInspectorTooltip(lang: VexioAppLanguage): String = when (lang) {
+        EN -> "Toggle Object Inspector"; DE -> "Objektinspektor ein-/ausblenden"; IT -> "Mostra/nascondi ispettore"; FR -> "Afficher/masquer inspecteur"; ES -> "Mostrar/ocultar inspector"; GR -> "Εμφάνιση/απόκρυψη επιθεωρητή"
     }
 }

@@ -240,6 +240,8 @@ struct WasmPageInfo {
     height_in: f64,
     shape_count: usize,
     is_background: bool,
+    back_page_id: Option<u32>,
+    page_color_hex: String,
 }
 
 #[derive(Serialize)]
@@ -1574,6 +1576,12 @@ impl WasmVexioSession {
                 height_in: p.height_in(),
                 shape_count: p.shapes.len(),
                 is_background: p.is_background,
+                back_page_id: p.back_page_id,
+                page_color_hex: p
+                    .page_sheet
+                    .get_color("PageColor")
+                    .map(|c| c.to_hex_rgb())
+                    .unwrap_or_else(|| "#FFFFFF".to_string()),
             })
             .collect();
 
@@ -2554,5 +2562,16 @@ impl WasmVexioSession {
         self.inner
             .export_bom_report_bytes(format_ext)
             .map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
+    pub fn set_page_background(
+        &mut self,
+        page_id: u32,
+        is_background: bool,
+        back_page_id: u32,
+        page_color_formula: &str,
+    ) -> bool {
+        self.inner
+            .set_page_background(page_id, is_background, back_page_id, page_color_formula)
     }
 }
