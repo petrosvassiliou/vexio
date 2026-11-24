@@ -779,7 +779,7 @@ class VexioChromeOsApp {
       return true;
     }
   })();
-  private updateStatusText = 'Vexio v0.4.0-alpha • Automatic updates enabled';
+  private updateStatusText = 'Vexio v0.4.1-alpha • Automatic updates enabled';
   private latestReleaseTag: string | null = null;
   private latestReleaseUrl = 'https://github.com/petrosvassiliou/vexio/releases';
 
@@ -1220,7 +1220,7 @@ class VexioChromeOsApp {
       return;
     }
 
-    const currentVersion = '0.4.0-alpha';
+    const currentVersion = '0.4.1-alpha';
     try {
       const resp = await fetch('https://api.github.com/repos/petrosvassiliou/vexio/releases', {
         headers: { Accept: 'application/vnd.github+json' },
@@ -2571,14 +2571,22 @@ class VexioChromeOsApp {
 
     if (cm.kind === 'page') {
       const p = snap.pages.find((pg) => pg.id === cm.targetPageId);
+      const fgPages = snap.pages.filter((pg) => !pg.isBackground);
+      const canDelete = p?.isBackground ? snap.pages.length > 1 : fgPages.length > 1;
       return `
         <div id="vexio-context-menu" class="vexio-context-menu" style="left:${clampedLeft}px;top:${clampedTop}px">
           <div class="ctx-header">Page: ${p?.name ?? 'Page'}</div>
+          <button class="ctx-item" data-ctx="page-setup"><span>Page Setup &amp; Size…</span></button>
           <button class="ctx-item" data-ctx="page-rename"><span>${t.renamePage}</span></button>
           <button class="ctx-item" data-ctx="page-duplicate"><span>Duplicate Page</span></button>
           <button class="ctx-item" data-ctx="page-insert"><span>Insert Blank Page</span></button>
           <div class="ctx-sep"></div>
-          <button class="ctx-item danger" data-ctx="page-delete" ${snap.pages.length <= 1 ? 'disabled' : ''}><span>Delete Page</span></button>
+          <button class="ctx-item" data-ctx="page-toggle-bg"><span>${p?.isBackground ? '✓ Background Page' : 'Mark as Background Page'}</span></button>
+          <button class="ctx-item" data-ctx="page-color-white"><span>Paper: Pure White</span></button>
+          <button class="ctx-item" data-ctx="page-color-ivory"><span>Paper: Warm Ivory</span></button>
+          <button class="ctx-item" data-ctx="page-color-blueprint"><span>Paper: Blueprint Tint</span></button>
+          <div class="ctx-sep"></div>
+          <button class="ctx-item danger" data-ctx="page-delete" ${!canDelete ? 'disabled' : ''}><span>Delete Page</span></button>
         </div>
       `;
     }
@@ -4110,6 +4118,10 @@ class VexioChromeOsApp {
     }
 
     if (!selectedShape) {
+      const activePg = snap.pages.find((pg) => pg.id === snap.activePageId);
+      const isBg = Boolean(activePg?.isBackground);
+      const curPageColor = activePg?.pageColorHex && /^#[0-9a-fA-F]{6}$/.test(activePg.pageColorHex) ? activePg.pageColorHex : '#FFFFFF';
+      const bgPages = snap.pages.filter((pg) => pg.isBackground && pg.id !== snap.activePageId);
       return `
         <div class="insp-card">
           <div class="insp-card-title">Page Setup (${this.formatLengthFromIn(snap.pageWidthIn)} × ${this.formatLengthFromIn(snap.pageHeightIn)})</div>
@@ -4125,6 +4137,39 @@ class VexioChromeOsApp {
             <button class="m3-btn ${this.metricUnits ? 'active' : 'tonal'}" id="btn-insp-unit-mm" style="flex:1;height:26px;font-size:11px">Metric (mm)</button>
             <button class="m3-btn ${!this.metricUnits ? 'active' : 'tonal'}" id="btn-insp-unit-in" style="flex:1;height:26px;font-size:11px">Imperial (in)</button>
           </div>
+        </div>
+
+        <div class="insp-card">
+          <div class="insp-card-title">Page Background &amp; Paper</div>
+          <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+            ${[
+              ['#FFFFFF', 'White'],
+              ['#FAF8F5', 'Ivory'],
+              ['#F1F5F9', 'Slate'],
+              ['#EFF6FF', 'Blueprint'],
+              ['#ECFDF5', 'Mint'],
+            ]
+              .map(
+                ([hex, lbl]) =>
+                  `<button class="m3-btn ${curPageColor.toUpperCase() === hex ? 'active' : 'tonal'}" data-page-paper="${hex}" style="height:25px;padding:0 8px;font-size:10.5px">${lbl}</button>`
+              )
+              .join('')}
+            <input type="color" id="insp-page-color-picker" value="${curPageColor}" title="Custom Page Paper Color" style="width:26px;height:25px;border:none;padding:0;background:transparent;cursor:pointer" />
+          </div>
+          <label style="display:flex;align-items:center;gap:8px;margin-top:6px;font-size:12px;cursor:pointer">
+            <input type="checkbox" id="chk-insp-page-is-bg" ${isBg ? 'checked' : ''} /> Mark as Background Page
+          </label>
+          ${
+            !isBg && bgPages.length > 0
+              ? `<div style="display:flex;align-items:center;gap:6px;margin-top:6px;font-size:11.5px">
+                  <span style="color:var(--m3-text-muted)">Assigned Bg:</span>
+                  <select class="cell-input" id="sel-insp-back-page" style="flex:1;height:26px;padding:1px 6px;font-size:11.5px">
+                    <option value="0">None</option>
+                    ${bgPages.map((bgp) => `<option value="${bgp.id}" ${(activePg?.backPageId ?? 0) === bgp.id ? 'selected' : ''}>${bgp.name}</option>`).join('')}
+                  </select>
+                </div>`
+              : ''
+          }
         </div>
 
         <div class="insp-card">
@@ -4393,7 +4438,7 @@ class VexioChromeOsApp {
             </div>
             <div class="list-row-card" style="flex-direction:column;align-items:flex-start;gap:6px">
               <strong>${this.updateStatusText}</strong>
-              <span style="font-size:11.5px;color:var(--m3-text-muted)">Installed build: Vexio v0.4.0-alpha • Offline-First Workbox PWA + GitHub Releases channel</span>
+              <span style="font-size:11.5px;color:var(--m3-text-muted)">Installed build: Vexio v0.4.1-alpha • Offline-First Workbox PWA + GitHub Releases channel</span>
             </div>
             <label style="display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer">
               <input type="checkbox" id="chk-auto-updates" ${this.autoCheckUpdates ? 'checked' : ''} />
@@ -4426,21 +4471,13 @@ class VexioChromeOsApp {
         es: '8 plantillas empresariales iniciales integradas',
         gr: '8 ενσωματωμένα πρότυπα Enterprise',
       };
-      const bsSaveHdr: Record<VexioLangCode, string> = {
-        en: 'Save & Export Formats (100% Offline)',
-        de: 'Speicher- & Exportformate (100 % Offline)',
-        it: 'Formati di salvataggio ed esportazione (100% Offline)',
-        fr: 'Formats d’enregistrement et d’exportation (100 % hors ligne)',
-        es: 'Formatos de guardado y exportación (100 % sin conexión)',
-        gr: 'Μορφές αποθήκευσης & εξαγωγής (100% εκτός σύνδεσης)',
-      };
       const bsLangHdr: Record<VexioLangCode, string> = {
-        en: 'Language, Units & Software Updates',
-        de: 'Sprache, Einheiten & Software-Updates',
-        it: 'Lingua, unità e aggiornamenti software',
-        fr: 'Langue, unités et mises à jour logicielles',
-        es: 'Idioma, unidades y actualizaciones de software',
-        gr: 'Γλώσσα, μονάδες & ενημερώσεις λογισμικού',
+        en: 'Language & Software Updates',
+        de: 'Sprache & Software-Updates',
+        it: 'Lingua e aggiornamenti software',
+        fr: 'Langue et mises à jour logicielles',
+        es: 'Idioma y actualizaciones de software',
+        gr: 'Γλώσσα & ενημερώσεις λογισμικού',
       };
       const bsSnapHdr: Record<VexioLangCode, string> = {
         en: 'Immutable Version History Snapshots (OPFS + Firebase Cloud)',
@@ -4475,12 +4512,9 @@ class VexioChromeOsApp {
             </div>
 
             <div class="pane-header">${bsCreateHdr[lc]}</div>
-            <div style="display:flex;gap:8px;flex-wrap:wrap">
-              <button class="m3-btn active" data-blank-preset="a4_l">${t.newBlankA4}</button>
-              <button class="m3-btn tonal" data-blank-preset="a3_l">${t.newBlankA3}</button>
-              <button class="m3-btn tonal" data-blank-preset="letter_l">${t.newBlankLetter}</button>
-              <button class="m3-btn tonal" id="btn-backstage-open">${t.openLocalFile}</button>
-              <button class="m3-btn tonal" id="btn-backstage-import-vssx">${t.importVisioStencil}</button>
+            <div style="display:flex;gap:10px;flex-wrap:wrap">
+              <button class="m3-btn active" id="btn-backstage-open">${t.openLocalFile}</button>
+              <button class="m3-btn tonal" data-blank-preset="a4_l">${t.newBlankA4}</button>
             </div>
 
             <div class="pane-header" style="margin-top:4px">${bsTplHdr[lc]}</div>
@@ -4494,19 +4528,6 @@ class VexioChromeOsApp {
                 </div>
               `
               ).join('')}
-            </div>
-
-            <div class="pane-header" style="margin-top:4px">${bsSaveHdr[lc]}</div>
-            <div style="display:flex;gap:8px;flex-wrap:wrap">
-              <button class="m3-btn active" data-export-ext="vsdx">${t.saveFile}</button>
-              <button class="m3-btn tonal" id="btn-backstage-save-as">${t.saveAs}</button>
-              <button class="m3-btn tonal" data-export-ext="pdf">PDF/A (.pdf)</button>
-              <button class="m3-btn tonal" data-export-ext="png">PNG (.png)</button>
-              <button class="m3-btn tonal" data-export-ext="jpg">JPEG (.jpg)</button>
-              <button class="m3-btn" data-export-ext="svg">SVG (.svg)</button>
-              <button class="m3-btn" data-export-ext="pptx">PowerPoint (.pptx)</button>
-              <button class="m3-btn" data-export-ext="docx">Word (.docx)</button>
-              <button class="m3-btn" data-export-ext="dxf">AutoCAD (.dxf)</button>
             </div>
 
             <div class="pane-header" style="margin-top:4px">${bsLangHdr[lc]}</div>
@@ -5305,6 +5326,64 @@ class VexioChromeOsApp {
     document.getElementById('btn-insp-unit-mm')?.addEventListener('click', () => void setUnitSystem(true));
     document.getElementById('btn-unit-in')?.addEventListener('click', () => void setUnitSystem(false));
     document.getElementById('btn-insp-unit-in')?.addEventListener('click', () => void setUnitSystem(false));
+
+    document.querySelectorAll('[data-page-paper]').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const hex = (btn as HTMLElement).dataset.pagePaper ?? '#FFFFFF';
+        const activePg = this.snapshot?.pages.find((pg) => pg.id === this.snapshot?.activePageId);
+        const res = await this.callEngine('setPageBackground', {
+          pageId: this.snapshot?.activePageId ?? 1,
+          isBackground: Boolean(activePg?.isBackground),
+          backPageId: activePg?.backPageId ?? 0,
+          pageColorHex: hex,
+        });
+        this.snapshot = res.snapshot;
+        this.persistMutationSideEffects(res.wal);
+        this.render();
+      });
+    });
+
+    document.getElementById('insp-page-color-picker')?.addEventListener('change', async (ev) => {
+      const hex = (ev.target as HTMLInputElement).value;
+      const activePg = this.snapshot?.pages.find((pg) => pg.id === this.snapshot?.activePageId);
+      const res = await this.callEngine('setPageBackground', {
+        pageId: this.snapshot?.activePageId ?? 1,
+        isBackground: Boolean(activePg?.isBackground),
+        backPageId: activePg?.backPageId ?? 0,
+        pageColorHex: hex,
+      });
+      this.snapshot = res.snapshot;
+      this.persistMutationSideEffects(res.wal);
+      this.render();
+    });
+
+    document.getElementById('chk-insp-page-is-bg')?.addEventListener('change', async (ev) => {
+      const checked = (ev.target as HTMLInputElement).checked;
+      const activePg = this.snapshot?.pages.find((pg) => pg.id === this.snapshot?.activePageId);
+      const res = await this.callEngine('setPageBackground', {
+        pageId: this.snapshot?.activePageId ?? 1,
+        isBackground: checked,
+        backPageId: checked ? 0 : (activePg?.backPageId ?? 0),
+        pageColorHex: activePg?.pageColorHex ?? '#FFFFFF',
+      });
+      this.snapshot = res.snapshot;
+      this.persistMutationSideEffects(res.wal);
+      this.render();
+    });
+
+    document.getElementById('sel-insp-back-page')?.addEventListener('change', async (ev) => {
+      const chosenBgId = Number((ev.target as HTMLSelectElement).value);
+      const activePg = this.snapshot?.pages.find((pg) => pg.id === this.snapshot?.activePageId);
+      const res = await this.callEngine('setPageBackground', {
+        pageId: this.snapshot?.activePageId ?? 1,
+        isBackground: false,
+        backPageId: chosenBgId,
+        pageColorHex: activePg?.pageColorHex ?? '#FFFFFF',
+      });
+      this.snapshot = res.snapshot;
+      this.persistMutationSideEffects(res.wal);
+      this.render();
+    });
 
     // Backstage & Ribbon Quick Actions + Software Updates
     document.getElementById('btn-backstage-open')?.addEventListener('click', () => void this.handleOpenDisk());
@@ -8344,6 +8423,52 @@ class VexioChromeOsApp {
             this.latestSnappedPin = null;
             this.render();
             break;
+          case 'page-setup': {
+            const targetPid = cm?.targetPageId ?? this.snapshot?.activePageId ?? 1;
+            this.snapshot = (await this.callEngine('selectPage', { pageId: targetPid })).snapshot;
+            this.selectedShapeIds = [];
+            this.activeInspectorTab = 'props';
+            this.showRightInspector = true;
+            this.render();
+            break;
+          }
+          case 'page-toggle-bg': {
+            const targetPid = cm?.targetPageId ?? this.snapshot?.activePageId ?? 1;
+            const pg = this.snapshot?.pages.find((p) => p.id === targetPid);
+            const nextBg = !pg?.isBackground;
+            const res = await this.callEngine('setPageBackground', {
+              pageId: targetPid,
+              isBackground: nextBg,
+              backPageId: nextBg ? 0 : (pg?.backPageId ?? 0),
+              pageColorHex: pg?.pageColorHex ?? '#FFFFFF',
+            });
+            this.snapshot = res.snapshot;
+            this.persistMutationSideEffects(res.wal);
+            this.render();
+            break;
+          }
+          case 'page-color-white':
+          case 'page-color-ivory':
+          case 'page-color-blueprint': {
+            const targetPid = cm?.targetPageId ?? this.snapshot?.activePageId ?? 1;
+            const pg = this.snapshot?.pages.find((p) => p.id === targetPid);
+            const hex =
+              action === 'page-color-ivory'
+                ? '#FAF8F5'
+                : action === 'page-color-blueprint'
+                  ? '#EFF6FF'
+                  : '#FFFFFF';
+            const res = await this.callEngine('setPageBackground', {
+              pageId: targetPid,
+              isBackground: Boolean(pg?.isBackground),
+              backPageId: pg?.backPageId ?? 0,
+              pageColorHex: hex,
+            });
+            this.snapshot = res.snapshot;
+            this.persistMutationSideEffects(res.wal);
+            this.render();
+            break;
+          }
           case 'page-rename': {
             const targetPid = cm?.targetPageId ?? this.snapshot?.activePageId ?? 0;
             const curName = this.snapshot?.pages.find((p) => p.id === targetPid)?.name ?? `Page-${targetPid}`;

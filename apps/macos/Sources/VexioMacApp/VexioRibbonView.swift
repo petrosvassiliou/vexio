@@ -905,18 +905,28 @@ public struct VexioHeaderAndRibbonBar: View {
         }
     }
 
-    // 2. INSERT RIBBON: Pages | Import Visio Stencil | Objects
+    // 2. INSERT RIBBON: Pages | Stencils & Catalog | Objects
     private var insertRibbonGroups: some View {
         HStack(spacing: 12) {
             ribbonGroup(title: "Pages") {
-                ribbonCompactButton("doc.badge.plus", "New Page") {
-                    session.addNewPage()
+                HStack(spacing: 5) {
+                    ribbonCompactButton("doc.badge.plus", "New Page") {
+                        session.addNewPage()
+                    }
+                    ribbonCompactButton("doc.badge.gearshape", i18n.t("pageSetup")) {
+                        NotificationCenter.default.post(name: .vexioOpenPageSetupSheet, object: session.activePageId)
+                    }
                 }
             }
             Divider().frame(height: 44)
             ribbonGroup(title: i18n.t("stencils")) {
-                ribbonCompactButton("square.grid.3x1.folder.badge.plus", i18n.t("importStencil")) {
-                    onRequestImportStencil()
+                HStack(spacing: 5) {
+                    ribbonCompactButton("icloud.and.arrow.down", i18n.t("stencilCatalog")) {
+                        NotificationCenter.default.post(name: .vexioOpenStencilCatalogSheet, object: nil)
+                    }
+                    ribbonCompactButton("square.grid.3x1.folder.badge.plus", i18n.t("importStencil")) {
+                        onRequestImportStencil()
+                    }
                 }
             }
             Divider().frame(height: 44)
@@ -937,19 +947,20 @@ public struct VexioHeaderAndRibbonBar: View {
                     ribbonCompactButton("rectangle.3.group", "Subprocess") {
                         session.createSubprocessDrilldown(undoManager: undoManager)
                     }
-                    ribbonCompactButton("folder", i18n.t("openFile")) {
-                        onRequestOpenFile()
-                    }
                 }
             }
         }
     }
 
-    // 3. DESIGN RIBBON: ISO Metric Page Sizes (A4, A3, A5...) | Orientation | Units | Themes | Routing | Auto-Layout
+    // 3. DESIGN RIBBON: Page Setup & Sizes | Orientation | Background & Themes | Routing | Auto-Layout
     private var designRibbonGroups: some View {
         HStack(spacing: 12) {
             ribbonGroup(title: i18n.t("pageSize")) {
                 HStack(spacing: 5) {
+                    ribbonCompactButton("doc.badge.gearshape", i18n.t("pageSetup"), tip: "Open Page Setup (⇧⌘P)") {
+                        NotificationCenter.default.post(name: .vexioOpenPageSetupSheet, object: session.activePageId)
+                    }
+
                     ForEach([VexioPagePreset.a4, .a3, .a5, .letter], id: \.id) { preset in
                         Button(preset.shortCode) {
                             session.applyPagePreset(preset, landscape: session.isPageLandscape, undoManager: undoManager)
@@ -992,16 +1003,59 @@ public struct VexioHeaderAndRibbonBar: View {
 
             Divider().frame(height: 44)
 
-            ribbonGroup(title: "Themes") {
-                HoverSwitchMenuButton(
-                    id: "design.themes",
-                    title: "Themes",
-                    systemImage: "paintpalette",
-                    coordinator: menuCoordinator
-                ) {
-                    ForEach(VexioThemePreset.allCases) { theme in
-                        Button(theme.displayName) {
-                            session.applyThemeAndVariant(themeSlug: theme.rawValue, variantIndex: 0, undoManager: undoManager)
+            ribbonGroup(title: "Themes & Bg") {
+                HStack(spacing: 5) {
+                    HoverSwitchMenuButton(
+                        id: "design.themes",
+                        title: "Themes",
+                        systemImage: "paintpalette",
+                        coordinator: menuCoordinator
+                    ) {
+                        ForEach(VexioThemePreset.allCases) { theme in
+                            Button(theme.displayName) {
+                                session.applyThemeAndVariant(themeSlug: theme.rawValue, variantIndex: 0, undoManager: undoManager)
+                                menuCoordinator.activeMenuID = nil
+                            }
+                            .buttonStyle(.plain)
+                            .padding(.vertical, 2.5)
+                        }
+                    }
+
+                    HoverSwitchMenuButton(
+                        id: "design.background",
+                        title: i18n.t("pageBackground"),
+                        systemImage: "paintbrush.pointed",
+                        coordinator: menuCoordinator
+                    ) {
+                        let activeSummary = session.pages.first(where: { $0.id == session.activePageId })
+                        let isBg = activeSummary?.isBackgroundPage ?? false
+                        Button(isBg ? "✓ Background Page" : "Mark as Background Page") {
+                            session.updatePageBackground(pageId: session.activePageId, isBackground: !isBg, undoManager: undoManager)
+                            menuCoordinator.activeMenuID = nil
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.vertical, 2.5)
+                        Divider()
+                        Button("Paper: Pure White") {
+                            session.updatePageBackground(pageId: session.activePageId, isBackground: isBg, pageColorHex: "#FFFFFF", undoManager: undoManager)
+                            menuCoordinator.activeMenuID = nil
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.vertical, 2.5)
+                        Button("Paper: Warm Ivory") {
+                            session.updatePageBackground(pageId: session.activePageId, isBackground: isBg, pageColorHex: "#FAF8F5", undoManager: undoManager)
+                            menuCoordinator.activeMenuID = nil
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.vertical, 2.5)
+                        Button("Paper: Soft Slate") {
+                            session.updatePageBackground(pageId: session.activePageId, isBackground: isBg, pageColorHex: "#F1F5F9", undoManager: undoManager)
+                            menuCoordinator.activeMenuID = nil
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.vertical, 2.5)
+                        Button("Paper: Blueprint Tint") {
+                            session.updatePageBackground(pageId: session.activePageId, isBackground: isBg, pageColorHex: "#EFF6FF", undoManager: undoManager)
                             menuCoordinator.activeMenuID = nil
                         }
                         .buttonStyle(.plain)

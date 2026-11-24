@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
-// MARK: - In-App Welcome & File Backstage Hub (Replaces External OS Launch Dialog)
+// MARK: - Focused In-App File Open & Startup Hub (Clean Open, Recent, New Blank & Starter Templates)
 
 public struct VexioBackstageStartView: View {
     @ObservedObject public var session: VexioDocumentSession
@@ -15,10 +15,6 @@ public struct VexioBackstageStartView: View {
 
     public let onOpenLocalFileSheet: () -> Void
     public let onOpenURLDirectly: (URL) -> Void
-    public let onImportStencilSheet: () -> Void
-    public let onSaveSheet: () -> Void
-    public let onSaveAsSheet: () -> Void
-    public let onExportFormat: (VexioExportFormat) -> Void
 
     @State private var isDropTargeted: Bool = false
 
@@ -28,11 +24,7 @@ public struct VexioBackstageStartView: View {
         updater: VexioUpdateManager = .shared,
         isPresented: Binding<Bool>,
         onOpenLocalFileSheet: @escaping () -> Void,
-        onOpenURLDirectly: @escaping (URL) -> Void,
-        onImportStencilSheet: @escaping () -> Void,
-        onSaveSheet: @escaping () -> Void,
-        onSaveAsSheet: @escaping () -> Void,
-        onExportFormat: @escaping (VexioExportFormat) -> Void
+        onOpenURLDirectly: @escaping (URL) -> Void
     ) {
         self.session = session
         self.i18n = i18n
@@ -40,10 +32,6 @@ public struct VexioBackstageStartView: View {
         self._isPresented = isPresented
         self.onOpenLocalFileSheet = onOpenLocalFileSheet
         self.onOpenURLDirectly = onOpenURLDirectly
-        self.onImportStencilSheet = onImportStencilSheet
-        self.onSaveSheet = onSaveSheet
-        self.onSaveAsSheet = onSaveAsSheet
-        self.onExportFormat = onExportFormat
     }
 
     private var recentURLs: [URL] {
@@ -56,55 +44,55 @@ public struct VexioBackstageStartView: View {
         switch i18n.language {
         case .de:
             return [
-                ("flowchart", "Standard-Flussdiagramm", "Prozess-, Entscheidungs- & Datenfluss", "arrow.triangle.branch"),
-                ("bpmn", "BPMN-2.0-Prozess", "Gateways, Aufgaben & Sequenzflüsse", "point.3.connected.trianglepath.dotted"),
-                ("network", "Netzwerk- & Server-Rack", "Firewalls, Switches, AD & M365", "server.rack"),
-                ("floorplan", "Architektur-Grundriss", "Metrische Räume, Racks & Wände", "ruler"),
+                ("flowchart", "Flussdiagramm", "Prozess-, Entscheidungs- & Datenfluss", "arrow.triangle.branch"),
+                ("bpmn", "BPMN 2.0 Prozess", "Gateways, Aufgaben & Sequenzflüsse", "point.3.connected.trianglepath.dotted"),
+                ("network", "Netzwerk & Rack", "Firewalls, Switches, AD & Cloud", "server.rack"),
+                ("floorplan", "Grundriss", "Räume, Wände & Maßstab", "ruler"),
                 ("orgchart", "Organigramm", "Führungs- & Teamstruktur", "person.3.sequence"),
-                ("uml", "UML-2.5-Architektur", "Klassen, Schnittstellen & Komponenten", "square.stack.3d.up"),
+                ("uml", "UML 2.5 Architektur", "Klassen, Schnittstellen & Pakete", "square.stack.3d.up"),
             ]
         case .it:
             return [
                 ("flowchart", "Diagramma di flusso", "Processi, decisioni e flussi dati", "arrow.triangle.branch"),
-                ("bpmn", "Processo BPMN 2.0", "Gateway, attività e flussi di sequenza", "point.3.connected.trianglepath.dotted"),
-                ("network", "Rete e Server Rack", "Firewall, switch, AD e M365", "server.rack"),
-                ("floorplan", "Planimetria architettonica", "Stanze e pareti in scala metrica", "ruler"),
-                ("orgchart", "Organigramma", "Struttura gerarchica aziendale", "person.3.sequence"),
+                ("bpmn", "Processo BPMN 2.0", "Gateway, attività e sequenze", "point.3.connected.trianglepath.dotted"),
+                ("network", "Rete e Server Rack", "Firewall, switch, AD e cloud", "server.rack"),
+                ("floorplan", "Planimetria", "Stanze, pareti e scala", "ruler"),
+                ("orgchart", "Organigramma", "Struttura gerarchica e team", "person.3.sequence"),
                 ("uml", "Architettura UML 2.5", "Classi, interfacce e componenti", "square.stack.3d.up"),
             ]
         case .fr:
             return [
-                ("flowchart", "Organigramme de flux", "Processus, décisions et flux de données", "arrow.triangle.branch"),
-                ("bpmn", "Processus BPMN 2.0", "Passerelles, tâches et flux séquentiels", "point.3.connected.trianglepath.dotted"),
-                ("network", "Réseau et baie serveur", "Pare-feu, commutateurs, AD et M365", "server.rack"),
-                ("floorplan", "Plan d’étage architectural", "Pièces et murs à l’échelle métrique", "ruler"),
-                ("orgchart", "Organigramme hiérarchique", "Direction et équipes", "person.3.sequence"),
+                ("flowchart", "Flux de processus", "Processus, décisions et données", "arrow.triangle.branch"),
+                ("bpmn", "Processus BPMN 2.0", "Passerelles, tâches et flux", "point.3.connected.trianglepath.dotted"),
+                ("network", "Réseau et baie", "Pare-feu, switchs, AD et cloud", "server.rack"),
+                ("floorplan", "Plan d’étage", "Pièces, murs et échelle", "ruler"),
+                ("orgchart", "Organigramme", "Direction et équipes", "person.3.sequence"),
                 ("uml", "Architecture UML 2.5", "Classes, interfaces et composants", "square.stack.3d.up"),
             ]
         case .es:
             return [
-                ("flowchart", "Diagrama de flujo", "Procesos, decisiones y flujo de datos", "arrow.triangle.branch"),
-                ("bpmn", "Proceso BPMN 2.0", "Compuertas, tareas y flujos de secuencia", "point.3.connected.trianglepath.dotted"),
-                ("network", "Red y rack de servidores", "Firewalls, switches, AD y M365", "server.rack"),
-                ("floorplan", "Plano arquitectónico", "Salas y muros a escala métrica", "ruler"),
-                ("orgchart", "Organigrama", "Estructura directiva y de equipos", "person.3.sequence"),
+                ("flowchart", "Diagrama de flujo", "Procesos, decisiones y datos", "arrow.triangle.branch"),
+                ("bpmn", "Proceso BPMN 2.0", "Compuertas, tareas y secuencias", "point.3.connected.trianglepath.dotted"),
+                ("network", "Red y rack", "Firewalls, switches, AD y nube", "server.rack"),
+                ("floorplan", "Plano de planta", "Salas, muros y escala", "ruler"),
+                ("orgchart", "Organigrama", "Dirección y estructura de equipos", "person.3.sequence"),
                 ("uml", "Arquitectura UML 2.5", "Clases, interfaces y componentes", "square.stack.3d.up"),
             ]
         case .el:
             return [
-                ("flowchart", "Διάγραμμα ροής", "Διαδικασίες, αποφάσεις & ροή δεδομένων", "arrow.triangle.branch"),
-                ("bpmn", "Διαδικασία BPMN 2.0", "Πύλες, εργασίες & ροές ακολουθίας", "point.3.connected.trianglepath.dotted"),
-                ("network", "Δίκτυο & Server Rack", "Τείχη προστασίας, switches, AD & M365", "server.rack"),
-                ("floorplan", "Αρχιτεκτονική κάτοψη", "Χώροι & τοίχοι σε μετρική κλίμακα", "ruler"),
-                ("orgchart", "Οργανόγραμμα", "Διοικητική ιεραρχία & ομάδες", "person.3.sequence"),
+                ("flowchart", "Διάγραμμα ροής", "Διαδικασίες, αποφάσεις & ροή", "arrow.triangle.branch"),
+                ("bpmn", "Διαδικασία BPMN 2.0", "Πύλες, εργασίες & ακολουθίες", "point.3.connected.trianglepath.dotted"),
+                ("network", "Δίκτυο & Rack", "Firewalls, switches, AD & cloud", "server.rack"),
+                ("floorplan", "Κάτοψη χώρου", "Χώροι, τοίχοι & κλίμακα", "ruler"),
+                ("orgchart", "Οργανόγραμμα", "Διοίκηση & δομή ομάδων", "person.3.sequence"),
                 ("uml", "Αρχιτεκτονική UML 2.5", "Κλάσεις, διεπαφές & στοιχεία", "square.stack.3d.up"),
             ]
         case .en:
             return [
                 ("flowchart", "Basic Flowchart", "Process, decision & data flow", "arrow.triangle.branch"),
                 ("bpmn", "BPMN 2.0 Process", "Gateways, tasks & sequence flows", "point.3.connected.trianglepath.dotted"),
-                ("network", "Network & Server Rack", "Firewalls, switches, AD & M365", "server.rack"),
-                ("floorplan", "Architectural Floor Plan", "Metric / scaled rooms & walls", "ruler"),
+                ("network", "Network & Server Rack", "Firewalls, switches, AD & cloud", "server.rack"),
+                ("floorplan", "Architectural Floor Plan", "Rooms, walls & scaled layout", "ruler"),
                 ("orgchart", "Organization Chart", "Executive & team reporting tree", "person.3.sequence"),
                 ("uml", "UML 2.5 Architecture", "Classes, interfaces & components", "square.stack.3d.up"),
             ]
@@ -113,34 +101,12 @@ public struct VexioBackstageStartView: View {
 
     private var dropZoneHint: String {
         switch i18n.language {
-        case .de: return ".vsdx-, .vssx-, .vsd- oder .dwg-Datei hier ablegen"
-        case .it: return "Rilascia qui file .vsdx, .vssx, .vsd o .dwg"
-        case .fr: return "Déposez un fichier .vsdx, .vssx, .vsd ou .dwg ici"
-        case .es: return "Suelte aquí archivos .vsdx, .vssx, .vsd o .dwg"
-        case .el: return "Αποθέστε εδώ αρχεία .vsdx, .vssx, .vsd ή .dwg"
-        case .en: return "Drop .vsdx, .vssx, .vsd, or .dwg here"
-        }
-    }
-
-    private var metricLabelWord: String {
-        switch i18n.language {
-        case .de: return "Metrisch"
-        case .it: return "Metrico"
-        case .fr: return "Métrique"
-        case .es: return "Métrico"
-        case .el: return "Μετρικό"
-        case .en: return "Metric"
-        }
-    }
-
-    private var imperialLabelWord: String {
-        switch i18n.language {
-        case .de: return "Zoll"
-        case .it: return "Imperiale"
-        case .fr: return "Impérial"
-        case .es: return "Imperial"
-        case .el: return "Ίντσες"
-        case .en: return "Imperial"
+        case .de: return ".vsdx-, .vsd-, .dwg- oder .dxf-Datei hier ablegen"
+        case .it: return "Rilascia qui un file .vsdx, .vsd, .dwg o .dxf"
+        case .fr: return "Déposez un fichier .vsdx, .vsd, .dwg ou .dxf ici"
+        case .es: return "Suelte aquí un archivo .vsdx, .vsd, .dwg o .dxf"
+        case .el: return "Αποθέστε εδώ αρχείο .vsdx, .vsd, .dwg ή .dxf"
+        case .en: return "Drop a .vsdx, .vsd, .dwg, or .dxf file here"
         }
     }
 
@@ -149,423 +115,327 @@ public struct VexioBackstageStartView: View {
             Color.black.opacity(0.28)
                 .ignoresSafeArea()
                 .onTapGesture {
-                    withAnimation(LiquidGlassPhysics.standardSpring) {
-                        isPresented = false
-                    }
+                    dismissHub()
                 }
 
             VStack(spacing: 0) {
-                // Header Bar
-                HStack(spacing: 14) {
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(
-                            LinearGradient(
-                                colors: [Color(red: 0.14, green: 0.39, blue: 0.92), Color(red: 0.09, green: 0.25, blue: 0.68)],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
-                        .frame(width: 40, height: 40)
-                        .overlay(
-                            Text("V")
-                                .font(.system(size: 21, weight: .heavy, design: .rounded))
-                                .foregroundStyle(.white)
-                        )
-
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(i18n.t("welcomeTitle"))
-                            .font(.system(size: 19, weight: .bold))
-                        Text(i18n.t("welcomeSubtitle"))
-                            .font(.system(size: 12))
-                            .foregroundStyle(.secondary)
-                    }
-
-                    Spacer()
-
-                    // Quick Language Selector right inside Welcome / File Backstage
-                    Picker(i18n.t("language"), selection: $i18n.language) {
-                        ForEach(VexioAppLanguage.allCases) { lang in
-                            Text(lang.nativeDisplayName).tag(lang)
-                        }
-                    }
-                    .pickerStyle(.menu)
-                    .frame(width: 165)
-
-                    Button(i18n.t("continueToCanvas")) {
-                        withAnimation(LiquidGlassPhysics.standardSpring) {
-                            isPresented = false
-                        }
-                    }
-                    .buttonStyle(.borderedProminent)
-                }
-                .padding(.horizontal, 24)
-                .padding(.vertical, 18)
-
+                headerBar
                 Divider()
-
-                // Main Content Columns: Left Actions & Recent | Right Blank Page Presets & Templates
                 HStack(alignment: .top, spacing: 0) {
-                    // Left Column: Open, Save, Save As, Import Stencil, Recent Files
-                    VStack(alignment: .leading, spacing: 10) {
-                        Button {
-                            onOpenLocalFileSheet()
-                        } label: {
-                            HStack(spacing: 8) {
-                                Image(systemName: "folder.badge.plus")
-                                    .font(.system(size: 14, weight: .semibold))
-                                Text(i18n.t("openFile"))
-                                    .font(.system(size: 12.5, weight: .semibold))
-                                    .lineLimit(1)
-                                Spacer(minLength: 4)
-                                Text("⌘O")
-                                    .font(.system(size: 10.5, design: .monospaced))
-                                    .foregroundStyle(.white.opacity(0.85))
-                            }
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 8)
-                            .frame(maxWidth: .infinity)
-                        }
-                        .buttonStyle(.borderedProminent)
-
-                        Button {
-                            onImportStencilSheet()
-                        } label: {
-                            HStack(spacing: 8) {
-                                Image(systemName: "square.grid.3x1.folder.badge.plus")
-                                Text(i18n.t("importStencil"))
-                                    .lineLimit(1)
-                                Spacer(minLength: 4)
-                                Text(".vssx/.vss")
-                                    .font(.system(size: 10, design: .monospaced))
-                                    .foregroundStyle(.secondary)
-                            }
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 6)
-                            .frame(maxWidth: .infinity)
-                        }
-                        .buttonStyle(.bordered)
-
-                        HStack(spacing: 8) {
-                            Button {
-                                onSaveSheet()
-                            } label: {
-                                HStack(spacing: 6) {
-                                    Image(systemName: "square.and.arrow.down")
-                                    Text(i18n.t("saveFile"))
-                                        .lineLimit(1)
-                                    Spacer(minLength: 2)
-                                    Text("⌘S")
-                                        .font(.system(size: 10, design: .monospaced))
-                                        .foregroundStyle(.secondary)
-                                }
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 6)
-                                .frame(maxWidth: .infinity)
-                            }
-                            .buttonStyle(.bordered)
-
-                            Button {
-                                onSaveAsSheet()
-                            } label: {
-                                HStack(spacing: 6) {
-                                    Image(systemName: "square.and.arrow.down.on.square")
-                                    Text(i18n.t("saveAs"))
-                                        .lineLimit(1)
-                                    Spacer(minLength: 2)
-                                    Text("⇧⌘S")
-                                        .font(.system(size: 10, design: .monospaced))
-                                        .foregroundStyle(.secondary)
-                                }
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 6)
-                                .frame(maxWidth: .infinity)
-                            }
-                            .buttonStyle(.bordered)
-                        }
-
-                        Menu {
-                            ForEach(VexioExportFormat.allCases) { fmt in
-                                Button(fmt.displayName) {
-                                    isPresented = false
-                                    onExportFormat(fmt)
-                                }
-                            }
-                        } label: {
-                            HStack {
-                                Image(systemName: "square.and.arrow.up")
-                                Text(i18n.t("export"))
-                                    .lineLimit(1)
-                                Spacer()
-                            }
-                            .frame(maxWidth: .infinity)
-                        }
-                        .controlSize(.regular)
-
-                        Divider().padding(.vertical, 4)
-
-                        Text(i18n.t("recentFiles").uppercased())
-                            .font(.system(size: 10.5, weight: .bold))
-                            .foregroundStyle(.secondary)
-
-                        if recentURLs.isEmpty {
-                            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                .strokeBorder(
-                                    isDropTargeted ? Color.accentColor : Color.secondary.opacity(0.25),
-                                    style: StrokeStyle(lineWidth: 1.4, dash: [5, 4])
-                                )
-                                .background(
-                                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                        .fill(isDropTargeted ? Color.accentColor.opacity(0.08) : Color.clear)
-                                )
-                                .frame(height: 110)
-                                .overlay(
-                                    VStack(spacing: 6) {
-                                        Image(systemName: "arrow.down.doc")
-                                            .font(.system(size: 20))
-                                            .foregroundStyle(.secondary)
-                                        Text(dropZoneHint)
-                                            .font(.system(size: 11))
-                                            .foregroundStyle(.secondary)
-                                            .multilineTextAlignment(.center)
-                                    }
-                                    .padding(8)
-                                )
-                        } else {
-                            ScrollView {
-                                VStack(alignment: .leading, spacing: 5) {
-                                    ForEach(recentURLs.prefix(8), id: \.path) { url in
-                                        Button {
-                                            isPresented = false
-                                            onOpenURLDirectly(url)
-                                        } label: {
-                                            HStack(spacing: 8) {
-                                                Image(systemName: "doc.richtext")
-                                                    .foregroundStyle(Color.accentColor)
-                                                VStack(alignment: .leading, spacing: 1) {
-                                                    Text(url.lastPathComponent)
-                                                        .font(.system(size: 12, weight: .medium))
-                                                        .lineLimit(1)
-                                                    Text(url.deletingLastPathComponent().path)
-                                                        .font(.system(size: 9.5))
-                                                        .foregroundStyle(.secondary)
-                                                        .lineLimit(1)
-                                                }
-                                                Spacer()
-                                            }
-                                            .padding(6)
-                                            .background(RoundedRectangle(cornerRadius: 7).fill(Color.primary.opacity(0.04)))
-                                        }
-                                        .buttonStyle(.plain)
-                                    }
-                                }
-                            }
-                            .frame(maxHeight: 165)
-                        }
-
-                        Spacer()
-                    }
-                    .padding(20)
-                    .frame(width: 336)
-                    .onDrop(of: [.fileURL], isTargeted: $isDropTargeted) { providers in
-                        guard let first = providers.first else { return false }
-                        _ = first.loadObject(ofClass: URL.self) { droppedURL, _ in
-                            guard let droppedURL else { return }
-                            Task { @MainActor in
-                                isPresented = false
-                                onOpenURLDirectly(droppedURL)
-                            }
-                        }
-                        return true
-                    }
-
+                    openAndRecentColumn
                     Divider()
-
-                    // Right Column: Blank Metric/Imperial Sheets + Starter Templates
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 16) {
-                            Text(i18n.t("pageSize").uppercased())
-                                .font(.system(size: 10.5, weight: .bold))
-                                .foregroundStyle(.secondary)
-
-                            LazyVGrid(
-                                columns: [
-                                    GridItem(.flexible(), spacing: 10),
-                                    GridItem(.flexible(), spacing: 10),
-                                    GridItem(.flexible(), spacing: 10),
-                                ],
-                                spacing: 10
-                            ) {
-                                blankSheetCard(
-                                    title: i18n.t("newBlankA4"),
-                                    subtitle: "297 × 210 mm • \(metricLabelWord)",
-                                    preset: .a4,
-                                    badge: i18n.unitPreference.isMetric ? "DEFAULT" : "ISO"
-                                )
-                                blankSheetCard(
-                                    title: i18n.t("newBlankA3"),
-                                    subtitle: "420 × 297 mm • \(metricLabelWord)",
-                                    preset: .a3,
-                                    badge: "ISO"
-                                )
-                                blankSheetCard(
-                                    title: i18n.t("newBlankLetter"),
-                                    subtitle: "11 × 8.5 in • \(imperialLabelWord)",
-                                    preset: .letter,
-                                    badge: !i18n.unitPreference.isMetric ? "DEFAULT" : "ANSI"
-                                )
-                            }
-
-                            Divider()
-
-                            Text(i18n.t("templates").uppercased())
-                                .font(.system(size: 10.5, weight: .bold))
-                                .foregroundStyle(.secondary)
-
-                            LazyVGrid(
-                                columns: [
-                                    GridItem(.flexible(), spacing: 10),
-                                    GridItem(.flexible(), spacing: 10),
-                                    GridItem(.flexible(), spacing: 10),
-                                ],
-                                spacing: 10
-                            ) {
-                                ForEach(starterTemplates, id: \.id) { tpl in
-                                    Button {
-                                        session.loadStarterTemplate(tpl.id, undoManager: undoManager)
-                                        session.applyPagePreset(
-                                            i18n.unitPreference.isMetric ? .a4 : .letter,
-                                            landscape: true,
-                                            undoManager: nil
-                                        )
-                                        withAnimation(LiquidGlassPhysics.standardSpring) {
-                                            isPresented = false
-                                        }
-                                    } label: {
-                                        VStack(alignment: .leading, spacing: 6) {
-                                            HStack {
-                                                Image(systemName: tpl.icon)
-                                                    .font(.system(size: 18, weight: .semibold))
-                                                    .foregroundStyle(Color.accentColor)
-                                                Spacer()
-                                            }
-                                            Text(tpl.title)
-                                                .font(.system(size: 12.5, weight: .semibold))
-                                                .foregroundStyle(.primary)
-                                                .lineLimit(1)
-                                            Text(tpl.subtitle)
-                                                .font(.system(size: 10.5))
-                                                .foregroundStyle(.secondary)
-                                                .lineLimit(2)
-                                        }
-                                        .padding(12)
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-                                        .background(
-                                            RoundedRectangle(cornerRadius: 11, style: .continuous)
-                                                .fill(Color.primary.opacity(0.045))
-                                        )
-                                        .overlay(
-                                            RoundedRectangle(cornerRadius: 11, style: .continuous)
-                                                .strokeBorder(Color.primary.opacity(0.09), lineWidth: 0.8)
-                                        )
-                                    }
-                                    .buttonStyle(.plain)
-                                }
-                            }
-                        }
-                        .padding(20)
-                    }
+                    createNewAndTemplatesColumn
                 }
-
                 Divider()
-
-                // Bottom Bar: Startup Preference, Units & Updates
-                HStack(spacing: 16) {
-                    Toggle(i18n.t("skipStartOnLaunch"), isOn: $skipStartScreenOnLaunch)
-                        .font(.system(size: 11.5))
-
-                    Spacer()
-
-                    HStack(spacing: 6) {
-                        Text("\(i18n.t("units")):")
-                            .font(.system(size: 11.5))
-                            .foregroundStyle(.secondary)
-                        Picker("", selection: $i18n.unitPreference) {
-                            Text("\(i18n.t("osStandard")) (\(VexioMeasurementUnit.osDefault.resolvedEngineSlug))").tag(VexioMeasurementUnit.osDefault)
-                            Text("Millimeters (mm)").tag(VexioMeasurementUnit.mm)
-                            Text("Centimeters (cm)").tag(VexioMeasurementUnit.cm)
-                            Text("Meters (m)").tag(VexioMeasurementUnit.m)
-                            Text("Inches (in)").tag(VexioMeasurementUnit.inch)
-                        }
-                        .labelsHidden()
-                        .frame(width: 165)
-                        .onChange(of: i18n.unitPreference) { _, newUnit in
-                            session.applyMeasurementUnit(newUnit.resolvedEngineSlug, undoManager: undoManager)
-                        }
-                    }
-
-                    Button {
-                        Task { await updater.checkForUpdates(userInitiated: true) }
-                    } label: {
-                        Label(
-                            updater.updateAvailable ? "Update v\(updater.latestVersionTag)!" : i18n.t("checkForUpdates"),
-                            systemImage: updater.updateAvailable ? "arrow.down.circle.fill" : "arrow.triangle.2.circlepath"
-                        )
-                        .font(.system(size: 11.5, weight: .medium))
-                    }
-                    .buttonStyle(.bordered)
-                }
-                .padding(.horizontal, 24)
-                .padding(.vertical, 12)
+                footerBar
             }
-            .frame(width: 920, height: 590)
+            .frame(width: 880, height: 540)
             .liquidGlassSurface(cornerRadius: 20, elevation: .quickPopover)
             .shadow(color: .black.opacity(0.24), radius: 28, y: 12)
         }
     }
 
-    @ViewBuilder
-    private func blankSheetCard(title: String, subtitle: String, preset: VexioPagePreset, badge: String) -> some View {
-        Button {
-            session.resetToBlankSheet(
-                preset: preset,
-                landscape: true,
-                unitSlug: preset == .letter ? "in" : "mm"
-            )
-            withAnimation(LiquidGlassPhysics.standardSpring) {
-                isPresented = false
-            }
-        } label: {
-            VStack(alignment: .leading, spacing: 7) {
-                HStack {
-                    Image(systemName: "doc.badge.plus")
-                        .font(.system(size: 19, weight: .semibold))
-                        .foregroundStyle(Color.accentColor)
-                    Spacer()
-                    Text(badge)
-                        .font(.system(size: 9, weight: .bold, design: .monospaced))
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(Capsule().fill(Color.accentColor.opacity(0.16)))
-                }
-                Text(title)
-                    .font(.system(size: 12.5, weight: .semibold))
-                    .foregroundStyle(.primary)
-                    .lineLimit(2)
-                Text(subtitle)
-                    .font(.system(size: 10.5))
-                    .foregroundStyle(.secondary)
-            }
-            .padding(12)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: 11, style: .continuous)
-                    .fill(Color.accentColor.opacity(0.06))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 11, style: .continuous)
-                    .strokeBorder(Color.accentColor.opacity(0.25), lineWidth: 1.0)
-            )
+    private func dismissHub() {
+        withAnimation(LiquidGlassPhysics.standardSpring) {
+            isPresented = false
         }
-        .buttonStyle(.plain)
+    }
+
+    // MARK: - Header
+
+    private var headerBar: some View {
+        HStack(spacing: 14) {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [Color(red: 0.14, green: 0.39, blue: 0.92), Color(red: 0.09, green: 0.25, blue: 0.68)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                .frame(width: 38, height: 38)
+                .overlay(
+                    Text("V")
+                        .font(.system(size: 20, weight: .heavy, design: .rounded))
+                        .foregroundStyle(.white)
+                )
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(i18n.t("welcomeTitle"))
+                    .font(.system(size: 18, weight: .bold))
+                    .lineLimit(1)
+                Text(i18n.t("welcomeSubtitle"))
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 12)
+
+            Picker("", selection: $i18n.language) {
+                ForEach(VexioAppLanguage.allCases) { lang in
+                    Text(lang.nativeDisplayName).tag(lang)
+                }
+            }
+            .labelsHidden()
+            .pickerStyle(.menu)
+            .frame(width: 148)
+            .help(i18n.t("language"))
+
+            Button(i18n.t("continueToCanvas")) {
+                dismissHub()
+            }
+            .buttonStyle(.bordered)
+            .fixedSize(horizontal: true, vertical: false)
+        }
+        .padding(.horizontal, 22)
+        .padding(.vertical, 16)
+    }
+
+    // MARK: - Left Column: Open File, Drop Zone & Recent Files
+
+    private var openAndRecentColumn: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Button {
+                onOpenLocalFileSheet()
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "folder.badge.plus")
+                        .font(.system(size: 14, weight: .semibold))
+                    Text(i18n.t("openFile"))
+                        .font(.system(size: 12.5, weight: .semibold))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.9)
+                    Spacer(minLength: 4)
+                    Text("⌘O")
+                        .font(.system(size: 10.5, weight: .medium, design: .monospaced))
+                        .foregroundStyle(.white.opacity(0.85))
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+                .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(
+                    isDropTargeted ? Color.accentColor : Color.secondary.opacity(0.25),
+                    style: StrokeStyle(lineWidth: 1.4, dash: [5, 4])
+                )
+                .background(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(isDropTargeted ? Color.accentColor.opacity(0.08) : Color.primary.opacity(0.02))
+                )
+                .frame(height: recentURLs.isEmpty ? 130 : 68)
+                .overlay(
+                    HStack(spacing: 8) {
+                        Image(systemName: "arrow.down.doc")
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundStyle(isDropTargeted ? Color.accentColor : .secondary)
+                        Text(dropZoneHint)
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.leading)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .padding(.horizontal, 12)
+                )
+
+            Text(i18n.t("recentFiles").uppercased())
+                .font(.system(size: 10.5, weight: .bold))
+                .foregroundStyle(.secondary)
+                .padding(.top, 2)
+
+            if recentURLs.isEmpty {
+                Text("—")
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(.tertiary)
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 5) {
+                        ForEach(recentURLs.prefix(10), id: \.path) { url in
+                            Button {
+                                isPresented = false
+                                onOpenURLDirectly(url)
+                            } label: {
+                                HStack(spacing: 8) {
+                                    Image(systemName: "doc.richtext")
+                                        .font(.system(size: 13))
+                                        .foregroundStyle(Color.accentColor)
+                                    VStack(alignment: .leading, spacing: 1.5) {
+                                        Text(url.lastPathComponent)
+                                            .font(.system(size: 12, weight: .medium))
+                                            .lineLimit(1)
+                                            .truncationMode(.middle)
+                                        Text(url.deletingLastPathComponent().path)
+                                            .font(.system(size: 9.5))
+                                            .foregroundStyle(.secondary)
+                                            .lineLimit(1)
+                                            .truncationMode(.head)
+                                    }
+                                    Spacer(minLength: 0)
+                                }
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 6)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                        .fill(Color.primary.opacity(0.04))
+                                )
+                            }
+                            .buttonStyle(.plain)
+                            .help(url.path)
+                        }
+                    }
+                }
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(20)
+        .frame(width: 312)
+        .onDrop(of: [.fileURL], isTargeted: $isDropTargeted) { providers in
+            guard let first = providers.first else { return false }
+            _ = first.loadObject(ofClass: URL.self) { droppedURL, _ in
+                guard let droppedURL else { return }
+                Task { @MainActor in
+                    isPresented = false
+                    onOpenURLDirectly(droppedURL)
+                }
+            }
+            return true
+        }
+    }
+
+    // MARK: - Right Column: Single New Blank Diagram Hero + Starter Templates
+
+    private var createNewAndTemplatesColumn: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                Button {
+                    session.createNewBlankDiagram()
+                    dismissHub()
+                } label: {
+                    HStack(spacing: 14) {
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .fill(Color.accentColor.opacity(0.16))
+                                .frame(width: 44, height: 44)
+                            Image(systemName: "doc.badge.plus")
+                                .font(.system(size: 20, weight: .semibold))
+                                .foregroundStyle(Color.accentColor)
+                        }
+
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(i18n.t("newBlankDiagram"))
+                                .font(.system(size: 14, weight: .bold))
+                                .foregroundStyle(.primary)
+                                .lineLimit(1)
+                            Text(i18n.t("newBlankSubtitle"))
+                                .font(.system(size: 11.5))
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+
+                        Spacer(minLength: 8)
+
+                        Image(systemName: "arrow.right.circle.fill")
+                            .font(.system(size: 18))
+                            .foregroundStyle(Color.accentColor)
+                    }
+                    .padding(14)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .fill(Color.accentColor.opacity(0.07))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .strokeBorder(Color.accentColor.opacity(0.30), lineWidth: 1.1)
+                    )
+                }
+                .buttonStyle(.plain)
+
+                Text(i18n.t("templates").uppercased())
+                    .font(.system(size: 10.5, weight: .bold))
+                    .foregroundStyle(.secondary)
+
+                LazyVGrid(
+                    columns: [
+                        GridItem(.flexible(), spacing: 10),
+                        GridItem(.flexible(), spacing: 10),
+                        GridItem(.flexible(), spacing: 10),
+                    ],
+                    spacing: 10
+                ) {
+                    ForEach(starterTemplates, id: \.id) { tpl in
+                        Button {
+                            session.loadStarterTemplate(tpl.id, undoManager: undoManager)
+                            session.applyPagePreset(
+                                i18n.unitPreference.isMetric ? .a4 : .letter,
+                                landscape: true,
+                                undoManager: nil
+                            )
+                            session.fitViewportToActivePage()
+                            dismissHub()
+                        } label: {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Image(systemName: tpl.icon)
+                                    .font(.system(size: 18, weight: .semibold))
+                                    .foregroundStyle(Color.accentColor)
+                                Text(tpl.title)
+                                    .font(.system(size: 12.5, weight: .semibold))
+                                    .foregroundStyle(.primary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                Text(tpl.subtitle)
+                                    .font(.system(size: 10.5))
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(2)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                Spacer(minLength: 0)
+                            }
+                            .padding(12)
+                            .frame(maxWidth: .infinity, minHeight: 96, alignment: .topLeading)
+                            .background(
+                                RoundedRectangle(cornerRadius: 11, style: .continuous)
+                                    .fill(Color.primary.opacity(0.045))
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 11, style: .continuous)
+                                    .strokeBorder(Color.primary.opacity(0.09), lineWidth: 0.8)
+                            )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+            .padding(20)
+        }
+    }
+
+    // MARK: - Footer
+
+    private var footerBar: some View {
+        HStack(spacing: 16) {
+            Toggle(i18n.t("skipStartOnLaunch"), isOn: $skipStartScreenOnLaunch)
+                .font(.system(size: 11.5))
+
+            Spacer()
+
+            Button {
+                Task { await updater.checkForUpdates(userInitiated: true) }
+            } label: {
+                Label(
+                    updater.updateAvailable ? "Update v\(updater.latestVersionTag)!" : i18n.t("checkForUpdates"),
+                    systemImage: updater.updateAvailable ? "arrow.down.circle.fill" : "arrow.triangle.2.circlepath"
+                )
+                .font(.system(size: 11.5, weight: .medium))
+                .fixedSize(horizontal: true, vertical: false)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+        }
+        .padding(.horizontal, 22)
+        .padding(.vertical, 11)
     }
 }

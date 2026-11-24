@@ -307,12 +307,29 @@ public struct VexioPageSummary: Identifiable, Equatable, Sendable {
     public var title: String
     public var architecturalScale: String
     public var isBackgroundPage: Bool
+    public var widthInches: Double
+    public var heightInches: Double
+    public var backPageId: UInt32
+    public var pageColorHex: String
 
-    public init(id: UInt32, title: String, architecturalScale: String = "1:1 (No Scale)", isBackgroundPage: Bool = false) {
+    public init(
+        id: UInt32,
+        title: String,
+        architecturalScale: String = "1:1 (No Scale)",
+        isBackgroundPage: Bool = false,
+        widthInches: Double = 11.6929,
+        heightInches: Double = 8.2677,
+        backPageId: UInt32 = 0,
+        pageColorHex: String = "#FFFFFF"
+    ) {
         self.id = id
         self.title = title
         self.architecturalScale = architecturalScale
         self.isBackgroundPage = isBackgroundPage
+        self.widthInches = widthInches
+        self.heightInches = heightInches
+        self.backPageId = backPageId
+        self.pageColorHex = pageColorHex
     }
 }
 
@@ -3839,7 +3856,19 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
                 guard let pid = p["id"] as? Int, pid >= 0 else { return nil }
                 let name = (p["name"] as? String) ?? "Page-\(pid)"
                 let bg = (p["isBackground"] as? Bool) ?? false
-                return VexioPageSummary(id: UInt32(pid), title: name, isBackgroundPage: bg)
+                let wIn = (p["widthIn"] as? Double) ?? pageWidthInches
+                let hIn = (p["heightIn"] as? Double) ?? pageHeightInches
+                let bpidInt = (p["backPageId"] as? Int) ?? 0
+                let colorHex = (p["pageColorHex"] as? String) ?? "#FFFFFF"
+                return VexioPageSummary(
+                    id: UInt32(pid),
+                    title: name,
+                    isBackgroundPage: bg,
+                    widthInches: wIn,
+                    heightInches: hIn,
+                    backPageId: bpidInt > 0 ? UInt32(bpidInt) : 0,
+                    pageColorHex: colorHex.isEmpty ? "#FFFFFF" : colorHex
+                )
             }
             if !pages.contains(where: { $0.id == activePageId }) {
                 if let resolved = root["activePageId"] as? Int, resolved >= 0 {
@@ -4718,8 +4747,58 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
             activeTool = .pointer
             syncSelectedShapeMetadataFromCore()
             core.setViewportPage(pageId: 1)
+            fitViewportToActivePage()
             core.renderViewportFrame()
             statusMessage = "Created blank \(preset.shortCode) (\(unitSlug)) drawing"
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    public func createNewBlankDiagram() {
+        let unitPref = VexioLocalization.shared.unitPreference
+        let defaultPreset: VexioPagePreset = unitPref.isMetric ? .a4 : .letter
+        resetToBlankSheet(
+            preset: defaultPreset,
+            landscape: true,
+            unitSlug: unitPref.resolvedEngineSlug
+        )
+    }
+
+    public func applyCustomPageSetup(
+        pageId: UInt32,
+        name: String?,
+        widthInches: Double,
+        heightInches: Double,
+        unitSlug: String,
+        isBackground: Bool,
+        backPageId: UInt32,
+        pageColorHex: String,
+        undoManager: UndoManager?
+    ) {
+        do {
+            if let trimmedName = name?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmedName.isEmpty {
+                try core.renamePage(pageId: pageId, newName: trimmedName)
+            }
+            try core.setPageSetup(
+                pageId: pageId,
+                widthIn: max(0.5, widthInches),
+                heightIn: max(0.5, heightInches),
+                unitSlug: unitSlug
+            )
+            try core.setPageBackground(
+                pageId: pageId,
+                isBackground: isBackground,
+                backPageId: isBackground ? 0 : backPageId,
+                pageColorHex: pageColorHex
+            )
+            registerJournalUndoStep(actionName: "Page Setup", undoManager: undoManager)
+            syncSelectedShapeMetadataFromCore()
+            if pageId == activePageId {
+                core.setViewportPage(pageId: activePageId)
+            }
+            core.renderViewportFrame()
+            statusMessage = "Updated page setup"
         } catch {
             statusMessage = error.localizedDescription
         }
@@ -4756,7 +4835,19 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
                         guard let pid = p["id"] as? Int, pid >= 0 else { return nil }
                         let name = (p["name"] as? String) ?? "Page-\(pid)"
                         let bg = (p["isBackground"] as? Bool) ?? false
-                        return VexioPageSummary(id: UInt32(pid), title: name, isBackgroundPage: bg)
+                        let wIn = (p["widthIn"] as? Double) ?? pageWidthInches
+                        let hIn = (p["heightIn"] as? Double) ?? pageHeightInches
+                        let bpidInt = (p["backPageId"] as? Int) ?? 0
+                        let colorHex = (p["pageColorHex"] as? String) ?? "#FFFFFF"
+                        return VexioPageSummary(
+                            id: UInt32(pid),
+                            title: name,
+                            isBackgroundPage: bg,
+                            widthInches: wIn,
+                            heightInches: hIn,
+                            backPageId: bpidInt > 0 ? UInt32(bpidInt) : 0,
+                            pageColorHex: colorHex.isEmpty ? "#FFFFFF" : colorHex
+                        )
                     }
                     if !parsedPages.isEmpty {
                         pages = parsedPages

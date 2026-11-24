@@ -874,31 +874,18 @@ fun GooglebookWorkstationScreen(
             )
         }
 
-        // In-App Welcome / Start & File Backstage Hub (No external OS launch file dialog)
+        // In-App Welcome / Startup Hub (No external OS launch file dialog)
         if (uiState.showStartBackstage) {
             InAppStartBackstageOverlay(
                 uiState = uiState,
                 onClose = { viewModel.setStartBackstageVisible(false) },
-                onCreateBlankPreset = { title, preset ->
-                    viewModel.createBlankWithPagePreset(title, preset)
+                onCreateNewBlank = {
+                    viewModel.createBlankWithPagePreset("Untitled_Diagram.vsdx", VexioPagePresetSpec.A4_LANDSCAPE)
                 },
                 onLoadTemplate = viewModel::loadStarterTemplate,
                 onOpenFile = {
                     viewModel.setStartBackstageVisible(false)
                     onOpenDocumentRequested()
-                },
-                onImportStencil = onImportStencilRequested,
-                onSaveFile = {
-                    viewModel.setStartBackstageVisible(false)
-                    onSaveDocumentRequested()
-                },
-                onSaveAsFile = {
-                    viewModel.setStartBackstageVisible(false)
-                    onSaveAsDocumentRequested()
-                },
-                onPrint = {
-                    viewModel.setStartBackstageVisible(false)
-                    onPrintRequested()
                 },
                 onSelectLanguage = viewModel::setLanguage,
                 onToggleAutoUpdates = viewModel::setAutoCheckUpdates,
@@ -2164,13 +2151,9 @@ private fun ColorSwatchActionPill(
 private fun InAppStartBackstageOverlay(
     uiState: WorkstationUiState,
     onClose: () -> Unit,
-    onCreateBlankPreset: (String, VexioPagePresetSpec) -> Unit,
+    onCreateNewBlank: () -> Unit,
     onLoadTemplate: (String) -> Unit,
     onOpenFile: () -> Unit,
-    onImportStencil: () -> Unit,
-    onSaveFile: () -> Unit,
-    onSaveAsFile: () -> Unit,
-    onPrint: () -> Unit,
     onSelectLanguage: (VexioAppLanguage) -> Unit,
     onToggleAutoUpdates: (Boolean) -> Unit,
     onCheckUpdates: () -> Unit
@@ -2182,19 +2165,19 @@ private fun InAppStartBackstageOverlay(
         modifier = Modifier.fillMaxSize()
     ) {
         Row(modifier = Modifier.fillMaxSize()) {
-            // Widened Left Backstage Rail (316.dp — zero truncation across EN, DE, IT, FR, ES, GR)
+            // Focused Startup Rail (Open, New Blank, Continue, Updates — zero export/stencil/page clutter)
             Surface(
                 color = MaterialTheme.colorScheme.surfaceContainerHigh,
                 modifier = Modifier
-                    .width(316.dp)
+                    .width(304.dp)
                     .fillMaxHeight()
             ) {
                 Column(
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
                     modifier = Modifier
                         .fillMaxSize()
                         .verticalScroll(rememberScrollState())
-                        .padding(16.dp)
+                        .padding(18.dp)
                 ) {
                     FilledTonalButton(
                         onClick = onClose,
@@ -2202,40 +2185,31 @@ private fun InAppStartBackstageOverlay(
                     ) {
                         Text("← ${lang.continueCanvasLabel}", maxLines = 1, softWrap = false)
                     }
-                    Spacer(Modifier.height(6.dp))
+                    Spacer(Modifier.height(4.dp))
                     Text("VEXIO PROFESSIONAL", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
                     Text(VexioI18n.suiteSubtitle(lang), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     HorizontalDivider()
+                    Button(
+                        onClick = onOpenFile,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(lang.openFileLabel, maxLines = 1, softWrap = false)
+                    }
                     FilledTonalButton(
-                        onClick = { onCreateBlankPreset("Drawing_A4.vsdx", VexioPagePresetSpec.A4_LANDSCAPE) },
+                        onClick = onCreateNewBlank,
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text(VexioI18n.blankIsoA4Short(lang), maxLines = 1, softWrap = false)
                     }
-                    FilledTonalButton(onClick = onOpenFile, modifier = Modifier.fillMaxWidth()) {
-                        Text(lang.openFileLabel, maxLines = 1, softWrap = false)
-                    }
-                    FilledTonalButton(onClick = onImportStencil, modifier = Modifier.fillMaxWidth()) {
-                        Text(lang.importStencilLabel, maxLines = 1, softWrap = false)
-                    }
+                    Spacer(Modifier.weight(1f))
                     HorizontalDivider()
-                    FilledTonalButton(onClick = onSaveFile, modifier = Modifier.fillMaxWidth()) {
-                        Text(lang.saveLabel, maxLines = 1, softWrap = false)
-                    }
-                    FilledTonalButton(onClick = onSaveAsFile, modifier = Modifier.fillMaxWidth()) {
-                        Text(lang.saveAsLabel, maxLines = 1, softWrap = false)
-                    }
-                    TextButton(onClick = onPrint, modifier = Modifier.fillMaxWidth()) {
-                        Text(VexioI18n.printPdfLabel(lang), maxLines = 1, softWrap = false)
-                    }
-                    HorizontalDivider()
-                    FilledTonalButton(onClick = onCheckUpdates, modifier = Modifier.fillMaxWidth()) {
+                    OutlinedButton(onClick = onCheckUpdates, modifier = Modifier.fillMaxWidth()) {
                         Text(lang.checkUpdatesLabel, maxLines = 1, softWrap = false)
                     }
                 }
             }
 
-            // Main Start / Templates / Preferences Content
+            // Main Startup Content: Hero + Single New Blank Card + Starter Templates + Language & Updates
             Column(
                 verticalArrangement = Arrangement.spacedBy(18.dp),
                 modifier = Modifier
@@ -2251,47 +2225,29 @@ private fun InAppStartBackstageOverlay(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
 
-                Text(VexioI18n.blankPresetsHeading(lang), style = MaterialTheme.typography.titleMedium)
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    modifier = Modifier.horizontalScroll(rememberScrollState())
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.42f),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(16.dp))
+                        .clickable { onCreateNewBlank() }
                 ) {
-                    listOf(
-                        Triple(
-                            VexioI18n.blankA4LandscapeTitle(lang),
-                            VexioI18n.metricUnitSubtitle("297 × 210 mm", lang),
-                            VexioPagePresetSpec.A4_LANDSCAPE
-                        ),
-                        Triple(
-                            VexioI18n.blankA3LandscapeTitle(lang),
-                            VexioI18n.metricUnitSubtitle("420 × 297 mm", lang),
-                            VexioPagePresetSpec.A3_LANDSCAPE
-                        ),
-                        Triple(
-                            VexioI18n.blankA4PortraitTitle(lang),
-                            VexioI18n.metricUnitSubtitle("210 × 297 mm", lang),
-                            VexioPagePresetSpec.A4_PORTRAIT
-                        ),
-                        Triple(
-                            VexioI18n.blankUsLetterTitle(lang),
-                            VexioI18n.imperialUnitSubtitle("11 × 8.5 in", lang),
-                            VexioPagePresetSpec.LETTER_LANDSCAPE
-                        )
-                    ).forEach { (cardTitle, subtitle, preset) ->
-                        Surface(
-                            shape = RoundedCornerShape(16.dp),
-                            color = MaterialTheme.colorScheme.surfaceContainerLow,
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                            modifier = Modifier
-                                .width(224.dp)
-                                .clip(RoundedCornerShape(16.dp))
-                                .clickable { onCreateBlankPreset("${preset.slug.uppercase()}_Diagram.vsdx", preset) }
-                        ) {
-                            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                Text(cardTitle, style = MaterialTheme.typography.titleSmall)
-                                Text(subtitle, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier.padding(18.dp)
+                    ) {
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.weight(1f)) {
+                            Text(VexioI18n.blankIsoA4Short(lang), style = MaterialTheme.typography.titleMedium)
+                            Text(
+                                VexioI18n.suiteSubtitle(lang),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         }
+                        Text("→", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary)
                     }
                 }
 

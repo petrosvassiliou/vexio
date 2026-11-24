@@ -177,6 +177,8 @@ export interface EngineSnapshot {
     heightIn: number;
     shapeCount: number;
     isBackground: boolean;
+    backPageId?: number | null;
+    pageColorHex?: string;
   }>;
   layers: EngineLayerInfo[];
   comments: EngineCommentInfo[];
@@ -337,6 +339,12 @@ interface WasmSessionInstance {
   rename_page(page_id: number, new_name: string): boolean;
   duplicate_page(page_id: number): number;
   delete_page(page_id: number): boolean;
+  set_page_background?(
+    page_id: number,
+    is_background: boolean,
+    back_page_id: number,
+    page_color_formula: string
+  ): boolean;
   undo(): boolean;
   redo(): boolean;
   export_wal(): Uint8Array;
@@ -1305,6 +1313,18 @@ self.onmessage = async (ev: MessageEvent) => {
         activePageId = snapRaw.activePageId;
         const wal = session.export_wal();
         self.postMessage({ id, ok: true, deleted, wal, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'setPageBackground': {
+        const targetPid = Number(payload.pageId ?? activePageId);
+        const isBg = Boolean(payload.isBackground);
+        const backPid = Number(payload.backPageId ?? 0);
+        const colorHex = String(payload.pageColorHex ?? '');
+        const updated = session.set_page_background
+          ? session.set_page_background(targetPid, isBg, backPid, colorHex)
+          : false;
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, updated, wal, snapshot: buildSnapshot(session) });
         break;
       }
       case 'reorderShapes': {

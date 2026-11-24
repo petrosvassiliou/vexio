@@ -109,6 +109,8 @@ public struct VexioWorkspaceView: View {
     @State private var inlineLabelDraft: String = ""
     @State private var renamingPageId: UInt32? = nil
     @State private var renamePageDraft: String = ""
+    @State private var isStencilCatalogPresented: Bool = false
+    @State private var pageSetupSheetPageId: UInt32? = nil
 
     // ShapeSheet Editor State
     @State private var selectedShapeSheetSection: ShapeSheetSectionCategory?
@@ -162,9 +164,10 @@ public struct VexioWorkspaceView: View {
                                 session: session,
                                 searchQuery: $stencilSearchQuery,
                                 selectedCategory: $selectedStencilCategory,
-                                onRequestImportStencil: presentInWindowImportStencilSheet
+                                onRequestImportStencil: presentInWindowImportStencilSheet,
+                                onRequestOpenStencilCatalog: { isStencilCatalogPresented = true }
                             )
-                            .frame(width: isCompactStageManagerWidth ? 236 : 268)
+                            .frame(width: isCompactStageManagerWidth ? 258 : 288)
                             .transition(.move(edge: .leading).combined(with: .opacity))
 
                             Divider()
@@ -205,7 +208,10 @@ public struct VexioWorkspaceView: View {
                                 onInspectCellInShapeSheet: { cellName in
                                     focusCellInShapeSheet(cellName, preferSetF: false)
                                 },
-                                onRequestDataVisualizerExport: triggerDataVisualizerXlsxExport
+                                onRequestDataVisualizerExport: triggerDataVisualizerXlsxExport,
+                                onRequestOpenPageSetup: { targetPageId in
+                                    pageSetupSheetPageId = targetPageId
+                                }
                             )
                             .frame(width: isCompactStageManagerWidth ? 296 : 332)
                             .transition(.move(edge: .trailing).combined(with: .opacity))
@@ -213,7 +219,7 @@ public struct VexioWorkspaceView: View {
                     }
                 }
 
-                // In-App Welcome / File Backstage Hub (Replaces external OS Finder modal on startup)
+                // In-App Welcome / Startup Hub (Replaces external OS Finder modal on startup)
                 if isBackstagePresented {
                     VexioBackstageStartView(
                         session: session,
@@ -223,11 +229,7 @@ public struct VexioWorkspaceView: View {
                         onOpenLocalFileSheet: presentInWindowOpenFileSheet,
                         onOpenURLDirectly: { url in
                             session.openLocalFile(from: url)
-                        },
-                        onImportStencilSheet: presentInWindowImportStencilSheet,
-                        onSaveSheet: presentInWindowSaveSheet,
-                        onSaveAsSheet: presentInWindowSaveAsSheet,
-                        onExportFormat: triggerExport
+                        }
                     )
                     .transition(.opacity.combined(with: .scale(scale: 0.98)))
                 }
@@ -273,6 +275,21 @@ public struct VexioWorkspaceView: View {
         .onReceive(NotificationCenter.default.publisher(for: .vexioImportStencilSheet)) { _ in
             presentInWindowImportStencilSheet()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .vexioOpenStencilCatalogSheet)) { _ in
+            isStencilCatalogPresented = true
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .vexioOpenPageSetupSheet)) { note in
+            if let pid = note.object as? UInt32 {
+                pageSetupSheetPageId = pid
+            } else {
+                pageSetupSheetPageId = session.activePageId
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .vexioExportFormatRequested)) { note in
+            if let raw = note.object as? String, let fmt = VexioExportFormat(rawValue: raw) {
+                triggerExport(fmt)
+            }
+        }
         .userActivity(VexioDocumentSession.continuityEditingActivityType, isActive: true) { activity in
             session.populateUserActivity(activity, fileURL: session.currentFileURL ?? fileURL)
         }
@@ -302,6 +319,25 @@ public struct VexioWorkspaceView: View {
         }
         .sheet(isPresented: $updater.isShowingUpdateDialog) {
             VexioUpdateDialogSheet(updater: updater, i18n: i18n)
+        }
+        .sheet(isPresented: $isStencilCatalogPresented) {
+            VexioOfficialStencilCatalogSheet(session: session) {
+                isStencilCatalogPresented = false
+            }
+        }
+        .sheet(
+            isPresented: Binding(
+                get: { pageSetupSheetPageId != nil },
+                set: { if !$0 { pageSetupSheetPageId = nil } }
+            )
+        ) {
+            if let pid = pageSetupSheetPageId {
+                VexioPageSetupSheet(
+                    session: session,
+                    pageId: pid,
+                    onClose: { pageSetupSheetPageId = nil }
+                )
+            }
         }
     }
 
@@ -647,7 +683,11 @@ public struct VexioWorkspaceView: View {
         }
         .disabled(!canDelete)
         Divider()
-        Menu("Page Setup & Size") {
+        Button(i18n.t("pageSetup")) {
+            session.selectPage(pageId)
+            pageSetupSheetPageId = pageId
+        }
+        Menu("Quick Page Presets") {
             Button("ISO A4 Landscape (297 × 210 mm)") {
                 session.selectPage(pageId)
                 session.applyPagePreset(.a4, landscape: true, undoManager: undoManager)
@@ -886,6 +926,9 @@ public extension Notification.Name {
     static let vexioSaveFileSheet = Notification.Name("app.vexio.saveFileSheet")
     static let vexioSaveAsFileSheet = Notification.Name("app.vexio.saveAsFileSheet")
     static let vexioImportStencilSheet = Notification.Name("app.vexio.importStencilSheet")
+    static let vexioOpenStencilCatalogSheet = Notification.Name("app.vexio.openStencilCatalogSheet")
+    static let vexioOpenPageSetupSheet = Notification.Name("app.vexio.openPageSetupSheet")
+    static let vexioExportFormatRequested = Notification.Name("app.vexio.exportFormatRequested")
     static let vexioOpenExternalURL = Notification.Name("app.vexio.openExternalURL")
 }
 
@@ -897,10 +940,10 @@ private struct VexioStencilNavigatorSidebar: View {
     @Binding var searchQuery: String
     @Binding var selectedCategory: String
     let onRequestImportStencil: () -> Void
+    let onRequestOpenStencilCatalog: () -> Void
     @Environment(\.undoManager) private var undoManager
 
     @State private var isStencilDropTargeted: Bool = false
-    @State private var isOfficialCatalogPresented: Bool = false
     @State private var expandedCategories: Set<String> = [
         "Microsoft 365 & Office",
         "Microsoft Servers & Active Directory",
@@ -933,41 +976,64 @@ private struct VexioStencilNavigatorSidebar: View {
 
                 HStack(spacing: 6) {
                     Text("\(i18n.t("stencils").uppercased()) (\(session.stencilCategories.count))")
-                        .font(.system(size: 10.5, weight: .bold))
+                        .font(.system(size: 11, weight: .bold))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
-                    Spacer()
+                        .fixedSize(horizontal: true, vertical: false)
+
+                    Spacer(minLength: 4)
+
                     Button {
-                        isOfficialCatalogPresented = true
+                        onRequestOpenStencilCatalog()
                     } label: {
-                        Label("Packs", systemImage: "icloud.and.arrow.down")
-                            .font(.system(size: 10.5, weight: .semibold))
+                        Image(systemName: "icloud.and.arrow.down")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(Color.accentColor)
+                            .frame(width: 24, height: 24)
+                            .background(
+                                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                    .fill(Color.accentColor.opacity(0.14))
+                            )
                     }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.mini)
-                    .help("Download Official Microsoft 365, Azure & NetEquip Stencil Packs")
+                    .buttonStyle(.plain)
+                    .help("\(i18n.t("stencilCatalog")) — Download Official Microsoft 365, Azure & Awesome-Visio Packs")
 
                     Button {
                         onRequestImportStencil()
                     } label: {
-                        Label("Import", systemImage: "plus.rectangle.on.folder")
-                            .font(.system(size: 10.5, weight: .semibold))
+                        Image(systemName: "plus.rectangle.on.folder")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(.primary)
+                            .frame(width: 24, height: 24)
+                            .background(
+                                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                    .fill(Color.primary.opacity(0.06))
+                            )
                     }
-                    .buttonStyle(.bordered)
-                    .controlSize(.mini)
+                    .buttonStyle(.plain)
                     .help(i18n.t("importStencil"))
 
-                    Button(expandedCategories.count >= session.stencilCategories.count ? "Collapse" : "Expand") {
+                    let allExpanded = expandedCategories.count >= session.stencilCategories.count
+                    Button {
                         withAnimation(LiquidGlassPhysics.standardSpring) {
-                            if expandedCategories.count >= session.stencilCategories.count {
+                            if allExpanded {
                                 expandedCategories = ["Basic Shapes", "Basic Flowchart"]
                             } else {
                                 expandedCategories = Set(session.stencilCategories)
                             }
                         }
+                    } label: {
+                        Image(systemName: allExpanded ? "rectangle.compress.vertical" : "rectangle.expand.vertical")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 24, height: 24)
+                            .background(
+                                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                    .fill(Color.primary.opacity(0.06))
+                            )
                     }
-                    .buttonStyle(.borderless)
-                    .font(.system(size: 10.5, weight: .medium))
+                    .buttonStyle(.plain)
+                    .help(allExpanded ? "Collapse All Stencil Packs" : "Expand All Stencil Packs")
                 }
                 .padding(.horizontal, 12)
 
@@ -1111,11 +1177,6 @@ private struct VexioStencilNavigatorSidebar: View {
             }
                 return !providers.isEmpty
         }
-        .sheet(isPresented: $isOfficialCatalogPresented) {
-            VexioOfficialStencilCatalogSheet(session: session) {
-                isOfficialCatalogPresented = false
-            }
-        }
     }
 
     @ViewBuilder
@@ -1216,6 +1277,7 @@ private struct VexioInspectorSidebar: View {
     @Binding var selectedTab: VexioInspectorTab
     let onInspectCellInShapeSheet: (String) -> Void
     let onRequestDataVisualizerExport: () -> Void
+    let onRequestOpenPageSetup: (UInt32) -> Void
 
     @Environment(\.undoManager) private var undoManager
 
@@ -1410,7 +1472,9 @@ private struct VexioInspectorSidebar: View {
                 Text(i18n.t("objectName"))
                     .font(.system(size: 10, weight: .medium))
                     .foregroundStyle(.secondary)
-                    .frame(width: 68, alignment: .leading)
+                    .lineLimit(1)
+                    .frame(minWidth: 50, alignment: .leading)
+                    .fixedSize(horizontal: true, vertical: false)
                 TextField("Sheet.\(obj.id)", text: $objectNameDraft)
                     .textFieldStyle(.roundedBorder)
                     .font(.system(size: 11, weight: .medium))
@@ -1424,7 +1488,9 @@ private struct VexioInspectorSidebar: View {
                 Text(i18n.t("textLabel"))
                     .font(.system(size: 10, weight: .medium))
                     .foregroundStyle(.secondary)
-                    .frame(width: 68, alignment: .leading)
+                    .lineLimit(1)
+                    .frame(minWidth: 50, alignment: .leading)
+                    .fixedSize(horizontal: true, vertical: false)
                 TextField(i18n.t("editLabelPlaceholder"), text: $objectLabelDraft)
                     .textFieldStyle(.roundedBorder)
                     .font(.system(size: 11))
@@ -1476,75 +1542,303 @@ private struct VexioInspectorSidebar: View {
 
     private var pagePropertiesInspectorPane: some View {
         VStack(alignment: .leading, spacing: 12) {
-            inspectorCard(title: i18n.t("pageInspector"), icon: "doc.text") {
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack(spacing: 6) {
-                        Text("Page Name")
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(.secondary)
-                            .frame(width: 76, alignment: .leading)
-                        TextField("Page-1", text: $pageNameDraft)
-                            .textFieldStyle(.roundedBorder)
-                            .font(.system(size: 11.5))
-                            .onSubmit {
-                                session.renamePage(pageId: session.activePageId, to: pageNameDraft, undoManager: undoManager)
-                            }
+            pagePropertiesSizingCard
+            pagePropertiesBackgroundCard
+            layersPane(selectedObject: nil)
+        }
+    }
+
+    private func convertUserDimensionToInches(_ raw: String, fallbackInches: Double) -> Double {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: ",", with: ".")
+        guard let numeric = Double(trimmed), numeric > 0 else { return fallbackInches }
+        switch i18n.unitPreference.resolvedEngineSlug {
+        case "mm": return numeric / 25.4
+        case "cm": return numeric / 2.54
+        case "m": return numeric / 0.0254
+        default: return numeric
+        }
+    }
+
+    @ViewBuilder
+    private var pagePropertiesSizingCard: some View {
+        inspectorCard(title: i18n.t("pageInspector"), icon: "doc.text") {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 6) {
+                    Text(i18n.t("objectName"))
+                        .font(.system(size: 10.5, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
+                    TextField("Page-1", text: $pageNameDraft)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(size: 11.5))
+                        .onSubmit {
+                            session.renamePage(pageId: session.activePageId, to: pageNameDraft, undoManager: undoManager)
+                        }
+                    Button {
+                        onRequestOpenPageSetup(session.activePageId)
+                    } label: {
+                        Image(systemName: "slider.horizontal.3")
+                            .font(.system(size: 11, weight: .semibold))
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .help(i18n.t("pageSetup"))
+                }
+
+                HStack(spacing: 5) {
+                    ForEach([VexioPagePreset.a4, .a3, .a5, .letter], id: \.id) { preset in
+                        Button(preset.shortCode) {
+                            session.applyPagePreset(preset, landscape: session.isPageLandscape, undoManager: undoManager)
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .help(preset.displayLabel)
                     }
 
-                    HStack(spacing: 5) {
-                        ForEach([VexioPagePreset.a4, .a3, .a5, .letter], id: \.id) { preset in
-                            Button(preset.shortCode) {
+                    Spacer(minLength: 2)
+
+                    Menu {
+                        ForEach(VexioPagePreset.allCases) { preset in
+                            Button(preset.displayLabel) {
                                 session.applyPagePreset(preset, landscape: session.isPageLandscape, undoManager: undoManager)
                             }
-                            .buttonStyle(.bordered)
-                            .controlSize(.small)
-                            .help(preset.displayLabel)
                         }
-                    }
-
-                    HStack(spacing: 6) {
-                        Button {
-                            session.setPageOrientation(landscape: true, undoManager: undoManager)
-                        } label: {
-                            Label(i18n.t("landscape"), systemImage: "rectangle.portrait.rotate")
-                                .font(.system(size: 11, weight: session.isPageLandscape ? .semibold : .regular))
-                                .frame(maxWidth: .infinity)
-                        }
-                        .buttonStyle(.bordered)
-                        .tint(session.isPageLandscape ? .accentColor : nil)
-                        .controlSize(.small)
-                        .help("Set Landscape Page Orientation")
-
-                        Button {
-                            session.setPageOrientation(landscape: false, undoManager: undoManager)
-                        } label: {
-                            Label(i18n.t("portrait"), systemImage: "rectangle.portrait")
-                                .font(.system(size: 11, weight: !session.isPageLandscape ? .semibold : .regular))
-                                .frame(maxWidth: .infinity)
-                        }
-                        .buttonStyle(.bordered)
-                        .tint(!session.isPageLandscape ? .accentColor : nil)
-                        .controlSize(.small)
-                        .help("Set Portrait Page Orientation")
-                    }
-
-                    Toggle("Smart Alignment Guides", isOn: $session.smartGuidesEnabled)
-                        .font(.system(size: 11.5))
-                        .help("Show dynamic alignment & equal-spacing guides while dragging shapes")
-
-                    Button {
-                        session.fitViewportToActivePage()
                     } label: {
-                        Label("Fit Diagram to Window", systemImage: "arrow.up.left.and.down.right.magnifyingglass")
+                        Image(systemName: "ellipsis.circle")
+                            .font(.system(size: 12))
+                    }
+                    .menuStyle(.borderlessButton)
+                    .fixedSize()
+                    .help("All ISO & ANSI Page Sizes")
+                }
+
+                HStack(spacing: 8) {
+                    InspectorUnitField(
+                        label: i18n.t("width"),
+                        unitSuffix: i18n.unitPreference.resolvedEngineSlug,
+                        displayValue: i18n.unitPreference.numericDisplayFromInches(session.pageWidthInches),
+                        tooltip: "Page Width"
+                    ) { committed in
+                        let newW = convertUserDimensionToInches(committed, fallbackInches: session.pageWidthInches)
+                        let summary = activePageSummary
+                        session.applyCustomPageSetup(
+                            pageId: session.activePageId,
+                            name: nil,
+                            widthInches: newW,
+                            heightInches: session.pageHeightInches,
+                            unitSlug: i18n.unitPreference.resolvedEngineSlug,
+                            isBackground: summary?.isBackgroundPage ?? false,
+                            backPageId: summary?.backPageId ?? 0,
+                            pageColorHex: summary?.pageColorHex ?? "#FFFFFF",
+                            undoManager: undoManager
+                        )
+                    }
+
+                    InspectorUnitField(
+                        label: i18n.t("height"),
+                        unitSuffix: i18n.unitPreference.resolvedEngineSlug,
+                        displayValue: i18n.unitPreference.numericDisplayFromInches(session.pageHeightInches),
+                        tooltip: "Page Height"
+                    ) { committed in
+                        let newH = convertUserDimensionToInches(committed, fallbackInches: session.pageHeightInches)
+                        let summary = activePageSummary
+                        session.applyCustomPageSetup(
+                            pageId: session.activePageId,
+                            name: nil,
+                            widthInches: session.pageWidthInches,
+                            heightInches: newH,
+                            unitSlug: i18n.unitPreference.resolvedEngineSlug,
+                            isBackground: summary?.isBackgroundPage ?? false,
+                            backPageId: summary?.backPageId ?? 0,
+                            pageColorHex: summary?.pageColorHex ?? "#FFFFFF",
+                            undoManager: undoManager
+                        )
+                    }
+                }
+
+                HStack(spacing: 6) {
+                    Text(i18n.t("units"))
+                        .font(.system(size: 10.5, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
+                    Picker("", selection: $i18n.unitPreference) {
+                        Text("\(i18n.t("osStandard")) (\(VexioMeasurementUnit.osDefault.resolvedEngineSlug))").tag(VexioMeasurementUnit.osDefault)
+                        Text("mm").tag(VexioMeasurementUnit.mm)
+                        Text("cm").tag(VexioMeasurementUnit.cm)
+                        Text("m").tag(VexioMeasurementUnit.m)
+                        Text("in").tag(VexioMeasurementUnit.inch)
+                    }
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .onChange(of: i18n.unitPreference) { _, newUnit in
+                        session.applyMeasurementUnit(newUnit.resolvedEngineSlug, undoManager: undoManager)
+                    }
+                }
+
+                HStack(spacing: 6) {
+                    Button {
+                        session.setPageOrientation(landscape: true, undoManager: undoManager)
+                    } label: {
+                        Label(i18n.t("landscape"), systemImage: "rectangle.portrait.rotate")
+                            .font(.system(size: 11, weight: session.isPageLandscape ? .semibold : .regular))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.85)
                             .frame(maxWidth: .infinity)
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.bordered)
+                    .tint(session.isPageLandscape ? .accentColor : nil)
                     .controlSize(.small)
-                    .help("Zoom and center active page so the entire diagram fits on screen")
+                    .help("Set Landscape Page Orientation")
+
+                    Button {
+                        session.setPageOrientation(landscape: false, undoManager: undoManager)
+                    } label: {
+                        Label(i18n.t("portrait"), systemImage: "rectangle.portrait")
+                            .font(.system(size: 11, weight: !session.isPageLandscape ? .semibold : .regular))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.85)
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(!session.isPageLandscape ? .accentColor : nil)
+                    .controlSize(.small)
+                    .help("Set Portrait Page Orientation")
                 }
             }
+        }
+    }
 
-            layersPane(selectedObject: nil)
+    @ViewBuilder
+    private var pagePropertiesBackgroundCard: some View {
+        let summary = activePageSummary
+        let isBg = summary?.isBackgroundPage ?? false
+        let currentColorHex = summary?.pageColorHex ?? "#FFFFFF"
+        let bgPages = session.pages.filter { $0.isBackgroundPage && $0.id != session.activePageId }
+        let swatches: [(String, String)] = [
+            ("#FFFFFF", "Pure White"),
+            ("#FAF8F5", "Warm Ivory"),
+            ("#F1F5F9", "Soft Slate"),
+            ("#EFF6FF", "Blueprint Tint"),
+            ("#ECFDF5", "Engineering Mint"),
+        ]
+
+        inspectorCard(title: i18n.t("pageBackground"), icon: "paintbrush.pointed") {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 6) {
+                    ForEach(swatches, id: \.0) { hex, label in
+                        let selected = currentColorHex.caseInsensitiveCompare(hex) == .orderedSame
+                        Button {
+                            session.updatePageBackground(
+                                pageId: session.activePageId,
+                                isBackground: isBg,
+                                backPageId: summary?.backPageId ?? 0,
+                                pageColorHex: hex,
+                                undoManager: undoManager
+                            )
+                        } label: {
+                            Circle()
+                                .fill(Color(vexioHex: hex))
+                                .frame(width: 20, height: 20)
+                                .overlay(
+                                    Circle()
+                                        .strokeBorder(selected ? Color.accentColor : Color.primary.opacity(0.22), lineWidth: selected ? 2.0 : 1.0)
+                                )
+                        }
+                        .buttonStyle(.plain)
+                        .help("Paper: \(label)")
+                    }
+
+                    Spacer(minLength: 4)
+
+                    ColorPicker(
+                        "",
+                        selection: Binding(
+                            get: { Color(vexioHex: currentColorHex) },
+                            set: { picked in
+                                session.updatePageBackground(
+                                    pageId: session.activePageId,
+                                    isBackground: isBg,
+                                    backPageId: summary?.backPageId ?? 0,
+                                    pageColorHex: picked.vexioHexRGBString,
+                                    undoManager: undoManager
+                                )
+                            }
+                        ),
+                        supportsOpacity: false
+                    )
+                    .labelsHidden()
+                    .help("Custom Page Paper Color")
+                }
+
+                Toggle(
+                    "Mark as Background Page",
+                    isOn: Binding(
+                        get: { isBg },
+                        set: { toggled in
+                            session.updatePageBackground(
+                                pageId: session.activePageId,
+                                isBackground: toggled,
+                                backPageId: toggled ? 0 : (summary?.backPageId ?? 0),
+                                pageColorHex: currentColorHex,
+                                undoManager: undoManager
+                            )
+                        }
+                    )
+                )
+                .font(.system(size: 11.5))
+
+                if !isBg && !bgPages.isEmpty {
+                    HStack(spacing: 6) {
+                        Text("Background")
+                            .font(.system(size: 10.5, weight: .medium))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
+                        Picker(
+                            "",
+                            selection: Binding(
+                                get: { summary?.backPageId ?? 0 },
+                                set: { chosenBgId in
+                                    session.updatePageBackground(
+                                        pageId: session.activePageId,
+                                        isBackground: false,
+                                        backPageId: chosenBgId,
+                                        pageColorHex: currentColorHex,
+                                        undoManager: undoManager
+                                    )
+                                }
+                            )
+                        ) {
+                            Text("None").tag(UInt32(0))
+                            ForEach(bgPages) { bgp in
+                                Text(bgp.title).tag(bgp.id)
+                            }
+                        }
+                        .labelsHidden()
+                        .controlSize(.small)
+                    }
+                }
+
+                Divider()
+
+                Toggle("Smart Alignment Guides", isOn: $session.smartGuidesEnabled)
+                    .font(.system(size: 11.5))
+                    .help("Show dynamic alignment & equal-spacing guides while dragging shapes")
+
+                Button {
+                    session.fitViewportToActivePage()
+                } label: {
+                    Label("Fit Diagram to Window", systemImage: "arrow.up.left.and.down.right.magnifyingglass")
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.85)
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+                .help("Zoom and center active page so the entire diagram fits on screen")
+            }
         }
     }
 
@@ -2448,6 +2742,8 @@ private struct VexioInspectorSidebar: View {
                     } label: {
                         Label("Link Data…", systemImage: "tray.and.arrow.down")
                             .font(.system(size: 11, weight: .medium))
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
                     }
                     .buttonStyle(.borderedProminent)
                     .controlSize(.small)
@@ -3293,5 +3589,281 @@ private struct VexioOfficialStencilCatalogSheet: View {
         .onAppear {
             catalog = session.listOfficialStencilCatalog()
         }
+    }
+}
+
+// MARK: - In-App Page Setup Modal Sheet (Size, Orientation, Units, Background & Paper Color)
+
+private struct VexioPageSetupSheet: View {
+    @ObservedObject var session: VexioDocumentSession
+    @ObservedObject private var i18n: VexioLocalization = .shared
+    let pageId: UInt32
+    let onClose: () -> Void
+
+    @Environment(\.undoManager) private var undoManager
+
+    @State private var nameDraft: String = ""
+    @State private var widthDraft: String = ""
+    @State private var heightDraft: String = ""
+    @State private var selectedUnit: VexioMeasurementUnit = .osDefault
+    @State private var isLandscape: Bool = true
+    @State private var isBackground: Bool = false
+    @State private var assignedBackPageId: UInt32 = 0
+    @State private var pageColorHex: String = "#FFFFFF"
+
+    private var availableBackgroundPages: [VexioPageSummary] {
+        session.pages.filter { $0.isBackgroundPage && $0.id != pageId }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                Label(i18n.t("pageSetup"), systemImage: "doc.badge.gearshape")
+                    .font(.system(size: 16, weight: .semibold))
+                Spacer()
+                Button(i18n.t("cancel"), action: onClose)
+                    .keyboardShortcut(.cancelAction)
+                Button(i18n.t("done"), action: applyAndClose)
+                    .buttonStyle(.borderedProminent)
+                    .keyboardShortcut(.defaultAction)
+            }
+
+            Divider()
+
+            pageIdentityAndPresetSection
+            dimensionsAndUnitsSection
+            backgroundSection
+        }
+        .padding(18)
+        .frame(width: 490)
+        .onAppear(perform: populateFromSession)
+    }
+
+    @ViewBuilder
+    private var pageIdentityAndPresetSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                Text(i18n.t("objectName"))
+                    .font(.system(size: 12, weight: .medium))
+                    .frame(width: 96, alignment: .leading)
+                TextField("Page-1", text: $nameDraft)
+                    .textFieldStyle(.roundedBorder)
+            }
+
+            HStack(spacing: 10) {
+                Text(i18n.t("pageSize"))
+                    .font(.system(size: 12, weight: .medium))
+                    .frame(width: 96, alignment: .leading)
+                HStack(spacing: 5) {
+                    ForEach([VexioPagePreset.a4, .a3, .a5, .letter, .legal, .tabloid], id: \.id) { preset in
+                        Button(preset.shortCode) {
+                            applyPresetToDrafts(preset)
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .help(preset.displayLabel)
+                    }
+                }
+            }
+
+            HStack(spacing: 10) {
+                Text(i18n.t("orientation"))
+                    .font(.system(size: 12, weight: .medium))
+                    .frame(width: 96, alignment: .leading)
+                HStack(spacing: 8) {
+                    Button {
+                        setDraftOrientation(landscape: true)
+                    } label: {
+                        Label(i18n.t("landscape"), systemImage: "rectangle.portrait.rotate")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(isLandscape ? .accentColor : nil)
+
+                    Button {
+                        setDraftOrientation(landscape: false)
+                    } label: {
+                        Label(i18n.t("portrait"), systemImage: "rectangle.portrait")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(!isLandscape ? .accentColor : nil)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var dimensionsAndUnitsSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                Text(i18n.t("units"))
+                    .font(.system(size: 12, weight: .medium))
+                    .frame(width: 96, alignment: .leading)
+                Picker("", selection: $selectedUnit) {
+                    Text("\(i18n.t("osStandard")) (\(VexioMeasurementUnit.osDefault.resolvedEngineSlug))").tag(VexioMeasurementUnit.osDefault)
+                    Text("Millimeters (mm)").tag(VexioMeasurementUnit.mm)
+                    Text("Centimeters (cm)").tag(VexioMeasurementUnit.cm)
+                    Text("Meters (m)").tag(VexioMeasurementUnit.m)
+                    Text("Inches (in)").tag(VexioMeasurementUnit.inch)
+                }
+                .labelsHidden()
+                .onChange(of: selectedUnit) { oldUnit, newUnit in
+                    let wIn = parseInches(widthDraft, unit: oldUnit, fallback: 11.6929)
+                    let hIn = parseInches(heightDraft, unit: oldUnit, fallback: 8.2677)
+                    widthDraft = newUnit.numericDisplayFromInches(wIn)
+                    heightDraft = newUnit.numericDisplayFromInches(hIn)
+                }
+            }
+
+            HStack(spacing: 10) {
+                Text("\(i18n.t("width")) × \(i18n.t("height"))")
+                    .font(.system(size: 12, weight: .medium))
+                    .frame(width: 96, alignment: .leading)
+                TextField("Width", text: $widthDraft)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(size: 12, design: .monospaced))
+                Text("×")
+                    .foregroundStyle(.secondary)
+                TextField("Height", text: $heightDraft)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(size: 12, design: .monospaced))
+                Text(selectedUnit.resolvedEngineSlug)
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var backgroundSection: some View {
+        let swatches = ["#FFFFFF", "#FAF8F5", "#F1F5F9", "#EFF6FF", "#ECFDF5"]
+        VStack(alignment: .leading, spacing: 10) {
+            Divider()
+            HStack(spacing: 10) {
+                Text(i18n.t("pageBackground"))
+                    .font(.system(size: 12, weight: .medium))
+                    .frame(width: 96, alignment: .leading)
+                HStack(spacing: 6) {
+                    ForEach(swatches, id: \.self) { hex in
+                        let active = pageColorHex.caseInsensitiveCompare(hex) == .orderedSame
+                        Button {
+                            pageColorHex = hex
+                        } label: {
+                            Circle()
+                                .fill(Color(vexioHex: hex))
+                                .frame(width: 22, height: 22)
+                                .overlay(
+                                    Circle()
+                                        .strokeBorder(active ? Color.accentColor : Color.primary.opacity(0.22), lineWidth: active ? 2.0 : 1.0)
+                                )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    ColorPicker(
+                        "",
+                        selection: Binding(
+                            get: { Color(vexioHex: pageColorHex) },
+                            set: { pageColorHex = $0.vexioHexRGBString }
+                        ),
+                        supportsOpacity: false
+                    )
+                    .labelsHidden()
+                }
+            }
+
+            Toggle("Mark as Background Page", isOn: $isBackground)
+                .font(.system(size: 12))
+
+            if !isBackground && !availableBackgroundPages.isEmpty {
+                HStack(spacing: 10) {
+                    Text("Assigned Bg")
+                        .font(.system(size: 12, weight: .medium))
+                        .frame(width: 96, alignment: .leading)
+                    Picker("", selection: $assignedBackPageId) {
+                        Text("None").tag(UInt32(0))
+                        ForEach(availableBackgroundPages) { bgp in
+                            Text(bgp.title).tag(bgp.id)
+                        }
+                    }
+                    .labelsHidden()
+                }
+            }
+        }
+    }
+
+    private func populateFromSession() {
+        selectedUnit = i18n.unitPreference
+        let summary = session.pages.first(where: { $0.id == pageId })
+        nameDraft = summary?.title ?? "Page-\(pageId)"
+        let wIn = summary?.widthInches ?? session.pageWidthInches
+        let hIn = summary?.heightInches ?? session.pageHeightInches
+        isLandscape = wIn >= hIn
+        widthDraft = selectedUnit.numericDisplayFromInches(wIn)
+        heightDraft = selectedUnit.numericDisplayFromInches(hIn)
+        isBackground = summary?.isBackgroundPage ?? false
+        assignedBackPageId = summary?.backPageId ?? 0
+        pageColorHex = summary?.pageColorHex ?? "#FFFFFF"
+    }
+
+    private func presetInches(_ preset: VexioPagePreset) -> (Double, Double) {
+        switch preset {
+        case .a4: return (210.0 / 25.4, 297.0 / 25.4)
+        case .a3: return (297.0 / 25.4, 420.0 / 25.4)
+        case .a5: return (148.0 / 25.4, 210.0 / 25.4)
+        case .a2: return (420.0 / 25.4, 594.0 / 25.4)
+        case .a1: return (594.0 / 25.4, 841.0 / 25.4)
+        case .a0: return (841.0 / 25.4, 1189.0 / 25.4)
+        case .letter: return (8.5, 11.0)
+        case .legal: return (8.5, 14.0)
+        case .tabloid: return (11.0, 17.0)
+        }
+    }
+
+    private func applyPresetToDrafts(_ preset: VexioPagePreset) {
+        let (shortSide, longSide) = presetInches(preset)
+        let wIn = isLandscape ? longSide : shortSide
+        let hIn = isLandscape ? shortSide : longSide
+        widthDraft = selectedUnit.numericDisplayFromInches(wIn)
+        heightDraft = selectedUnit.numericDisplayFromInches(hIn)
+    }
+
+    private func setDraftOrientation(landscape: Bool) {
+        let wIn = parseInches(widthDraft, unit: selectedUnit, fallback: 11.6929)
+        let hIn = parseInches(heightDraft, unit: selectedUnit, fallback: 8.2677)
+        let hi = max(wIn, hIn)
+        let lo = min(wIn, hIn)
+        isLandscape = landscape
+        widthDraft = selectedUnit.numericDisplayFromInches(landscape ? hi : lo)
+        heightDraft = selectedUnit.numericDisplayFromInches(landscape ? lo : hi)
+    }
+
+    private func parseInches(_ raw: String, unit: VexioMeasurementUnit, fallback: Double) -> Double {
+        let cleaned = raw.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: ",", with: ".")
+        guard let v = Double(cleaned), v > 0 else { return fallback }
+        switch unit.resolvedEngineSlug {
+        case "mm": return v / 25.4
+        case "cm": return v / 2.54
+        case "m": return v / 0.0254
+        default: return v
+        }
+    }
+
+    private func applyAndClose() {
+        i18n.unitPreference = selectedUnit
+        let wIn = parseInches(widthDraft, unit: selectedUnit, fallback: session.pageWidthInches)
+        let hIn = parseInches(heightDraft, unit: selectedUnit, fallback: session.pageHeightInches)
+        session.applyCustomPageSetup(
+            pageId: pageId,
+            name: nameDraft,
+            widthInches: wIn,
+            heightInches: hIn,
+            unitSlug: selectedUnit.resolvedEngineSlug,
+            isBackground: isBackground,
+            backPageId: assignedBackPageId,
+            pageColorHex: pageColorHex,
+            undoManager: undoManager
+        )
+        onClose()
     }
 }

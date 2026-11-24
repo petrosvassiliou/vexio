@@ -465,8 +465,10 @@
                                 <StackPanel Orientation="Horizontal" Spacing="4" Height="56">
                                     <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnInsertBlankPageClick" Content="New Page" />
                                     <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnInsertBackgroundPageClick" Content="Background Page" />
+                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnOpenOfficialStencilCatalogClick" FontWeight="SemiBold"
+                                            Content="Official Stencil Catalog..." ToolTipService.ToolTip="Download Official Microsoft 365, Azure, Cisco &amp; Awesome-Visio Stencil Packs" />
                                     <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnImportStencilClick" FontWeight="SemiBold"
-                                            Content="+ Import Visio Stencil (.vssx / .vss)" ToolTipService.ToolTip="Import Visio .vssx, .vss, .vssm, .vsdx, .vstx, or .vdx Stencils" />
+                                            Content="+ Import Stencil (.vssx / .vss)" ToolTipService.ToolTip="Import Visio .vssx, .vss, .vssm, .vsdx, .vstx, or .vdx Stencils" />
                                 </StackPanel>
                                 <TextBlock Text="Pages &amp; Stencils" Style="{StaticResource VexioRibbonGroupLabelStyle}" />
                             </StackPanel>
@@ -1371,9 +1373,9 @@
                     <ColumnDefinition Width="*" />
                 </Grid.ColumnDefinitions>
 
-                <!-- Left Visio Backstage Rail -->
+                <!-- Focused Startup Rail (Open, New Blank, Continue, Updates) -->
                 <Border Grid.Column="0" Background="{StaticResource VexioBrandDarkHeaderBrush}" Padding="16,20">
-                    <StackPanel Spacing="8">
+                    <StackPanel Spacing="10">
                         <Button HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="10,7"
                                 Background="#33FFFFFF" Foreground="White" BorderBrush="Transparent"
                                 Click="OnCloseBackstageClick">
@@ -1385,35 +1387,13 @@
                         <TextBlock x:Name="BackstageTitleLabel" Text="Vexio Professional" Foreground="White" FontSize="17" FontWeight="Bold" Margin="4,4,0,2" />
                         <TextBlock Text="1:1 Visio &amp; Offline CAD Suite" Foreground="#FFBAE6FD" FontSize="11.5" Margin="4,0,0,8" />
 
-                        <Button HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="10,8"
+                        <Button HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="10,9"
                                 Background="#FF2563EB" Foreground="White" BorderBrush="Transparent"
-                                Click="OnNewBlankA4MetricClick" Content="+ New ISO A4 Metric Drawing" FontWeight="SemiBold" />
+                                Click="OnOpenClick" Content="Open Diagram or CAD File... (Ctrl+O)" FontWeight="SemiBold" />
 
                         <Button HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="10,8"
                                 Background="#1FFFFFFF" Foreground="White" BorderBrush="Transparent"
-                                Click="OnOpenClick" Content="Open Diagram or CAD File... (Ctrl+O)" />
-
-                        <Button HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="10,8"
-                                Background="#1FFFFFFF" Foreground="White" BorderBrush="Transparent"
-                                Click="OnImportStencilClick" Content="Import Visio Stencil (.vssx / .vss)..." />
-
-                        <MenuFlyoutSeparator />
-
-                        <Button x:Name="BackstageSaveButton" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="10,7"
-                                Background="Transparent" Foreground="White" BorderBrush="Transparent"
-                                Click="OnSaveClick" Content="Save Document (Ctrl+S)" />
-                        <Button x:Name="BackstageSaveAsButton" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="10,7"
-                                Background="Transparent" Foreground="White" BorderBrush="Transparent"
-                                Click="OnSaveAsClick" Content="Save As... (Ctrl+Shift+S)" />
-                        <Button HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="10,7"
-                                Background="Transparent" Foreground="White" BorderBrush="Transparent"
-                                Click="OnExportPdfClick" Content="Export PDF/A (.pdf)" />
-                        <Button HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="10,7"
-                                Background="Transparent" Foreground="White" BorderBrush="Transparent"
-                                Click="OnExportSvgClick" Content="Export Vector SVG (.svg)" />
-                        <Button HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="10,7"
-                                Background="Transparent" Foreground="White" BorderBrush="Transparent"
-                                Click="OnTiledPrintClick" Content="Multi-Page Tiled Print (Ctrl+P)" />
+                                Click="OnNewBlankA4MetricClick" Content="+ New Blank Diagram" />
 
                         <MenuFlyoutSeparator />
 
@@ -1423,45 +1403,22 @@
                     </StackPanel>
                 </Border>
 
-                <!-- Center Welcome Cards: New Blank ISO/US Drawings, Starter Templates, Dropzone & Preferences -->
+                <!-- Center Startup Hub: New Blank Diagram, Starter Templates, Dropzone & Preferences -->
                 <ScrollViewer Grid.Column="1" Padding="32,26">
                     <StackPanel Spacing="22" MaxWidth="980" HorizontalAlignment="Left">
                         <StackPanel Spacing="4">
                             <TextBlock x:Name="BackstageHeroHeading" Text="Start or Open a Diagram Inside Vexio" FontSize="22" FontWeight="Bold" />
-                            <TextBlock Text="Create a blank ISO Metric (A4 / A3) or US ANSI page, start from a 1:1 Visio template, import custom .vssx/.vss stencils, or drop any .vsdx, .vsd, .vdx, .dwg, or .dxf file directly into this window."
+                            <TextBlock Text="Start a clean blank diagram, pick a 1:1 Visio starter template, or drop any .vsdx, .vsd, .vdx, .dwg, or .dxf file directly into this window."
                                        FontSize="12.5" Opacity="0.78" TextWrapping="Wrap" />
                         </StackPanel>
 
-                        <!-- Blank Page Presets -->
-                        <StackPanel Spacing="10">
-                            <TextBlock Text="Blank Page Presets (Metric Default / OS Standard)" FontSize="14" FontWeight="SemiBold" />
-                            <StackPanel Orientation="Horizontal" Spacing="12">
-                                <Button Width="220" Padding="14,12" HorizontalContentAlignment="Left" Click="OnNewBlankA4MetricClick">
-                                    <StackPanel Spacing="4">
-                                        <TextBlock Text="Blank ISO A4 (Landscape)" FontWeight="Bold" FontSize="13" />
-                                        <TextBlock Text="297 × 210 mm • Metric (mm)" FontSize="11.5" Opacity="0.75" />
-                                    </StackPanel>
-                                </Button>
-                                <Button Width="220" Padding="14,12" HorizontalContentAlignment="Left" Click="OnNewBlankA3MetricClick">
-                                    <StackPanel Spacing="4">
-                                        <TextBlock Text="Blank ISO A3 (Landscape)" FontWeight="Bold" FontSize="13" />
-                                        <TextBlock Text="420 × 297 mm • Metric (mm)" FontSize="11.5" Opacity="0.75" />
-                                    </StackPanel>
-                                </Button>
-                                <Button Width="220" Padding="14,12" HorizontalContentAlignment="Left" Click="OnNewBlankA4PortraitClick">
-                                    <StackPanel Spacing="4">
-                                        <TextBlock Text="Blank ISO A4 (Portrait)" FontWeight="Bold" FontSize="13" />
-                                        <TextBlock Text="210 × 297 mm • Metric (mm)" FontSize="11.5" Opacity="0.75" />
-                                    </StackPanel>
-                                </Button>
-                                <Button Width="220" Padding="14,12" HorizontalContentAlignment="Left" Click="OnNewBlankDocClick">
-                                    <StackPanel Spacing="4">
-                                        <TextBlock Text="Blank US Letter" FontWeight="Bold" FontSize="13" />
-                                        <TextBlock Text="11 × 8.5 in • US Imperial (in)" FontSize="11.5" Opacity="0.75" />
-                                    </StackPanel>
-                                </Button>
+                        <!-- Single New Blank Diagram Hero Card -->
+                        <Button Padding="18,14" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Click="OnNewBlankA4MetricClick">
+                            <StackPanel Spacing="4">
+                                <TextBlock Text="New Blank Diagram" FontWeight="Bold" FontSize="15" />
+                                <TextBlock Text="Start immediately on a clean canvas — customize page size, orientation, background &amp; units anytime inside the workspace." FontSize="12" Opacity="0.78" TextWrapping="Wrap" />
                             </StackPanel>
-                        </StackPanel>
+                        </Button>
 
                         <!-- Starter Templates -->
                         <StackPanel Spacing="10">
@@ -1488,11 +1445,11 @@
                             </StackPanel>
                         </StackPanel>
 
-                        <!-- Preferences: Language, Default Units, Startup & Automatic Updates -->
+                        <!-- Startup & Update Preferences -->
                         <Border Padding="16,14" CornerRadius="8" Background="{StaticResource VexioRibbonSurfaceBrush}"
                                 BorderBrush="{StaticResource VexioRibbonGroupBorderBrush}" BorderThickness="1">
                             <StackPanel Spacing="12">
-                                <TextBlock Text="Workstation Preferences, Units, Language &amp; Updates" FontSize="13.5" FontWeight="SemiBold" />
+                                <TextBlock Text="Startup &amp; Software Updates" FontSize="13.5" FontWeight="SemiBold" />
                                 <StackPanel Orientation="Horizontal" Spacing="18">
                                     <CheckBox x:Name="AutoCheckUpdatesToggle" Content="Automatically check for updates on startup"
                                               IsChecked="True" Checked="OnAutoUpdatePrefChanged" Unchecked="OnAutoUpdatePrefChanged" />
@@ -1501,7 +1458,7 @@
                                 </StackPanel>
                                 <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
                                     <Button Click="OnCheckUpdatesClick" Content="Check for Updates Now" />
-                                    <TextBlock x:Name="BackstageUpdateStatusText" Text="Vexio v0.4.0-alpha • Automatic background update check enabled."
+                                    <TextBlock x:Name="BackstageUpdateStatusText" Text="Vexio v0.4.1-alpha • Automatic background update check enabled."
                                                FontSize="12" Opacity="0.8" VerticalAlignment="Center" />
                                 </StackPanel>
                             </StackPanel>

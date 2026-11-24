@@ -125,9 +125,9 @@ public struct VexioGlobalMenuCommands: Commands {
             }
         }
 
-        // File Menu: In-App New / Open / Import Stencil / Save / Save As
+        // File Menu: In-App New / Open / Stencils / Page Setup / Save / Export
         CommandGroup(replacing: .newItem) {
-            Button("New / Templates Hub…") {
+            Button("New / Startup Hub…") {
                 NotificationCenter.default.post(name: .vexioShowFileBackstage, object: nil)
             }
             .keyboardShortcut("n", modifiers: [.command])
@@ -137,10 +137,23 @@ public struct VexioGlobalMenuCommands: Commands {
             }
             .keyboardShortcut("o", modifiers: [.command])
 
+            Divider()
+
             Button("Import Visio Stencil (.vssx / .vss)…") {
                 NotificationCenter.default.post(name: .vexioImportStencilSheet, object: nil)
             }
             .keyboardShortcut("i", modifiers: [.command, .shift])
+
+            Button("Official & Enterprise Stencil Catalog…") {
+                NotificationCenter.default.post(name: .vexioOpenStencilCatalogSheet, object: nil)
+            }
+
+            Divider()
+
+            Button("Page Setup…") {
+                NotificationCenter.default.post(name: .vexioOpenPageSetupSheet, object: nil)
+            }
+            .keyboardShortcut("p", modifiers: [.command, .shift])
 
             Divider()
 
@@ -153,6 +166,14 @@ public struct VexioGlobalMenuCommands: Commands {
                 NotificationCenter.default.post(name: .vexioSaveAsFileSheet, object: nil)
             }
             .keyboardShortcut("s", modifiers: [.command, .shift])
+
+            Menu("Export") {
+                ForEach(VexioExportFormat.allCases) { fmt in
+                    Button(fmt.displayName) {
+                        NotificationCenter.default.post(name: .vexioExportFormatRequested, object: fmt.rawValue)
+                    }
+                }
+            }
         }
 
         // Format Menu: Native OS Font & Color Panels + Rich Text Formatting Shortcuts

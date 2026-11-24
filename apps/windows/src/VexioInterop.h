@@ -876,6 +876,44 @@ public:
         return vexio_doc_rename_page(m_ptr, pageId, name.c_str());
     }
 
+    [[nodiscard]] VexioResult<uint32_t> DuplicatePage(uint32_t pageId) {
+        if (m_ptr == nullptr) {
+            return VexioResult<uint32_t>{VEXIO_ERR_INVALID_ARG, std::nullopt};
+        }
+        uint32_t outNewPid = 0;
+        const VexioStatus status = vexio_doc_duplicate_page(m_ptr, pageId, &outNewPid);
+        if (status != VEXIO_OK) {
+            return VexioResult<uint32_t>{status, std::nullopt};
+        }
+        return VexioResult<uint32_t>{VEXIO_OK, outNewPid};
+    }
+
+    [[nodiscard]] VexioStatus DeletePage(uint32_t pageId) {
+        if (m_ptr == nullptr) {
+            return VEXIO_ERR_INVALID_ARG;
+        }
+        return vexio_doc_delete_page(m_ptr, pageId);
+    }
+
+    [[nodiscard]] VexioStatus SetPageBackground(
+        uint32_t pageId,
+        bool isBackground,
+        uint32_t backPageId,
+        std::string_view pageColorFormulaUtf8
+    ) {
+        if (m_ptr == nullptr) {
+            return VEXIO_ERR_INVALID_ARG;
+        }
+        const std::string colorFormula{pageColorFormulaUtf8};
+        return vexio_doc_set_page_background(
+            m_ptr,
+            pageId,
+            isBackground,
+            backPageId,
+            colorFormula.c_str()
+        );
+    }
+
     [[nodiscard]] VexioResult<uint32_t> AddLayer(uint32_t pageId, std::string_view layerNameUtf8) {
         if (m_ptr == nullptr) {
             return VexioResult<uint32_t>{VEXIO_ERR_INVALID_ARG, std::nullopt};

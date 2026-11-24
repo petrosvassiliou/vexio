@@ -1810,27 +1810,137 @@ void MainWindow::RebuildPageTabsStrip() {
             e.Handled(true);
         });
 
+        const bool targetIsBg = p.isBackground;
+        const std::wstring targetName = p.name;
+        size_t fgCount = 0;
+        for (auto const& pg : m_pages) {
+            if (!pg.isBackground) ++fgCount;
+        }
+        const bool canDeletePage = (targetIsBg && m_pages.size() > 1) || (!targetIsBg && fgCount > 1);
+
         MenuFlyout pageMenu{};
+
+        MenuFlyoutItem setupItem{};
+        setupItem.Text(L"Page Setup... (Shift+F4)");
+        setupItem.Click([this, targetId](IInspectable const&, RoutedEventArgs const&) {
+            m_activePageId = targetId;
+            if (m_viewport && m_doc) {
+                (void)m_viewport.SetPage(m_doc, m_activePageId);
+            }
+            RebuildPageTabsStrip();
+            ShowPageSetupDialogAsync();
+        });
+
         MenuFlyoutItem renameItem{};
         renameItem.Text(L"Rename Page...");
         renameItem.Click([this, targetId](IInspectable const&, RoutedEventArgs const&) {
             m_activePageId = targetId;
             ShowRenamePageDialogAsync();
         });
+
+        MenuFlyoutItem dupItem{};
+        dupItem.Text(L"Duplicate Page");
+        dupItem.Click([this, targetId, targetName, targetIsBg](IInspectable const&, RoutedEventArgs const&) {
+            if (!m_doc) return;
+            const auto res = m_doc.DuplicatePage(targetId);
+            if (res.ok()) {
+                const uint32_t newPid = *res.value;
+                m_pages.push_back(PageTabModel{newPid, targetName + L" (Copy)", targetIsBg, 0u});
+                m_activePageId = newPid;
+                if (m_viewport) {
+                    (void)m_viewport.SetPage(m_doc, m_activePageId);
+                }
+                MarkDocumentDirty(true);
+                RebuildPageTabsStrip();
+                PresentViewportFrame();
+            }
+        });
+
         MenuFlyoutItem addItem{};
         addItem.Text(L"Insert Blank Page");
         addItem.Click([this](IInspectable const&, RoutedEventArgs const&) {
             OnInsertBlankPageClick(nullptr, nullptr);
         });
+
+        MenuFlyoutSubItem bgSub{};
+        bgSub.Text(L"Page Background");
+
+        MenuFlyoutItem toggleBgItem{};
+        toggleBgItem.Text(targetIsBg ? L"✓ Background Page" : L"Mark as Background Page");
+        toggleBgItem.Click([this, targetId, targetIsBg](IInspectable const&, RoutedEventArgs const&) {
+            if (!m_doc) return;
+            if (m_doc.SetPageBackground(targetId, !targetIsBg, 0, "") == VEXIO_OK) {
+                for (auto& pg : m_pages) {
+                    if (pg.pageId == targetId) pg.isBackground = !targetIsBg;
+                }
+                MarkDocumentDirty(true);
+                RebuildPageTabsStrip();
+                PresentViewportFrame();
+            }
+        });
+        bgSub.Items().Append(toggleBgItem);
+        bgSub.Items().Append(MenuFlyoutSeparator{});
+
+        const std::pair<const wchar_t*, const char*> paperSwatches[] = {
+            {L"Paper: Pure White", "#FFFFFF"},
+            {L"Paper: Warm Ivory", "#FAF8F5"},
+            {L"Paper: Soft Slate", "#F1F5F9"},
+            {L"Paper: Blueprint Tint", "#EFF6FF"},
+        };
+        for (auto const& [swatchLabel, swatchHex] : paperSwatches) {
+            MenuFlyoutItem colorItem{};
+            colorItem.Text(swatchLabel);
+            const std::string hexStr{swatchHex};
+            colorItem.Click([this, targetId, targetIsBg, hexStr](IInspectable const&, RoutedEventArgs const&) {
+                if (!m_doc) return;
+                if (m_doc.SetPageBackground(targetId, targetIsBg, 0, hexStr) == VEXIO_OK) {
+                    MarkDocumentDirty(true);
+                    PresentViewportFrame();
+                }
+            });
+            bgSub.Items().Append(colorItem);
+        }
+
         MenuFlyoutItem layoutItem{};
         layoutItem.Text(L"Auto-Layout Page");
         layoutItem.Click([this, targetId](IInspectable const&, RoutedEventArgs const&) {
             m_activePageId = targetId;
             OnReLayoutTopDownClick(nullptr, nullptr);
         });
+
+        MenuFlyoutItem delItem{};
+        delItem.Text(L"Delete Page");
+        delItem.IsEnabled(canDeletePage);
+        delItem.Click([this, targetId](IInspectable const&, RoutedEventArgs const&) {
+            if (!m_doc) return;
+            if (m_doc.DeletePage(targetId) == VEXIO_OK) {
+                std::erase_if(m_pages, [targetId](PageTabModel const& pg) { return pg.pageId == targetId; });
+                if (m_activePageId == targetId && !m_pages.empty()) {
+                    m_activePageId = m_pages.front().pageId;
+                    for (auto const& pg : m_pages) {
+                        if (!pg.isBackground) {
+                            m_activePageId = pg.pageId;
+                            break;
+                        }
+                    }
+                    if (m_viewport) {
+                        (void)m_viewport.SetPage(m_doc, m_activePageId);
+                    }
+                }
+                MarkDocumentDirty(true);
+                RebuildPageTabsStrip();
+                PresentViewportFrame();
+            }
+        });
+
+        pageMenu.Items().Append(setupItem);
         pageMenu.Items().Append(renameItem);
+        pageMenu.Items().Append(dupItem);
         pageMenu.Items().Append(addItem);
+        pageMenu.Items().Append(bgSub);
         pageMenu.Items().Append(layoutItem);
+        pageMenu.Items().Append(MenuFlyoutSeparator{});
+        pageMenu.Items().Append(delItem);
         tabBtn.ContextFlyout(pageMenu);
 
         panel.Children().Append(tabBtn);
@@ -4247,8 +4357,6 @@ void MainWindow::ApplyLanguageStrings() {
     BackstageHeroHeading().Text(pack->startHero);
     StencilSearchBox().PlaceholderText(pack->searchHint);
     QatSaveAsLabel().Text(pack->saveAsShort);
-    BackstageSaveButton().Content(box_value(pack->saveDoc));
-    BackstageSaveAsButton().Content(box_value(pack->saveAs));
     BottomRenamePageLabel().Text(pack->renameShort);
 }
 
@@ -4783,7 +4891,7 @@ fire_and_forget MainWindow::ShowOfficialStencilCatalogDialogAsync() {
     }
 
     Windows::Web::Http::HttpClient client{};
-    client.DefaultRequestHeaders().UserAgent().TryParseAdd(L"Vexio-Windows/0.4.0-alpha");
+    client.DefaultRequestHeaders().UserAgent().TryParseAdd(L"Vexio-Windows/0.4.1-alpha");
     uint32_t installedCount = 0;
 
     for (auto const& target : targets) {
@@ -5045,7 +5153,7 @@ void MainWindow::OnCheckUpdatesClick(IInspectable const&, RoutedEventArgs const&
 }
 
 fire_and_forget MainWindow::CheckForUpdatesAsync(bool userInitiated) {
-    constexpr std::wstring_view kCurrentVersion = L"0.4.0-alpha";
+    constexpr std::wstring_view kCurrentVersion = L"0.4.1-alpha";
     const auto weakSelf = get_weak();
 
     if (userInitiated) {
@@ -5059,7 +5167,7 @@ fire_and_forget MainWindow::CheckForUpdatesAsync(bool userInitiated) {
 
     try {
         Windows::Web::Http::HttpClient client{};
-        client.DefaultRequestHeaders().UserAgent().TryParseAdd(L"Vexio-Windows/0.4.0-alpha");
+        client.DefaultRequestHeaders().UserAgent().TryParseAdd(L"Vexio-Windows/0.4.1-alpha");
         client.DefaultRequestHeaders().Accept().TryParseAdd(L"application/vnd.github+json");
 
         const Uri apiUri{L"https://api.github.com/repos/petrosvassiliou/vexio/releases"};
@@ -5068,7 +5176,7 @@ fire_and_forget MainWindow::CheckForUpdatesAsync(bool userInitiated) {
         Windows::Data::Json::JsonArray releasesArr{nullptr};
         if (Windows::Data::Json::JsonArray::TryParse(body, releasesArr) && releasesArr.Size() > 0) {
             const auto relObj = releasesArr.GetObjectAt(0);
-            latestTag = relObj.GetNamedString(L"tag_name", L"v0.4.0-alpha").c_str();
+            latestTag = relObj.GetNamedString(L"tag_name", L"v0.4.1-alpha").c_str();
             releaseUrl = relObj.GetNamedString(L"html_url", releaseUrl).c_str();
             if (relObj.HasKey(L"assets")) {
                 const auto assets = relObj.GetNamedArray(L"assets");
@@ -5130,7 +5238,7 @@ fire_and_forget MainWindow::CheckForUpdatesAsync(bool userInitiated) {
         }
     } else {
         self->BackstageUpdateStatusText().Text(hstring{
-            std::format(L"Vexio is up to date ({}).", latestTag.empty() ? L"v0.4.0-alpha" : latestTag)
+            std::format(L"Vexio is up to date ({}).", latestTag.empty() ? L"v0.4.1-alpha" : latestTag)
         });
         if (userInitiated) {
             ContentDialog dlg{};
@@ -5138,7 +5246,7 @@ fire_and_forget MainWindow::CheckForUpdatesAsync(bool userInitiated) {
             dlg.Title(box_value(L"Vexio is Up to Date"));
             dlg.Content(box_value(hstring{std::format(
                 L"You are running the latest version of Vexio Professional ({}).",
-                latestTag.empty() ? L"v0.4.0-alpha" : latestTag)}));
+                latestTag.empty() ? L"v0.4.1-alpha" : latestTag)}));
             dlg.PrimaryButtonText(L"View Release Notes");
             dlg.CloseButtonText(L"OK");
             dlg.DefaultButton(ContentDialogButton::Close);
