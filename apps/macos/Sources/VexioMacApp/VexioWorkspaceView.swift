@@ -650,19 +650,19 @@ public struct VexioWorkspaceView: View {
         Menu("Page Setup & Size") {
             Button("ISO A4 Landscape (297 × 210 mm)") {
                 session.selectPage(pageId)
-                session.applyPagePreset("a4", landscape: true, undoManager: undoManager)
+                session.applyPagePreset(.a4, landscape: true, undoManager: undoManager)
             }
             Button("ISO A4 Portrait (210 × 297 mm)") {
                 session.selectPage(pageId)
-                session.applyPagePreset("a4", landscape: false, undoManager: undoManager)
+                session.applyPagePreset(.a4, landscape: false, undoManager: undoManager)
             }
             Button("ISO A3 Landscape (420 × 297 mm)") {
                 session.selectPage(pageId)
-                session.applyPagePreset("a3", landscape: true, undoManager: undoManager)
+                session.applyPagePreset(.a3, landscape: true, undoManager: undoManager)
             }
             Button("US Letter Landscape (11 × 8.5 in)") {
                 session.selectPage(pageId)
-                session.applyPagePreset("letter", landscape: true, undoManager: undoManager)
+                session.applyPagePreset(.letter, landscape: true, undoManager: undoManager)
             }
         }
         Menu("Page Background") {
