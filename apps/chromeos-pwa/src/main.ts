@@ -40,7 +40,7 @@ type ActiveTool =
   | 'text'
   | 'pen'
   | 'highlighter';
-type InspectorTab = 'props' | 'layers' | 'comments' | 'validate';
+type InspectorTab = 'props' | 'sizepos' | 'data' | 'layers' | 'comments' | 'validate';
 type ActiveModal =
   | null
   | 'backstage'
@@ -779,7 +779,7 @@ class VexioChromeOsApp {
       return true;
     }
   })();
-  private updateStatusText = 'Vexio v0.3.7-alpha • Automatic updates enabled';
+  private updateStatusText = 'Vexio v0.3.8-alpha • Automatic updates enabled';
   private latestReleaseTag: string | null = null;
   private latestReleaseUrl = 'https://github.com/petrosvassiliou/vexio/releases';
 
@@ -950,6 +950,18 @@ class VexioChromeOsApp {
       });
     }
     this.zoomPct = this.computeFitZoomPct();
+    requestAnimationFrame(() => {
+      const nextZoom = this.computeFitZoomPct();
+      if (Math.abs(nextZoom - this.zoomPct) >= 1) {
+        this.zoomPct = nextZoom;
+        this.render();
+      }
+      const vp = document.getElementById('canvas-viewport');
+      if (vp) {
+        vp.scrollLeft = 0;
+        vp.scrollTop = 0;
+      }
+    });
   }
 
   private async commitDocTitleRename(rawTitle: string): Promise<void> {
@@ -1208,7 +1220,7 @@ class VexioChromeOsApp {
       return;
     }
 
-    const currentVersion = '0.3.7-alpha';
+    const currentVersion = '0.3.8-alpha';
     try {
       const resp = await fetch('https://api.github.com/repos/petrosvassiliou/vexio/releases', {
         headers: { Accept: 'application/vnd.github+json' },
@@ -3661,11 +3673,12 @@ class VexioChromeOsApp {
           </section>
 
           <aside class="inspector-pane" style="${this.showRightInspector ? '' : 'display:none'}">
+            ${this.renderObjectIdentityHeader(snap, selectedShape)}
             <div class="insp-segmented">
-              <button class="insp-seg-btn ${this.activeInspectorTab === 'props' ? 'active' : ''}" data-insp="props">${selectedShape ? 'Format' : 'Page'}</button>
-              <button class="insp-seg-btn ${this.activeInspectorTab === 'layers' ? 'active' : ''}" data-insp="layers">Layers (${snap.layers.length})</button>
-              <button class="insp-seg-btn ${this.activeInspectorTab === 'comments' ? 'active' : ''}" data-insp="comments">Notes (${snap.comments.length})</button>
-              <button class="insp-seg-btn ${this.activeInspectorTab === 'validate' ? 'active' : ''}" data-insp="validate">Check (${snap.validationIssues.length})</button>
+              <button class="insp-seg-btn ${this.activeInspectorTab === 'props' ? 'active' : ''}" data-insp="props" title="Format Shape — Fill, Line, Arrows, Text &amp; Effects">${selectedShape ? 'Format' : 'Page'}</button>
+              <button class="insp-seg-btn ${this.activeInspectorTab === 'sizepos' ? 'active' : ''}" data-insp="sizepos" title="Size &amp; Position — X, Y, Width, Height, Angle &amp; Protection">Size &amp; Pos</button>
+              <button class="insp-seg-btn ${this.activeInspectorTab === 'data' ? 'active' : ''}" data-insp="data" title="Shape Data (Prop.*) — Custom Properties">Data (${selectedShape?.shapeData?.length ?? 0})</button>
+              <button class="insp-seg-btn ${this.activeInspectorTab === 'layers' ? 'active' : ''}" data-insp="layers" title="Layer Properties &amp; Object Layer Membership">Layers (${snap.layers.length})</button>
             </div>
 
             ${this.renderInspectorBody(snap, selectedShape)}
@@ -3781,27 +3794,146 @@ class VexioChromeOsApp {
     }
   }
 
+  private renderObjectIdentityHeader(
+    snap: EngineSnapshot,
+    selectedShape: EngineSnapshot['shapes'][number] | null
+  ): string {
+    if (!selectedShape) {
+      return `
+        <div class="insp-card" style="margin-bottom:8px">
+          <div class="insp-card-title" style="display:flex;justify-content:space-between;align-items:center">
+            <span>Page Properties</span>
+            <span style="font-weight:600;color:var(--m3-primary);text-transform:none">${snap.shapes.length} shapes</span>
+          </div>
+          <div style="font-size:11.5px;color:var(--m3-text-muted)">${this.formatLengthFromIn(snap.pageWidthIn)} × ${this.formatLengthFromIn(snap.pageHeightIn)}</div>
+        </div>
+      `;
+    }
+    const typeBadge = selectedShape.isGroup
+      ? selectedShape.masterName
+        ? `Master: ${selectedShape.masterName} (${selectedShape.childCount ?? 1})`
+        : `Group (${selectedShape.childCount ?? 0} shapes)`
+      : selectedShape.kind === 'Connector1D'
+        ? '1D Dynamic Connector'
+        : selectedShape.masterName
+          ? `${selectedShape.kind} • ${selectedShape.masterName}`
+          : selectedShape.kind;
+    return `
+      <div class="insp-card" style="margin-bottom:8px;display:flex;flex-direction:column;gap:6px">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <div>
+            <strong style="font-size:12px;color:var(--m3-primary)">Sheet.${selectedShape.id}</strong>
+            <div style="font-size:10.5px;color:var(--m3-text-muted)">${typeBadge}</div>
+          </div>
+          <button class="fmt-btn" id="btn-insp-open-ss" title="Open ShapeSheet Formula Grid (Shift+F5)">fx</button>
+        </div>
+        <div style="display:flex;gap:5px;align-items:center">
+          <span style="font-size:10.5px;color:var(--m3-text-muted);width:42px">Name</span>
+          <input class="cell-input" id="shape-name-input" value="${selectedShape.name.replace(/"/g, '&quot;')}" title="Visio Object Name (press Enter to rename)" style="flex:1;height:25px" />
+        </div>
+        <div style="display:flex;gap:5px;align-items:center">
+          <span style="font-size:10.5px;color:var(--m3-text-muted);width:42px">Text</span>
+          <input class="cell-input" id="shape-text-input" value="${selectedShape.text.replace(/"/g, '&quot;')}" placeholder="Type shape label..." title="Shape Text / Caption (press Enter to apply)" style="flex:1;height:25px" />
+        </div>
+      </div>
+    `;
+  }
+
   private renderInspectorBody(snap: EngineSnapshot, selectedShape: EngineSnapshot['shapes'][number] | null): string {
     if (this.activeInspectorTab === 'layers') {
       return `
         <div class="insp-card">
-          <div class="insp-card-title">Visio &amp; CAD Layer Manager</div>
+          <div class="insp-card-title">${selectedShape ? 'Object Layer Membership &amp; Layers' : 'Visio &amp; CAD Layer Manager'}</div>
           ${
             snap.layers.length === 0
               ? '<div style="color:var(--m3-text-muted);font-size:11.5px">Default layer active.</div>'
               : snap.layers
-                  .map(
-                    (l) => `
-                  <div class="list-row-card" style="padding:7px 10px">
-                    <strong>${l.name}</strong>
-                    <div style="display:flex;gap:10px;font-size:11px;color:var(--m3-text-secondary)">
-                      <label style="cursor:pointer"><input type="checkbox" class="layer-vis-chk" data-ix="${l.ix}" ${l.visible ? 'checked' : ''} /> Visible</label>
-                      <label style="cursor:pointer"><input type="checkbox" class="layer-lock-chk" data-ix="${l.ix}" ${l.lock ? 'checked' : ''} /> Lock</label>
+                  .map((l) => {
+                    const isMember = selectedShape?.layerIndices?.includes(l.ix) ?? false;
+                    return `
+                  <div class="list-row-card" style="padding:7px 10px;display:flex;flex-direction:column;gap:4px">
+                    <div style="display:flex;justify-content:space-between;align-items:center;width:100%">
+                      <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Assign or remove selected object from layer '${l.name}'">
+                        ${selectedShape ? `<input type="checkbox" class="layer-member-chk" data-ix="${l.ix}" ${isMember ? 'checked' : ''} />` : ''}
+                        <strong>${l.name}</strong>
+                      </label>
+                      <span style="font-size:10.5px;color:var(--m3-text-muted)" title="Objects assigned to '${l.name}'">${l.memberCount ?? 0}</span>
                     </div>
+                    <div style="display:flex;gap:10px;font-size:11px;color:var(--m3-text-secondary)">
+                      <label style="cursor:pointer" title="Toggle layer visibility"><input type="checkbox" class="layer-vis-chk" data-ix="${l.ix}" ${l.visible ? 'checked' : ''} /> Visible</label>
+                      <label style="cursor:pointer" title="Lock or unlock shapes on layer"><input type="checkbox" class="layer-lock-chk" data-ix="${l.ix}" ${l.lock ? 'checked' : ''} /> Lock</label>
+                    </div>
+                  </div>`;
+                  })
+                  .join('')
+          }
+          <div style="display:flex;gap:6px;margin-top:8px">
+            <input class="cell-input" id="new-layer-name-input" placeholder="New layer name..." style="flex:1" />
+            <button class="m3-btn tonal" id="btn-insp-add-layer" title="Add new page layer">+ Add</button>
+          </div>
+        </div>
+      `;
+    }
+
+    if (this.activeInspectorTab === 'sizepos' && selectedShape) {
+      return `
+        <div class="insp-card">
+          <div class="insp-card-title">Size &amp; Position</div>
+          <div class="dim-grid">
+            <label class="dim-field" title="PinX horizontal center"><span class="dim-prefix">X</span><input class="quick-dim" data-cell="PinX" value="${selectedShape.pinX.toFixed(2)} in" /></label>
+            <label class="dim-field" title="PinY vertical center"><span class="dim-prefix">Y</span><input class="quick-dim" data-cell="PinY" value="${selectedShape.pinY.toFixed(2)} in" /></label>
+            <label class="dim-field" title="Shape Width"><span class="dim-prefix">W</span><input class="quick-dim" data-cell="Width" value="${selectedShape.width.toFixed(2)} in" /></label>
+            <label class="dim-field" title="Shape Height"><span class="dim-prefix">H</span><input class="quick-dim" data-cell="Height" value="${selectedShape.height.toFixed(2)} in" /></label>
+            <label class="dim-field" style="grid-column:span 2" title="Rotation Angle"><span class="dim-prefix">∠</span><input class="quick-dim" data-cell="Angle" value="${selectedShape.angleDeg.toFixed(1)} deg" /></label>
+          </div>
+          <div class="effect-chips-grid" style="margin-top:8px">
+            <button class="m3-btn tonal" data-rot-deg="-90" style="height:27px;font-size:11px" title="Rotate 90° Counter-Clockwise">↺ Left 90°</button>
+            <button class="m3-btn tonal" data-rot-deg="90" style="height:27px;font-size:11px" title="Rotate 90° Clockwise">↻ Right 90°</button>
+            <button class="m3-btn tonal" data-flip-axis="x" style="height:27px;font-size:11px" title="Flip Horizontal">⇆ Flip H</button>
+            <button class="m3-btn tonal" data-flip-axis="y" style="height:27px;font-size:11px" title="Flip Vertical">⇅ Flip V</button>
+            <button class="m3-btn tonal" data-zorder="front" style="height:26px;font-size:11px" title="Bring to Front">Bring Front</button>
+            <button class="m3-btn tonal" data-zorder="back" style="height:26px;font-size:11px" title="Send to Back">Send Back</button>
+          </div>
+        </div>
+        <div class="insp-card">
+          <div class="insp-card-title">Protection</div>
+          <div style="display:flex;flex-direction:column;gap:6px;font-size:11.5px">
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer" title="Preserve Width:Height ratio"><input type="checkbox" data-lock-cell="LockAspect" ${selectedShape.lockAspect ? 'checked' : ''} /> Lock Aspect Ratio</label>
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer" title="Prevent interactive Width/Height resize"><input type="checkbox" data-lock-cell="LockWidth" ${selectedShape.lockWidth ? 'checked' : ''} /> Lock Width &amp; Height</label>
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer" title="Lock X/Y position on page"><input type="checkbox" data-lock-cell="LockMoveX" ${selectedShape.lockMoveX ? 'checked' : ''} /> Lock Position</label>
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer" title="Protect shape from deletion"><input type="checkbox" data-lock-cell="LockDelete" ${selectedShape.lockDelete ? 'checked' : ''} /> Lock from Deletion</label>
+          </div>
+        </div>
+      `;
+    }
+
+    if (this.activeInspectorTab === 'data' && selectedShape) {
+      const sdRows = selectedShape.shapeData ?? [];
+      return `
+        <div class="insp-card">
+          <div class="insp-card-title">Shape Data (Prop.*)</div>
+          ${
+            sdRows.length === 0
+              ? '<div style="color:var(--m3-text-muted);font-size:11.5px;padding:4px 0">No Shape Data fields defined on this object.</div>'
+              : sdRows
+                  .map(
+                    (sd) => `
+                  <div class="list-row-card" style="flex-direction:column;align-items:stretch;gap:4px">
+                    <div style="display:flex;justify-content:space-between;align-items:center">
+                      <strong style="font-size:11.5px">${sd.label}</strong>
+                      <button class="fmt-btn" data-del-prop="${sd.name.replace(/"/g, '&quot;')}" title="Delete Prop.${sd.name}">✕</button>
+                    </div>
+                    <input class="cell-input prop-val-input" data-prop-name="${sd.name.replace(/"/g, '&quot;')}" data-prop-label="${sd.label.replace(/"/g, '&quot;')}" data-prop-type="${sd.dataType}" value="${sd.value.replace(/"/g, '&quot;')}" title="Edit Prop.${sd.name} (press Enter to save)" />
                   </div>`
                   )
                   .join('')
           }
+          <div style="border-top:1px solid var(--m3-outline-variant);margin-top:8px;padding-top:8px;display:flex;flex-direction:column;gap:6px">
+            <strong style="font-size:11px;color:var(--m3-text-secondary)">Add Shape Data Field</strong>
+            <input class="cell-input" id="new-prop-name-input" placeholder="Field Name (e.g. Owner, AssetTag)" />
+            <input class="cell-input" id="new-prop-val-input" placeholder="Value" />
+            <button class="m3-btn active" id="btn-insp-add-prop" title="Add custom Prop.* field to selected object">+ Add Field</button>
+          </div>
         </div>
       `;
     }
@@ -3939,8 +4071,7 @@ class VexioChromeOsApp {
       </div>
 
       <div class="insp-card">
-        <div class="insp-card-title">Label &amp; Text Formatting</div>
-        <input class="cell-input" id="shape-text-input" value="${selectedShape.text.replace(/"/g, '&quot;')}" placeholder="Type shape label (or double-click shape)..." />
+        <div class="insp-card-title">Text Formatting</div>
         <div style="display:flex;gap:6px;margin-top:4px;align-items:center">
           <select class="cell-input" id="insp-font-family" style="flex:1;height:26px;padding:1px 6px;font-size:11.5px" title="Installed OS Font Family">
             ${inspFonts
@@ -4140,7 +4271,7 @@ class VexioChromeOsApp {
             </div>
             <div class="list-row-card" style="flex-direction:column;align-items:flex-start;gap:6px">
               <strong>${this.updateStatusText}</strong>
-              <span style="font-size:11.5px;color:var(--m3-text-muted)">Installed build: Vexio v0.3.7-alpha • Offline-First Workbox PWA + GitHub Releases channel</span>
+              <span style="font-size:11.5px;color:var(--m3-text-muted)">Installed build: Vexio v0.3.8-alpha • Offline-First Workbox PWA + GitHub Releases channel</span>
             </div>
             <label style="display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer">
               <input type="checkbox" id="chk-auto-updates" ${this.autoCheckUpdates ? 'checked' : ''} />
@@ -5191,6 +5322,127 @@ class VexioChromeOsApp {
       });
     });
 
+    document.getElementById('btn-insp-open-ss')?.addEventListener('click', () => {
+      this.showShapeSheet = !this.showShapeSheet;
+      this.render();
+    });
+
+    document.getElementById('shape-name-input')?.addEventListener('change', async (e) => {
+      if (this.selectedShapeIds.length === 0) return;
+      const newName = (e.target as HTMLInputElement).value.trim();
+      if (!newName) return;
+      const res = await this.callEngine('renameShape', {
+        shapeId: this.selectedShapeIds[0],
+        name: newName,
+      });
+      this.persistMutationSideEffects(res.wal);
+      this.snapshot = res.snapshot;
+      this.render();
+    });
+
+    document.querySelectorAll('[data-lock-cell]').forEach((chk) => {
+      chk.addEventListener('change', async () => {
+        if (this.selectedShapeIds.length === 0) return;
+        const inputEl = chk as HTMLInputElement;
+        const cell = inputEl.dataset.lockCell ?? 'LockAspect';
+        const formula = inputEl.checked ? 'TRUE' : 'FALSE';
+        const entries =
+          cell === 'LockWidth'
+            ? [
+                { cell: 'LockWidth', formula },
+                { cell: 'LockHeight', formula },
+              ]
+            : cell === 'LockMoveX'
+              ? [
+                  { cell: 'LockMoveX', formula },
+                  { cell: 'LockMoveY', formula },
+                ]
+              : [{ cell, formula }];
+        const res = await this.callEngine('batchSetCells', {
+          shapeIds: this.selectedShapeIds,
+          entries,
+          forceSetf: true,
+        });
+        this.persistMutationSideEffects(res.wal);
+        this.snapshot = res.snapshot;
+        this.render();
+      });
+    });
+
+    document.querySelectorAll('.prop-val-input').forEach((inp) => {
+      inp.addEventListener('change', async () => {
+        if (this.selectedShapeIds.length === 0) return;
+        const el = inp as HTMLInputElement;
+        const res = await this.callEngine('upsertShapeData', {
+          shapeId: this.selectedShapeIds[0],
+          rowName: el.dataset.propName ?? 'Property1',
+          label: el.dataset.propLabel ?? '',
+          dataType: Number(el.dataset.propType ?? 0),
+          value: el.value,
+        });
+        this.persistMutationSideEffects(res.wal);
+        this.snapshot = res.snapshot;
+        this.render();
+      });
+    });
+
+    document.querySelectorAll('[data-del-prop]').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        if (this.selectedShapeIds.length === 0) return;
+        const rowName = (btn as HTMLElement).dataset.delProp ?? '';
+        if (!rowName) return;
+        const res = await this.callEngine('deleteShapeData', {
+          shapeId: this.selectedShapeIds[0],
+          rowName,
+        });
+        this.persistMutationSideEffects(res.wal);
+        this.snapshot = res.snapshot;
+        this.render();
+      });
+    });
+
+    document.getElementById('btn-insp-add-prop')?.addEventListener('click', async () => {
+      if (this.selectedShapeIds.length === 0) return;
+      const nameEl = document.getElementById('new-prop-name-input') as HTMLInputElement | null;
+      const valEl = document.getElementById('new-prop-val-input') as HTMLInputElement | null;
+      const rowName = nameEl?.value.trim() ?? '';
+      if (!rowName) return;
+      const res = await this.callEngine('upsertShapeData', {
+        shapeId: this.selectedShapeIds[0],
+        rowName,
+        label: rowName,
+        dataType: 0,
+        value: valEl?.value ?? '',
+      });
+      this.persistMutationSideEffects(res.wal);
+      this.snapshot = res.snapshot;
+      this.render();
+    });
+
+    document.querySelectorAll('.layer-member-chk').forEach((chk) => {
+      chk.addEventListener('change', async () => {
+        if (this.selectedShapeIds.length === 0) return;
+        const el = chk as HTMLInputElement;
+        const res = await this.callEngine('setShapeLayerMembership', {
+          shapeIds: this.selectedShapeIds,
+          layerIx: Number(el.dataset.ix ?? 0),
+          assigned: el.checked,
+        });
+        this.persistMutationSideEffects(res.wal);
+        this.snapshot = res.snapshot;
+        this.render();
+      });
+    });
+
+    document.getElementById('btn-insp-add-layer')?.addEventListener('click', async () => {
+      const inp = document.getElementById('new-layer-name-input') as HTMLInputElement | null;
+      const name = inp?.value.trim() ?? '';
+      const res = await this.callEngine('addLayer', { name });
+      this.persistMutationSideEffects(res.wal);
+      this.snapshot = res.snapshot;
+      this.render();
+    });
+
     document.getElementById('btn-delete-sel')?.addEventListener('click', async () => {
       if (this.selectedShapeIds.length === 0) return;
       const res = await this.callEngine('deleteShape', { shapeIds: this.selectedShapeIds });
@@ -5839,8 +6091,9 @@ class VexioChromeOsApp {
         if (loaded.bytes && loaded.bytes.byteLength > 0) {
           const res = await this.callEngine('openBytes', { bytes: loaded.bytes, ext: 'vsdx' });
           this.snapshot = res.snapshot;
-          this.setSingleSelection(this.snapshot?.shapes[0]?.id ?? null);
           this.activeModal = null;
+          await this.syncCanvasAfterDocumentOpen();
+          this.setSingleSelection(this.snapshot?.shapes[0]?.id ?? null);
           this.persistMutationSideEffects();
           this.render();
         }
@@ -5871,8 +6124,9 @@ class VexioChromeOsApp {
           this.collabSession.setRoom(this.docId);
           const res = await this.callEngine('openBytes', { bytes: loaded.bytes, ext: 'vsdx' });
           this.snapshot = res.snapshot;
-          this.setSingleSelection(this.snapshot?.shapes[0]?.id ?? null);
           this.activeModal = null;
+          await this.syncCanvasAfterDocumentOpen();
+          this.setSingleSelection(this.snapshot?.shapes[0]?.id ?? null);
           this.render();
         }
       });
@@ -5889,8 +6143,9 @@ class VexioChromeOsApp {
           this.collabSession.setRoom(this.docId);
           const res = await this.callEngine('openBytes', { bytes, ext: 'vsdx' });
           this.snapshot = res.snapshot;
-          this.setSingleSelection(this.snapshot?.shapes[0]?.id ?? null);
           this.activeModal = null;
+          await this.syncCanvasAfterDocumentOpen();
+          this.setSingleSelection(this.snapshot?.shapes[0]?.id ?? null);
           this.render();
         }
       });

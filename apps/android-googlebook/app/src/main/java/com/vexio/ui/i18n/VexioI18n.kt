@@ -177,7 +177,7 @@ object VexioI18n {
             }
         }
         if ("Automatic update check enabled" in raw) {
-            val ver = raw.substringAfter("Vexio ", "").substringBefore(" •").ifBlank { "v0.3.7-alpha" }
+            val ver = raw.substringAfter("Vexio ", "").substringBefore(" •").ifBlank { "v0.3.8-alpha" }
             return when (lang) {
                 EN -> "Vexio $ver • Automatic update check enabled"
                 DE -> "Vexio $ver • Automatische Update-Prüfung aktiviert"
@@ -825,5 +825,69 @@ object VexioI18n {
         VexioPagePresetSpec.A3_LANDSCAPE -> blankA3LandscapeTitle(lang).removePrefix("Blank ").removePrefix("Leeres ").removePrefix("Κενό ")
         VexioPagePresetSpec.LETTER_LANDSCAPE -> "US Letter (11 × 8.5 in)"
         else -> preset.label
+    }
+
+    fun objectInspectorTitle(lang: VexioAppLanguage): String = when (lang) {
+        EN -> "Object Inspector"; DE -> "Objektinspektor"; IT -> "Ispettore oggetto"; FR -> "Inspecteur d’objet"; ES -> "Inspector de objetos"; GR -> "Επιθεωρητής αντικειμένου"
+    }
+
+    fun pagePropertiesTitle(lang: VexioAppLanguage): String = when (lang) {
+        EN -> "Page Properties"; DE -> "Seiteneigenschaften"; IT -> "Proprietà pagina"; FR -> "Propriétés de page"; ES -> "Propiedades de página"; GR -> "Ιδιότητες σελίδας"
+    }
+
+    fun objectNameLabel(lang: VexioAppLanguage): String = when (lang) {
+        EN -> "Name"; DE -> "Name"; IT -> "Nome"; FR -> "Nom"; ES -> "Nombre"; GR -> "Όνομα"
+    }
+
+    fun objectCaptionLabel(lang: VexioAppLanguage): String = when (lang) {
+        EN -> "Text"; DE -> "Text"; IT -> "Testo"; FR -> "Texte"; ES -> "Texto"; GR -> "Κείμενο"
+    }
+
+    fun transparencyLabel(lang: VexioAppLanguage): String = when (lang) {
+        EN -> "Transparency"; DE -> "Transparenz"; IT -> "Trasparenza"; FR -> "Transparence"; ES -> "Transparencia"; GR -> "Διαφάνεια"
+    }
+
+    fun lineWeightLabel(lang: VexioAppLanguage): String = when (lang) {
+        EN -> "Line Weight"; DE -> "Linienstärke"; IT -> "Spessore linea"; FR -> "Épaisseur"; ES -> "Grosor de línea"; GR -> "Πάχος γραμμής"
+    }
+
+    fun widthLabel(lang: VexioAppLanguage): String = when (lang) {
+        EN -> "Width"; DE -> "Breite"; IT -> "Larghezza"; FR -> "Largeur"; ES -> "Ancho"; GR -> "Πλάτος"
+    }
+
+    fun heightLabel(lang: VexioAppLanguage): String = when (lang) {
+        EN -> "Height"; DE -> "Höhe"; IT -> "Altezza"; FR -> "Hauteur"; ES -> "Alto"; GR -> "Ύψος"
+    }
+
+    fun angleLabel(lang: VexioAppLanguage): String = when (lang) {
+        EN -> "Angle"; DE -> "Winkel"; IT -> "Angolo"; FR -> "Angle"; ES -> "Ángulo"; GR -> "Γωνία"
+    }
+
+    fun protectionTitle(lang: VexioAppLanguage): String = when (lang) {
+        EN -> "Protection"; DE -> "Schutz"; IT -> "Protezione"; FR -> "Protection"; ES -> "Protección"; GR -> "Προστασία"
+    }
+
+    fun lockAspectLabel(lang: VexioAppLanguage): String = when (lang) {
+        EN -> "Lock Aspect Ratio"; DE -> "Seitenverhältnis sperren"; IT -> "Blocca proporzioni"; FR -> "Verrouiller proportions"; ES -> "Bloquear proporción"; GR -> "Κλείδωμα αναλογίας"
+    }
+
+    fun lockSizeLabel(lang: VexioAppLanguage): String = when (lang) {
+        EN -> "Lock Width & Height"; DE -> "Größe sperren"; IT -> "Blocca dimensioni"; FR -> "Verrouiller taille"; ES -> "Bloquear tamaño"; GR -> "Κλείδωμα μεγέθους"
+    }
+
+    fun lockPositionLabel(lang: VexioAppLanguage): String = when (lang) {
+        EN -> "Lock Position"; DE -> "Position sperren"; IT -> "Blocca posizione"; FR -> "Verrouiller position"; ES -> "Bloquear posición"; GR -> "Κλείδωμα θέσης"
+    }
+
+    fun fitToScreenLabel(lang: VexioAppLanguage): String = when (lang) {
+        EN -> "Fit to Screen"; DE -> "An Bildschirm anpassen"; IT -> "Adatta allo schermo"; FR -> "Ajuster à l’écran"; ES -> "Ajustar a pantalla"; GR -> "Προσαρμογή στην οθόνη"
+    }
+
+    fun addFieldLabel(lang: VexioAppLanguage): String = when (lang) {
+        EN -> "Add Shape Data Field"; DE -> "Formdatenfeld hinzufügen"; IT -> "Aggiungi campo dati"; FR -> "Ajouter un champ"; ES -> "Añadir campo de datos"; GR -> "Προσθήκη πεδίου δεδομένων"
+    }
+
+    fun addLayerLabel(lang: VexioAppLanguage): String = when (lang) {
+        EN -> "Add Layer"; DE -> "Layer hinzufügen"; IT -> "Aggiungi layer"; FR -> "Ajouter un calque"; ES -> "Añadir capa"; GR -> "Προσθήκη επιπέδου"
     }
 }

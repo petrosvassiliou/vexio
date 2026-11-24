@@ -2205,3 +2205,209 @@ pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeDragControl
     }))
     .unwrap_or(JNI_FALSE)
 }
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeRenameShape<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    doc_ptr: jlong,
+    page_id: jint,
+    shape_id: jlong,
+    new_name: JString<'local>,
+) -> jboolean {
+    catch_unwind(AssertUnwindSafe(|| {
+        if doc_ptr == 0 || page_id <= 0 || shape_id <= 0 {
+            return JNI_FALSE;
+        }
+        let Ok(name_str) = env.get_string(&new_name).map(String::from) else {
+            return JNI_FALSE;
+        };
+        // SAFETY: `doc_ptr` verified non-zero handle.
+        let doc = unsafe { &mut *(doc_ptr as *mut VexioDoc) };
+        if doc
+            .session
+            .rename_shape(page_id as u32, shape_id as u64, &name_str)
+            .unwrap_or(false)
+        {
+            JNI_TRUE
+        } else {
+            JNI_FALSE
+        }
+    }))
+    .unwrap_or(JNI_FALSE)
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeUpsertShapeData<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    doc_ptr: jlong,
+    page_id: jint,
+    shape_id: jlong,
+    row_name: JString<'local>,
+    label: JString<'local>,
+    data_type: jint,
+    value_str: JString<'local>,
+) -> jboolean {
+    catch_unwind(AssertUnwindSafe(|| {
+        if doc_ptr == 0 || page_id <= 0 || shape_id <= 0 {
+            return JNI_FALSE;
+        }
+        let Ok(r_name) = env.get_string(&row_name).map(String::from) else {
+            return JNI_FALSE;
+        };
+        let lbl = env.get_string(&label).map(String::from).unwrap_or_default();
+        let val = env
+            .get_string(&value_str)
+            .map(String::from)
+            .unwrap_or_default();
+        // SAFETY: `doc_ptr` verified non-zero handle.
+        let doc = unsafe { &mut *(doc_ptr as *mut VexioDoc) };
+        if doc
+            .session
+            .upsert_shape_data(
+                page_id as u32,
+                shape_id as u64,
+                &r_name,
+                &lbl,
+                data_type.clamp(0, 7) as u8,
+                &val,
+            )
+            .unwrap_or(false)
+        {
+            JNI_TRUE
+        } else {
+            JNI_FALSE
+        }
+    }))
+    .unwrap_or(JNI_FALSE)
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeDeleteShapeData<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    doc_ptr: jlong,
+    page_id: jint,
+    shape_id: jlong,
+    row_name: JString<'local>,
+) -> jboolean {
+    catch_unwind(AssertUnwindSafe(|| {
+        if doc_ptr == 0 || page_id <= 0 || shape_id <= 0 {
+            return JNI_FALSE;
+        }
+        let Ok(r_name) = env.get_string(&row_name).map(String::from) else {
+            return JNI_FALSE;
+        };
+        // SAFETY: `doc_ptr` verified non-zero handle.
+        let doc = unsafe { &mut *(doc_ptr as *mut VexioDoc) };
+        if doc
+            .session
+            .delete_shape_data(page_id as u32, shape_id as u64, &r_name)
+            .unwrap_or(false)
+        {
+            JNI_TRUE
+        } else {
+            JNI_FALSE
+        }
+    }))
+    .unwrap_or(JNI_FALSE)
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeAddLayer<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    doc_ptr: jlong,
+    page_id: jint,
+    layer_name: JString<'local>,
+) -> jint {
+    catch_unwind(AssertUnwindSafe(|| {
+        if doc_ptr == 0 || page_id <= 0 {
+            return -1;
+        }
+        let l_name = env
+            .get_string(&layer_name)
+            .map(String::from)
+            .unwrap_or_default();
+        // SAFETY: `doc_ptr` verified non-zero handle.
+        let doc = unsafe { &mut *(doc_ptr as *mut VexioDoc) };
+        doc.session
+            .add_layer(page_id as u32, &l_name)
+            .map(|ix| ix as jint)
+            .unwrap_or(-1)
+    }))
+    .unwrap_or(-1)
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeSetLayerFlags(
+    _env: JNIEnv<'_>,
+    _class: JClass<'_>,
+    doc_ptr: jlong,
+    page_id: jint,
+    layer_ix: jint,
+    visible: jboolean,
+    lock_flag: jboolean,
+    print_flag: jboolean,
+    snap_glue: jboolean,
+) -> jboolean {
+    catch_unwind(AssertUnwindSafe(|| {
+        if doc_ptr == 0 || page_id <= 0 || layer_ix < 0 {
+            return JNI_FALSE;
+        }
+        // SAFETY: `doc_ptr` verified non-zero handle.
+        let doc = unsafe { &mut *(doc_ptr as *mut VexioDoc) };
+        if doc
+            .session
+            .set_layer_flags(
+                page_id as u32,
+                layer_ix as u32,
+                visible != JNI_FALSE,
+                lock_flag != JNI_FALSE,
+                print_flag != JNI_FALSE,
+                snap_glue != JNI_FALSE,
+            )
+            .unwrap_or(false)
+        {
+            JNI_TRUE
+        } else {
+            JNI_FALSE
+        }
+    }))
+    .unwrap_or(JNI_FALSE)
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeSetShapeLayerMembership(
+    _env: JNIEnv<'_>,
+    _class: JClass<'_>,
+    doc_ptr: jlong,
+    page_id: jint,
+    shape_id: jlong,
+    layer_ix: jint,
+    assigned: jboolean,
+) -> jboolean {
+    catch_unwind(AssertUnwindSafe(|| {
+        if doc_ptr == 0 || page_id <= 0 || shape_id <= 0 || layer_ix < 0 {
+            return JNI_FALSE;
+        }
+        // SAFETY: `doc_ptr` verified non-zero handle.
+        let doc = unsafe { &mut *(doc_ptr as *mut VexioDoc) };
+        if doc
+            .session
+            .set_shape_layer_membership(
+                page_id as u32,
+                shape_id as u64,
+                layer_ix as u32,
+                assigned != JNI_FALSE,
+            )
+            .unwrap_or(false)
+        {
+            JNI_TRUE
+        } else {
+            JNI_FALSE
+        }
+    }))
+    .unwrap_or(JNI_FALSE)
+}

@@ -535,6 +535,60 @@ object NativeBridge {
         pageXIn: Double,
         pageYIn: Double
     ): Boolean
+
+    @JvmStatic
+    external fun nativeRenameShape(
+        docPtr: Long,
+        pageId: Int,
+        shapeId: Long,
+        newName: String
+    ): Boolean
+
+    @JvmStatic
+    external fun nativeUpsertShapeData(
+        docPtr: Long,
+        pageId: Int,
+        shapeId: Long,
+        rowName: String,
+        label: String,
+        dataType: Int,
+        valueStr: String
+    ): Boolean
+
+    @JvmStatic
+    external fun nativeDeleteShapeData(
+        docPtr: Long,
+        pageId: Int,
+        shapeId: Long,
+        rowName: String
+    ): Boolean
+
+    @JvmStatic
+    external fun nativeAddLayer(
+        docPtr: Long,
+        pageId: Int,
+        layerName: String
+    ): Int
+
+    @JvmStatic
+    external fun nativeSetLayerFlags(
+        docPtr: Long,
+        pageId: Int,
+        layerIx: Int,
+        visible: Boolean,
+        lockFlag: Boolean,
+        printFlag: Boolean,
+        snapGlue: Boolean
+    ): Boolean
+
+    @JvmStatic
+    external fun nativeSetShapeLayerMembership(
+        docPtr: Long,
+        pageId: Int,
+        shapeId: Long,
+        layerIx: Int,
+        assigned: Boolean
+    ): Boolean
 }
 
 /**
@@ -1145,6 +1199,18 @@ enum class VexioAppLanguage(val code: String, val badge: String, val nativeName:
         get() = when (this) {
             EN -> "Format"; DE -> "Format"; IT -> "Formato"; FR -> "Format"; ES -> "Formato"; GR -> "Μορφή"
         }
+    val inspectorSizePosTab: String
+        get() = when (this) {
+            EN -> "Size & Pos"; DE -> "Größe & Pos."; IT -> "Dim. e pos."; FR -> "Taille & pos."; ES -> "Tamaño y pos."; GR -> "Μέγεθος"
+        }
+    val inspectorDataTab: String
+        get() = when (this) {
+            EN -> "Data"; DE -> "Daten"; IT -> "Dati"; FR -> "Données"; ES -> "Datos"; GR -> "Δεδομένα"
+        }
+    val inspectorLayersTab: String
+        get() = when (this) {
+            EN -> "Layers"; DE -> "Layer"; IT -> "Layer"; FR -> "Calques"; ES -> "Capas"; GR -> "Επίπεδα"
+        }
     val inspectorGeometryTab: String
         get() = when (this) {
             EN -> "Geometry"; DE -> "Geometrie"; IT -> "Geometria"; FR -> "Géométrie"; ES -> "Geometría"; GR -> "Γεωμετρία"
@@ -1310,6 +1376,71 @@ enum class VexioPagePresetSpec(
     LEGAL_LANDSCAPE("legal", true, false, "US Legal Landscape (14×8.5 in)")
 }
 
+data class ShapeDataUiItem(
+    val rowName: String,
+    val label: String,
+    val dataTypeCode: Int = 0,
+    val dataTypeLabel: String = "String",
+    val formula: String = "",
+    val value: String = ""
+)
+
+data class DiagramLayerUiItem(
+    val ix: Int,
+    val name: String,
+    val visible: Boolean = true,
+    val print: Boolean = true,
+    val lock: Boolean = false,
+    val snapGlue: Boolean = true,
+    val memberCount: Int = 0
+)
+
+data class InspectedObjectUiState(
+    val id: Long,
+    val name: String,
+    val kind: String = "Shape2D",
+    val isGroup: Boolean = false,
+    val childCount: Int = 0,
+    val masterName: String? = null,
+    val layerIndices: List<Int> = emptyList(),
+    val text: String = "",
+    val pinXIn: Double = 4.25,
+    val pinYIn: Double = 5.50,
+    val widthIn: Double = 2.0,
+    val heightIn: Double = 1.0,
+    val angleDeg: Double = 0.0,
+    val flipX: Boolean = false,
+    val flipY: Boolean = false,
+    val fillColorHex: String = "#E8F0FE",
+    val fillPattern: Int = 1,
+    val fillTransPct: Int = 0,
+    val roundingIn: Double = 0.0,
+    val lineColorHex: String = "#1A73E8",
+    val linePattern: Int = 1,
+    val lineWeightPt: Double = 1.0,
+    val beginArrow: Int = 0,
+    val endArrow: Int = 0,
+    val lockAspect: Boolean = false,
+    val lockSize: Boolean = false,
+    val lockPosition: Boolean = false,
+    val lockRotate: Boolean = false,
+    val lockDelete: Boolean = false,
+    val hideText: Boolean = false
+) {
+    val isConnector1D: Boolean get() = kind == "Connector1D"
+
+    val typeSubtitle: String
+        get() = when {
+            isGroup && !masterName.isNullOrBlank() -> "Master: $masterName (${max(childCount, 1)})"
+            isGroup -> if (childCount > 0) "Group ($childCount shapes)" else "Group"
+            isConnector1D -> "1D Dynamic Connector"
+            kind == "ForeignObject" && !masterName.isNullOrBlank() -> "Vector Icon • $masterName"
+            kind == "ForeignObject" -> "Vector / Foreign Object"
+            !masterName.isNullOrBlank() -> "2D Shape • $masterName"
+            else -> "2D Shape"
+        }
+}
+
 data class WorkstationUiState(
     val windowInstanceId: String = "win-${runCatching { SystemClock.uptimeMillis() }.getOrDefault(1L)}",
     val documentTitle: String = "Architecture_Blueprint.vsdx",
@@ -1372,7 +1503,7 @@ data class WorkstationUiState(
     val inlineTextEditor: InlineCanvasEditorModel? = null,
     val smartGuidesEnabled: Boolean = true,
     val autoCheckUpdates: Boolean = true,
-    val updateStatusMessage: String = "Vexio v0.3.7-alpha • Automatic update check enabled",
+    val updateStatusMessage: String = "Vexio v0.3.8-alpha • Automatic update check enabled",
     val availableUpdateTag: String? = null,
     val availableUpdateUrl: String? = null,
     val showUpdateDialog: Boolean = false,
@@ -1398,6 +1529,16 @@ data class WorkstationUiState(
     val lastCloudDiscoveryShapeCount: Int = 0,
     val lastOrgChartShapeCount: Int = 0,
     val lastPlan2ExportFormat: String? = null,
+    val pageWidthInches: Double = 297.0 / 25.4,
+    val pageHeightInches: Double = 210.0 / 25.4,
+    val pageShapeCount: Int = 1,
+    val inspectedObject: InspectedObjectUiState? = InspectedObjectUiState(id = 1L, name = "Process.1"),
+    val shapeDataItems: List<ShapeDataUiItem> = emptyList(),
+    val pageLayers: List<DiagramLayerUiItem> = listOf(
+        DiagramLayerUiItem(0, "Flowchart"),
+        DiagramLayerUiItem(1, "Connector"),
+        DiagramLayerUiItem(2, "Annotations")
+    ),
     val shapeSheetCells: List<ShapeSheetCellEntry> = defaultShapeSheetCells(),
     val validationSummary: ValidationBadgeSummary = ValidationBadgeSummary(
         standard = "BPMN 2.0",
@@ -2462,10 +2603,11 @@ class VexioSessionViewModel(
     fun refreshSelectedShapeFormulas() {
         val state = _uiState.value
         if (!NativeBridge.isNativeAvailable || docPtr == 0L) return
+        val nativePid = resolveNativePageId(state.activePageId)
         val refreshed = state.shapeSheetCells.map { cell ->
             val raw = NativeBridge.nativeGetCellFormula(
                 docPtr = docPtr,
-                pageId = state.activePageId,
+                pageId = nativePid,
                 shapeId = state.selectedShapeId,
                 cellName = cell.cellName
             )
@@ -2480,8 +2622,148 @@ class VexioSessionViewModel(
         }
         val activeFormula = refreshed.firstOrNull { it.cellName == state.activeCellName }?.formula
             ?: state.formulaBarInput
+
+        val stateJson = runCatching { NativeBridge.nativeGetStateJson(docPtr, nativePid) }.getOrDefault("{}")
+        val rootObj = runCatching { Json.parseToJsonElement(stateJson).jsonObject }.getOrNull()
+        var parsedPw = state.pageWidthInches
+        var parsedPh = state.pageHeightInches
+        var parsedShapeCount = state.pageShapeCount
+        var parsedLayers = state.pageLayers
+        var parsedInspected: InspectedObjectUiState? = if (state.selectedShapeId > 0L) state.inspectedObject else null
+        var parsedShapeData: List<ShapeDataUiItem> = emptyList()
+        var resolvedFillHex = state.shapeFillColorHex
+        var resolvedLineHex = state.shapeLineColorHex
+
+        if (rootObj != null) {
+            parsedPw = rootObj["pageWidthIn"]?.jsonPrimitive?.doubleOrNull ?: parsedPw
+            parsedPh = rootObj["pageHeightIn"]?.jsonPrimitive?.doubleOrNull ?: parsedPh
+
+            val rawLayers = rootObj["layers"] as? JsonArray
+            if (rawLayers != null) {
+                parsedLayers = rawLayers.mapIndexedNotNull { idx, elem ->
+                    val lObj = elem as? JsonObject ?: return@mapIndexedNotNull null
+                    val ix = lObj["ix"]?.jsonPrimitive?.intOrNull ?: idx
+                    val nm = lObj["name"]?.jsonPrimitive?.contentOrNull ?: "Layer $ix"
+                    val vis = lObj["visible"]?.jsonPrimitive?.booleanOrNull ?: true
+                    val prt = lObj["print"]?.jsonPrimitive?.booleanOrNull ?: true
+                    val lck = lObj["lock"]?.jsonPrimitive?.booleanOrNull ?: false
+                    val snp = lObj["snap"]?.jsonPrimitive?.booleanOrNull ?: true
+                    val glu = lObj["glue"]?.jsonPrimitive?.booleanOrNull ?: true
+                    val cnt = lObj["memberCount"]?.jsonPrimitive?.intOrNull ?: 0
+                    DiagramLayerUiItem(
+                        ix = ix,
+                        name = nm,
+                        visible = vis,
+                        print = prt,
+                        lock = lck,
+                        snapGlue = snp || glu,
+                        memberCount = cnt
+                    )
+                }
+            }
+
+            val rawShapes = rootObj["shapes"] as? JsonArray
+            if (rawShapes != null) {
+                parsedShapeCount = rawShapes.size
+                val matched = if (state.selectedShapeId > 0L) {
+                    rawShapes.firstOrNull { el ->
+                        (el as? JsonObject)?.get("id")?.jsonPrimitive?.longOrNull == state.selectedShapeId
+                    } as? JsonObject
+                } else {
+                    null
+                }
+                if (matched != null) {
+                    val sid = matched["id"]?.jsonPrimitive?.longOrNull ?: state.selectedShapeId
+                    val lInds = (matched["layerIndices"] as? JsonArray)
+                        ?.mapNotNull { it.jsonPrimitive.intOrNull }
+                        .orEmpty()
+                    resolvedFillHex = matched["fillColor"]?.jsonPrimitive?.contentOrNull ?: resolvedFillHex
+                    resolvedLineHex = matched["lineColor"]?.jsonPrimitive?.contentOrNull ?: resolvedLineHex
+
+                    val rawSd = matched["shapeData"] as? JsonArray
+                    if (rawSd != null) {
+                        parsedShapeData = rawSd.mapNotNull { sdEl ->
+                            val sdObj = sdEl as? JsonObject ?: return@mapNotNull null
+                            val rName = sdObj["name"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotEmpty() }
+                                ?: return@mapNotNull null
+                            val dtCode = sdObj["dataType"]?.jsonPrimitive?.intOrNull ?: 0
+                            val dtLabel = when (dtCode) {
+                                1, 4 -> "List"
+                                2 -> "Number"
+                                3 -> "Boolean"
+                                5 -> "Date"
+                                6 -> "Duration"
+                                7 -> "Currency"
+                                else -> "String"
+                            }
+                            ShapeDataUiItem(
+                                rowName = rName,
+                                label = sdObj["label"]?.jsonPrimitive?.contentOrNull ?: rName,
+                                dataTypeCode = dtCode,
+                                dataTypeLabel = dtLabel,
+                                formula = sdObj["formula"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                                value = sdObj["value"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                            )
+                        }
+                    }
+
+                    val lockW = matched["lockWidth"]?.jsonPrimitive?.booleanOrNull ?: false
+                    val lockH = matched["lockHeight"]?.jsonPrimitive?.booleanOrNull ?: false
+                    val lockMx = matched["lockMoveX"]?.jsonPrimitive?.booleanOrNull ?: false
+                    val lockMy = matched["lockMoveY"]?.jsonPrimitive?.booleanOrNull ?: false
+
+                    parsedInspected = InspectedObjectUiState(
+                        id = sid,
+                        name = matched["name"]?.jsonPrimitive?.contentOrNull ?: "Sheet.$sid",
+                        kind = matched["kind"]?.jsonPrimitive?.contentOrNull ?: "Shape2D",
+                        isGroup = matched["isGroup"]?.jsonPrimitive?.booleanOrNull ?: false,
+                        childCount = matched["childCount"]?.jsonPrimitive?.intOrNull ?: 0,
+                        masterName = matched["masterName"]?.jsonPrimitive?.contentOrNull,
+                        layerIndices = lInds,
+                        text = matched["text"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                        pinXIn = matched["pinX"]?.jsonPrimitive?.doubleOrNull ?: 0.0,
+                        pinYIn = matched["pinY"]?.jsonPrimitive?.doubleOrNull ?: 0.0,
+                        widthIn = matched["width"]?.jsonPrimitive?.doubleOrNull ?: 1.0,
+                        heightIn = matched["height"]?.jsonPrimitive?.doubleOrNull ?: 1.0,
+                        angleDeg = matched["angleDeg"]?.jsonPrimitive?.doubleOrNull ?: 0.0,
+                        flipX = matched["flipX"]?.jsonPrimitive?.booleanOrNull ?: false,
+                        flipY = matched["flipY"]?.jsonPrimitive?.booleanOrNull ?: false,
+                        fillColorHex = resolvedFillHex,
+                        fillPattern = matched["fillPattern"]?.jsonPrimitive?.intOrNull ?: 1,
+                        fillTransPct = (matched["fillTransPct"]?.jsonPrimitive?.doubleOrNull ?: 0.0).toInt(),
+                        roundingIn = matched["roundingIn"]?.jsonPrimitive?.doubleOrNull ?: 0.0,
+                        lineColorHex = resolvedLineHex,
+                        linePattern = matched["linePattern"]?.jsonPrimitive?.intOrNull ?: 1,
+                        lineWeightPt = matched["lineWeightPt"]?.jsonPrimitive?.doubleOrNull ?: 1.0,
+                        beginArrow = matched["beginArrow"]?.jsonPrimitive?.intOrNull ?: 0,
+                        endArrow = matched["endArrow"]?.jsonPrimitive?.intOrNull ?: 0,
+                        lockAspect = matched["lockAspect"]?.jsonPrimitive?.booleanOrNull ?: false,
+                        lockSize = lockW && lockH,
+                        lockPosition = lockMx && lockMy,
+                        lockRotate = matched["lockRotate"]?.jsonPrimitive?.booleanOrNull ?: false,
+                        lockDelete = matched["lockDelete"]?.jsonPrimitive?.booleanOrNull ?: false,
+                        hideText = matched["hideText"]?.jsonPrimitive?.booleanOrNull ?: false
+                    )
+                } else {
+                    parsedInspected = null
+                }
+            }
+        }
+
         _uiState.update {
-            it.copy(shapeSheetCells = refreshed, formulaBarInput = activeFormula)
+            it.copy(
+                shapeSheetCells = refreshed,
+                formulaBarInput = activeFormula,
+                pageWidthInches = parsedPw,
+                pageHeightInches = parsedPh,
+                pageShapeCount = parsedShapeCount,
+                pageLayers = parsedLayers,
+                inspectedObject = parsedInspected,
+                shapeDataItems = parsedShapeData,
+                shapeFillColorHex = resolvedFillHex,
+                shapeLineColorHex = resolvedLineHex,
+                selectedShapeName = parsedInspected?.name ?: it.selectedShapeName
+            )
         }
     }
 
@@ -3825,6 +4107,7 @@ class VexioSessionViewModel(
                     )
                 }
                 refreshSelectedShapeFormulas()
+                fitPageToWindow()
                 captureBaselineSnapshot()
                 presentViewportOrFallback()
             }
@@ -4327,7 +4610,7 @@ class VexioSessionViewModel(
                     instanceFollowRedirects = true
                     connectTimeout = 20_000
                     readTimeout = 45_000
-                    setRequestProperty("User-Agent", "Vexio-Android-Workstation/0.3.7-alpha")
+                    setRequestProperty("User-Agent", "Vexio-Android-Workstation/0.3.8-alpha")
                 }
                 try {
                     val code = conn.responseCode
@@ -4829,6 +5112,161 @@ class VexioSessionViewModel(
     }
 
     @Synchronized
+    fun fitPageToWindow() {
+        if (NativeBridge.isNativeAvailable && viewportPtr != 0L && docPtr != 0L) {
+            NativeBridge.nativeSetViewportZoom(viewportPtr, docPtr, 0.0, 0.0, 0.0)
+            presentViewportOrFallback()
+        }
+        _uiState.update {
+            it.copy(statusBanner = "Fitted diagram to screen")
+        }
+    }
+
+    @Synchronized
+    fun setCellForSelection(cellName: String, formula: String, forceSetf: Boolean = false) {
+        val cur = _uiState.value
+        val targets = cur.selectedShapeIds.ifEmpty { listOf(cur.selectedShapeId) }.filter { it > 0L }.distinct()
+        if (targets.isEmpty()) return
+        val nativePid = resolveNativePageId(cur.activePageId)
+        if (NativeBridge.isNativeAvailable && docPtr != 0L) {
+            for (sid in targets) {
+                NativeBridge.nativeSetCellFormula(docPtr, nativePid, sid, cellName, formula, forceSetf)
+            }
+        }
+        _uiState.update { it.copy(isDirty = true, canUndo = true, statusBanner = "Updated $cellName = $formula") }
+        refreshSelectedShapeFormulas()
+        presentViewportOrFallback()
+    }
+
+    @Synchronized
+    fun renameSelectedShape(newName: String) {
+        val trimmed = newName.trim()
+        val cur = _uiState.value
+        if (trimmed.isEmpty() || cur.selectedShapeId <= 0L) return
+        if (NativeBridge.isNativeAvailable && docPtr != 0L) {
+            NativeBridge.nativeRenameShape(docPtr, resolveNativePageId(cur.activePageId), cur.selectedShapeId, trimmed)
+        }
+        _uiState.update {
+            it.copy(
+                selectedShapeName = trimmed,
+                inspectedObject = it.inspectedObject?.copy(name = trimmed),
+                isDirty = true,
+                canUndo = true,
+                statusBanner = "Renamed Sheet.${cur.selectedShapeId} to '$trimmed'"
+            )
+        }
+        refreshSelectedShapeFormulas()
+        presentViewportOrFallback()
+    }
+
+    @Synchronized
+    fun setSelectedShapeLabelText(newText: String) {
+        val cur = _uiState.value
+        if (cur.selectedShapeId <= 0L) return
+        if (NativeBridge.isNativeAvailable && docPtr != 0L) {
+            NativeBridge.nativeSetShapeText(docPtr, resolveNativePageId(cur.activePageId), cur.selectedShapeId, newText)
+        }
+        _uiState.update {
+            it.copy(
+                inspectedObject = it.inspectedObject?.copy(text = newText),
+                isDirty = true,
+                canUndo = true,
+                statusBanner = "Updated text on Sheet.${cur.selectedShapeId}"
+            )
+        }
+        refreshSelectedShapeFormulas()
+        presentViewportOrFallback()
+    }
+
+    @Synchronized
+    fun upsertSelectedShapeData(rowName: String, label: String, dataTypeCode: Int, valueStr: String) {
+        val cleanRow = rowName.trim()
+        val cur = _uiState.value
+        if (cleanRow.isEmpty() || cur.selectedShapeId <= 0L) return
+        val resolvedLabel = label.trim().ifEmpty { cleanRow }
+        if (NativeBridge.isNativeAvailable && docPtr != 0L) {
+            NativeBridge.nativeUpsertShapeData(
+                docPtr = docPtr,
+                pageId = resolveNativePageId(cur.activePageId),
+                shapeId = cur.selectedShapeId,
+                rowName = cleanRow,
+                label = resolvedLabel,
+                dataType = dataTypeCode,
+                valueStr = valueStr
+            )
+        }
+        _uiState.update { it.copy(isDirty = true, canUndo = true, statusBanner = "Saved Prop.$cleanRow") }
+        refreshSelectedShapeFormulas()
+        presentViewportOrFallback()
+    }
+
+    @Synchronized
+    fun deleteSelectedShapeData(rowName: String) {
+        val cur = _uiState.value
+        if (rowName.isBlank() || cur.selectedShapeId <= 0L) return
+        if (NativeBridge.isNativeAvailable && docPtr != 0L) {
+            NativeBridge.nativeDeleteShapeData(docPtr, resolveNativePageId(cur.activePageId), cur.selectedShapeId, rowName)
+        }
+        _uiState.update { it.copy(isDirty = true, canUndo = true, statusBanner = "Removed Prop.$rowName") }
+        refreshSelectedShapeFormulas()
+        presentViewportOrFallback()
+    }
+
+    @Synchronized
+    fun addPageLayer(layerName: String) {
+        val cur = _uiState.value
+        val clean = layerName.trim()
+        if (NativeBridge.isNativeAvailable && docPtr != 0L) {
+            NativeBridge.nativeAddLayer(docPtr, resolveNativePageId(cur.activePageId), clean)
+        }
+        _uiState.update { it.copy(isDirty = true, canUndo = true, statusBanner = "Added Layer '${clean.ifEmpty { "New Layer" }}'") }
+        refreshSelectedShapeFormulas()
+        presentViewportOrFallback()
+    }
+
+    @Synchronized
+    fun updatePageLayerFlags(
+        layerIx: Int,
+        visible: Boolean,
+        lock: Boolean,
+        print: Boolean,
+        snapGlue: Boolean
+    ) {
+        val cur = _uiState.value
+        if (layerIx < 0) return
+        if (NativeBridge.isNativeAvailable && docPtr != 0L) {
+            NativeBridge.nativeSetLayerFlags(
+                docPtr = docPtr,
+                pageId = resolveNativePageId(cur.activePageId),
+                layerIx = layerIx,
+                visible = visible,
+                lockFlag = lock,
+                printFlag = print,
+                snapGlue = snapGlue
+            )
+        }
+        _uiState.update { it.copy(isDirty = true, canUndo = true) }
+        refreshSelectedShapeFormulas()
+        presentViewportOrFallback()
+    }
+
+    @Synchronized
+    fun setSelectedShapeLayerMembership(layerIx: Int, assigned: Boolean) {
+        val cur = _uiState.value
+        val targets = cur.selectedShapeIds.ifEmpty { listOf(cur.selectedShapeId) }.filter { it > 0L }.distinct()
+        if (layerIx < 0 || targets.isEmpty()) return
+        val nativePid = resolveNativePageId(cur.activePageId)
+        if (NativeBridge.isNativeAvailable && docPtr != 0L) {
+            for (sid in targets) {
+                NativeBridge.nativeSetShapeLayerMembership(docPtr, nativePid, sid, layerIx, assigned)
+            }
+        }
+        _uiState.update { it.copy(isDirty = true, canUndo = true) }
+        refreshSelectedShapeFormulas()
+        presentViewportOrFallback()
+    }
+
+    @Synchronized
     fun dragControlHandle(
         shapeId: Long,
         rowName: String = "Row_1",
@@ -4881,7 +5319,7 @@ class VexioSessionViewModel(
             }
         }
         viewModelScope.launch(ioDispatcher) {
-            val currentVersion = "0.3.7-alpha"
+            val currentVersion = "0.3.8-alpha"
             var latestTag: String? = null
             var downloadUrl = "https://github.com/petrosvassiliou/vexio/releases"
             var ok = false
@@ -4892,7 +5330,7 @@ class VexioSessionViewModel(
                     requestMethod = "GET"
                     connectTimeout = 4500
                     readTimeout = 4500
-                    setRequestProperty("User-Agent", "Vexio-Android-Googlebook/0.3.7-alpha")
+                    setRequestProperty("User-Agent", "Vexio-Android-Googlebook/0.3.8-alpha")
                     setRequestProperty("Accept", "application/vnd.github+json")
                 }
                 if (conn.responseCode in 200..299) {

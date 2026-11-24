@@ -872,6 +872,19 @@ public:
         return vexio_doc_rename_page(m_ptr, pageId, name.c_str());
     }
 
+    [[nodiscard]] VexioResult<uint32_t> AddLayer(uint32_t pageId, std::string_view layerNameUtf8) {
+        if (m_ptr == nullptr) {
+            return VexioResult<uint32_t>{VEXIO_ERR_INVALID_ARG, std::nullopt};
+        }
+        const std::string name{layerNameUtf8};
+        uint32_t outIx = 0;
+        const VexioStatus status = vexio_doc_add_layer(m_ptr, pageId, name.c_str(), &outIx);
+        if (status != VEXIO_OK) {
+            return VexioResult<uint32_t>{status, std::nullopt};
+        }
+        return VexioResult<uint32_t>{VEXIO_OK, outIx};
+    }
+
     [[nodiscard]] VexioStatus AutoLayout(uint32_t pageId, std::string_view algoUtf8) {
         if (m_ptr == nullptr || algoUtf8.empty()) {
             return VEXIO_ERR_INVALID_ARG;

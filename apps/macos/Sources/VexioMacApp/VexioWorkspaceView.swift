@@ -2,26 +2,41 @@ import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
-// MARK: - Inspector Tab Enumeration
+// MARK: - 1:1 Microsoft Visio Object Inspector Tab Enumeration
 
 public enum VexioInspectorTab: String, CaseIterable, Identifiable, Sendable {
-    case style = "Style"
-    case geometry = "Geometry"
-    case shapeData = "Prop.*"
-    case layers = "Layers"
-    case dataGraphics = "Graphics"
-    case validation = "Validate"
+    case format = "format"
+    case sizeAndPos = "sizePos"
+    case shapeData = "shapeData"
+    case layers = "layers"
 
     public var id: String { rawValue }
 
     public var iconName: String {
         switch self {
-        case .style: return "paintbrush.pointed"
-        case .geometry: return "ruler"
-        case .shapeData: return "tablecells"
+        case .format: return "paintbrush.pointed"
+        case .sizeAndPos: return "ruler"
+        case .shapeData: return "list.bullet.rectangle"
         case .layers: return "square.3.layers.3d"
-        case .dataGraphics: return "chart.bar.xaxis"
-        case .validation: return "checkmark.shield"
+        }
+    }
+
+    @MainActor
+    public func localizedTitle(_ i18n: VexioLocalization) -> String {
+        switch self {
+        case .format: return i18n.t("inspectorFormat")
+        case .sizeAndPos: return i18n.t("inspectorSizePos")
+        case .shapeData: return i18n.t("inspectorData")
+        case .layers: return i18n.t("inspectorLayers")
+        }
+    }
+
+    public var tooltipDescription: String {
+        switch self {
+        case .format: return "Format Shape — Fill, Line, Arrows, Text & Effects"
+        case .sizeAndPos: return "Size & Position — X, Y, Width, Height, Angle & Protection"
+        case .shapeData: return "Shape Data (Prop.*) — Custom Properties & Data Graphics"
+        case .layers: return "Layer Properties — Object Layer Membership & Visibility/Lock"
         }
     }
 }
@@ -42,13 +57,27 @@ public extension FocusedValues {
 // MARK: - AppKit Unified Full-Size Content Titlebar Configurator (Eliminates Excess Top Gap)
 
 private struct MacWindowUnifiedTitlebarAccessor: NSViewRepresentable {
+    private static func configure(_ window: NSWindow) {
+        UserDefaults.standard.register(defaults: ["NSInitialToolTipDelay": 350])
+        if !window.styleMask.contains(.fullSizeContentView) {
+            window.styleMask.insert(.fullSizeContentView)
+        }
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
+        if window.toolbar == nil {
+            let tb = NSToolbar(identifier: "app.vexio.unifiedHeaderToolbar")
+            tb.showsBaselineSeparator = false
+            window.toolbar = tb
+        }
+        window.toolbarStyle = .unifiedCompact
+    }
+
     func makeNSView(context: Context) -> NSView {
+        UserDefaults.standard.register(defaults: ["NSInitialToolTipDelay": 350])
         let view = NSView(frame: .zero)
         DispatchQueue.main.async {
             if let window = view.window {
-                window.styleMask.insert(.fullSizeContentView)
-                window.titleVisibility = .hidden
-                window.titlebarAppearsTransparent = true
+                Self.configure(window)
             }
         }
         return view
@@ -56,11 +85,7 @@ private struct MacWindowUnifiedTitlebarAccessor: NSViewRepresentable {
 
     func updateNSView(_ nsView: NSView, context: Context) {
         if let window = nsView.window {
-            if !window.styleMask.contains(.fullSizeContentView) {
-                window.styleMask.insert(.fullSizeContentView)
-            }
-            window.titleVisibility = .hidden
-            window.titlebarAppearsTransparent = true
+            Self.configure(window)
         }
     }
 }
@@ -76,7 +101,7 @@ public struct VexioWorkspaceView: View {
     @Environment(\.undoManager) private var undoManager
     @AppStorage("vexio.skipStartScreenOnLaunch") private var skipStartScreenOnLaunch: Bool = false
 
-    @State private var selectedInspectorTab: VexioInspectorTab = .style
+    @State private var selectedInspectorTab: VexioInspectorTab = .format
     @State private var stencilSearchQuery: String = ""
     @State private var selectedStencilCategory: String = "All"
     @State private var isBackstagePresented: Bool = false
@@ -127,9 +152,6 @@ public struct VexioWorkspaceView: View {
                         onRequestDataVisualizerExport: triggerDataVisualizerXlsxExport,
                         onRequestOffscreenPreview: generateAndShowOffscreenPreview
                     )
-                    .padding(.horizontal, 10)
-                    .padding(.top, 6)
-                    .padding(.bottom, 5)
 
                     Divider()
 
@@ -1124,38 +1146,57 @@ private struct VexioStencilNavigatorSidebar: View {
     }
 }
 
-// MARK: - Right-Hand Native Inspector Sidebar (Style, Geometry, Prop.*, Layers, Data Graphics, Validation)
+// MARK: - Right-Hand 1:1 Microsoft Visio Object Inspector (Format Shape, Size & Position, Shape Data, Layers)
 
 private struct VexioInspectorSidebar: View {
     @ObservedObject var session: VexioDocumentSession
+    @ObservedObject private var i18n: VexioLocalization = .shared
     @Binding var selectedTab: VexioInspectorTab
     let onInspectCellInShapeSheet: (String) -> Void
     let onRequestDataVisualizerExport: () -> Void
 
     @Environment(\.undoManager) private var undoManager
 
-    // Local editing buffers
-    @State private var newPropertyKey: String = ""
-    @State private var newPropertyFormula: String = "\"Value\""
+    // Object identity drafts
+    @State private var objectNameDraft: String = ""
+    @State private var objectLabelDraft: String = ""
+    @State private var pageNameDraft: String = ""
+
+    // Collapsible Format Shape Disclosure states
+    @State private var isFillExpanded: Bool = true
+    @State private var isLineExpanded: Bool = true
+    @State private var isTextExpanded: Bool = true
+    @State private var isEffectsExpanded: Bool = false
+
+    // Add Shape Data (`Prop.*`) drafts
+    @State private var newPropName: String = ""
+    @State private var newPropLabel: String = ""
+    @State private var newPropType: UInt8 = 0
+    @State private var newPropValue: String = ""
+
+    // Add Layer draft
+    @State private var newLayerNameDraft: String = ""
+
+    private var activePageSummary: VexioPageSummary? {
+        session.pages.first(where: { $0.id == session.activePageId }) ?? session.pages.first
+    }
 
     var body: some View {
         VibrancySidebarContainer(material: .sidebar, blendingMode: .behindWindow) {
-            VStack(alignment: .leading, spacing: 10) {
-                Spacer().frame(height: 8)
+            VStack(alignment: .leading, spacing: 8) {
+                Spacer().frame(height: 6)
 
-                // Active Sheet Header
-                HStack {
-                    Label("Sheet.\(session.selectedShapeId)", systemImage: "cube.transparent")
-                        .font(.system(size: 12, weight: .semibold, design: .monospaced))
-                    Spacer()
-                    Text(session.pages.first(where: { $0.id == session.activePageId })?.title ?? "Page-\(session.activePageId)")
-                        .font(.system(size: 10.5))
-                        .foregroundStyle(.secondary)
+                // Persistent Top MS Visio Object / Page Identity Card
+                if let obj = session.inspectedObject, session.selectedShapeId != 0 {
+                    selectedObjectHeaderCard(obj)
+                        .padding(.horizontal, 10)
+                } else {
+                    pageInspectorHeaderCard
+                        .padding(.horizontal, 10)
                 }
-                .padding(.horizontal, 12)
 
-                // Segmented Inspector Mode Bar (Single-Line, Zero Wrapping)
-                HStack(spacing: 3) {
+                // 4-Pane MS Visio Task Pane Selector (Format | Size & Pos | Shape Data | Layers)
+                HStack(spacing: 4) {
                     ForEach(VexioInspectorTab.allCases) { tab in
                         let isSelected = (selectedTab == tab)
                         Button {
@@ -1163,676 +1204,1421 @@ private struct VexioInspectorSidebar: View {
                                 selectedTab = tab
                             }
                         } label: {
-                            VStack(spacing: 2) {
+                            VStack(spacing: 2.5) {
                                 Image(systemName: tab.iconName)
                                     .font(.system(size: 12, weight: isSelected ? .semibold : .regular))
-                                Text(tab.rawValue)
-                                    .font(.system(size: 9.5, weight: isSelected ? .semibold : .regular))
+                                Text(tab.localizedTitle(i18n))
+                                    .font(.system(size: 10, weight: isSelected ? .semibold : .medium))
                                     .lineLimit(1)
                                     .minimumScaleFactor(0.85)
                             }
                             .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
                             .frame(maxWidth: .infinity)
-                            .padding(.vertical, 5)
-                            .padding(.horizontal, 2)
+                            .padding(.vertical, 5.5)
+                            .padding(.horizontal, 3)
                             .background(
                                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                    .fill(isSelected ? Color.accentColor.opacity(0.16) : Color.clear)
+                                    .fill(isSelected ? Color.accentColor.opacity(0.16) : Color.primary.opacity(0.03))
                             )
                         }
                         .buttonStyle(.plain)
+                        .help(tab.tooltipDescription)
                     }
                 }
-                .padding(.horizontal, 8)
+                .padding(.horizontal, 10)
 
                 Divider()
 
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 14) {
-                        switch selectedTab {
-                        case .style:
-                            styleInspectorSection
-                        case .geometry:
-                            geometryInspectorSection
-                        case .shapeData:
-                            shapeDataInspectorSection
-                        case .layers:
-                            layersInspectorSection
-                        case .dataGraphics:
-                            dataGraphicsInspectorSection
-                        case .validation:
-                            validationInspectorSection
+                    VStack(alignment: .leading, spacing: 12) {
+                        if let obj = session.inspectedObject, session.selectedShapeId != 0 {
+                            switch selectedTab {
+                            case .format:
+                                formatShapePane(obj)
+                            case .sizeAndPos:
+                                sizeAndPositionPane(obj)
+                            case .shapeData:
+                                shapeDataPane(obj)
+                            case .layers:
+                                layersPane(selectedObject: obj)
+                            }
+                        } else {
+                            if selectedTab == .layers {
+                                layersPane(selectedObject: nil)
+                            } else {
+                                pagePropertiesInspectorPane
+                            }
                         }
                     }
                     .padding(12)
                 }
             }
         }
+        .onAppear {
+            syncHeaderDrafts()
+        }
+        .onChange(of: session.selectedShapeId) { _, _ in
+            syncHeaderDrafts()
+        }
+        .onChange(of: session.inspectedObject?.name) { _, _ in
+            if let obj = session.inspectedObject {
+                objectNameDraft = obj.name
+            }
+        }
+        .onChange(of: session.inspectedObject?.text) { _, _ in
+            if let obj = session.inspectedObject {
+                objectLabelDraft = obj.text
+            }
+        }
+        .onChange(of: session.activePageId) { _, _ in
+            syncHeaderDrafts()
+        }
     }
 
-    // 1. Style Tab (6x4 Document Themes, Visual Effects Presets & Fill/Stroke)
-    private var styleInspectorSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("DOCUMENT THEMES (6×4 MATRIX)")
-                .font(.system(size: 10.5, weight: .bold))
-                .foregroundStyle(.secondary)
+    private func syncHeaderDrafts() {
+        if let obj = session.inspectedObject {
+            objectNameDraft = obj.name
+            objectLabelDraft = obj.text
+        }
+        pageNameDraft = activePageSummary?.title ?? "Page-\(session.activePageId)"
+    }
 
-            LazyVGrid(
-                columns: [GridItem(.flexible(), spacing: 6), GridItem(.flexible(), spacing: 6)],
-                spacing: 6
-            ) {
-                ForEach(VexioThemePreset.allCases) { theme in
-                    let isSelectedTheme = (session.selectedThemeSlug == theme.rawValue)
-                    Button {
-                        withAnimation(LiquidGlassPhysics.standardSpring) {
-                            session.applyThemeAndVariant(
-                                themeSlug: theme.rawValue,
-                                variantIndex: session.selectedVariantIndex,
-                                undoManager: undoManager
-                            )
+    // MARK: - Top Object Identity & Caption Header
+
+    @ViewBuilder
+    private func selectedObjectHeaderCard(_ obj: InspectedObjectState) -> some View {
+        let iconName: String = {
+            if obj.isGroup { return "square.3.layers.3d.down.right" }
+            if obj.isConnector1D { return "point.topleft.down.curvedto.point.bottomright.up" }
+            if obj.kind == "ForeignObject" { return "photo.artframe" }
+            return "square.on.circle"
+        }()
+
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Image(systemName: iconName)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Color.accentColor)
+                    .frame(width: 22, height: 22)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .fill(Color.accentColor.opacity(0.14))
+                    )
+
+                VStack(alignment: .leading, spacing: 1) {
+                    HStack(spacing: 5) {
+                        Text("Sheet.\(obj.id)")
+                            .font(.system(size: 11, weight: .bold, design: .monospaced))
+                        if session.selectedShapeIds.count > 1 {
+                            Text("+\(session.selectedShapeIds.count - 1)")
+                                .font(.system(size: 9.5, weight: .bold, design: .monospaced))
+                                .padding(.horizontal, 5)
+                                .padding(.vertical, 1)
+                                .background(Capsule().fill(Color.accentColor.opacity(0.20)))
                         }
-                    } label: {
-                        HStack(spacing: 6) {
-                            HStack(spacing: -3) {
-                                Circle()
-                                    .fill(theme.primaryPreviewColor)
-                                    .frame(width: 11, height: 11)
-                                Circle()
-                                    .fill(theme.accentPreviewColor)
-                                    .frame(width: 11, height: 11)
-                            }
-                            Text(theme.displayName)
-                                .font(.system(size: 11, weight: isSelectedTheme ? .semibold : .regular))
-                                .lineLimit(1)
-                            Spacer(minLength: 0)
-                        }
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 6)
-                        .background(
-                            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                .fill(isSelectedTheme ? Color.accentColor.opacity(0.18) : Color.primary.opacity(0.05))
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                .strokeBorder(
-                                    isSelectedTheme ? Color.accentColor.opacity(0.65) : Color.primary.opacity(0.08),
-                                    lineWidth: 0.9
-                                )
-                        )
                     }
-                    .buttonStyle(.plain)
+                    Text(obj.humanReadableTypeBadge)
+                        .font(.system(size: 9.5))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
                 }
+
+                Spacer(minLength: 4)
+
+                Button {
+                    withAnimation(LiquidGlassPhysics.panelExpansionSpring) {
+                        session.showShapeSheetDrawer.toggle()
+                    }
+                } label: {
+                    Image(systemName: "function")
+                        .font(.system(size: 11, weight: .semibold))
+                        .padding(5)
+                        .background(RoundedRectangle(cornerRadius: 6).fill(Color.primary.opacity(0.06)))
+                }
+                .buttonStyle(.plain)
+                .help(i18n.t("openShapeSheet"))
             }
 
             HStack(spacing: 6) {
-                Text("Variant")
+                Text(i18n.t("objectName"))
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 68, alignment: .leading)
+                TextField("Sheet.\(obj.id)", text: $objectNameDraft)
+                    .textFieldStyle(.roundedBorder)
                     .font(.system(size: 11, weight: .medium))
+                    .onSubmit {
+                        session.renameSelectedShape(to: objectNameDraft, undoManager: undoManager)
+                    }
+                    .help("Visio Shape Name (press Return to apply)")
+            }
+
+            HStack(spacing: 6) {
+                Text(i18n.t("textLabel"))
+                    .font(.system(size: 10, weight: .medium))
                     .foregroundStyle(.secondary)
-                Spacer()
-                ForEach(0..<4, id: \.self) { variantIdx in
-                    let isCurrentVariant = (Int(session.selectedVariantIndex) == variantIdx)
-                    Button("V\(variantIdx + 1)") {
-                        withAnimation(LiquidGlassPhysics.standardSpring) {
-                            session.applyThemeAndVariant(
-                                themeSlug: session.selectedThemeSlug,
-                                variantIndex: UInt8(variantIdx),
-                                undoManager: undoManager
-                            )
-                        }
+                    .frame(width: 68, alignment: .leading)
+                TextField(i18n.t("editLabelPlaceholder"), text: $objectLabelDraft)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(size: 11))
+                    .onSubmit {
+                        session.setSelectedShapeLabel(objectLabelDraft, undoManager: undoManager)
                     }
-                    .buttonStyle(.bordered)
-                    .tint(isCurrentVariant ? .accentColor : nil)
-                    .controlSize(.small)
-                }
+                    .help("Edit Shape Text / Caption (press Return to apply)")
             }
+        }
+        .padding(9)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Color.primary.opacity(0.045))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.8)
+        )
+    }
 
-            Divider()
+    private var pageInspectorHeaderCard: some View {
+        let pageTitle = activePageSummary?.title ?? "Page-\(session.activePageId)"
+        let sizeText = "\(i18n.unitPreference.formatFromInches(session.pageWidthInches)) × \(i18n.unitPreference.formatFromInches(session.pageHeightInches))"
 
-            Text("SHAPE VISUAL EFFECTS")
-                .font(.system(size: 10.5, weight: .bold))
-                .foregroundStyle(.secondary)
+        return HStack(spacing: 8) {
+            Image(systemName: "doc.richtext")
+                .font(.system(size: 13.5, weight: .semibold))
+                .foregroundStyle(Color.accentColor)
+                .frame(width: 26, height: 26)
+                .background(RoundedRectangle(cornerRadius: 7).fill(Color.accentColor.opacity(0.14)))
 
-            LazyVGrid(
-                columns: [GridItem(.flexible(), spacing: 6), GridItem(.flexible(), spacing: 6)],
-                spacing: 6
-            ) {
-                ForEach(VexioVisualEffectPreset.allCases) { preset in
-                    let isSelectedPreset = (session.activeVisualPresetSlug == preset.rawValue)
-                    Button {
-                        session.applyVisualPreset(preset, undoManager: undoManager)
-                    } label: {
-                        HStack(spacing: 5) {
-                            Image(systemName: preset.symbolName)
-                                .font(.system(size: 11, weight: .medium))
-                                .foregroundStyle(isSelectedPreset ? Color.accentColor : Color.secondary)
-                            Text(preset.displayName)
-                                .font(.system(size: 10.5, weight: isSelectedPreset ? .semibold : .regular))
-                                .lineLimit(1)
-                            Spacer(minLength: 0)
-                        }
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 5.5)
-                        .background(
-                            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                .fill(isSelectedPreset ? Color.accentColor.opacity(0.16) : Color.primary.opacity(0.04))
-                        )
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-
-            Divider()
-
-            Text("FILL & STROKE FORMAT")
-                .font(.system(size: 10.5, weight: .bold))
-                .foregroundStyle(.secondary)
-
-            VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                    ColorPicker(
-                        "Fill Color",
-                        selection: Binding(
-                            get: { Color(vexioHex: session.selectedFillColorHex) },
-                            set: { session.applyFillColor($0, undoManager: undoManager) }
-                        ),
-                        supportsOpacity: false
-                    )
-                    .font(.system(size: 11.5, weight: .medium))
-
-                    Spacer()
-
-                    ColorPicker(
-                        "Line Color",
-                        selection: Binding(
-                            get: { Color(vexioHex: session.selectedLineColorHex) },
-                            set: { session.applyLineColor($0, undoManager: undoManager) }
-                        ),
-                        supportsOpacity: false
-                    )
-                    .font(.system(size: 11.5, weight: .medium))
-                }
-
-                HStack(spacing: 8) {
-                    ForEach(
-                        [
-                            ("Azure", "RGB(235,244,255)", Color.blue.opacity(0.25)),
-                            ("Mint", "RGB(231,250,239)", Color.green.opacity(0.25)),
-                            ("Amber", "RGB(255,246,229)", Color.orange.opacity(0.25)),
-                            ("Iris", "RGB(243,236,255)", Color.purple.opacity(0.25)),
-                        ],
-                        id: \.0
-                    ) { label, formula, previewColor in
-                        Button {
-                            try? session.setCellFormula(
-                                cellName: "FillForegnd",
-                                formula: formula,
-                                mode: .respectGuard,
-                                undoManager: undoManager
-                            )
-                        } label: {
-                            Circle()
-                                .fill(previewColor)
-                                .overlay(Circle().strokeBorder(Color.primary.opacity(0.25), lineWidth: 1))
-                                .frame(width: 22, height: 22)
-                        }
-                        .buttonStyle(.plain)
-                        .help("\(label): \(formula)")
-                    }
-                }
-                Text("Fill: \(session.readCellFormula(cellName: "FillForegnd"))")
-                    .font(.system(size: 10, design: .monospaced))
+            VStack(alignment: .leading, spacing: 1.5) {
+                Text("\(i18n.t("pageInspector")) • \(pageTitle)")
+                    .font(.system(size: 11.5, weight: .semibold))
                     .lineLimit(1)
+                Text("\(sizeText) • \(session.activePageShapeCount) shapes")
+                    .font(.system(size: 10))
                     .foregroundStyle(.secondary)
+                    .lineLimit(1)
             }
-
-            Divider()
-
-            VStack(alignment: .leading, spacing: 6) {
-                Text("LineWeight")
-                    .font(.system(size: 11.5, weight: .medium))
-                HStack(spacing: 6) {
-                    ForEach(["0.75 pt", "1.25 pt", "2.00 pt", "3.50 pt"], id: \.self) { weight in
-                        Button(weight) {
-                            try? session.setCellFormula(
-                                cellName: "LineWeight",
-                                formula: weight,
-                                mode: .respectGuard,
-                                undoManager: undoManager
-                            )
-                        }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                    }
-                }
-            }
-
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Corner Rounding")
-                    .font(.system(size: 11.5, weight: .medium))
-                HStack(spacing: 6) {
-                    ForEach(["0 in", "0.08 in", "0.18 in"], id: \.self) { radius in
-                        Button(radius) {
-                            try? session.setCellFormula(
-                                cellName: "Rounding",
-                                formula: radius,
-                                mode: .respectGuard,
-                                undoManager: undoManager
-                            )
-                        }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                    }
-                }
-            }
+            Spacer(minLength: 0)
         }
+        .padding(9)
+        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color.primary.opacity(0.045)))
+        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.8))
     }
 
-    // 2. Geometry, Boolean Shape Ops & GUARD Protection Tab
-    private var geometryInspectorSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("BOOLEAN SHAPE OPERATIONS")
-                .font(.system(size: 10.5, weight: .bold))
-                .foregroundStyle(.secondary)
+    // MARK: - Page Properties Pane (Shown when no object is selected on canvas)
 
-            LazyVGrid(
-                columns: [GridItem(.flexible(), spacing: 6), GridItem(.flexible(), spacing: 6)],
-                spacing: 6
-            ) {
-                ForEach(VexioBooleanOperation.allCases) { op in
-                    Button {
-                        session.applyBooleanOperation(op, undoManager: undoManager)
-                    } label: {
-                        Label(op.displayName, systemImage: op.symbolName)
+    private var pagePropertiesInspectorPane: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            inspectorCard(title: i18n.t("pageInspector"), icon: "doc.text") {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 6) {
+                        Text("Page Name")
                             .font(.system(size: 11, weight: .medium))
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .foregroundStyle(.secondary)
+                            .frame(width: 76, alignment: .leading)
+                        TextField("Page-1", text: $pageNameDraft)
+                            .textFieldStyle(.roundedBorder)
+                            .font(.system(size: 11.5))
+                            .onSubmit {
+                                session.renamePage(pageId: session.activePageId, to: pageNameDraft, undoManager: undoManager)
+                            }
                     }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                }
-            }
 
-            Divider()
-
-            Text("SHAPE TRANSFORM & GUARD")
-                .font(.system(size: 10.5, weight: .bold))
-                .foregroundStyle(.secondary)
-
-            ForEach(["PinX", "PinY", "Width", "Height", "LocPinX", "LocPinY", "Angle"], id: \.self) { cell in
-                InspectorCellRowEditor(
-                    cellName: cell,
-                    formula: session.readCellFormula(cellName: cell),
-                    evaluated: session.readCellEvaluatedValue(cellName: cell),
-                    onCommitStandard: { updated in
-                        try? session.setCellFormula(
-                            cellName: cell,
-                            formula: updated,
-                            mode: .respectGuard,
-                            undoManager: undoManager
-                        )
-                    },
-                    onInspectInShapeSheet: {
-                        onInspectCellInShapeSheet(cell)
+                    HStack(spacing: 5) {
+                        ForEach([VexioPagePreset.a4, .a3, .a5, .letter], id: \.id) { preset in
+                            Button(preset.shortCode) {
+                                session.applyPagePreset(preset, landscape: session.isPageLandscape, undoManager: undoManager)
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                            .help(preset.displayLabel)
+                        }
                     }
-                )
-            }
 
-            Divider()
+                    HStack(spacing: 6) {
+                        Button {
+                            session.setPageOrientation(landscape: true, undoManager: undoManager)
+                        } label: {
+                            Label(i18n.t("landscape"), systemImage: "rectangle.portrait.rotate")
+                                .font(.system(size: 11, weight: session.isPageLandscape ? .semibold : .regular))
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.bordered)
+                        .tint(session.isPageLandscape ? .accentColor : nil)
+                        .controlSize(.small)
+                        .help("Set Landscape Page Orientation")
 
-            Text("Formula Protection Actions")
-                .font(.system(size: 11, weight: .semibold))
-            HStack(spacing: 8) {
-                Button("GUARD(Width)") {
-                    let base = session.readCellEvaluatedValue(cellName: "Width")
-                    try? session.setCellFormula(
-                        cellName: "Width",
-                        formula: "GUARD(\(base.isEmpty ? "1.50 in" : base))",
-                        mode: .forceSetF,
-                        undoManager: undoManager
-                    )
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
+                        Button {
+                            session.setPageOrientation(landscape: false, undoManager: undoManager)
+                        } label: {
+                            Label(i18n.t("portrait"), systemImage: "rectangle.portrait")
+                                .font(.system(size: 11, weight: !session.isPageLandscape ? .semibold : .regular))
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.bordered)
+                        .tint(!session.isPageLandscape ? .accentColor : nil)
+                        .controlSize(.small)
+                        .help("Set Portrait Page Orientation")
+                    }
 
-                Button("Unlock Width (SETF)") {
-                    try? session.setCellFormula(
-                        cellName: "Width",
-                        formula: "1.50 in",
-                        mode: .forceSetF,
-                        undoManager: undoManager
-                    )
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-            }
-        }
-    }
+                    Toggle("Smart Alignment Guides", isOn: $session.smartGuidesEnabled)
+                        .font(.system(size: 11.5))
+                        .help("Show dynamic alignment & equal-spacing guides while dragging shapes")
 
-    // 3. Shape Data (Prop.*) & Plan 2 Data / Cloud / Directory Connectors Tab
-    private var shapeDataInspectorSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("PLAN 2 DATA, CLOUD & DIRECTORY")
-                .font(.system(size: 10.5, weight: .bold))
-                .foregroundStyle(.secondary)
-
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 6) {
                     Button {
-                        session.importDataVisualizerSample(undoManager: undoManager)
+                        session.fitViewportToActivePage()
                     } label: {
-                        Label("Data Visualizer", systemImage: "tablecells.badge.ellipsis")
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                        Label("Fit Diagram to Window", systemImage: "arrow.up.left.and.down.right.magnifyingglass")
+                            .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.borderedProminent)
                     .controlSize(.small)
-
-                    Button("Export .xlsx") {
-                        onRequestDataVisualizerExport()
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                }
-
-                Button {
-                    session.importCloudTopologySample(undoManager: undoManager)
-                } label: {
-                    Label("Cloud Discovery (AWS / Azure / GCP)", systemImage: "cloud.fill")
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-
-                Button {
-                    session.importEntraLdifSample(undoManager: undoManager)
-                } label: {
-                    Label("Entra ID / LDAP (.ldif) Org Chart", systemImage: "person.3.sequence.fill")
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-
-                HStack(spacing: 6) {
-                    Button {
-                        session.applyRemoteCrdtBatch()
-                    } label: {
-                        Label("CRDT Sync", systemImage: "arrow.triangle.2.circlepath")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-
-                    Button {
-                        session.compareWithSnapshot()
-                    } label: {
-                        Label("Compare", systemImage: "arrow.left.arrow.right.square")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
+                    .help("Zoom and center active page so the entire diagram fits on screen")
                 }
             }
-            .padding(8)
-            .background(RoundedRectangle(cornerRadius: 8).fill(Color.primary.opacity(0.04)))
 
-            Divider()
+            layersPane(selectedObject: nil)
+        }
+    }
 
-            Text("CUSTOM SHAPE DATA (Prop.*)")
-                .font(.system(size: 10.5, weight: .bold))
-                .foregroundStyle(.secondary)
+    // MARK: - Pane 1: MS Visio "Format Shape" (Fill, Line & Arrows, Text, Effects)
 
-            ForEach($session.shapeDataProperties) { $prop in
-                VStack(alignment: .leading, spacing: 4) {
+    @ViewBuilder
+    private func formatShapePane(_ obj: InspectedObjectState) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            // 1A. FILL SECTION
+            DisclosureGroup(isExpanded: $isFillExpanded) {
+                VStack(alignment: .leading, spacing: 8) {
+                    // Fill Pattern Mode (No Fill / Solid / Gradient)
+                    HStack(spacing: 4) {
+                        fillModeChip(title: i18n.t("noFill"), active: obj.fillPattern == 0, tip: "Transparent / No Fill (FillPattern = 0)") {
+                            session.setCellForSelection(cellName: "FillPattern", formula: "0", actionLabel: "No Fill", undoManager: undoManager)
+                        }
+                        fillModeChip(title: i18n.t("solidFill"), active: obj.fillPattern == 1, tip: "Solid Color Fill (FillPattern = 1)") {
+                            session.setCellForSelection(cellName: "FillPattern", formula: "1", actionLabel: "Solid Fill", undoManager: undoManager)
+                        }
+                        fillModeChip(title: i18n.t("gradientFill"), active: obj.fillPattern >= 25, tip: "Linear Gradient Fill") {
+                            session.applyVisualPreset(.gradLinear, undoManager: undoManager)
+                        }
+                    }
+                    .padding(.top, 4)
+
                     HStack {
-                        Text(prop.label)
-                            .font(.system(size: 11.5, weight: .semibold))
+                        ColorPicker(
+                            i18n.t("fillColor"),
+                            selection: Binding(
+                                get: { Color(vexioHex: obj.fillColorHex) },
+                                set: { session.applyFillColor($0, undoManager: undoManager) }
+                            ),
+                            supportsOpacity: false
+                        )
+                        .font(.system(size: 11.5, weight: .medium))
+                        .help("Select foreground FillForegnd color")
+
                         Spacer()
-                        Text(prop.rowKey)
-                            .font(.system(size: 10, design: .monospaced))
+
+                        if obj.fillPattern >= 25 {
+                            ColorPicker(
+                                "Stop 2",
+                                selection: Binding(
+                                    get: { Color(vexioHex: obj.fillBkgndHex) },
+                                    set: { c in
+                                        session.setCellForSelection(
+                                            cellName: "FillBkgnd",
+                                            formula: c.vexioRGBFormulaString,
+                                            actionLabel: "Set Fill Background",
+                                            undoManager: undoManager
+                                        )
+                                    }
+                                ),
+                                supportsOpacity: false
+                            )
+                            .font(.system(size: 11, weight: .medium))
+                            .help("Secondary gradient color (FillBkgnd)")
+                        }
+                    }
+
+                    // Visio Theme Quick Swatches
+                    HStack(spacing: 6) {
+                        ForEach(
+                            [
+                                ("Azure", "RGB(219,234,254)", "#DBEAFE"),
+                                ("Mint", "RGB(220,252,231)", "#DCFCE7"),
+                                ("Amber", "RGB(254,243,199)", "#FEF3C7"),
+                                ("Rose", "RGB(255,228,230)", "#FFE4E6"),
+                                ("Iris", "RGB(237,233,254)", "#EDE9FE"),
+                                ("Slate", "RGB(241,245,249)", "#F1F5F9"),
+                                ("White", "RGB(255,255,255)", "#FFFFFF"),
+                            ],
+                            id: \.0
+                        ) { name, formula, hex in
+                            Button {
+                                session.setCellForSelection(cellName: "FillPattern", formula: "1", undoManager: undoManager)
+                                session.setCellForSelection(cellName: "FillForegnd", formula: formula, actionLabel: "Fill \(name)", undoManager: undoManager)
+                            } label: {
+                                Circle()
+                                    .fill(Color(vexioHex: hex))
+                                    .overlay(Circle().strokeBorder(Color.primary.opacity(0.25), lineWidth: 0.9))
+                                    .frame(width: 20, height: 20)
+                            }
+                            .buttonStyle(.plain)
+                            .help("\(name) Fill (\(formula))")
+                        }
+                    }
+
+                    // Fill Transparency Slider (0-100%)
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack {
+                            Text(i18n.t("transparency"))
+                                .font(.system(size: 11))
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                            Text("\(Int(obj.fillTransPct.rounded()))%")
+                                .font(.system(size: 10.5, design: .monospaced))
+                                .foregroundStyle(.secondary)
+                        }
+                        Slider(
+                            value: Binding(
+                                get: { obj.fillTransPct },
+                                set: { pct in
+                                    session.setCellForSelection(
+                                        cellName: "FillForegndTrans",
+                                        formula: "\(Int(pct.rounded()))%",
+                                        actionLabel: "Fill Transparency",
+                                        undoManager: undoManager
+                                    )
+                                }
+                            ),
+                            in: 0...100,
+                            step: 5
+                        )
+                        .controlSize(.small)
+                        .help("Adjust Fill Transparency (FillForegndTrans)")
+                    }
+
+                    if !obj.isConnector1D {
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack {
+                                Text(i18n.t("cornerRounding"))
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(.secondary)
+                                Spacer()
+                                Text(i18n.unitPreference.formatFromInches(obj.roundingIn))
+                                    .font(.system(size: 10.5, design: .monospaced))
+                                    .foregroundStyle(.secondary)
+                            }
+                            HStack(spacing: 5) {
+                                ForEach(
+                                    i18n.unitPreference.isMetric
+                                        ? [("0 mm", "0 mm"), ("2 mm", "2 mm"), ("4 mm", "4 mm"), ("8 mm", "8 mm")]
+                                        : [("0 in", "0 in"), ("0.08 in", "0.08 in"), ("0.16 in", "0.16 in"), ("0.30 in", "0.30 in")],
+                                    id: \.0
+                                ) { label, formula in
+                                    Button(label) {
+                                        session.setCellForSelection(cellName: "Rounding", formula: formula, actionLabel: "Corner Rounding", undoManager: undoManager)
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .controlSize(.mini)
+                                    .help("Set Corner Rounding to \(label)")
+                                }
+                            }
+                        }
+                    }
+                }
+            } label: {
+                sectionHeaderLabel(i18n.t("fillSection"), icon: "drop.fill")
+            }
+            .padding(9)
+            .background(RoundedRectangle(cornerRadius: 9).fill(Color.primary.opacity(0.035)))
+
+            // 1B. LINE & ARROWS SECTION
+            DisclosureGroup(isExpanded: $isLineExpanded) {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 4) {
+                        fillModeChip(title: i18n.t("noLine"), active: obj.linePattern == 0, tip: "No Border / Line (LinePattern = 0)") {
+                            session.setCellForSelection(cellName: "LinePattern", formula: "0", actionLabel: "No Line", undoManager: undoManager)
+                        }
+                        fillModeChip(title: i18n.t("solidLine"), active: obj.linePattern == 1, tip: "Solid Line (LinePattern = 1)") {
+                            session.setCellForSelection(cellName: "LinePattern", formula: "1", actionLabel: "Solid Line", undoManager: undoManager)
+                        }
+                        fillModeChip(title: i18n.t("dashedLine"), active: obj.linePattern == 2, tip: "Dashed Line (LinePattern = 2)") {
+                            session.setCellForSelection(cellName: "LinePattern", formula: "2", actionLabel: "Dashed Line", undoManager: undoManager)
+                        }
+                        fillModeChip(title: i18n.t("dottedLine"), active: obj.linePattern == 3, tip: "Dotted Line (LinePattern = 3)") {
+                            session.setCellForSelection(cellName: "LinePattern", formula: "3", actionLabel: "Dotted Line", undoManager: undoManager)
+                        }
+                    }
+                    .padding(.top, 4)
+
+                    HStack {
+                        ColorPicker(
+                            i18n.t("lineColor"),
+                            selection: Binding(
+                                get: { Color(vexioHex: obj.lineColorHex) },
+                                set: { session.applyLineColor($0, undoManager: undoManager) }
+                            ),
+                            supportsOpacity: false
+                        )
+                        .font(.system(size: 11.5, weight: .medium))
+                        .help("Select LineColor stroke color")
+
+                        Spacer()
+
+                        Text(String(format: "%.2f pt", obj.lineWeightPt))
+                            .font(.system(size: 10.5, design: .monospaced))
                             .foregroundStyle(.secondary)
                     }
+
+                    HStack(spacing: 4) {
+                        ForEach(["0.5 pt", "1 pt", "1.5 pt", "2.25 pt", "3.5 pt"], id: \.self) { wt in
+                            Button(wt) {
+                                session.setCellForSelection(cellName: "LineWeight", formula: wt, actionLabel: "Line Weight", undoManager: undoManager)
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.mini)
+                            .help("Set LineWeight to \(wt)")
+                        }
+                    }
+
+                    // Begin & End Arrowheads
+                    HStack(spacing: 8) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(i18n.t("beginArrow"))
+                                .font(.system(size: 10))
+                                .foregroundStyle(.secondary)
+                            Picker("", selection: Binding(
+                                get: { obj.beginArrow },
+                                set: { code in
+                                    session.setCellForSelection(cellName: "BeginArrow", formula: "\(code)", actionLabel: "Begin Arrow", undoManager: undoManager)
+                                }
+                            )) {
+                                Text("None").tag(0)
+                                Text("Open ›").tag(1)
+                                Text("Filled ▶").tag(4)
+                                Text("Stealth ➤").tag(5)
+                                Text("Circle ●").tag(10)
+                                Text("Diamond ◆").tag(11)
+                            }
+                            .labelsHidden()
+                            .controlSize(.small)
+                            .help("Select BeginArrow style")
+                        }
+
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(i18n.t("endArrow"))
+                                .font(.system(size: 10))
+                                .foregroundStyle(.secondary)
+                            Picker("", selection: Binding(
+                                get: { obj.endArrow },
+                                set: { code in
+                                    session.setCellForSelection(cellName: "EndArrow", formula: "\(code)", actionLabel: "End Arrow", undoManager: undoManager)
+                                }
+                            )) {
+                                Text("None").tag(0)
+                                Text("Open ›").tag(1)
+                                Text("Filled ▶").tag(4)
+                                Text("Stealth ➤").tag(5)
+                                Text("Circle ●").tag(10)
+                                Text("Diamond ◆").tag(11)
+                            }
+                            .labelsHidden()
+                            .controlSize(.small)
+                            .help("Select EndArrow style")
+                        }
+                    }
+
+                    if obj.isConnector1D {
+                        HStack(spacing: 4) {
+                            fillModeChip(title: "Orthogonal", active: obj.routeStyle == 1 || obj.routeStyle == 16, tip: "Right-angle orthogonal connector routing") {
+                                session.setCellForSelection(cellName: "ShapeRouteStyle", formula: "1", actionLabel: "Orthogonal Connector", undoManager: undoManager)
+                            }
+                            fillModeChip(title: "Straight", active: obj.routeStyle == 2, tip: "Direct straight-line connector") {
+                                session.setCellForSelection(cellName: "ShapeRouteStyle", formula: "2", actionLabel: "Straight Connector", undoManager: undoManager)
+                            }
+                            fillModeChip(title: "Curved", active: obj.routeStyle == 3, tip: "Smooth Bézier curved connector") {
+                                session.setCellForSelection(cellName: "ShapeRouteStyle", formula: "3", actionLabel: "Curved Connector", undoManager: undoManager)
+                            }
+                        }
+                    }
+                }
+            } label: {
+                sectionHeaderLabel(i18n.t("lineArrowsSection"), icon: "line.diagonal.arrow")
+            }
+            .padding(9)
+            .background(RoundedRectangle(cornerRadius: 9).fill(Color.primary.opacity(0.035)))
+
+            // 1C. TEXT & FONT SECTION
+            DisclosureGroup(isExpanded: $isTextExpanded) {
+                VStack(alignment: .leading, spacing: 8) {
                     HStack(spacing: 6) {
-                        TextField("Formula", text: $prop.formula)
-                            .textFieldStyle(.roundedBorder)
-                            .font(.system(size: 11.5, design: .monospaced))
-                            .onSubmit {
-                                try? session.setCellFormula(
-                                    cellName: prop.rowKey,
-                                    formula: prop.formula,
-                                    mode: .respectGuard,
+                        Picker("", selection: Binding(
+                            get: { session.selectedFontFamily },
+                            set: { session.applyTextStyle(fontFamily: $0, undoManager: undoManager) }
+                        )) {
+                            ForEach(VexioDocumentSession.installedSystemFontFamilies, id: \.self) { fam in
+                                Text(fam).tag(fam)
+                            }
+                        }
+                        .labelsHidden()
+                        .controlSize(.small)
+                        .help("Font Family")
+
+                        Stepper(
+                            value: Binding(
+                                get: { session.selectedFontSizePt },
+                                set: { session.applyTextStyle(fontSizePt: $0, undoManager: undoManager) }
+                            ),
+                            in: 6...96,
+                            step: 1
+                        ) {
+                            Text("\(Int(session.selectedFontSizePt.rounded())) pt")
+                                .font(.system(size: 11, design: .monospaced))
+                                .frame(width: 38, alignment: .trailing)
+                        }
+                        .controlSize(.small)
+                        .help("Font Size (pt)")
+                    }
+                    .padding(.top, 4)
+
+                    HStack(spacing: 5) {
+                        inspectorSmallToggleButton("B", bold: true, active: (session.selectedCharStyle & 1) != 0, tip: "Bold (⌘B)") {
+                            session.applyTextStyle(toggleStyleMask: 1, undoManager: undoManager)
+                        }
+                        inspectorSmallToggleButton("I", italic: true, active: (session.selectedCharStyle & 2) != 0, tip: "Italic (⌘I)") {
+                            session.applyTextStyle(toggleStyleMask: 2, undoManager: undoManager)
+                        }
+                        inspectorSmallToggleButton("U", underline: true, active: (session.selectedCharStyle & 4) != 0, tip: "Underline (⌘U)") {
+                            session.applyTextStyle(toggleStyleMask: 4, undoManager: undoManager)
+                        }
+                        Divider().frame(height: 16)
+                        LiquidGlassIconButton(systemImage: "text.alignleft", title: "Align Left", isActive: session.selectedHorizAlign == 0) {
+                            session.applyTextStyle(horizAlign: 0, undoManager: undoManager)
+                        }
+                        LiquidGlassIconButton(systemImage: "text.aligncenter", title: "Align Center", isActive: session.selectedHorizAlign == 1) {
+                            session.applyTextStyle(horizAlign: 1, undoManager: undoManager)
+                        }
+                        LiquidGlassIconButton(systemImage: "text.alignright", title: "Align Right", isActive: session.selectedHorizAlign == 2) {
+                            session.applyTextStyle(horizAlign: 2, undoManager: undoManager)
+                        }
+                        Spacer()
+                        ColorPicker(
+                            "",
+                            selection: Binding(
+                                get: { Color(vexioHex: session.selectedTextColorHex) },
+                                set: { c in
+                                    let hex = c.vexioHexRGBString
+                                    session.selectedTextColorHex = hex
+                                    session.applyTextStyle(textColorHex: hex, undoManager: undoManager)
+                                }
+                            ),
+                            supportsOpacity: false
+                        )
+                        .labelsHidden()
+                        .help("Text Color")
+                    }
+
+                    Toggle(
+                        i18n.t("hideText"),
+                        isOn: Binding(
+                            get: { obj.hideText },
+                            set: { hidden in
+                                session.setCellForSelection(
+                                    cellName: "HideText",
+                                    formula: hidden ? "TRUE" : "FALSE",
+                                    actionLabel: "Toggle HideText",
                                     undoManager: undoManager
                                 )
                             }
-                        Button("Apply") {
-                            try? session.setCellFormula(
-                                cellName: prop.rowKey,
-                                formula: prop.formula,
-                                mode: .respectGuard,
-                                undoManager: undoManager
-                            )
-                        }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                    }
-                }
-                .padding(8)
-                .background(RoundedRectangle(cornerRadius: 8).fill(Color.primary.opacity(0.04)))
-            }
-
-            Divider()
-
-            Text("Add Custom Prop.* Row")
-                .font(.system(size: 11, weight: .semibold))
-            HStack(spacing: 6) {
-                TextField("Row Name (e.g. Owner)", text: $newPropertyKey)
-                    .textFieldStyle(.roundedBorder)
-                    .font(.system(size: 11))
-                TextField("\"Engineering\"", text: $newPropertyFormula)
-                    .textFieldStyle(.roundedBorder)
-                    .font(.system(size: 11, design: .monospaced))
-            }
-            Button("Define Prop.* Cell") {
-                let sanitized = newPropertyKey
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                    .replacingOccurrences(of: " ", with: "")
-                guard !sanitized.isEmpty else { return }
-                let rowKey = sanitized.hasPrefix("Prop.") ? sanitized : "Prop.\(sanitized)"
-                session.shapeDataProperties.append(
-                    ShapeDataPropertyItem(
-                        rowKey: rowKey,
-                        label: sanitized,
-                        dataType: "String",
-                        formula: newPropertyFormula,
-                        evaluatedValue: newPropertyFormula.replacingOccurrences(of: "\"", with: "")
+                        )
                     )
-                )
-                try? session.setCellFormula(
-                    cellName: rowKey,
-                    formula: newPropertyFormula,
-                    mode: .forceSetF,
-                    undoManager: undoManager
-                )
-                newPropertyKey = ""
+                    .font(.system(size: 11))
+                    .help("Hide text caption while keeping shape geometry visible (HideText)")
+                }
+            } label: {
+                sectionHeaderLabel(i18n.t("font"), icon: "textformat")
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.small)
+            .padding(9)
+            .background(RoundedRectangle(cornerRadius: 9).fill(Color.primary.opacity(0.035)))
+
+            // 1D. EFFECTS SECTION
+            DisclosureGroup(isExpanded: $isEffectsExpanded) {
+                LazyVGrid(
+                    columns: [GridItem(.flexible(), spacing: 6), GridItem(.flexible(), spacing: 6)],
+                    spacing: 6
+                ) {
+                    ForEach(VexioVisualEffectPreset.allCases) { preset in
+                        let isSelectedPreset = (session.activeVisualPresetSlug == preset.rawValue)
+                        Button {
+                            session.applyVisualPreset(preset, undoManager: undoManager)
+                        } label: {
+                            HStack(spacing: 5) {
+                                Image(systemName: preset.symbolName)
+                                    .font(.system(size: 11, weight: .medium))
+                                    .foregroundStyle(isSelectedPreset ? Color.accentColor : Color.secondary)
+                                Text(preset.displayName)
+                                    .font(.system(size: 10.5, weight: isSelectedPreset ? .semibold : .regular))
+                                    .lineLimit(1)
+                                Spacer(minLength: 0)
+                            }
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 5.5)
+                            .background(
+                                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                    .fill(isSelectedPreset ? Color.accentColor.opacity(0.16) : Color.primary.opacity(0.045))
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .help("Apply \(preset.displayName) effect")
+                    }
+                }
+                .padding(.top, 4)
+            } label: {
+                sectionHeaderLabel(i18n.t("effectsSection"), icon: "sparkles")
+            }
+            .padding(9)
+            .background(RoundedRectangle(cornerRadius: 9).fill(Color.primary.opacity(0.035)))
         }
     }
 
-    // 4. Layers Tab
-    private var layersInspectorSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("VISIO & CAD LAYER MANAGER")
-                .font(.system(size: 10.5, weight: .bold))
-                .foregroundStyle(.secondary)
+    // MARK: - Pane 2: MS Visio "Size & Position" + Arrange + Protection
 
-            ForEach($session.layers) { $layer in
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack {
-                        Text(layer.name)
-                            .font(.system(size: 12, weight: .medium))
-                        Spacer()
-                        Button("Assign Shape") {
-                            try? session.setCellFormula(
-                                cellName: "LayerMember",
-                                formula: "\"\(layer.id)\"",
-                                mode: .respectGuard,
+    @ViewBuilder
+    private func sizeAndPositionPane(_ obj: InspectedObjectState) -> some View {
+        let unit = i18n.unitPreference
+        let unitSuffix = unit.resolvedEngineSlug
+
+        VStack(alignment: .leading, spacing: 10) {
+            inspectorCard(title: "\(i18n.t("sizeAndPosition")) (\(unitSuffix))", icon: "ruler") {
+                VStack(alignment: .leading, spacing: 7) {
+                    HStack(spacing: 8) {
+                        InspectorUnitField(
+                            label: "X",
+                            unitSuffix: unitSuffix,
+                            displayValue: unit.numericDisplayFromInches(obj.pinXIn),
+                            tooltip: "PinX horizontal center position (\(unitSuffix))"
+                        ) { raw in
+                            session.setCellForSelection(
+                                cellName: "PinX",
+                                formula: unit.formulaFromUserInput(raw),
+                                actionLabel: "Set X Position",
                                 undoManager: undoManager
                             )
                         }
-                        .buttonStyle(.bordered)
-                        .controlSize(.mini)
-                    }
 
-                    HStack(spacing: 12) {
-                        Toggle("Visible", isOn: $layer.isVisible)
-                        Toggle("Lock", isOn: $layer.isLocked)
-                        Toggle("Snap", isOn: $layer.isSnapGlueEnabled)
-                    }
-                    .toggleStyle(.checkbox)
-                    .font(.system(size: 11))
-                }
-                .padding(8)
-                .background(RoundedRectangle(cornerRadius: 8).fill(Color.primary.opacity(0.04)))
-            }
-        }
-    }
-
-    // 5. Data Graphics Tab
-    private var dataGraphicsInspectorSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("DATA GRAPHICS & LEGENDS")
-                .font(.system(size: 10.5, weight: .bold))
-                .foregroundStyle(.secondary)
-
-            Toggle("Enable Live Data Graphics Overlay", isOn: $session.dataGraphicConfig.isEnabled)
-                .font(.system(size: 12, weight: .medium))
-
-            Group {
-                LabeledContent("Icon Set Binding") {
-                    TextField("Prop.Status", text: $session.dataGraphicConfig.iconSetField)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(width: 135)
-                }
-                LabeledContent("Data Bar Binding") {
-                    TextField("Prop.CompletionPct", text: $session.dataGraphicConfig.dataBarField)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(width: 135)
-                }
-                LabeledContent("Text Callout") {
-                    TextField("Prop.Department", text: $session.dataGraphicConfig.textCalloutField)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(width: 135)
-                }
-            }
-            .font(.system(size: 11.5))
-
-            Toggle("Color by Value", isOn: $session.dataGraphicConfig.colorByValueEnabled)
-                .font(.system(size: 11.5))
-
-            Toggle("Display Data Graphic Legend on Page", isOn: $session.dataGraphicConfig.showLegendOnPage)
-                .font(.system(size: 11.5))
-        }
-    }
-
-    // 6. Diagram Validation Tab (BPMN 2.0 / UML 2.5 / SharePoint)
-    private var validationInspectorSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("STRUCTURAL RULE VALIDATOR")
-                .font(.system(size: 10.5, weight: .bold))
-                .foregroundStyle(.secondary)
-
-            HStack(spacing: 6) {
-                ForEach(ValidationStandardKind.allCases) { standard in
-                    Button(standard.rawValue) {
-                        session.runDiagramValidation(standard: standard)
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                }
-            }
-
-            if session.validationDiagnostics.isEmpty {
-                Text("Select BPMN 2.0, UML 2.5, or SharePoint to run deterministic graph validation.")
-                    .font(.system(size: 11.5))
-                    .foregroundStyle(.secondary)
-                    .padding(.top, 4)
-            } else {
-                ForEach(session.validationDiagnostics) { item in
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack {
-                            Image(
-                                systemName: item.severity == .error
-                                    ? "xmark.octagon.fill"
-                                    : (item.severity == .warning ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
+                        InspectorUnitField(
+                            label: "Y",
+                            unitSuffix: unitSuffix,
+                            displayValue: unit.numericDisplayFromInches(obj.pinYIn),
+                            tooltip: "PinY vertical center position (\(unitSuffix))"
+                        ) { raw in
+                            session.setCellForSelection(
+                                cellName: "PinY",
+                                formula: unit.formulaFromUserInput(raw),
+                                actionLabel: "Set Y Position",
+                                undoManager: undoManager
                             )
-                            .foregroundStyle(
-                                item.severity == .error ? .red : (item.severity == .warning ? .orange : .green)
-                            )
-                            Text(item.ruleId)
-                                .font(.system(size: 11, weight: .bold, design: .monospaced))
-                            Spacer()
-                            Text("Sheet.\(item.shapeId)")
-                                .font(.system(size: 10, design: .monospaced))
-                                .foregroundStyle(.secondary)
                         }
-                        Text(item.message)
-                            .font(.system(size: 11))
-                            .fixedSize(horizontal: false, vertical: true)
                     }
-                    .padding(8)
-                    .background(RoundedRectangle(cornerRadius: 8).fill(Color.primary.opacity(0.05)))
-                    .onTapGesture {
-                        session.selectedShapeId = item.shapeId
-                        session.reloadSelectedShapeSheetCells()
+
+                    HStack(spacing: 8) {
+                        InspectorUnitField(
+                            label: i18n.t("width"),
+                            unitSuffix: unitSuffix,
+                            displayValue: unit.numericDisplayFromInches(obj.widthIn),
+                            tooltip: "Shape Width (\(unitSuffix))"
+                        ) { raw in
+                            session.setCellForSelection(
+                                cellName: "Width",
+                                formula: unit.formulaFromUserInput(raw),
+                                actionLabel: "Set Width",
+                                undoManager: undoManager
+                            )
+                        }
+
+                        InspectorUnitField(
+                            label: i18n.t("height"),
+                            unitSuffix: unitSuffix,
+                            displayValue: unit.numericDisplayFromInches(obj.heightIn),
+                            tooltip: "Shape Height (\(unitSuffix))"
+                        ) { raw in
+                            session.setCellForSelection(
+                                cellName: "Height",
+                                formula: unit.formulaFromUserInput(raw),
+                                actionLabel: "Set Height",
+                                undoManager: undoManager
+                            )
+                        }
+                    }
+
+                    HStack(spacing: 8) {
+                        InspectorUnitField(
+                            label: i18n.t("angle"),
+                            unitSuffix: "deg",
+                            displayValue: String(format: "%.1f", obj.angleDeg),
+                            tooltip: "Rotation Angle in degrees"
+                        ) { raw in
+                            let clean = raw.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: ",", with: ".")
+                            let formula = clean.hasPrefix("=") || clean.contains("deg") || clean.contains("rad")
+                                ? clean
+                                : "\(clean.isEmpty ? "0" : clean) deg"
+                            session.setCellForSelection(
+                                cellName: "Angle",
+                                formula: formula,
+                                actionLabel: "Set Angle",
+                                undoManager: undoManager
+                            )
+                        }
+
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(i18n.t("pinAnchor"))
+                                .font(.system(size: 10, weight: .medium))
+                                .foregroundStyle(.secondary)
+                            Menu {
+                                Button("Center-Center (Width*0.5, Height*0.5)") {
+                                    session.setCellForSelection(cellName: "LocPinX", formula: "=Width*0.5", undoManager: undoManager)
+                                    session.setCellForSelection(cellName: "LocPinY", formula: "=Height*0.5", undoManager: undoManager)
+                                }
+                                Button("Bottom-Left (0, 0)") {
+                                    session.setCellForSelection(cellName: "LocPinX", formula: "0 in", undoManager: undoManager)
+                                    session.setCellForSelection(cellName: "LocPinY", formula: "0 in", undoManager: undoManager)
+                                }
+                                Button("Top-Left (0, Height)") {
+                                    session.setCellForSelection(cellName: "LocPinX", formula: "0 in", undoManager: undoManager)
+                                    session.setCellForSelection(cellName: "LocPinY", formula: "=Height*1", undoManager: undoManager)
+                                }
+                            } label: {
+                                Label("Center", systemImage: "scope")
+                                    .font(.system(size: 10.5))
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .controlSize(.small)
+                            .help("Visio Pin Pos anchor (LocPinX / LocPinY)")
+                        }
+                        .frame(maxWidth: .infinity)
+                    }
+
+                    if obj.isConnector1D,
+                       let bx = obj.beginXIn, let by = obj.beginYIn,
+                       let ex = obj.endXIn, let ey = obj.endYIn {
+                        Divider()
+                        HStack(spacing: 8) {
+                            InspectorUnitField(
+                                label: "Begin X",
+                                unitSuffix: unitSuffix,
+                                displayValue: unit.numericDisplayFromInches(bx),
+                                tooltip: "1D Connector BeginX"
+                            ) { raw in
+                                session.setCellForSelection(cellName: "BeginX", formula: unit.formulaFromUserInput(raw), undoManager: undoManager)
+                            }
+                            InspectorUnitField(
+                                label: "Begin Y",
+                                unitSuffix: unitSuffix,
+                                displayValue: unit.numericDisplayFromInches(by),
+                                tooltip: "1D Connector BeginY"
+                            ) { raw in
+                                session.setCellForSelection(cellName: "BeginY", formula: unit.formulaFromUserInput(raw), undoManager: undoManager)
+                            }
+                        }
+                        HStack(spacing: 8) {
+                            InspectorUnitField(
+                                label: "End X",
+                                unitSuffix: unitSuffix,
+                                displayValue: unit.numericDisplayFromInches(ex),
+                                tooltip: "1D Connector EndX"
+                            ) { raw in
+                                session.setCellForSelection(cellName: "EndX", formula: unit.formulaFromUserInput(raw), undoManager: undoManager)
+                            }
+                            InspectorUnitField(
+                                label: "End Y",
+                                unitSuffix: unitSuffix,
+                                displayValue: unit.numericDisplayFromInches(ey),
+                                tooltip: "1D Connector EndY"
+                            ) { raw in
+                                session.setCellForSelection(cellName: "EndY", formula: unit.formulaFromUserInput(raw), undoManager: undoManager)
+                            }
+                        }
+                    }
+
+                    Divider()
+
+                    // Quick Transform & Z-Order Row
+                    HStack(spacing: 4) {
+                        LiquidGlassIconButton(systemImage: "rotate.left", title: i18n.t("rotateLeft")) {
+                            session.rotateOrFlipSelectedShapes(deltaDegrees: 90.0, undoManager: undoManager)
+                        }
+                        LiquidGlassIconButton(systemImage: "rotate.right", title: i18n.t("rotateRight")) {
+                            session.rotateOrFlipSelectedShapes(deltaDegrees: -90.0, undoManager: undoManager)
+                        }
+                        LiquidGlassIconButton(systemImage: "arrow.left.and.right.righttriangle.left.righttriangle.right", title: i18n.t("flipH"), isActive: obj.flipX) {
+                            session.rotateOrFlipSelectedShapes(toggleFlipX: true, undoManager: undoManager)
+                        }
+                        LiquidGlassIconButton(systemImage: "arrow.up.and.down.righttriangle.up.righttriangle.down", title: i18n.t("flipV"), isActive: obj.flipY) {
+                            session.rotateOrFlipSelectedShapes(toggleFlipY: true, undoManager: undoManager)
+                        }
+                        Divider().frame(height: 16)
+                        LiquidGlassIconButton(systemImage: "square.2.layers.3d.top.filled", title: "Bring to Front") {
+                            session.reorderSelectedShapes(mode: "front", undoManager: undoManager)
+                        }
+                        LiquidGlassIconButton(systemImage: "square.2.layers.3d.bottom.filled", title: "Send to Back") {
+                            session.reorderSelectedShapes(mode: "back", undoManager: undoManager)
+                        }
+                        Spacer()
+                        if session.canUngroupSelectedShapes {
+                            Button("Ungroup") {
+                                session.ungroupSelectedShapes(undoManager: undoManager)
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.mini)
+                            .help("Ungroup Selected Group (⇧⌘G)")
+                        } else if session.canGroupSelectedShapes {
+                            Button("Group") {
+                                session.groupSelectedShapes(undoManager: undoManager)
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.mini)
+                            .help("Group Selected Objects (⌘G)")
+                        }
+                    }
+                }
+            }
+
+            // Protection Section (MS Visio Developer -> Protection)
+            inspectorCard(title: i18n.t("protection"), icon: "lock.shield") {
+                VStack(alignment: .leading, spacing: 5) {
+                    Toggle(i18n.t("lockAspect"), isOn: Binding(
+                        get: { obj.lockAspect },
+                        set: { v in session.setCellForSelection(cellName: "LockAspect", formula: v ? "TRUE" : "FALSE", forceSetF: true, undoManager: undoManager) }
+                    ))
+                    .help("Preserve Width:Height ratio when resizing (LockAspect)")
+
+                    Toggle(i18n.t("lockSize"), isOn: Binding(
+                        get: { obj.lockWidth && obj.lockHeight },
+                        set: { v in
+                            let f = v ? "TRUE" : "FALSE"
+                            session.setCellForSelection(cellName: "LockWidth", formula: f, forceSetF: true, undoManager: undoManager)
+                            session.setCellForSelection(cellName: "LockHeight", formula: f, forceSetF: true, undoManager: undoManager)
+                        }
+                    ))
+                    .help("Prevent interactive Width/Height resize (LockWidth & LockHeight)")
+
+                    Toggle(i18n.t("lockPosition"), isOn: Binding(
+                        get: { obj.lockMoveX && obj.lockMoveY },
+                        set: { v in
+                            let f = v ? "TRUE" : "FALSE"
+                            session.setCellForSelection(cellName: "LockMoveX", formula: f, forceSetF: true, undoManager: undoManager)
+                            session.setCellForSelection(cellName: "LockMoveY", formula: f, forceSetF: true, undoManager: undoManager)
+                        }
+                    ))
+                    .help("Lock PinX & PinY position on page (LockMoveX & LockMoveY)")
+
+                    Toggle(i18n.t("lockRotation"), isOn: Binding(
+                        get: { obj.lockRotate },
+                        set: { v in session.setCellForSelection(cellName: "LockRotate", formula: v ? "TRUE" : "FALSE", forceSetF: true, undoManager: undoManager) }
+                    ))
+                    .help("Prevent interactive rotation (LockRotate)")
+
+                    Toggle(i18n.t("lockDelete"), isOn: Binding(
+                        get: { obj.lockDelete },
+                        set: { v in session.setCellForSelection(cellName: "LockDelete", formula: v ? "TRUE" : "FALSE", forceSetF: true, undoManager: undoManager) }
+                    ))
+                    .help("Protect shape from accidental deletion (LockDelete)")
+                }
+                .toggleStyle(.checkbox)
+                .font(.system(size: 11.5))
+            }
+
+            Button {
+                onInspectCellInShapeSheet("Width")
+            } label: {
+                Label(i18n.t("openShapeSheet"), systemImage: "function")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .help("Inspect all ShapeSheet formulas and GUARD expressions (⇧⌘F5)")
+        }
+    }
+
+    // MARK: - Pane 3: MS Visio "Shape Data" (Prop.* Custom Properties & Data Graphics)
+
+    @ViewBuilder
+    private func shapeDataPane(_ obj: InspectedObjectState) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            inspectorCard(title: "\(i18n.t("inspectorData")) (Prop.*)", icon: "list.bullet.rectangle") {
+                VStack(alignment: .leading, spacing: 8) {
+                    if session.shapeDataProperties.isEmpty {
+                        Text(i18n.t("noShapeData"))
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                            .padding(.vertical, 4)
+                    } else {
+                        ForEach(session.shapeDataProperties) { prop in
+                            InspectorShapeDataRowEditor(
+                                item: prop,
+                                onCommitValue: { newVal in
+                                    session.upsertSelectedShapeData(
+                                        rowName: prop.rowName,
+                                        label: prop.label,
+                                        dataType: prop.dataTypeCode,
+                                        value: newVal,
+                                        undoManager: undoManager
+                                    )
+                                },
+                                onDelete: {
+                                    session.deleteSelectedShapeData(rowName: prop.rowName, undoManager: undoManager)
+                                },
+                                onInspectFormula: {
+                                    onInspectCellInShapeSheet(prop.rowKey)
+                                }
+                            )
+                        }
+                    }
+
+                    Divider()
+
+                    // Define New Shape Data Field (MS Visio "Define Shape Data...")
+                    Text(i18n.t("addDataField"))
+                        .font(.system(size: 10.5, weight: .semibold))
+                        .foregroundStyle(.secondary)
+
+                    HStack(spacing: 6) {
+                        TextField(i18n.t("fieldName"), text: $newPropName)
+                            .textFieldStyle(.roundedBorder)
+                            .font(.system(size: 11))
+                            .help("Property key (e.g. Owner, AssetTag, Cost, IPAddress)")
+
+                        Picker("", selection: $newPropType) {
+                            Text("String").tag(UInt8(0))
+                            Text("Number").tag(UInt8(2))
+                            Text("Boolean").tag(UInt8(3))
+                            Text("Date").tag(UInt8(5))
+                            Text("Currency").tag(UInt8(7))
+                        }
+                        .labelsHidden()
+                        .frame(width: 86)
+                        .controlSize(.small)
+                        .help("Visio Shape Data Type")
+                    }
+
+                    HStack(spacing: 6) {
+                        TextField("Label (optional)", text: $newPropLabel)
+                            .textFieldStyle(.roundedBorder)
+                            .font(.system(size: 11))
+
+                        TextField(i18n.t("fieldValue"), text: $newPropValue)
+                            .textFieldStyle(.roundedBorder)
+                            .font(.system(size: 11))
+                            .onSubmit {
+                                commitNewShapeDataField()
+                            }
+                    }
+
+                    Button {
+                        commitNewShapeDataField()
+                    } label: {
+                        Label(i18n.t("addDataField"), systemImage: "plus.circle.fill")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                    .disabled(newPropName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .help("Add custom Prop.* field to Sheet.\(obj.id)")
+                }
+            }
+
+            // Data Graphics Overlay Bindings
+            inspectorCard(title: "Data Graphics", icon: "chart.bar.xaxis") {
+                VStack(alignment: .leading, spacing: 6) {
+                    Toggle("Show Data Graphics Overlay", isOn: $session.dataGraphicConfig.isEnabled)
+                        .font(.system(size: 11.5, weight: .medium))
+
+                    LabeledContent("Icon Set") {
+                        TextField("Prop.Status", text: $session.dataGraphicConfig.iconSetField)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 128)
+                    }
+                    .font(.system(size: 11))
+
+                    LabeledContent("Data Bar") {
+                        TextField("Prop.CompletionPct", text: $session.dataGraphicConfig.dataBarField)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 128)
+                    }
+                    .font(.system(size: 11))
+
+                    LabeledContent("Callout") {
+                        TextField("Prop.Owner", text: $session.dataGraphicConfig.textCalloutField)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 128)
+                    }
+                    .font(.system(size: 11))
+
+                    Toggle("Color by Value", isOn: $session.dataGraphicConfig.colorByValueEnabled)
+                        .font(.system(size: 11))
+                }
+            }
+        }
+    }
+
+    private func commitNewShapeDataField() {
+        let trimmedKey = newPropName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedKey.isEmpty else { return }
+        let label = newPropLabel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? trimmedKey : newPropLabel
+        session.upsertSelectedShapeData(
+            rowName: trimmedKey,
+            label: label,
+            dataType: newPropType,
+            value: newPropValue,
+            undoManager: undoManager
+        )
+        newPropName = ""
+        newPropLabel = ""
+        newPropValue = ""
+    }
+
+    // MARK: - Pane 4: MS Visio "Layer Properties" & Object Layer Assignment
+
+    @ViewBuilder
+    private func layersPane(selectedObject: InspectedObjectState?) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            inspectorCard(
+                title: selectedObject != nil ? i18n.t("layerMembership") : i18n.t("pageLayers"),
+                icon: "square.3.layers.3d"
+            ) {
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(session.layers) { layer in
+                        let isAssigned = selectedObject?.layerIndices.contains(layer.id) ?? false
+                        HStack(spacing: 6) {
+                            if selectedObject != nil {
+                                Toggle(
+                                    "",
+                                    isOn: Binding(
+                                        get: { isAssigned },
+                                        set: { checked in
+                                            session.setSelectedShapeLayerMembership(
+                                                layerId: layer.id,
+                                                assigned: checked,
+                                                undoManager: undoManager
+                                            )
+                                        }
+                                    )
+                                )
+                                .toggleStyle(.checkbox)
+                                .labelsHidden()
+                                .help(isAssigned ? "Remove object from '\(layer.name)'" : "Assign object to '\(layer.name)'")
+                            }
+
+                            Circle()
+                                .fill(Color(vexioHex: layer.accentHex))
+                                .frame(width: 8, height: 8)
+
+                            Text(layer.name)
+                                .font(.system(size: 11.5, weight: isAssigned ? .semibold : .regular))
+                                .lineLimit(1)
+
+                            Text("\(layer.memberCount)")
+                                .font(.system(size: 9.5, weight: .medium, design: .monospaced))
+                                .foregroundStyle(.secondary)
+                                .padding(.horizontal, 4.5)
+                                .padding(.vertical, 1)
+                                .background(Capsule().fill(Color.primary.opacity(0.07)))
+                                .help("\(layer.memberCount) object(s) on '\(layer.name)'")
+
+                            Spacer(minLength: 2)
+
+                            // Visible Toggle
+                            Button {
+                                session.updatePageLayerFlags(
+                                    layerId: layer.id,
+                                    visible: !layer.isVisible,
+                                    locked: layer.isLocked,
+                                    printable: layer.isPrintable,
+                                    snapGlue: layer.isSnapGlueEnabled,
+                                    undoManager: undoManager
+                                )
+                            } label: {
+                                Image(systemName: layer.isVisible ? "eye" : "eye.slash")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(layer.isVisible ? Color.primary : Color.secondary)
+                                    .frame(width: 22, height: 22)
+                            }
+                            .buttonStyle(.plain)
+                            .help(layer.isVisible ? "Hide Layer '\(layer.name)'" : "Show Layer '\(layer.name)'")
+
+                            // Lock Toggle
+                            Button {
+                                session.updatePageLayerFlags(
+                                    layerId: layer.id,
+                                    visible: layer.isVisible,
+                                    locked: !layer.isLocked,
+                                    printable: layer.isPrintable,
+                                    snapGlue: layer.isSnapGlueEnabled,
+                                    undoManager: undoManager
+                                )
+                            } label: {
+                                Image(systemName: layer.isLocked ? "lock.fill" : "lock.open")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(layer.isLocked ? Color.orange : Color.secondary)
+                                    .frame(width: 22, height: 22)
+                            }
+                            .buttonStyle(.plain)
+                            .help(layer.isLocked ? "Unlock Layer '\(layer.name)'" : "Lock Layer '\(layer.name)'")
+
+                            // Print Toggle
+                            Button {
+                                session.updatePageLayerFlags(
+                                    layerId: layer.id,
+                                    visible: layer.isVisible,
+                                    locked: layer.isLocked,
+                                    printable: !layer.isPrintable,
+                                    snapGlue: layer.isSnapGlueEnabled,
+                                    undoManager: undoManager
+                                )
+                            } label: {
+                                Image(systemName: layer.isPrintable ? "printer.fill" : "printer")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(layer.isPrintable ? Color.primary : Color.secondary.opacity(0.5))
+                                    .frame(width: 22, height: 22)
+                            }
+                            .buttonStyle(.plain)
+                            .help(layer.isPrintable ? "Disable Printing for '\(layer.name)'" : "Enable Printing for '\(layer.name)'")
+
+                            // Snap & Glue Toggle
+                            Button {
+                                session.updatePageLayerFlags(
+                                    layerId: layer.id,
+                                    visible: layer.isVisible,
+                                    locked: layer.isLocked,
+                                    printable: layer.isPrintable,
+                                    snapGlue: !layer.isSnapGlueEnabled,
+                                    undoManager: undoManager
+                                )
+                            } label: {
+                                Image(systemName: "scope")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(layer.isSnapGlueEnabled ? Color.accentColor : Color.secondary.opacity(0.45))
+                                    .frame(width: 22, height: 22)
+                            }
+                            .buttonStyle(.plain)
+                            .help(layer.isSnapGlueEnabled ? "Disable Snap & Glue on '\(layer.name)'" : "Enable Snap & Glue on '\(layer.name)'")
+                        }
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 5)
+                        .background(
+                            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                .fill(isAssigned ? Color.accentColor.opacity(0.11) : Color.primary.opacity(0.035))
+                        )
+                    }
+
+                    Divider()
+
+                    HStack(spacing: 6) {
+                        TextField(i18n.t("newLayerPlaceholder"), text: $newLayerNameDraft)
+                            .textFieldStyle(.roundedBorder)
+                            .font(.system(size: 11))
+                            .onSubmit {
+                                guard !newLayerNameDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+                                session.addPageLayer(name: newLayerNameDraft, undoManager: undoManager)
+                                newLayerNameDraft = ""
+                            }
+
+                        Button {
+                            session.addPageLayer(name: newLayerNameDraft, undoManager: undoManager)
+                            newLayerNameDraft = ""
+                        } label: {
+                            Image(systemName: "plus")
+                                .font(.system(size: 11, weight: .bold))
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
+                        .help(i18n.t("addLayer"))
                     }
                 }
             }
         }
+    }
+
+    // MARK: - Inspector Reusable Subcomponents
+
+    @ViewBuilder
+    private func sectionHeaderLabel(_ title: String, icon: String) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: icon)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(Color.accentColor)
+            Text(title)
+                .font(.system(size: 11.5, weight: .semibold))
+        }
+    }
+
+    @ViewBuilder
+    private func inspectorCard<Content: View>(title: String, icon: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            sectionHeaderLabel(title, icon: icon)
+            content()
+        }
+        .padding(9)
+        .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(Color.primary.opacity(0.035)))
+        .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(Color.primary.opacity(0.07), lineWidth: 0.8))
+    }
+
+    @ViewBuilder
+    private func fillModeChip(title: String, active: Bool, tip: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 10.5, weight: active ? .semibold : .regular))
+                .lineLimit(1)
+                .minimumScaleFactor(0.85)
+                .foregroundStyle(active ? Color.accentColor : Color.primary)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 4.5)
+                .padding(.horizontal, 4)
+                .background(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(active ? Color.accentColor.opacity(0.18) : Color.primary.opacity(0.05))
+                )
+        }
+        .buttonStyle(.plain)
+        .help(tip)
+    }
+
+    @ViewBuilder
+    private func inspectorSmallToggleButton(
+        _ char: String,
+        bold: Bool = false,
+        italic: Bool = false,
+        underline: Bool = false,
+        active: Bool,
+        tip: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Text(char)
+                .font(.system(size: 11.5, weight: bold ? .bold : .semibold))
+                .italic(italic)
+                .underline(underline)
+                .frame(width: 24, height: 24)
+                .background(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(active ? Color.accentColor.opacity(0.22) : Color.primary.opacity(0.05))
+                )
+        }
+        .buttonStyle(.plain)
+        .help(tip)
     }
 }
 
-private struct InspectorCellRowEditor: View {
-    let cellName: String
-    let formula: String
-    let evaluated: String
-    let onCommitStandard: (String) -> Void
-    let onInspectInShapeSheet: () -> Void
+private struct InspectorUnitField: View {
+    let label: String
+    let unitSuffix: String
+    let displayValue: String
+    let tooltip: String
+    let onCommit: (String) -> Void
 
     @State private var draft: String = ""
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            HStack {
-                Text(cellName)
-                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                if formula.uppercased().hasPrefix("GUARD(") {
-                    Label("GUARD", systemImage: "lock.fill")
-                        .font(.system(size: 9.5, weight: .bold))
-                        .foregroundStyle(.orange)
-                }
-                Spacer()
-                Button("fx") {
-                    onInspectInShapeSheet()
-                }
-                .buttonStyle(.borderless)
-                .font(.system(size: 10.5, weight: .bold, design: .monospaced))
-                .help("Inspect \(cellName) in ShapeSheet")
-            }
-
-            HStack(spacing: 6) {
-                TextField(formula, text: $draft)
-                    .textFieldStyle(.roundedBorder)
-                    .font(.system(size: 11, design: .monospaced))
-                    .onSubmit {
-                        onCommitStandard(draft)
-                    }
-                Text("= \(evaluated)")
-                    .font(.system(size: 10.5, design: .monospaced))
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 3) {
+                Text(label)
+                    .font(.system(size: 10, weight: .medium))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
+                Spacer(minLength: 0)
+                Text(unitSuffix)
+                    .font(.system(size: 9.5, design: .monospaced))
+                    .foregroundStyle(.tertiary)
+            }
+            TextField(displayValue, text: $draft)
+                .textFieldStyle(.roundedBorder)
+                .font(.system(size: 11.5, design: .monospaced))
+                .onSubmit {
+                    onCommit(draft)
+                }
+        }
+        .frame(maxWidth: .infinity)
+        .help(tooltip)
+        .onAppear { draft = displayValue }
+        .onChange(of: displayValue) { _, updated in draft = updated }
+    }
+}
+
+private struct InspectorShapeDataRowEditor: View {
+    let item: ShapeDataPropertyItem
+    let onCommitValue: (String) -> Void
+    let onDelete: () -> Void
+    let onInspectFormula: () -> Void
+
+    @State private var draft: String = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 5) {
+                Text(item.label)
+                    .font(.system(size: 11.5, weight: .semibold))
+                    .lineLimit(1)
+                Text(item.dataType)
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 4.5)
+                    .padding(.vertical, 1)
+                    .background(Capsule().fill(Color.primary.opacity(0.07)))
+                Spacer(minLength: 2)
+                Button("fx") {
+                    onInspectFormula()
+                }
+                .buttonStyle(.borderless)
+                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                .help("Inspect \(item.rowKey) in ShapeSheet")
+
+                Button {
+                    onDelete()
+                } label: {
+                    Image(systemName: "trash")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("Delete \(item.rowKey)")
+            }
+
+            if item.dataTypeCode == 3 {
+                Toggle(
+                    item.rowKey,
+                    isOn: Binding(
+                        get: {
+                            let lower = item.evaluatedValue.lowercased()
+                            return lower == "true" || lower == "1"
+                        },
+                        set: { checked in
+                            onCommitValue(checked ? "TRUE" : "FALSE")
+                        }
+                    )
+                )
+                .toggleStyle(.switch)
+                .controlSize(.mini)
+                .font(.system(size: 10.5, design: .monospaced))
+            } else {
+                HStack(spacing: 5) {
+                    TextField(item.evaluatedValue, text: $draft)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(size: 11))
+                        .onSubmit {
+                            onCommitValue(draft)
+                        }
+                    Button("Set") {
+                        onCommitValue(draft)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.mini)
+                    .help("Save \(item.rowKey)")
+                }
             }
         }
-        .onAppear { draft = formula }
-        .onChange(of: formula) { _, updated in draft = updated }
+        .padding(7)
+        .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(Color.primary.opacity(0.04)))
+        .onAppear { draft = item.evaluatedValue }
+        .onChange(of: item.evaluatedValue) { _, updated in draft = updated }
     }
 }
 

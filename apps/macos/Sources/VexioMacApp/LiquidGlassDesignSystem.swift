@@ -117,6 +117,7 @@ public struct LiquidGlassSurfaceModifier: ViewModifier {
                     .onAppear { viewSize = proxy.size }
                     .onChange(of: proxy.size) { _, updated in viewSize = updated }
                 }
+                .allowsHitTesting(false)
             )
             .overlay(
                 // 4. Specular Rim-Light Depth Highlight (incident top-left optical bevel + counter-rim)
@@ -134,6 +135,7 @@ public struct LiquidGlassSurfaceModifier: ViewModifier {
                         ),
                         lineWidth: 1.0
                     )
+                    .allowsHitTesting(false)
             )
             .shadow(
                 color: Color.black.opacity(colorScheme == .dark ? 0.42 : 0.14),
@@ -141,18 +143,6 @@ public struct LiquidGlassSurfaceModifier: ViewModifier {
                 x: 0,
                 y: elevation.shadowYOffset
             )
-            .onContinuousHover { phase in
-                switch phase {
-                case .active(let location):
-                    withAnimation(LiquidGlassPhysics.microLensSpring) {
-                        hoverPoint = location
-                    }
-                case .ended:
-                    withAnimation(LiquidGlassPhysics.standardSpring) {
-                        hoverPoint = nil
-                    }
-                }
-            }
     }
 }
 
@@ -233,6 +223,8 @@ public struct LiquidGlassFloatingPalette: View {
     @Namespace private var activeLensNamespace
     @State private var dragDisplacement: CGSize = .zero
     @State private var committedOffset: CGSize = .zero
+    @State private var hoveredTool: VexioCanvasTool? = nil
+    @State private var hoveredRowIndex: Int = 0
 
     private let paletteColumns = [
         GridItem(.fixed(32), spacing: 4),
@@ -244,18 +236,41 @@ public struct LiquidGlassFloatingPalette: View {
     }
 
     public var body: some View {
+        let allTools = Array(VexioCanvasTool.allCases.enumerated())
+
         VStack(spacing: 5) {
-            // Subtle tactile grab handle for repositioning over the Metal canvas
-            Capsule()
-                .fill(Color.secondary.opacity(0.38))
-                .frame(width: 24, height: 4)
-                .padding(.top, 6)
-                .padding(.bottom, 1)
-                .help("Drag floating Liquid Glass drawing tool palette")
+            // Dedicated tactile grab handle for repositioning over the Metal canvas (does not intercept tool button hover/tooltips)
+            HStack {
+                Spacer(minLength: 0)
+                Capsule()
+                    .fill(Color.secondary.opacity(0.42))
+                    .frame(width: 28, height: 4.5)
+                Spacer(minLength: 0)
+            }
+            .padding(.top, 6)
+            .padding(.bottom, 2)
+            .contentShape(Rectangle())
+            .help("Drag to reposition tool palette")
+            .gesture(
+                DragGesture()
+                    .onChanged { value in
+                        dragDisplacement = value.translation
+                    }
+                    .onEnded { value in
+                        withAnimation(LiquidGlassPhysics.standardSpring) {
+                            committedOffset = CGSize(
+                                width: min(max(committedOffset.width + value.translation.width, -12), 520),
+                                height: min(max(committedOffset.height + value.translation.height, -120), 260)
+                            )
+                            dragDisplacement = .zero
+                        }
+                    }
+            )
 
             LazyVGrid(columns: paletteColumns, spacing: 4) {
-                ForEach(VexioCanvasTool.allCases) { tool in
+                ForEach(allTools, id: \.element.id) { idx, tool in
                     let isSelected = (selectedTool == tool)
+                    let isHovered = (hoveredTool == tool)
                     Button {
                         withAnimation(LiquidGlassPhysics.standardSpring) {
                             selectedTool = tool
@@ -280,6 +295,9 @@ public struct LiquidGlassFloatingPalette: View {
                                     )
                                     .shadow(color: Color.accentColor.opacity(0.32), radius: 5, x: 0, y: 2)
                                     .matchedGeometryEffect(id: "ActiveToolGlassLens", in: activeLensNamespace)
+                            } else if isHovered {
+                                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                                    .fill(Color.primary.opacity(0.09))
                             }
 
                             Image(systemName: tool.symbolName)
@@ -290,6 +308,16 @@ public struct LiquidGlassFloatingPalette: View {
                         .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
                     }
                     .buttonStyle(.plain)
+                    .onHover { inside in
+                        withAnimation(.easeOut(duration: 0.14)) {
+                            if inside {
+                                hoveredTool = tool
+                                hoveredRowIndex = idx / 2
+                            } else if hoveredTool == tool {
+                                hoveredTool = nil
+                            }
+                        }
+                    }
                     .help("\(tool.rawValue) (\(tool.shortcutHint))")
                 }
             }
@@ -298,24 +326,43 @@ public struct LiquidGlassFloatingPalette: View {
         .padding(.bottom, 8)
         .frame(width: 82)
         .liquidGlassSurface(cornerRadius: 16, elevation: .floatingPalette)
+        .overlay(alignment: .topLeading) {
+            if let tool = hoveredTool {
+                HStack(spacing: 6) {
+                    Text(tool.rawValue)
+                        .font(.system(size: 11.5, weight: .semibold))
+                        .foregroundStyle(.primary)
+                    Text(tool.shortcutHint)
+                        .font(.system(size: 10, weight: .bold, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1.5)
+                        .background(
+                            RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                .fill(Color.primary.opacity(0.09))
+                        )
+                }
+                .padding(.horizontal, 9)
+                .padding(.vertical, 5)
+                .fixedSize()
+                .background(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(.regularMaterial)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .strokeBorder(Color.primary.opacity(0.14), lineWidth: 0.8)
+                )
+                .shadow(color: .black.opacity(0.18), radius: 8, x: 0, y: 3)
+                .offset(x: 90, y: CGFloat(18 + hoveredRowIndex * 34))
+                .allowsHitTesting(false)
+                .transition(.opacity.combined(with: .scale(scale: 0.95, anchor: .leading)))
+            }
+        }
+        .zIndex(20)
         .offset(
             x: committedOffset.width + dragDisplacement.width,
             y: committedOffset.height + dragDisplacement.height
-        )
-        .gesture(
-            DragGesture()
-                .onChanged { value in
-                    dragDisplacement = value.translation
-                }
-                .onEnded { value in
-                    withAnimation(LiquidGlassPhysics.standardSpring) {
-                        committedOffset = CGSize(
-                            width: min(max(committedOffset.width + value.translation.width, -12), 520),
-                            height: min(max(committedOffset.height + value.translation.height, -120), 260)
-                        )
-                        dragDisplacement = .zero
-                    }
-                }
         )
     }
 }
@@ -595,13 +642,32 @@ public struct LiquidGlassPillCluster<Content: View>: View {
     }
 }
 
+private struct LiquidGlassIconPressStyle: ButtonStyle {
+    let isActive: Bool
+    let isHovered: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(
+                        isActive
+                            ? Color.accentColor.opacity(0.16)
+                            : (isHovered ? Color.primary.opacity(0.07) : Color.clear)
+                    )
+            )
+            .scaleEffect(configuration.isPressed ? 0.92 : 1.0)
+            .animation(LiquidGlassPhysics.microLensSpring, value: configuration.isPressed)
+    }
+}
+
 public struct LiquidGlassIconButton: View {
     let systemImage: String
     let title: String
     let isActive: Bool
     let action: () -> Void
 
-    @State private var isPressed = false
+    @State private var isHovered = false
 
     public init(
         systemImage: String,
@@ -625,24 +691,12 @@ public struct LiquidGlassIconButton: View {
                 .font(.system(size: 13.5, weight: isActive ? .semibold : .regular))
                 .foregroundStyle(isActive ? Color.accentColor : Color.primary)
                 .frame(width: 28, height: 26)
-                .background(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(isActive ? Color.accentColor.opacity(0.16) : Color.clear)
-                )
-                .scaleEffect(isPressed ? 0.92 : 1.0)
+                .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(LiquidGlassIconPressStyle(isActive: isActive, isHovered: isHovered))
+        .onHover { inside in
+            isHovered = inside
+        }
         .help(title)
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 0)
-                .onChanged { _ in
-                    if !isPressed {
-                        withAnimation(LiquidGlassPhysics.microLensSpring) { isPressed = true }
-                    }
-                }
-                .onEnded { _ in
-                    withAnimation(LiquidGlassPhysics.standardSpring) { isPressed = false }
-                }
-        )
     }
 }

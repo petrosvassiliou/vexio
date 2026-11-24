@@ -145,6 +145,14 @@ VexioStatus vexio_doc_attach_callout(VexioDoc* doc, uint32_t page_id, uint64_t t
 VexioStatus vexio_doc_auto_connect(VexioDoc* doc, uint32_t page_id, uint64_t source_shape_id, const char* dir_utf8, uint64_t* out_target_shape_id, uint64_t* out_conn_id);
 VexioStatus vexio_doc_drag_control_handle(VexioDoc* doc, uint32_t page_id, uint64_t shape_id, const char* row_name_utf8, double page_x_in, double page_y_in);
 
+/* v0.3.8-alpha: 1:1 Microsoft Visio Object Inspector (Object Rename, Shape Data Prop.*, Layer Properties & Membership) */
+VexioStatus vexio_doc_rename_shape(VexioDoc* doc, uint32_t page_id, uint64_t shape_id, const char* new_name_utf8);
+VexioStatus vexio_doc_upsert_shape_data(VexioDoc* doc, uint32_t page_id, uint64_t shape_id, const char* row_name_utf8, const char* label_utf8, uint8_t data_type, const char* value_utf8);
+VexioStatus vexio_doc_delete_shape_data(VexioDoc* doc, uint32_t page_id, uint64_t shape_id, const char* row_name_utf8);
+VexioStatus vexio_doc_add_layer(VexioDoc* doc, uint32_t page_id, const char* layer_name_utf8, uint32_t* out_layer_ix);
+VexioStatus vexio_doc_set_layer_flags(VexioDoc* doc, uint32_t page_id, uint32_t layer_ix, bool visible, bool lock_flag, bool print_flag, bool snap_glue);
+VexioStatus vexio_doc_set_shape_layer_membership(VexioDoc* doc, uint32_t page_id, uint64_t shape_id, uint32_t layer_ix, bool assigned);
+
 #ifdef __cplusplus
 }
 #endif

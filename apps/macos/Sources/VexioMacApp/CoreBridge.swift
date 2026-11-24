@@ -392,11 +392,32 @@ public struct ShapeSheetCellEntry: Identifiable, Equatable, Sendable {
 
 public struct ShapeDataPropertyItem: Identifiable, Equatable, Sendable {
     public var id: String { rowKey }
+    public var rowName: String      // e.g. "CostCenter"
     public var rowKey: String       // e.g. "Prop.CostCenter"
     public var label: String
-    public var dataType: String     // String, Number, Currency, Duration, Boolean
+    public var dataTypeCode: UInt8  // 0=String, 2=Number, 3=Boolean, 5=DateTime, 7=Currency
+    public var dataType: String
     public var formula: String
     public var evaluatedValue: String
+
+    public init(
+        rowName: String = "",
+        rowKey: String,
+        label: String,
+        dataTypeCode: UInt8 = 0,
+        dataType: String,
+        formula: String,
+        evaluatedValue: String
+    ) {
+        let inferred = rowKey.hasPrefix("Prop.") ? String(rowKey.dropFirst(5)) : rowKey
+        self.rowName = rowName.isEmpty ? inferred : rowName
+        self.rowKey = rowKey
+        self.label = label
+        self.dataTypeCode = dataTypeCode
+        self.dataType = dataType
+        self.formula = formula
+        self.evaluatedValue = evaluatedValue
+    }
 }
 
 public struct DiagramLayerState: Identifiable, Equatable, Sendable {
@@ -406,7 +427,96 @@ public struct DiagramLayerState: Identifiable, Equatable, Sendable {
     public var isPrintable: Bool
     public var isLocked: Bool
     public var isSnapGlueEnabled: Bool
+    public var memberCount: Int
     public var accentHex: String
+
+    public init(
+        id: Int,
+        name: String,
+        isVisible: Bool,
+        isPrintable: Bool,
+        isLocked: Bool,
+        isSnapGlueEnabled: Bool,
+        memberCount: Int = 0,
+        accentHex: String
+    ) {
+        self.id = id
+        self.name = name
+        self.isVisible = isVisible
+        self.isPrintable = isPrintable
+        self.isLocked = isLocked
+        self.isSnapGlueEnabled = isSnapGlueEnabled
+        self.memberCount = memberCount
+        self.accentHex = accentHex
+    }
+}
+
+public struct InspectedObjectState: Equatable, Sendable {
+    public var id: UInt64
+    public var name: String
+    public var kind: String
+    public var isGroup: Bool
+    public var childCount: Int
+    public var masterName: String?
+    public var layerIndices: [Int]
+    public var text: String
+    public var pinXIn: Double
+    public var pinYIn: Double
+    public var locPinXIn: Double
+    public var locPinYIn: Double
+    public var widthIn: Double
+    public var heightIn: Double
+    public var angleDeg: Double
+    public var flipX: Bool
+    public var flipY: Bool
+    public var beginXIn: Double?
+    public var beginYIn: Double?
+    public var endXIn: Double?
+    public var endYIn: Double?
+    public var routeStyle: Int
+    public var fillColorHex: String
+    public var fillBkgndHex: String
+    public var fillPattern: Int
+    public var fillTransPct: Double
+    public var roundingIn: Double
+    public var lineColorHex: String
+    public var linePattern: Int
+    public var lineWeightPt: Double
+    public var lineTransPct: Double
+    public var beginArrow: Int
+    public var endArrow: Int
+    public var lockWidth: Bool
+    public var lockHeight: Bool
+    public var lockAspect: Bool
+    public var lockMoveX: Bool
+    public var lockMoveY: Bool
+    public var lockRotate: Bool
+    public var lockDelete: Bool
+    public var hideText: Bool
+
+    public var isConnector1D: Bool { kind == "Connector1D" }
+
+    public var humanReadableTypeBadge: String {
+        if isGroup {
+            if let master = masterName, !master.isEmpty {
+                return "Master: \(master) (\(max(childCount, 1)))"
+            }
+            return childCount > 0 ? "Group (\(childCount) shapes)" : "Group Shape"
+        }
+        if kind == "Connector1D" {
+            return "1D Dynamic Connector"
+        }
+        if kind == "ForeignObject" {
+            if let master = masterName, !master.isEmpty {
+                return "Vector Icon • \(master)"
+            }
+            return "Vector / Foreign Object"
+        }
+        if let master = masterName, !master.isEmpty {
+            return "2D Shape • \(master)"
+        }
+        return "2D Shape"
+    }
 }
 
 public struct DataGraphicRuleConfig: Equatable, Sendable {
@@ -1802,6 +1912,93 @@ private final class NativeDocumentCore: @unchecked Sendable {
         }
         return Self.consumeOwnedBufferAsUTF8(outJSON)
     }
+
+    func renameShape(pageId: UInt32, shapeId: UInt64, newName: String) throws {
+        lock.lock()
+        defer { lock.unlock() }
+        let status = newName.withCString { nameCStr in
+            vexio_doc_rename_shape(doc, pageId, shapeId, nameCStr)
+        }
+        if let err = VexioBridgeError.from(status: status, context: "rename_shape(\(shapeId))") {
+            throw err
+        }
+    }
+
+    func upsertShapeData(
+        pageId: UInt32,
+        shapeId: UInt64,
+        rowName: String,
+        label: String,
+        dataType: UInt8,
+        value: String
+    ) throws {
+        lock.lock()
+        defer { lock.unlock() }
+        let status = rowName.withCString { rCStr in
+            label.withCString { lCStr in
+                value.withCString { vCStr in
+                    vexio_doc_upsert_shape_data(doc, pageId, shapeId, rCStr, lCStr, dataType, vCStr)
+                }
+            }
+        }
+        if let err = VexioBridgeError.from(status: status, context: "upsert_shape_data(\(rowName))") {
+            throw err
+        }
+    }
+
+    func deleteShapeData(pageId: UInt32, shapeId: UInt64, rowName: String) throws {
+        lock.lock()
+        defer { lock.unlock() }
+        let status = rowName.withCString { rCStr in
+            vexio_doc_delete_shape_data(doc, pageId, shapeId, rCStr)
+        }
+        if let err = VexioBridgeError.from(status: status, context: "delete_shape_data(\(rowName))") {
+            throw err
+        }
+    }
+
+    func addLayer(pageId: UInt32, layerName: String) throws -> UInt32 {
+        lock.lock()
+        defer { lock.unlock() }
+        var outIx: UInt32 = 0
+        let status = layerName.withCString { nameCStr in
+            vexio_doc_add_layer(doc, pageId, nameCStr, &outIx)
+        }
+        if let err = VexioBridgeError.from(status: status, context: "add_layer(\(layerName))") {
+            throw err
+        }
+        return outIx
+    }
+
+    func setLayerFlags(
+        pageId: UInt32,
+        layerIx: UInt32,
+        visible: Bool,
+        locked: Bool,
+        printable: Bool,
+        snapGlue: Bool
+    ) throws {
+        lock.lock()
+        defer { lock.unlock() }
+        let status = vexio_doc_set_layer_flags(doc, pageId, layerIx, visible, locked, printable, snapGlue)
+        if let err = VexioBridgeError.from(status: status, context: "set_layer_flags(\(layerIx))") {
+            throw err
+        }
+    }
+
+    func setShapeLayerMembership(
+        pageId: UInt32,
+        shapeId: UInt64,
+        layerIx: UInt32,
+        assigned: Bool
+    ) throws {
+        lock.lock()
+        defer { lock.unlock() }
+        let status = vexio_doc_set_shape_layer_membership(doc, pageId, shapeId, layerIx, assigned)
+        if let err = VexioBridgeError.from(status: status, context: "set_shape_layer_membership(\(shapeId),\(layerIx))") {
+            throw err
+        }
+    }
 }
 
 // MARK: - SwiftUI Color <-> Hex RGB Helpers for Native OS ColorPicker
@@ -1917,14 +2114,22 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
     @Published public var pageHeightInches: Double = 210.0 / 25.4
     public var isPageLandscape: Bool { pageWidthInches >= pageHeightInches }
 
+    private var isSuppressingCameraSync: Bool = false
+    private var lastViewportLogicalSize: CGSize = .zero
+    private var needsFitOnViewportReady: Bool = true
+
     @Published public var zoomScale: CGFloat = 1.0 {
         didSet {
-            syncViewportCamera()
+            if !isSuppressingCameraSync {
+                syncViewportCamera()
+            }
         }
     }
     @Published public var panOffset: CGSize = .zero {
         didSet {
-            syncViewportCamera()
+            if !isSuppressingCameraSync {
+                syncViewportCamera()
+            }
         }
     }
     @Published public var cursorCanvasInches: CGPoint = .zero
@@ -1963,18 +2168,14 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
     ]
 
     @Published public var shapeSheetCells: [ShapeSheetCellEntry] = []
-    @Published public var shapeDataProperties: [ShapeDataPropertyItem] = [
-        ShapeDataPropertyItem(rowKey: "Prop.Department", label: "Department", dataType: "String", formula: "\"Platform Engineering\"", evaluatedValue: "Platform Engineering"),
-        ShapeDataPropertyItem(rowKey: "Prop.CostCenter", label: "Cost Center", dataType: "String", formula: "\"CC-4100\"", evaluatedValue: "CC-4100"),
-        ShapeDataPropertyItem(rowKey: "Prop.CompletionPct", label: "Completion %", dataType: "Number", formula: "85%", evaluatedValue: "85%"),
-        ShapeDataPropertyItem(rowKey: "Prop.Status", label: "Operational Status", dataType: "String", formula: "\"Healthy\"", evaluatedValue: "Healthy"),
-    ]
+    @Published public var inspectedObject: InspectedObjectState? = nil
+    @Published public var activePageShapeCount: Int = 0
+    @Published public var shapeDataProperties: [ShapeDataPropertyItem] = []
 
     @Published public var layers: [DiagramLayerState] = [
-        DiagramLayerState(id: 0, name: "Flowchart & Shapes", isVisible: true, isPrintable: true, isLocked: false, isSnapGlueEnabled: true, accentHex: "#0A84FF"),
-        DiagramLayerState(id: 1, name: "Dynamic Connectors", isVisible: true, isPrintable: true, isLocked: false, isSnapGlueEnabled: true, accentHex: "#30D158"),
-        DiagramLayerState(id: 2, name: "Dimensions & Annotations", isVisible: true, isPrintable: true, isLocked: false, isSnapGlueEnabled: true, accentHex: "#FF9F0A"),
-        DiagramLayerState(id: 3, name: "CAD Structural Underlay", isVisible: true, isPrintable: true, isLocked: true, isSnapGlueEnabled: true, accentHex: "#BF5AF2"),
+        DiagramLayerState(id: 0, name: "Flowchart", isVisible: true, isPrintable: true, isLocked: false, isSnapGlueEnabled: true, memberCount: 0, accentHex: "#0A84FF"),
+        DiagramLayerState(id: 1, name: "Connector", isVisible: true, isPrintable: true, isLocked: false, isSnapGlueEnabled: true, memberCount: 0, accentHex: "#30D158"),
+        DiagramLayerState(id: 2, name: "Annotations", isVisible: true, isPrintable: true, isLocked: false, isSnapGlueEnabled: true, memberCount: 0, accentHex: "#FF9F0A"),
     ]
 
     @Published public var dataGraphicConfig = DataGraphicRuleConfig()
@@ -2173,8 +2374,15 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
     }
 
     public func resizeMetalViewport(widthPx: UInt32, heightPx: UInt32, dpiScale: Float) {
+        let safeDpi = CGFloat(max(dpiScale, 0.5))
+        lastViewportLogicalSize = CGSize(width: CGFloat(widthPx) / safeDpi, height: CGFloat(heightPx) / safeDpi)
         core.resizeViewport(widthPx: widthPx, heightPx: heightPx, dpiScale: dpiScale)
-        core.renderViewportFrame()
+        if needsFitOnViewportReady && lastViewportLogicalSize.width >= 64 && lastViewportLogicalSize.height >= 64 {
+            needsFitOnViewportReady = false
+            fitViewportToActivePage()
+        } else {
+            core.renderViewportFrame()
+        }
     }
 
     public func attachMetalLayer(
@@ -2183,6 +2391,8 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
         heightPx: UInt32,
         dpiScale: Float
     ) {
+        let safeDpi = CGFloat(max(dpiScale, 0.5))
+        lastViewportLogicalSize = CGSize(width: CGFloat(widthPx) / safeDpi, height: CGFloat(heightPx) / safeDpi)
         let rawLayerPtr = Unmanaged.passUnretained(metalLayer).toOpaque()
         do {
             try core.bindMetalLayer(
@@ -2193,7 +2403,13 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
             )
             core.setViewportPage(pageId: activePageId)
             core.setViewportTool(toolCode: activeTool.engineToolCode)
-            core.renderViewportFrame()
+            if lastViewportLogicalSize.width >= 64 && lastViewportLogicalSize.height >= 64 {
+                needsFitOnViewportReady = false
+                fitViewportToActivePage()
+            } else {
+                needsFitOnViewportReady = true
+                core.renderViewportFrame()
+            }
             lastBannerError = nil
         } catch let bridgeErr as VexioBridgeError {
             lastBannerError = bridgeErr
@@ -2233,6 +2449,7 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
                 } else if selectedShapeId != 0 || selectedShapeIsGroup {
                     selectedShapeId = 0
                     selectedShapeIsGroup = false
+                    syncSelectedShapeMetadataFromCore()
                 }
             }
             return resolveNSCursor(for: cursorCode)
@@ -2380,6 +2597,7 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
             }
             baselineComparisonSnapshot = try? core.saveFormat("vsdx")
         }
+        syncSelectedShapeMetadataFromCore()
 
         var loadedEntries: [ShapeSheetCellEntry] = []
         loadedEntries.reserveCapacity(Self.canonicalCellManifest.count + shapeDataProperties.count)
@@ -2444,7 +2662,9 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
         mode: FormulaWriteMode,
         undoManager: UndoManager?
     ) throws {
-        upsertShapeInCore(pageId: activePageId, shapeId: selectedShapeId, name: "Sheet.\(selectedShapeId)")
+        if selectedShapeId > 0 {
+            upsertShapeInCore(pageId: activePageId, shapeId: selectedShapeId, name: "Sheet.\(selectedShapeId)")
+        }
         do {
             try core.setCellFormula(
                 pageId: activePageId,
@@ -2454,9 +2674,12 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
                 forceSetF: mode.forceSetFFlag
             )
             lastBannerError = nil
-            statusMessage = "Updated Sheet.\(selectedShapeId)!\(cellName) = \(formula)"
+            statusMessage = selectedShapeId > 0
+                ? "Updated Sheet.\(selectedShapeId)!\(cellName) = \(formula)"
+                : "Updated ThePage!\(cellName) = \(formula)"
             registerJournalUndoStep(actionName: "Edit \(cellName)", undoManager: undoManager)
             reloadSelectedShapeSheetCells()
+            syncSelectedShapeMetadataFromCore()
             core.renderViewportFrame()
         } catch let bridgeErr as VexioBridgeError {
             lastBannerError = bridgeErr
@@ -2718,8 +2941,10 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
             let deleted = try core.deleteShapes(pageId: activePageId, shapeIds: targets)
             if deleted > 0 {
                 selectedShapeIds = []
+                selectedShapeId = 0
                 registerJournalUndoStep(actionName: "Delete Shape", undoManager: undoManager)
                 reloadSelectedShapeSheetCells()
+                syncSelectedShapeMetadataFromCore()
                 core.renderViewportFrame()
                 statusMessage = "Deleted \(deleted) shape(s)"
             }
@@ -3399,10 +3624,38 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
                 }
             }
         }
+        if let rawLayers = root["layers"] as? [[String: Any]] {
+            let layerPalette = ["#0A84FF", "#30D158", "#FF9F0A", "#BF5AF2", "#FF375F", "#5E5CE6", "#64D2FF"]
+            layers = rawLayers.enumerated().compactMap { idx, item in
+                let ix = (item["ix"] as? Int) ?? idx
+                let name = (item["name"] as? String) ?? "Layer \(ix)"
+                let vis = (item["visible"] as? Bool) ?? true
+                let prt = (item["print"] as? Bool) ?? true
+                let lck = (item["lock"] as? Bool) ?? false
+                let snp = (item["snap"] as? Bool) ?? true
+                let glu = (item["glue"] as? Bool) ?? true
+                let cnt = (item["memberCount"] as? Int) ?? 0
+                return DiagramLayerState(
+                    id: ix,
+                    name: name,
+                    isVisible: vis,
+                    isPrintable: prt,
+                    isLocked: lck,
+                    isSnapGlueEnabled: snp || glu,
+                    memberCount: cnt,
+                    accentHex: layerPalette[idx % layerPalette.count]
+                )
+            }
+        }
+
         guard let shapes = root["shapes"] as? [[String: Any]] else {
+            activePageShapeCount = 0
             selectedShapeIsGroup = false
+            inspectedObject = nil
+            shapeDataProperties = []
             return
         }
+        activePageShapeCount = shapes.count
         let activeSelSet = Set(selectedShapeIds.isEmpty ? (selectedShapeId != 0 ? [selectedShapeId] : []) : selectedShapeIds)
         selectedShapeIsGroup = shapes.contains { sh in
             let sid: UInt64 = (sh["id"] as? UInt64) ?? UInt64(max((sh["id"] as? Int) ?? 0, 0))
@@ -3411,8 +3664,99 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
             return (sh["kind"] as? String) == "Group"
         }
 
-        guard let matched = shapes.first(where: { ($0["id"] as? UInt64) == selectedShapeId || ($0["id"] as? Int) == Int(selectedShapeId) })
-        else { return }
+        guard selectedShapeId != 0,
+              let matched = shapes.first(where: { ($0["id"] as? UInt64) == selectedShapeId || ($0["id"] as? Int) == Int(selectedShapeId) })
+        else {
+            inspectedObject = nil
+            shapeDataProperties = []
+            return
+        }
+
+        let sid: UInt64 = (matched["id"] as? UInt64) ?? UInt64(max((matched["id"] as? Int) ?? Int(selectedShapeId), 0))
+        let layerInds: [Int] = (matched["layerIndices"] as? [Int])
+            ?? ((matched["layerIndices"] as? [NSNumber])?.map { $0.intValue } ?? [])
+        let fillHex = (matched["fillColor"] as? String) ?? selectedFillColorHex
+        let lineHex = (matched["lineColor"] as? String) ?? selectedLineColorHex
+        selectedFillColorHex = fillHex
+        selectedLineColorHex = lineHex
+
+        if let rawData = matched["shapeData"] as? [[String: Any]] {
+            shapeDataProperties = rawData.compactMap { row in
+                guard let rName = row["name"] as? String, !rName.isEmpty else { return nil }
+                let label = (row["label"] as? String) ?? rName
+                let dtypeCode = UInt8(clamping: (row["dataType"] as? Int) ?? 0)
+                let dtypeName: String = {
+                    switch dtypeCode {
+                    case 1, 4: return "List"
+                    case 2: return "Number"
+                    case 3: return "Boolean"
+                    case 5: return "Date"
+                    case 6: return "Duration"
+                    case 7: return "Currency"
+                    default: return "String"
+                    }
+                }()
+                let formula = (row["formula"] as? String) ?? ""
+                let evaluated = (row["value"] as? String) ?? formula
+                return ShapeDataPropertyItem(
+                    rowName: rName,
+                    rowKey: "Prop.\(rName)",
+                    label: label,
+                    dataTypeCode: dtypeCode,
+                    dataType: dtypeName,
+                    formula: formula,
+                    evaluatedValue: evaluated
+                )
+            }
+        } else {
+            shapeDataProperties = []
+        }
+
+        let wIn = (matched["width"] as? Double) ?? 1.0
+        let hIn = (matched["height"] as? Double) ?? 1.0
+        inspectedObject = InspectedObjectState(
+            id: sid,
+            name: (matched["name"] as? String) ?? "Sheet.\(sid)",
+            kind: (matched["kind"] as? String) ?? "Shape2D",
+            isGroup: (matched["isGroup"] as? Bool) ?? false,
+            childCount: (matched["childCount"] as? Int) ?? 0,
+            masterName: matched["masterName"] as? String,
+            layerIndices: layerInds,
+            text: (matched["text"] as? String) ?? "",
+            pinXIn: (matched["pinX"] as? Double) ?? 0.0,
+            pinYIn: (matched["pinY"] as? Double) ?? 0.0,
+            locPinXIn: (matched["locPinX"] as? Double) ?? (wIn * 0.5),
+            locPinYIn: (matched["locPinY"] as? Double) ?? (hIn * 0.5),
+            widthIn: wIn,
+            heightIn: hIn,
+            angleDeg: (matched["angleDeg"] as? Double) ?? 0.0,
+            flipX: (matched["flipX"] as? Bool) ?? false,
+            flipY: (matched["flipY"] as? Bool) ?? false,
+            beginXIn: matched["beginX"] as? Double,
+            beginYIn: matched["beginY"] as? Double,
+            endXIn: matched["endX"] as? Double,
+            endYIn: matched["endY"] as? Double,
+            routeStyle: (matched["routeStyle"] as? Int) ?? 16,
+            fillColorHex: fillHex,
+            fillBkgndHex: (matched["fillBkgnd"] as? String) ?? "#FFFFFF",
+            fillPattern: (matched["fillPattern"] as? Int) ?? 1,
+            fillTransPct: (matched["fillTransPct"] as? Double) ?? 0.0,
+            roundingIn: (matched["roundingIn"] as? Double) ?? 0.0,
+            lineColorHex: lineHex,
+            linePattern: (matched["linePattern"] as? Int) ?? 1,
+            lineWeightPt: (matched["lineWeightPt"] as? Double) ?? 1.0,
+            lineTransPct: (matched["lineTransPct"] as? Double) ?? 0.0,
+            beginArrow: (matched["beginArrow"] as? Int) ?? 0,
+            endArrow: (matched["endArrow"] as? Int) ?? 0,
+            lockWidth: (matched["lockWidth"] as? Bool) ?? false,
+            lockHeight: (matched["lockHeight"] as? Bool) ?? false,
+            lockAspect: (matched["lockAspect"] as? Bool) ?? false,
+            lockMoveX: (matched["lockMoveX"] as? Bool) ?? false,
+            lockMoveY: (matched["lockMoveY"] as? Bool) ?? false,
+            lockRotate: (matched["lockRotate"] as? Bool) ?? false,
+            lockDelete: (matched["lockDelete"] as? Bool) ?? false,
+            hideText: (matched["hideText"] as? Bool) ?? false
+        )
 
         if let ff = matched["fontFamily"] as? String, !ff.isEmpty {
             selectedFontFamily = ff
@@ -3443,7 +3787,25 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
     }
 
     public func fitViewportToActivePage() {
-        panOffset = .zero
+        let lw = lastViewportLogicalSize.width
+        let lh = lastViewportLogicalSize.height
+        if lw < 64 || lh < 64 {
+            needsFitOnViewportReady = true
+        } else {
+            let leftPad: CGFloat = lw > 420 ? 96 : lw * 0.06
+            let rightPad: CGFloat = lw * 0.05
+            let topPad: CGFloat = lh * 0.05
+            let botPad: CGFloat = lh > 320 ? 54 : lh * 0.06
+            let availW = max(lw - leftPad - rightPad, lw * 0.55)
+            let availH = max(lh - topPad - botPad, lh * 0.55)
+            let pw = max(CGFloat(pageWidthInches), 0.5)
+            let ph = max(CGFloat(pageHeightInches), 0.5)
+            let ppi = min(availW / pw, availH / ph)
+            isSuppressingCameraSync = true
+            zoomScale = min(max(ppi / 96.0, 0.10), 8.0)
+            panOffset = .zero
+            isSuppressingCameraSync = false
+        }
         core.setViewportZoom(zoomScale: 0.0, panXIn: 0.0, panYIn: 0.0)
         core.renderViewportFrame()
     }
@@ -3451,11 +3813,12 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
     public func selectPage(_ pageId: UInt32) {
         activeInlineTextEdit = nil
         selectedShapeIds = []
+        selectedShapeId = 0
         activePageId = pageId
         core.setViewportPage(pageId: pageId)
         reloadSelectedShapeSheetCells()
         syncSelectedShapeMetadataFromCore()
-        core.renderViewportFrame()
+        fitViewportToActivePage()
         let title = pages.first(where: { $0.id == pageId })?.title ?? "Page-\(pageId)"
         statusMessage = "Active page: \(title)"
     }
@@ -3479,10 +3842,12 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
         let formula = color.vexioRGBFormulaString
         let targets = selectedShapeIds.isEmpty ? (selectedShapeId != 0 ? [selectedShapeId] : []) : selectedShapeIds
         for sid in targets {
+            try? core.setCellFormula(pageId: activePageId, shapeId: sid, cellName: "FillPattern", formula: "1", forceSetF: false)
             try? core.setCellFormula(pageId: activePageId, shapeId: sid, cellName: "FillForegnd", formula: formula, forceSetF: false)
         }
         registerJournalUndoStep(actionName: "Set Fill Color", undoManager: undoManager)
         reloadSelectedShapeSheetCells()
+        syncSelectedShapeMetadataFromCore()
         core.renderViewportFrame()
     }
 
@@ -3495,7 +3860,162 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
         }
         registerJournalUndoStep(actionName: "Set Line Color", undoManager: undoManager)
         reloadSelectedShapeSheetCells()
+        syncSelectedShapeMetadataFromCore()
         core.renderViewportFrame()
+    }
+
+    // MARK: - 1:1 Microsoft Visio Object Inspector Actions
+
+    public func setCellForSelection(
+        cellName: String,
+        formula: String,
+        forceSetF: Bool = false,
+        actionLabel: String? = nil,
+        undoManager: UndoManager?
+    ) {
+        let targets = selectedShapeIds.isEmpty ? (selectedShapeId != 0 ? [selectedShapeId] : []) : selectedShapeIds
+        guard !targets.isEmpty else { return }
+        for sid in targets {
+            try? core.setCellFormula(pageId: activePageId, shapeId: sid, cellName: cellName, formula: formula, forceSetF: forceSetF)
+        }
+        registerJournalUndoStep(actionName: actionLabel ?? "Edit \(cellName)", undoManager: undoManager)
+        reloadSelectedShapeSheetCells()
+        syncSelectedShapeMetadataFromCore()
+        core.renderViewportFrame()
+        statusMessage = "Updated \(cellName) = \(formula)"
+    }
+
+    public func renameSelectedShape(to rawName: String, undoManager: UndoManager?) {
+        let trimmed = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard selectedShapeId != 0, !trimmed.isEmpty else { return }
+        do {
+            try core.renameShape(pageId: activePageId, shapeId: selectedShapeId, newName: trimmed)
+            registerJournalUndoStep(actionName: "Rename Object", undoManager: undoManager)
+            syncSelectedShapeMetadataFromCore()
+            core.renderViewportFrame()
+            statusMessage = "Renamed Sheet.\(selectedShapeId) to '\(trimmed)'"
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    public func setSelectedShapeLabel(_ newText: String, undoManager: UndoManager?) {
+        guard selectedShapeId != 0 else { return }
+        do {
+            try core.setShapeText(pageId: activePageId, shapeId: selectedShapeId, text: newText)
+            registerJournalUndoStep(actionName: "Edit Shape Text", undoManager: undoManager)
+            syncSelectedShapeMetadataFromCore()
+            core.renderViewportFrame()
+            statusMessage = "Updated label on Sheet.\(selectedShapeId)"
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    public func upsertSelectedShapeData(
+        rowName: String,
+        label: String,
+        dataType: UInt8,
+        value: String,
+        undoManager: UndoManager?
+    ) {
+        guard selectedShapeId != 0 else { return }
+        do {
+            try core.upsertShapeData(
+                pageId: activePageId,
+                shapeId: selectedShapeId,
+                rowName: rowName,
+                label: label,
+                dataType: dataType,
+                value: value
+            )
+            registerJournalUndoStep(actionName: "Edit Shape Data", undoManager: undoManager)
+            reloadSelectedShapeSheetCells()
+            syncSelectedShapeMetadataFromCore()
+            core.renderViewportFrame()
+            statusMessage = "Saved Prop.\(rowName) on Sheet.\(selectedShapeId)"
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    public func deleteSelectedShapeData(rowName: String, undoManager: UndoManager?) {
+        guard selectedShapeId != 0 else { return }
+        do {
+            try core.deleteShapeData(pageId: activePageId, shapeId: selectedShapeId, rowName: rowName)
+            registerJournalUndoStep(actionName: "Delete Shape Data", undoManager: undoManager)
+            reloadSelectedShapeSheetCells()
+            syncSelectedShapeMetadataFromCore()
+            core.renderViewportFrame()
+            statusMessage = "Removed Prop.\(rowName)"
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    public func addPageLayer(name: String, undoManager: UndoManager?) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        do {
+            let ix = try core.addLayer(pageId: activePageId, layerName: trimmed)
+            registerJournalUndoStep(actionName: "Add Layer", undoManager: undoManager)
+            syncSelectedShapeMetadataFromCore()
+            core.renderViewportFrame()
+            statusMessage = "Added Layer #\(ix)"
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    public func updatePageLayerFlags(
+        layerId: Int,
+        visible: Bool,
+        locked: Bool,
+        printable: Bool,
+        snapGlue: Bool,
+        undoManager: UndoManager?
+    ) {
+        guard layerId >= 0 else { return }
+        do {
+            try core.setLayerFlags(
+                pageId: activePageId,
+                layerIx: UInt32(layerId),
+                visible: visible,
+                locked: locked,
+                printable: printable,
+                snapGlue: snapGlue
+            )
+            registerJournalUndoStep(actionName: "Update Layer", undoManager: undoManager)
+            syncSelectedShapeMetadataFromCore()
+            core.renderViewportFrame()
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    public func setSelectedShapeLayerMembership(
+        layerId: Int,
+        assigned: Bool,
+        undoManager: UndoManager?
+    ) {
+        guard layerId >= 0 else { return }
+        let targets = selectedShapeIds.isEmpty ? (selectedShapeId != 0 ? [selectedShapeId] : []) : selectedShapeIds
+        guard !targets.isEmpty else { return }
+        do {
+            for sid in targets {
+                try core.setShapeLayerMembership(
+                    pageId: activePageId,
+                    shapeId: sid,
+                    layerIx: UInt32(layerId),
+                    assigned: assigned
+                )
+            }
+            registerJournalUndoStep(actionName: assigned ? "Assign Layer" : "Unassign Layer", undoManager: undoManager)
+            reloadSelectedShapeSheetCells()
+            syncSelectedShapeMetadataFromCore()
+            core.renderViewportFrame()
+        } catch {
+            statusMessage = error.localizedDescription
+        }
     }
 
     public func currentShapeLabelText(shapeId: UInt64) -> String {
@@ -3910,11 +4430,14 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
                 }
             }
             activePageId = initialFgPageId
+            needsFitOnViewportReady = true
             core.setViewportPage(pageId: initialFgPageId)
-            fitViewportToActivePage()
             reloadSelectedShapeSheetCells()
             syncSelectedShapeMetadataFromCore()
-            core.renderViewportFrame()
+            fitViewportToActivePage()
+            DispatchQueue.main.async { [weak self] in
+                self?.fitViewportToActivePage()
+            }
             statusMessage = "Opened \(url.lastPathComponent) (\(pages.filter { !$0.isBackgroundPage }.count) page(s))"
         } catch let bridgeErr as VexioBridgeError {
             lastBannerError = bridgeErr

@@ -4101,6 +4101,464 @@ impl DocumentSession {
 
         Ok(out_pair)
     }
+
+    /// Rename a shape (`s.name` and `s.name_u`) with deterministic Undo/Redo journaling.
+    pub fn rename_shape(
+        &mut self,
+        page_id: u32,
+        shape_id: u64,
+        new_name: &str,
+    ) -> Result<bool, CoreError> {
+        let trimmed = new_name.trim();
+        if trimmed.is_empty() {
+            return Ok(false);
+        }
+        let exists = self
+            .doc
+            .page(page_id)
+            .and_then(|p| p.find_shape(shape_id))
+            .is_some();
+        if !exists {
+            return Ok(false);
+        }
+        let owned = trimmed.to_string();
+        let _ = self.journal.record_mutation(
+            &mut self.doc,
+            format!("Rename Shape #{shape_id}"),
+            |doc| {
+                if let Some(p) = doc.page_mut(page_id) {
+                    if let Some(sh) = p.find_shape_mut(shape_id) {
+                        sh.name = owned.clone();
+                        sh.name_u = owned.clone();
+                    }
+                }
+                ReactiveEngine::recalculate_document(doc);
+            },
+        );
+        Ok(true)
+    }
+
+    /// Create or update a Visio Shape Data (`Prop.<row_name>`) row and synchronize its ShapeSheet cells.
+    pub fn upsert_shape_data(
+        &mut self,
+        page_id: u32,
+        shape_id: u64,
+        row_name: &str,
+        label: &str,
+        data_type: u8,
+        value_input: &str,
+    ) -> Result<bool, CoreError> {
+        let raw_key = row_name
+            .trim()
+            .strip_prefix("Prop.")
+            .or_else(|| row_name.trim().strip_prefix("prop."))
+            .unwrap_or_else(|| row_name.trim());
+        let clean_name: String = raw_key
+            .chars()
+            .map(|ch| {
+                if ch.is_ascii_alphanumeric() || ch == '_' {
+                    ch
+                } else {
+                    '_'
+                }
+            })
+            .collect::<String>()
+            .trim_matches('_')
+            .to_string();
+        let final_name = if clean_name.is_empty() {
+            "Property1".to_string()
+        } else if clean_name.chars().next().is_some_and(|c| c.is_ascii_digit()) {
+            format!("P_{clean_name}")
+        } else {
+            clean_name
+        };
+        let final_label = if label.trim().is_empty() {
+            final_name.clone()
+        } else {
+            label.trim().to_string()
+        };
+        let dtype = match data_type {
+            1 => vexio_shapesheet::ShapeDataType::FixedList,
+            2 => vexio_shapesheet::ShapeDataType::Number,
+            3 => vexio_shapesheet::ShapeDataType::Boolean,
+            4 => vexio_shapesheet::ShapeDataType::VariableList,
+            5 => vexio_shapesheet::ShapeDataType::DateTime,
+            6 => vexio_shapesheet::ShapeDataType::Duration,
+            7 => vexio_shapesheet::ShapeDataType::Currency,
+            _ => vexio_shapesheet::ShapeDataType::String,
+        };
+        let val_trimmed = value_input.trim();
+        let formatted_formula = if val_trimmed.starts_with('=') {
+            val_trimmed.to_string()
+        } else {
+            match dtype {
+                vexio_shapesheet::ShapeDataType::Boolean => {
+                    if matches!(
+                        val_trimmed.to_ascii_lowercase().as_str(),
+                        "true" | "1" | "yes" | "ja" | "on"
+                    ) {
+                        "TRUE".to_string()
+                    } else {
+                        "FALSE".to_string()
+                    }
+                }
+                vexio_shapesheet::ShapeDataType::Number
+                | vexio_shapesheet::ShapeDataType::Currency
+                | vexio_shapesheet::ShapeDataType::Duration => {
+                    if val_trimmed.is_empty() {
+                        "0".to_string()
+                    } else if val_trimmed.parse::<f64>().is_ok() {
+                        val_trimmed.to_string()
+                    } else {
+                        // Preserve unit-suffixed numeric literals such as `12 mm` or `45 deg` if parseable, else `"0"`.
+                        if vexio_shapesheet::parse_formula(val_trimmed).is_ok() {
+                            val_trimmed.to_string()
+                        } else {
+                            "0".to_string()
+                        }
+                    }
+                }
+                vexio_shapesheet::ShapeDataType::String
+                | vexio_shapesheet::ShapeDataType::FixedList
+                | vexio_shapesheet::ShapeDataType::VariableList
+                | vexio_shapesheet::ShapeDataType::DateTime => {
+                    if val_trimmed.len() >= 2
+                        && val_trimmed.starts_with('"')
+                        && val_trimmed.ends_with('"')
+                    {
+                        val_trimmed.to_string()
+                    } else {
+                        format!("\"{}\"", val_trimmed.replace('"', "\"\""))
+                    }
+                }
+            }
+        };
+
+        let exists = self
+            .doc
+            .page(page_id)
+            .and_then(|p| p.find_shape(shape_id))
+            .is_some();
+        if !exists {
+            return Ok(false);
+        }
+
+        let _ = self.journal.record_mutation(
+            &mut self.doc,
+            format!("Set Shape Data Prop.{final_name}"),
+            |doc| {
+                if let Some(p) = doc.page_mut(page_id) {
+                    if let Some(sh) = p.find_shape_mut(shape_id) {
+                        let lower_key = final_name.to_ascii_lowercase();
+                        let existing = sh.sheet.shape_data.get(&lower_key).cloned();
+                        let row = vexio_shapesheet::ShapeDataRow {
+                            name: existing
+                                .as_ref()
+                                .map(|r| r.name.clone())
+                                .unwrap_or_else(|| final_name.clone()),
+                            label: final_label.clone(),
+                            prompt: existing.as_ref().map(|r| r.prompt.clone()).unwrap_or_default(),
+                            data_type: dtype,
+                            format: existing.as_ref().map(|r| r.format.clone()).unwrap_or_default(),
+                            value: formatted_formula.clone(),
+                            sort_key: existing
+                                .as_ref()
+                                .map(|r| r.sort_key.clone())
+                                .unwrap_or_default(),
+                            invisible: false,
+                            ask: existing.as_ref().is_some_and(|r| r.ask),
+                            lang_id: existing.as_ref().map(|r| r.lang_id).unwrap_or(1033),
+                        };
+                        sh.sheet.set_shape_data(row);
+                    }
+                }
+                ReactiveEngine::recalculate_document(doc);
+            },
+        );
+        Ok(true)
+    }
+
+    /// Delete a Shape Data (`Prop.<row_name>`) row and its associated ShapeSheet cells from a shape.
+    pub fn delete_shape_data(
+        &mut self,
+        page_id: u32,
+        shape_id: u64,
+        row_name: &str,
+    ) -> Result<bool, CoreError> {
+        let raw_key = row_name
+            .trim()
+            .strip_prefix("Prop.")
+            .or_else(|| row_name.trim().strip_prefix("prop."))
+            .unwrap_or_else(|| row_name.trim())
+            .to_ascii_lowercase();
+        if raw_key.is_empty() {
+            return Ok(false);
+        }
+        let has_row = self
+            .doc
+            .page(page_id)
+            .and_then(|p| p.find_shape(shape_id))
+            .is_some_and(|s| s.sheet.shape_data.contains_key(&raw_key));
+        if !has_row {
+            return Ok(false);
+        }
+        let _ = self.journal.record_mutation(
+            &mut self.doc,
+            format!("Delete Shape Data Prop.{raw_key}"),
+            |doc| {
+                if let Some(p) = doc.page_mut(page_id) {
+                    if let Some(sh) = p.find_shape_mut(shape_id) {
+                        sh.sheet.shape_data.remove(&raw_key);
+                        sh.sheet.cells.remove(&format!("prop.{raw_key}"));
+                        sh.sheet.cells.remove(&format!("prop.{raw_key}.value"));
+                        sh.sheet.cells.remove(&format!("prop.{raw_key}.label"));
+                        sh.sheet.cells.remove(&format!("prop.{raw_key}.format"));
+                    }
+                }
+                ReactiveEngine::recalculate_document(doc);
+            },
+        );
+        Ok(true)
+    }
+
+    /// Add a new Layer to `page_id` (or return the existing layer index if case-insensitively matched).
+    pub fn add_layer(&mut self, page_id: u32, name: &str) -> Result<u32, CoreError> {
+        let Some(page_ref) = self.doc.page(page_id) else {
+            return Err(CoreError::Journal(JournalError::PageNotFound(page_id)));
+        };
+        let fallback_num = page_ref.layers.len() + 1;
+        let clean = if name.trim().is_empty() {
+            format!("Layer {fallback_num}")
+        } else {
+            name.trim().to_string()
+        };
+        if let Some(existing) = page_ref
+            .layers
+            .iter()
+            .find(|l| l.name.eq_ignore_ascii_case(&clean))
+        {
+            return Ok(existing.ix);
+        }
+        let next_ix = page_ref.layers.iter().map(|l| l.ix + 1).max().unwrap_or(0);
+        let _ = self.journal.record_mutation(
+            &mut self.doc,
+            format!("Add Layer '{clean}'"),
+            |doc| {
+                if let Some(p) = doc.page_mut(page_id) {
+                    p.layers
+                        .push(vexio_shapesheet::LayerDef::new(next_ix, clean.clone()));
+                }
+            },
+        );
+        Ok(next_ix)
+    }
+
+    /// Update Visio Layer flags (`Visible`, `Lock`, `Print`, `Snap` & `Glue`) with Undo/Redo support.
+    pub fn set_layer_flags(
+        &mut self,
+        page_id: u32,
+        layer_ix: u32,
+        visible: bool,
+        lock: bool,
+        print: bool,
+        snap_glue: bool,
+    ) -> Result<bool, CoreError> {
+        let exists = self
+            .doc
+            .page(page_id)
+            .is_some_and(|p| p.layers.iter().any(|l| l.ix == layer_ix));
+        if !exists {
+            return Ok(false);
+        }
+        let _ = self.journal.record_mutation(
+            &mut self.doc,
+            format!("Update Layer #{layer_ix}"),
+            |doc| {
+                if let Some(p) = doc.page_mut(page_id) {
+                    if let Some(layer) = p.layers.iter_mut().find(|l| l.ix == layer_ix) {
+                        layer.visible = visible;
+                        layer.lock = lock;
+                        layer.print = print;
+                        layer.snap = snap_glue;
+                        layer.glue = snap_glue;
+                    }
+                }
+            },
+        );
+        Ok(true)
+    }
+
+    /// Assign or unassign a shape to/from a page Layer (`layer_ix`), keeping `LayerMember` synchronized for `.vsdx` round-trip.
+    pub fn set_shape_layer_membership(
+        &mut self,
+        page_id: u32,
+        shape_id: u64,
+        layer_ix: u32,
+        assigned: bool,
+    ) -> Result<bool, CoreError> {
+        let valid = self.doc.page(page_id).is_some_and(|p| {
+            p.layers.iter().any(|l| l.ix == layer_ix) && p.find_shape(shape_id).is_some()
+        });
+        if !valid {
+            return Ok(false);
+        }
+        let _ = self.journal.record_mutation(
+            &mut self.doc,
+            format!("Set Shape #{shape_id} Layer #{layer_ix}"),
+            |doc| {
+                if let Some(p) = doc.page_mut(page_id) {
+                    if let Some(sh) = p.find_shape_mut(shape_id) {
+                        if assigned {
+                            if !sh.layer_membership.contains(&layer_ix) {
+                                sh.layer_membership.push(layer_ix);
+                                sh.layer_membership.sort_unstable();
+                            }
+                        } else {
+                            sh.layer_membership.retain(|&ix| ix != layer_ix);
+                        }
+                        if sh.layer_membership.is_empty() {
+                            sh.sheet.cells.remove("layermember");
+                        } else {
+                            let joined: Vec<String> =
+                                sh.layer_membership.iter().map(u32::to_string).collect();
+                            sh.sheet.set_formula(
+                                "LayerMember",
+                                format!("\"{}\"", joined.join(";")),
+                                Some(Unit::String),
+                            );
+                        }
+                    }
+                }
+                ReactiveEngine::recalculate_document(doc);
+            },
+        );
+        Ok(true)
+    }
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShapeDataItemDto {
+    pub name: String,
+    pub label: String,
+    pub prompt: String,
+    pub data_type: u8,
+    pub format: String,
+    pub formula: String,
+    pub value: String,
+}
+
+pub(crate) fn collect_shape_data_items(
+    doc: &VisioDocument,
+    shape: &VisioShape,
+) -> Vec<ShapeDataItemDto> {
+    let mut merged: std::collections::BTreeMap<String, vexio_shapesheet::ShapeDataRow> =
+        std::collections::BTreeMap::new();
+    if let Some(mid) = shape.master_id {
+        if let Some(master) = doc.masters.iter().find(|m| m.id == mid) {
+            if let Some(ms) = master.shapes.first() {
+                for (k, row) in &ms.sheet.shape_data {
+                    if !row.invisible {
+                        merged.insert(k.clone(), row.clone());
+                    }
+                }
+            }
+        }
+    }
+    for (k, row) in &shape.sheet.shape_data {
+        if row.invisible {
+            merged.remove(k);
+        } else {
+            merged.insert(k.clone(), row.clone());
+        }
+    }
+    merged
+        .into_values()
+        .map(|row| {
+            let cell_key = format!("Prop.{}", row.name);
+            let evaluated = shape
+                .sheet
+                .get_cell(&cell_key)
+                .and_then(|c| c.value.as_str_coerced().ok())
+                .unwrap_or_else(|| row.value.trim_matches('"').to_string());
+            ShapeDataItemDto {
+                name: row.name,
+                label: row.label,
+                prompt: row.prompt,
+                data_type: row.data_type as u8,
+                format: row.format,
+                formula: row.value,
+                value: evaluated,
+            }
+        })
+        .collect()
+}
+
+pub(crate) fn resolve_shape_master_name(doc: &VisioDocument, shape: &VisioShape) -> Option<String> {
+    let mid = shape.master_id?;
+    doc.masters
+        .iter()
+        .find(|m| m.id == mid)
+        .map(|m| {
+            if !m.name.trim().is_empty() {
+                m.name.clone()
+            } else {
+                m.name_u.clone()
+            }
+        })
+        .filter(|n| !n.is_empty())
+}
+
+pub(crate) fn resolve_inspector_fill_hex(shape: &VisioShape) -> String {
+    let fp = shape.sheet.get_f64("FillPattern").unwrap_or(1.0).round() as i32;
+    if fp != 0 {
+        if let Some(c) = shape.sheet.get_color("FillForegnd") {
+            return c.to_hex_rgb();
+        }
+    }
+    for child in &shape.children {
+        let cfp = child.sheet.get_f64("FillPattern").unwrap_or(1.0).round() as i32;
+        if cfp != 0 {
+            if let Some(c) = child.sheet.get_color("FillForegnd") {
+                return c.to_hex_rgb();
+            }
+        }
+    }
+    shape
+        .sheet
+        .get_color("FillForegnd")
+        .map(|c| c.to_hex_rgb())
+        .unwrap_or_else(|| "#DBEAFE".to_string())
+}
+
+pub(crate) fn resolve_inspector_line_hex(shape: &VisioShape) -> String {
+    let lp = shape.sheet.get_f64("LinePattern").unwrap_or(1.0).round() as i32;
+    if lp != 0 {
+        if let Some(c) = shape.sheet.get_color("LineColor") {
+            return c.to_hex_rgb();
+        }
+    }
+    for child in &shape.children {
+        let clp = child.sheet.get_f64("LinePattern").unwrap_or(1.0).round() as i32;
+        if clp != 0 {
+            if let Some(c) = child.sheet.get_color("LineColor") {
+                return c.to_hex_rgb();
+            }
+        }
+    }
+    shape
+        .sheet
+        .get_color("LineColor")
+        .map(|c| c.to_hex_rgb())
+        .unwrap_or_else(|| "#1E3A8A".to_string())
+}
+
+pub(crate) fn count_layer_members_on_page(page: &VisioPage, layer_ix: u32) -> usize {
+    fn count_in_shape(s: &VisioShape, ix: u32) -> usize {
+        let here = usize::from(s.layer_membership.contains(&ix));
+        here + s.children.iter().map(|c| count_in_shape(c, ix)).sum::<usize>()
+    }
+    page.shapes.iter().map(|s| count_in_shape(s, layer_ix)).sum()
 }
 
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]

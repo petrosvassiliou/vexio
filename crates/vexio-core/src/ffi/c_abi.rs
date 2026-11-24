@@ -587,6 +587,73 @@ pub struct VexioDoc {
     pub session: DocumentSession,
 }
 
+pub(crate) fn fit_camera_to_diagram(
+    camera: &mut vexio_render::ViewportCamera,
+    doc: &VisioDocument,
+    page_id: u32,
+) {
+    let page = doc
+        .page(page_id)
+        .or_else(|| doc.pages.iter().find(|p| !p.is_background))
+        .or_else(|| doc.pages.first());
+    let pw = page.map(|p| p.width_in()).unwrap_or(11.0).max(0.5);
+    let ph = page.map(|p| p.height_in()).unwrap_or(8.5).max(0.5);
+
+    let mut min_x = 0.0_f64;
+    let mut min_y = 0.0_f64;
+    let mut max_x = pw;
+    let mut max_y = ph;
+
+    if let Some(p) = page {
+        let visuals = vexio_shapesheet::ReactiveEngine::evaluate_page_visuals(doc, p.id);
+        for v in &visuals {
+            if v.aabb_min[0].is_finite()
+                && v.aabb_min[1].is_finite()
+                && v.aabb_max[0].is_finite()
+                && v.aabb_max[1].is_finite()
+                && (v.aabb_max[0] - v.aabb_min[0]) < 500.0
+                && (v.aabb_max[1] - v.aabb_min[1]) < 500.0
+            {
+                min_x = min_x.min(v.aabb_min[0]);
+                min_y = min_y.min(v.aabb_min[1]);
+                max_x = max_x.max(v.aabb_max[0]);
+                max_y = max_y.max(v.aabb_max[1]);
+            }
+        }
+    }
+
+    let span_w = (max_x - min_x).max(0.5);
+    let span_h = (max_y - min_y).max(0.5);
+    let dpi = camera.dpi_scale.max(0.5);
+    let logical_w = (camera.width_px.max(1) as f64) / dpi;
+    let logical_h = (camera.height_px.max(1) as f64) / dpi;
+
+    // Reserve breathing room (6% margin, plus clearance for floating left tool palette when wide enough).
+    let left_pad_pt = if logical_w > 420.0 { 96.0 } else { logical_w * 0.06 };
+    let right_pad_pt = logical_w * 0.05;
+    let top_pad_pt = logical_h * 0.05;
+    let bottom_pad_pt = if logical_h > 320.0 { 54.0 } else { logical_h * 0.06 };
+
+    let avail_w_pt = (logical_w - left_pad_pt - right_pad_pt).max(logical_w * 0.55).max(1.0);
+    let avail_h_pt = (logical_h - top_pad_pt - bottom_pad_pt).max(logical_h * 0.55).max(1.0);
+    let ppi = (avail_w_pt / span_w).min(avail_h_pt / span_h).clamp(1.0, 25_000.0);
+
+    camera.zoom_ppi = ppi;
+    // Shift camera center slightly left/down in page space so diagram sits centered in the unobstructed region!
+    let horiz_bias_in = if logical_w > 420.0 {
+        (left_pad_pt - right_pad_pt) * 0.5 / ppi
+    } else {
+        0.0
+    };
+    let vert_bias_in = if logical_h > 320.0 {
+        (bottom_pad_pt - top_pad_pt) * 0.5 / ppi
+    } else {
+        0.0
+    };
+    camera.center_x_in = (min_x + max_x) * 0.5 - horiz_bias_in;
+    camera.center_y_in = (min_y + max_y) * 0.5 - vert_bias_in;
+}
+
 pub struct VexioViewport {
     pub page_id: u32,
     pub camera: vexio_render::ViewportCamera,
@@ -596,6 +663,7 @@ pub struct VexioViewport {
     pub drag_state: Option<NativeDragState>,
     pub last_created_text_shape_id: Option<u64>,
     pub smart_guides_enabled: bool,
+    pub pending_fit: bool,
     pub overlay: vexio_render::InteractiveCanvasOverlay,
     /// Retained Android `ANativeWindow*` released on `Drop` when created via `jni_bridge`.
     pub android_native_window: *mut std::ffi::c_void,
@@ -613,9 +681,8 @@ impl VexioViewport {
             .or_else(|| doc.pages.iter().find(|p| !p.is_background))
             .or_else(|| doc.pages.first());
         let resolved_id = resolved_page.map(|p| p.id).unwrap_or(page_id);
-        if let Some(page) = resolved_page {
-            camera.fit_to_page(page.width_in(), page.height_in());
-        }
+        fit_camera_to_diagram(&mut camera, doc, resolved_id);
+        let pending_fit = width_px <= 64 || height_px <= 64;
         Self {
             page_id: resolved_id,
             camera,
@@ -625,6 +692,7 @@ impl VexioViewport {
             drag_state: None,
             last_created_text_shape_id: None,
             smart_guides_enabled: true,
+            pending_fit,
             overlay: vexio_render::InteractiveCanvasOverlay::default(),
             android_native_window: ptr::null_mut(),
         }
@@ -659,6 +727,10 @@ impl VexioViewport {
     }
 
     pub fn present_if_attached(&mut self, doc: &VisioDocument) -> bool {
+        if self.pending_fit && self.camera.width_px > 64 && self.camera.height_px > 64 {
+            fit_camera_to_diagram(&mut self.camera, doc, self.page_id);
+            self.pending_fit = false;
+        }
         self.sync_glued_ends(doc);
         let Some(r) = &mut self.gpu_renderer else {
             return false;
@@ -2114,14 +2186,43 @@ struct NativeShapeDto {
     name: String,
     kind: String,
     is_group: bool,
+    child_count: usize,
+    master_name: Option<String>,
+    layer_indices: Vec<u32>,
     text: String,
     pin_x: f64,
     pin_y: f64,
+    loc_pin_x: f64,
+    loc_pin_y: f64,
     width: f64,
     height: f64,
     angle_deg: f64,
     flip_x: bool,
     flip_y: bool,
+    begin_x: Option<f64>,
+    begin_y: Option<f64>,
+    end_x: Option<f64>,
+    end_y: Option<f64>,
+    route_style: i32,
+    fill_color: String,
+    fill_bkgnd: String,
+    fill_pattern: i32,
+    fill_trans_pct: f64,
+    rounding_in: f64,
+    line_color: String,
+    line_pattern: i32,
+    line_weight_pt: f64,
+    line_trans_pct: f64,
+    begin_arrow: i32,
+    end_arrow: i32,
+    lock_width: bool,
+    lock_height: bool,
+    lock_aspect: bool,
+    lock_move_x: bool,
+    lock_move_y: bool,
+    lock_rotate: bool,
+    lock_delete: bool,
+    hide_text: bool,
     font_family: String,
     font_size_pt: f64,
     char_style: u8,
@@ -2131,6 +2232,7 @@ struct NativeShapeDto {
     vert_align: u8,
     bullet_style: u8,
     control_handles_count: usize,
+    shape_data: Vec<crate::workspace::ShapeDataItemDto>,
     cells: Vec<NativeCellDto>,
 }
 
@@ -2153,6 +2255,9 @@ struct NativeLayerDto {
     visible: bool,
     print: bool,
     lock: bool,
+    snap: bool,
+    glue: bool,
+    member_count: usize,
 }
 
 #[derive(Serialize)]
@@ -2216,6 +2321,9 @@ pub(crate) fn build_native_state_json(session: &DocumentSession, active_page_id:
                     visible: l.visible,
                     print: l.print,
                     lock: l.lock,
+                    snap: l.snap,
+                    glue: l.glue,
+                    member_count: crate::workspace::count_layer_members_on_page(p, l.ix),
                 })
                 .collect()
         })
@@ -2248,19 +2356,63 @@ pub(crate) fn build_native_state_json(session: &DocumentSession, active_page_id:
                     } else {
                         None
                     };
+                    let is_1d = s.kind == ShapeKind::Connector1D;
+                    let w_in = s.sheet.get_f64("Width").unwrap_or(1.0);
+                    let h_in = s.sheet.get_f64("Height").unwrap_or(1.0);
                     NativeShapeDto {
                         id: s.id,
                         name: s.name.clone(),
                         kind: format!("{:?}", s.kind),
                         is_group: s.kind == ShapeKind::Group || !s.children.is_empty(),
+                        child_count: s.children.len(),
+                        master_name: crate::workspace::resolve_shape_master_name(&session.doc, s),
+                        layer_indices: s.layer_membership.clone(),
                         text: s.text.clone(),
                         pin_x: s.sheet.get_f64("PinX").unwrap_or(0.0),
                         pin_y: s.sheet.get_f64("PinY").unwrap_or(0.0),
-                        width: s.sheet.get_f64("Width").unwrap_or(1.0),
-                        height: s.sheet.get_f64("Height").unwrap_or(1.0),
+                        loc_pin_x: s.sheet.get_f64("LocPinX").unwrap_or(w_in * 0.5),
+                        loc_pin_y: s.sheet.get_f64("LocPinY").unwrap_or(h_in * 0.5),
+                        width: w_in,
+                        height: h_in,
                         angle_deg: s.sheet.get_f64("Angle").unwrap_or(0.0).to_degrees(),
                         flip_x: s.sheet.get_bool("FlipX").unwrap_or(false),
                         flip_y: s.sheet.get_bool("FlipY").unwrap_or(false),
+                        begin_x: if is_1d { s.sheet.get_f64("BeginX") } else { None },
+                        begin_y: if is_1d { s.sheet.get_f64("BeginY") } else { None },
+                        end_x: if is_1d { s.sheet.get_f64("EndX") } else { None },
+                        end_y: if is_1d { s.sheet.get_f64("EndY") } else { None },
+                        route_style: s.sheet.get_f64("ShapeRouteStyle").unwrap_or(16.0).round() as i32,
+                        fill_color: crate::workspace::resolve_inspector_fill_hex(s),
+                        fill_bkgnd: s
+                            .sheet
+                            .get_color("FillBkgnd")
+                            .unwrap_or(RgbaColor::WHITE)
+                            .to_hex_rgb(),
+                        fill_pattern: s.sheet.get_f64("FillPattern").unwrap_or(1.0).round() as i32,
+                        fill_trans_pct: (s.sheet.get_f64("FillForegndTrans").unwrap_or(0.0) * 100.0)
+                            .round()
+                            .clamp(0.0, 100.0),
+                        rounding_in: s.sheet.get_f64("Rounding").unwrap_or(0.0),
+                        line_color: crate::workspace::resolve_inspector_line_hex(s),
+                        line_pattern: s.sheet.get_f64("LinePattern").unwrap_or(1.0).round() as i32,
+                        line_weight_pt: (s.sheet.get_f64("LineWeight").unwrap_or(1.0 / 72.0) * 72.0 * 100.0).round() / 100.0,
+                        line_trans_pct: (s.sheet.get_f64("LineColorTrans").unwrap_or(0.0) * 100.0)
+                            .round()
+                            .clamp(0.0, 100.0),
+                        begin_arrow: s.sheet.get_f64("BeginArrow").unwrap_or(0.0).round() as i32,
+                        end_arrow: s
+                            .sheet
+                            .get_f64("EndArrow")
+                            .unwrap_or(if is_1d { 4.0 } else { 0.0 })
+                            .round() as i32,
+                        lock_width: s.sheet.get_bool("LockWidth").unwrap_or(false),
+                        lock_height: s.sheet.get_bool("LockHeight").unwrap_or(false),
+                        lock_aspect: s.sheet.get_bool("LockAspect").unwrap_or(false),
+                        lock_move_x: s.sheet.get_bool("LockMoveX").unwrap_or(false),
+                        lock_move_y: s.sheet.get_bool("LockMoveY").unwrap_or(false),
+                        lock_rotate: s.sheet.get_bool("LockRotate").unwrap_or(false),
+                        lock_delete: s.sheet.get_bool("LockDelete").unwrap_or(false),
+                        hide_text: s.sheet.get_bool("HideText").unwrap_or(false),
                         font_family: s
                             .sheet
                             .get_str("Char.Font")
@@ -2278,6 +2430,7 @@ pub(crate) fn build_native_state_json(session: &DocumentSession, active_page_id:
                         vert_align: s.sheet.get_f64("VerticalAlign").unwrap_or(1.0).round().clamp(0.0, 2.0) as u8,
                         bullet_style: s.sheet.get_f64("Para.Bullet").unwrap_or(0.0).round().clamp(0.0, 4.0) as u8,
                         control_handles_count: list_control_handles(&session.doc, pid, s.id).len(),
+                        shape_data: crate::workspace::collect_shape_data_items(&session.doc, s),
                         cells,
                     }
                 })
@@ -2717,9 +2870,8 @@ pub unsafe extern "C" fn vexio_viewport_set_page(
         let resolved_id = target_page.map(|p| p.id).unwrap_or(page_id);
         vp_mut.page_id = resolved_id;
         vp_mut.selected_ids.clear();
-        if let Some(p) = target_page {
-            vp_mut.camera.fit_to_page(p.width_in(), p.height_in());
-        }
+        fit_camera_to_diagram(&mut vp_mut.camera, &doc_ref.session.doc, resolved_id);
+        vp_mut.pending_fit = vp_mut.camera.width_px <= 64 || vp_mut.camera.height_px <= 64;
         vp_mut.present_if_attached(&doc_ref.session.doc);
         VexioStatus::Ok
     })
@@ -2741,14 +2893,14 @@ pub unsafe extern "C" fn vexio_viewport_set_zoom(
         let vp_mut = unsafe { &mut *vp };
         let doc_ref = unsafe { &*doc };
         if zoom_scale <= 0.0 {
-            if let Some(p) = doc_ref.session.doc.page(vp_mut.page_id) {
-                vp_mut.camera.fit_to_page(p.width_in(), p.height_in());
-            }
+            fit_camera_to_diagram(&mut vp_mut.camera, &doc_ref.session.doc, vp_mut.page_id);
+            vp_mut.pending_fit = vp_mut.camera.width_px <= 64 || vp_mut.camera.height_px <= 64;
         } else {
+            vp_mut.pending_fit = false;
             vp_mut.camera.zoom_ppi = 96.0 * zoom_scale.clamp(0.1, 16.0);
             if pan_x_in.is_finite() && pan_y_in.is_finite() && (pan_x_in != 0.0 || pan_y_in != 0.0) {
                 vp_mut.camera.center_x_in = pan_x_in;
-                vp_mut.camera.center_y_in = pan_y_in;
+                vp_mut.camera.center_y_in = pan_x_in * 0.0 + pan_y_in;
             }
         }
         vp_mut.present_if_attached(&doc_ref.session.doc);
@@ -4542,6 +4694,175 @@ pub unsafe extern "C" fn vexio_doc_drag_control_handle(
     })
 }
 
+#[no_mangle]
+pub unsafe extern "C" fn vexio_doc_rename_shape(
+    doc: *mut VexioDoc,
+    page_id: u32,
+    shape_id: u64,
+    new_name_utf8: *const c_char,
+) -> VexioStatus {
+    catch_ffi_status(|| {
+        if doc.is_null() || new_name_utf8.is_null() {
+            return VexioStatus::ErrInvalidArg;
+        }
+        // SAFETY: `doc` and `new_name_utf8` verified non-null.
+        let d = unsafe { &mut *doc };
+        let Ok(name_str) = unsafe { CStr::from_ptr(new_name_utf8) }.to_str() else {
+            return VexioStatus::ErrInvalidArg;
+        };
+        match d.session.rename_shape(page_id, shape_id, name_str) {
+            Ok(true) => VexioStatus::Ok,
+            Ok(false) => VexioStatus::ErrInvalidArg,
+            Err(e) => map_core_err(e),
+        }
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_doc_upsert_shape_data(
+    doc: *mut VexioDoc,
+    page_id: u32,
+    shape_id: u64,
+    row_name_utf8: *const c_char,
+    label_utf8: *const c_char,
+    data_type: u8,
+    value_utf8: *const c_char,
+) -> VexioStatus {
+    catch_ffi_status(|| {
+        if doc.is_null() || row_name_utf8.is_null() || value_utf8.is_null() {
+            return VexioStatus::ErrInvalidArg;
+        }
+        // SAFETY: `doc`, `row_name_utf8`, and `value_utf8` verified non-null (`label_utf8` may be null).
+        let d = unsafe { &mut *doc };
+        let Ok(r_str) = unsafe { CStr::from_ptr(row_name_utf8) }.to_str() else {
+            return VexioStatus::ErrInvalidArg;
+        };
+        let lbl_str = if label_utf8.is_null() {
+            ""
+        } else {
+            unsafe { CStr::from_ptr(label_utf8) }
+                .to_str()
+                .unwrap_or("")
+        };
+        let Ok(val_str) = unsafe { CStr::from_ptr(value_utf8) }.to_str() else {
+            return VexioStatus::ErrInvalidArg;
+        };
+        match d
+            .session
+            .upsert_shape_data(page_id, shape_id, r_str, lbl_str, data_type, val_str)
+        {
+            Ok(true) => VexioStatus::Ok,
+            Ok(false) => VexioStatus::ErrInvalidArg,
+            Err(e) => map_core_err(e),
+        }
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_doc_delete_shape_data(
+    doc: *mut VexioDoc,
+    page_id: u32,
+    shape_id: u64,
+    row_name_utf8: *const c_char,
+) -> VexioStatus {
+    catch_ffi_status(|| {
+        if doc.is_null() || row_name_utf8.is_null() {
+            return VexioStatus::ErrInvalidArg;
+        }
+        // SAFETY: `doc` and `row_name_utf8` verified non-null.
+        let d = unsafe { &mut *doc };
+        let Ok(r_str) = unsafe { CStr::from_ptr(row_name_utf8) }.to_str() else {
+            return VexioStatus::ErrInvalidArg;
+        };
+        match d.session.delete_shape_data(page_id, shape_id, r_str) {
+            Ok(true) => VexioStatus::Ok,
+            Ok(false) => VexioStatus::ErrInvalidArg,
+            Err(e) => map_core_err(e),
+        }
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_doc_add_layer(
+    doc: *mut VexioDoc,
+    page_id: u32,
+    layer_name_utf8: *const c_char,
+    out_layer_ix: *mut u32,
+) -> VexioStatus {
+    catch_ffi_status(|| {
+        if doc.is_null() || layer_name_utf8.is_null() {
+            return VexioStatus::ErrInvalidArg;
+        }
+        // SAFETY: `doc` and `layer_name_utf8` verified non-null.
+        let d = unsafe { &mut *doc };
+        let Ok(l_str) = unsafe { CStr::from_ptr(layer_name_utf8) }.to_str() else {
+            return VexioStatus::ErrInvalidArg;
+        };
+        match d.session.add_layer(page_id, l_str) {
+            Ok(ix) => {
+                if !out_layer_ix.is_null() {
+                    // SAFETY: `out_layer_ix` verified non-null.
+                    unsafe { *out_layer_ix = ix };
+                }
+                VexioStatus::Ok
+            }
+            Err(e) => map_core_err(e),
+        }
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_doc_set_layer_flags(
+    doc: *mut VexioDoc,
+    page_id: u32,
+    layer_ix: u32,
+    visible: bool,
+    lock_flag: bool,
+    print_flag: bool,
+    snap_glue: bool,
+) -> VexioStatus {
+    catch_ffi_status(|| {
+        if doc.is_null() {
+            return VexioStatus::ErrInvalidArg;
+        }
+        // SAFETY: `doc` verified non-null.
+        let d = unsafe { &mut *doc };
+        match d
+            .session
+            .set_layer_flags(page_id, layer_ix, visible, lock_flag, print_flag, snap_glue)
+        {
+            Ok(true) => VexioStatus::Ok,
+            Ok(false) => VexioStatus::ErrInvalidArg,
+            Err(e) => map_core_err(e),
+        }
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_doc_set_shape_layer_membership(
+    doc: *mut VexioDoc,
+    page_id: u32,
+    shape_id: u64,
+    layer_ix: u32,
+    assigned: bool,
+) -> VexioStatus {
+    catch_ffi_status(|| {
+        if doc.is_null() {
+            return VexioStatus::ErrInvalidArg;
+        }
+        // SAFETY: `doc` verified non-null.
+        let d = unsafe { &mut *doc };
+        match d
+            .session
+            .set_shape_layer_membership(page_id, shape_id, layer_ix, assigned)
+        {
+            Ok(true) => VexioStatus::Ok,
+            Ok(false) => VexioStatus::ErrInvalidArg,
+            Err(e) => map_core_err(e),
+        }
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -5405,6 +5726,122 @@ mod tests {
                 VexioStatus::Ok
             );
             assert!(ac_target_id > 0 && ac_conn_id > 0);
+
+            // 6) v0.3.8-alpha Object Inspector C-ABI verification (Rename, Shape Data Prop.*, Layers & VSDX round-trip):
+            let new_obj_name = CString::new("ExchangeEdge.01").unwrap();
+            assert_eq!(
+                vexio_doc_rename_shape(doc, added_pid, rot_sid, new_obj_name.as_ptr()),
+                VexioStatus::Ok
+            );
+            let prop_row = CString::new("Environment").unwrap();
+            let prop_lbl = CString::new("Deployment Tier").unwrap();
+            let prop_val = CString::new("Production").unwrap();
+            assert_eq!(
+                vexio_doc_upsert_shape_data(
+                    doc,
+                    added_pid,
+                    rot_sid,
+                    prop_row.as_ptr(),
+                    prop_lbl.as_ptr(),
+                    0,
+                    prop_val.as_ptr()
+                ),
+                VexioStatus::Ok
+            );
+            let prop_cost = CString::new("MonthlyCost").unwrap();
+            let prop_cost_lbl = CString::new("Monthly Cost").unwrap();
+            let prop_cost_val = CString::new("420.5").unwrap();
+            assert_eq!(
+                vexio_doc_upsert_shape_data(
+                    doc,
+                    added_pid,
+                    rot_sid,
+                    prop_cost.as_ptr(),
+                    prop_cost_lbl.as_ptr(),
+                    7,
+                    prop_cost_val.as_ptr()
+                ),
+                VexioStatus::Ok
+            );
+            assert_eq!(
+                vexio_doc_delete_shape_data(doc, added_pid, rot_sid, prop_cost.as_ptr()),
+                VexioStatus::Ok
+            );
+
+            let sec_layer_c = CString::new("Security Perimeter").unwrap();
+            let mut sec_layer_ix = 999u32;
+            assert_eq!(
+                vexio_doc_add_layer(doc, added_pid, sec_layer_c.as_ptr(), &mut sec_layer_ix),
+                VexioStatus::Ok
+            );
+            assert!(sec_layer_ix < 100);
+            assert_eq!(
+                vexio_doc_set_layer_flags(doc, added_pid, sec_layer_ix, true, false, true, true),
+                VexioStatus::Ok
+            );
+            assert_eq!(
+                vexio_doc_set_shape_layer_membership(doc, added_pid, rot_sid, sec_layer_ix, true),
+                VexioStatus::Ok
+            );
+
+            let mut insp_json_buf = VexioOwnedBuffer {
+                ptr: std::ptr::null_mut(),
+                len: 0,
+                cap: 0,
+            };
+            assert_eq!(
+                vexio_doc_get_state_json(doc, added_pid, &mut insp_json_buf),
+                VexioStatus::Ok
+            );
+            let insp_json_str = std::str::from_utf8(std::slice::from_raw_parts(
+                insp_json_buf.ptr,
+                insp_json_buf.len,
+            ))
+            .unwrap()
+            .to_string();
+            vexio_buffer_free(insp_json_buf);
+            assert!(insp_json_str.contains("ExchangeEdge.01"));
+            assert!(insp_json_str.contains("Deployment Tier"));
+            assert!(insp_json_str.contains("Production"));
+            assert!(!insp_json_str.contains("MonthlyCost"));
+            assert!(insp_json_str.contains("Security Perimeter"));
+
+            // Round-trip through `.vsdx` to confirm `Prop.Environment` and `LayerMember` survive load -> save -> load!
+            let vsdx_ext = CString::new("vsdx").unwrap();
+            let mut vsdx_out = VexioOwnedBuffer {
+                ptr: std::ptr::null_mut(),
+                len: 0,
+                cap: 0,
+            };
+            assert_eq!(
+                vexio_doc_save_format(doc, vsdx_ext.as_ptr(), &mut vsdx_out),
+                VexioStatus::Ok
+            );
+            let mut rt_doc: *mut VexioDoc = std::ptr::null_mut();
+            assert_eq!(
+                vexio_doc_open_bytes(
+                    eng,
+                    VexioByteSlice {
+                        ptr: vsdx_out.ptr,
+                        len: vsdx_out.len,
+                    },
+                    vsdx_ext.as_ptr(),
+                    &mut rt_doc,
+                ),
+                VexioStatus::Ok
+            );
+            vexio_buffer_free(vsdx_out);
+            let rt_shape = (*rt_doc)
+                .session
+                .doc
+                .page(added_pid)
+                .unwrap()
+                .find_shape(rot_sid)
+                .unwrap();
+            assert_eq!(rt_shape.name, "ExchangeEdge.01");
+            assert!(rt_shape.layer_membership.contains(&sec_layer_ix));
+            assert!(rt_shape.sheet.shape_data.contains_key("environment"));
+            vexio_doc_destroy(rt_doc);
 
             let _ = vexio_viewport_get_primary_selection(vp);
             vexio_viewport_destroy(vp);

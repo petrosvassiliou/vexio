@@ -20,13 +20,28 @@ export interface EditableVertexDto {
   page_y_in: number;
 }
 
+export interface ShapeDataDto {
+  name: string;
+  label: string;
+  prompt: string;
+  dataType: number;
+  format: string;
+  formula: string;
+  value: string;
+}
+
 export interface EngineShapeSummary {
   id: number;
   name: string;
   kind: string;
+  childCount?: number;
+  masterName?: string | null;
+  layerIndices?: number[];
   text: string;
   pinX: number;
   pinY: number;
+  locPinX?: number;
+  locPinY?: number;
   txtX?: number;
   txtY?: number;
   width: number;
@@ -34,6 +49,21 @@ export interface EngineShapeSummary {
   angleDeg: number;
   flipX?: boolean;
   flipY?: boolean;
+  fillColor?: string;
+  fillBkgnd?: string;
+  fillPattern?: number;
+  fillTransPct?: number;
+  roundingIn?: number;
+  lineColor?: string;
+  lineTransPct?: number;
+  lockWidth?: boolean;
+  lockHeight?: boolean;
+  lockAspect?: boolean;
+  lockMoveX?: boolean;
+  lockMoveY?: boolean;
+  lockRotate?: boolean;
+  lockDelete?: boolean;
+  hideText?: boolean;
   fontFamily?: string;
   fontSizePt?: number;
   charStyle?: number;
@@ -61,6 +91,7 @@ export interface EngineShapeSummary {
   isSwimlane?: boolean;
   containerMembers?: number[];
   controlHandles: ControlHandleDto[];
+  shapeData?: ShapeDataDto[];
   cells: Array<{ name: string; formula: string; value: string; guarded: boolean }>;
 }
 
@@ -70,6 +101,9 @@ export interface EngineLayerInfo {
   visible: boolean;
   print: boolean;
   lock: boolean;
+  snap?: boolean;
+  glue?: boolean;
+  memberCount?: number;
   colorOverride: string | null;
 }
 
@@ -332,6 +366,26 @@ interface WasmSessionInstance {
     target_port_cell: string
   ): boolean;
   drag_connector_segment(page_id: number, shape_id: number, seg_index: number, coord_in: number): boolean;
+  rename_shape(page_id: number, shape_id: number, new_name: string): boolean;
+  upsert_shape_data(
+    page_id: number,
+    shape_id: number,
+    row_name: string,
+    label: string,
+    data_type: number,
+    value_input: string
+  ): boolean;
+  delete_shape_data(page_id: number, shape_id: number, row_name: string): boolean;
+  add_layer(page_id: number, name: string): number;
+  set_layer_flags(
+    page_id: number,
+    layer_ix: number,
+    visible: boolean,
+    lock: boolean,
+    print: boolean,
+    snap_glue: boolean
+  ): boolean;
+  set_shape_layer_membership(page_id: number, shape_id: number, layer_ix: number, assigned: boolean): boolean;
 }
 
 let wasmSession: WasmSessionInstance | null = null;
@@ -1310,6 +1364,79 @@ self.onmessage = async (ev: MessageEvent) => {
             : false;
         const wal = session.export_wal();
         self.postMessage({ id, ok: true, dragged, wal, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'renameShape': {
+        const ok =
+          typeof session.rename_shape === 'function'
+            ? session.rename_shape(activePageId, Number(payload.shapeId), String(payload.name ?? ''))
+            : false;
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, renamed: ok, wal, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'upsertShapeData': {
+        const ok =
+          typeof session.upsert_shape_data === 'function'
+            ? session.upsert_shape_data(
+                activePageId,
+                Number(payload.shapeId),
+                String(payload.rowName ?? ''),
+                String(payload.label ?? ''),
+                Number(payload.dataType ?? 0),
+                String(payload.value ?? '')
+              )
+            : false;
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, updated: ok, wal, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'deleteShapeData': {
+        const ok =
+          typeof session.delete_shape_data === 'function'
+            ? session.delete_shape_data(activePageId, Number(payload.shapeId), String(payload.rowName ?? ''))
+            : false;
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, deleted: ok, wal, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'addLayer': {
+        const layerIx =
+          typeof session.add_layer === 'function'
+            ? session.add_layer(activePageId, String(payload.name ?? ''))
+            : 0;
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, layerIx, wal, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'setLayerFlags': {
+        const ok =
+          typeof session.set_layer_flags === 'function'
+            ? session.set_layer_flags(
+                activePageId,
+                Number(payload.layerIx ?? 0),
+                Boolean(payload.visible ?? true),
+                Boolean(payload.lock ?? false),
+                Boolean(payload.print ?? true),
+                Boolean(payload.snapGlue ?? true)
+              )
+            : false;
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, updated: ok, wal, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'setShapeLayerMembership': {
+        const ids: number[] = Array.isArray(payload.shapeIds) ? payload.shapeIds : [Number(payload.shapeId)];
+        let count = 0;
+        if (typeof session.set_shape_layer_membership === 'function') {
+          for (const sid of ids) {
+            if (session.set_shape_layer_membership(activePageId, Number(sid), Number(payload.layerIx ?? 0), Boolean(payload.assigned))) {
+              count += 1;
+            }
+          }
+        }
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, count, wal, snapshot: buildSnapshot(session) });
         break;
       }
     }

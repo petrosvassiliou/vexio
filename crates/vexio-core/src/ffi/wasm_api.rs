@@ -170,9 +170,14 @@ struct WasmShapeInfo {
     name: String,
     kind: String,
     is_group: bool,
+    child_count: usize,
+    master_name: Option<String>,
+    layer_indices: Vec<u32>,
     text: String,
     pin_x: f64,
     pin_y: f64,
+    loc_pin_x: f64,
+    loc_pin_y: f64,
     txt_x: f64,
     txt_y: f64,
     width: f64,
@@ -180,6 +185,21 @@ struct WasmShapeInfo {
     angle_deg: f64,
     flip_x: bool,
     flip_y: bool,
+    fill_color: String,
+    fill_bkgnd: String,
+    fill_pattern: i32,
+    fill_trans_pct: f64,
+    rounding_in: f64,
+    line_color: String,
+    line_trans_pct: f64,
+    lock_width: bool,
+    lock_height: bool,
+    lock_aspect: bool,
+    lock_move_x: bool,
+    lock_move_y: bool,
+    lock_rotate: bool,
+    lock_delete: bool,
+    hide_text: bool,
     font_family: String,
     font_size_pt: f64,
     char_style: u8,
@@ -206,6 +226,7 @@ struct WasmShapeInfo {
     is_swimlane: bool,
     container_members: Vec<u32>,
     control_handles: Vec<ControlHandleInfo>,
+    shape_data: Vec<crate::workspace::ShapeDataItemDto>,
     cells: Vec<WasmCellInfo>,
 }
 
@@ -228,6 +249,9 @@ struct WasmLayerInfo {
     visible: bool,
     print: bool,
     lock: bool,
+    snap: bool,
+    glue: bool,
+    member_count: usize,
     color_override: Option<String>,
 }
 
@@ -1565,6 +1589,9 @@ impl WasmVexioSession {
                         visible: l.visible,
                         print: l.print,
                         lock: l.lock,
+                        snap: l.snap,
+                        glue: l.glue,
+                        member_count: crate::workspace::count_layer_members_on_page(p, l.ix),
                         color_override: l.color_override.map(|c| c.to_hex_rgb()),
                     })
                     .collect()
@@ -1673,6 +1700,8 @@ impl WasmVexioSession {
                             });
                         let pin_x = s.sheet.get_f64("PinX").unwrap_or(0.0);
                         let pin_y = s.sheet.get_f64("PinY").unwrap_or(0.0);
+                        let w_in = s.sheet.get_f64("Width").unwrap_or(1.0);
+                        let h_in = s.sheet.get_f64("Height").unwrap_or(1.0);
                         let (txt_x, txt_y) = ev_vis
                             .map(|v| (v.txt_pos[0], v.txt_pos[1]))
                             .unwrap_or((pin_x, pin_y));
@@ -1681,16 +1710,44 @@ impl WasmVexioSession {
                             name: s.name.clone(),
                             kind: format!("{:?}", s.kind),
                             is_group: s.kind == ShapeKind::Group || !s.children.is_empty(),
+                            child_count: s.children.len(),
+                            master_name: crate::workspace::resolve_shape_master_name(&self.inner.doc, s),
+                            layer_indices: s.layer_membership.clone(),
                             text: s.text.clone(),
                             pin_x,
                             pin_y,
+                            loc_pin_x: s.sheet.get_f64("LocPinX").unwrap_or(w_in * 0.5),
+                            loc_pin_y: s.sheet.get_f64("LocPinY").unwrap_or(h_in * 0.5),
                             txt_x,
                             txt_y,
-                            width: s.sheet.get_f64("Width").unwrap_or(1.0),
-                            height: s.sheet.get_f64("Height").unwrap_or(1.0),
+                            width: w_in,
+                            height: h_in,
                             angle_deg: s.sheet.get_f64("Angle").unwrap_or(0.0).to_degrees(),
                             flip_x: s.sheet.get_bool("FlipX").unwrap_or(false),
                             flip_y: s.sheet.get_bool("FlipY").unwrap_or(false),
+                            fill_color: crate::workspace::resolve_inspector_fill_hex(s),
+                            fill_bkgnd: s
+                                .sheet
+                                .get_color("FillBkgnd")
+                                .unwrap_or(vexio_shapesheet::RgbaColor::WHITE)
+                                .to_hex_rgb(),
+                            fill_pattern: s.sheet.get_f64("FillPattern").unwrap_or(1.0).round() as i32,
+                            fill_trans_pct: (s.sheet.get_f64("FillForegndTrans").unwrap_or(0.0) * 100.0)
+                                .round()
+                                .clamp(0.0, 100.0),
+                            rounding_in: s.sheet.get_f64("Rounding").unwrap_or(0.0),
+                            line_color: crate::workspace::resolve_inspector_line_hex(s),
+                            line_trans_pct: (s.sheet.get_f64("LineColorTrans").unwrap_or(0.0) * 100.0)
+                                .round()
+                                .clamp(0.0, 100.0),
+                            lock_width: s.sheet.get_bool("LockWidth").unwrap_or(false),
+                            lock_height: s.sheet.get_bool("LockHeight").unwrap_or(false),
+                            lock_aspect: s.sheet.get_bool("LockAspect").unwrap_or(false),
+                            lock_move_x: s.sheet.get_bool("LockMoveX").unwrap_or(false),
+                            lock_move_y: s.sheet.get_bool("LockMoveY").unwrap_or(false),
+                            lock_rotate: s.sheet.get_bool("LockRotate").unwrap_or(false),
+                            lock_delete: s.sheet.get_bool("LockDelete").unwrap_or(false),
+                            hide_text: s.sheet.get_bool("HideText").unwrap_or(false),
                             font_family: ev_vis
                                 .map(|v| v.font_family.clone())
                                 .filter(|f| !f.is_empty())
@@ -1743,6 +1800,7 @@ impl WasmVexioSession {
                                 .map(|id| id as u32)
                                 .collect(),
                             control_handles,
+                            shape_data: crate::workspace::collect_shape_data_items(&self.inner.doc, s),
                             cells,
                         }
                     })
@@ -2322,5 +2380,63 @@ impl WasmVexioSession {
         self.inner
             .drag_connector_segment(page_id, shape_id as u64, seg_index as usize, coord_in)
             .map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
+    pub fn rename_shape(&mut self, page_id: u32, shape_id: u32, new_name: &str) -> bool {
+        self.inner
+            .rename_shape(page_id, shape_id as u64, new_name)
+            .unwrap_or(false)
+    }
+
+    pub fn upsert_shape_data(
+        &mut self,
+        page_id: u32,
+        shape_id: u32,
+        row_name: &str,
+        label: &str,
+        data_type: u8,
+        value_input: &str,
+    ) -> bool {
+        self.inner
+            .upsert_shape_data(page_id, shape_id as u64, row_name, label, data_type, value_input)
+            .unwrap_or(false)
+    }
+
+    pub fn delete_shape_data(&mut self, page_id: u32, shape_id: u32, row_name: &str) -> bool {
+        self.inner
+            .delete_shape_data(page_id, shape_id as u64, row_name)
+            .unwrap_or(false)
+    }
+
+    pub fn add_layer(&mut self, page_id: u32, name: &str) -> Result<u32, JsValue> {
+        self.inner
+            .add_layer(page_id, name)
+            .map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
+    pub fn set_layer_flags(
+        &mut self,
+        page_id: u32,
+        layer_ix: u32,
+        visible: bool,
+        lock: bool,
+        print: bool,
+        snap_glue: bool,
+    ) -> bool {
+        self.inner
+            .set_layer_flags(page_id, layer_ix, visible, lock, print, snap_glue)
+            .unwrap_or(false)
+    }
+
+    pub fn set_shape_layer_membership(
+        &mut self,
+        page_id: u32,
+        shape_id: u32,
+        layer_ix: u32,
+        assigned: bool,
+    ) -> bool {
+        self.inner
+            .set_shape_layer_membership(page_id, shape_id as u64, layer_ix, assigned)
+            .unwrap_or(false)
     }
 }

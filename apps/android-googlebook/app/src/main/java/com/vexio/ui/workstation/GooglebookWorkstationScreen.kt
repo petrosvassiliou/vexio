@@ -112,6 +112,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.HorizontalDivider
@@ -119,11 +120,15 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.PlainTooltip
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TooltipBox
+import androidx.compose.material3.TooltipDefaults
 import androidx.compose.material3.VerticalDivider
+import androidx.compose.material3.rememberTooltipState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -185,8 +190,11 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.input.motionprediction.MotionEventPredictor
 import com.vexio.MainActivity
 import com.vexio.core.CrossWindowShapePayload
+import com.vexio.core.DiagramLayerUiItem
 import com.vexio.core.FormulaCommitStatus
+import com.vexio.core.InspectedObjectUiState
 import com.vexio.core.Plan2SamplePayloads
+import com.vexio.core.ShapeDataUiItem
 import com.vexio.core.ShapeSheetCellEntry
 import com.vexio.core.StencilMasterItem
 import com.vexio.core.VexioAppLanguage
@@ -3606,34 +3614,37 @@ private fun ExpressiveMorphingToolbar(
                     label = "ToolFgColor"
                 )
 
-                Surface(
-                    shape = itemShape,
-                    color = bgColor,
-                    modifier = Modifier
-                        .scale(scale)
-                        .clip(itemShape)
-                        .clickable { onSelectTool(tool) }
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.padding(
-                            horizontal = if (isSelected) 11.dp else 8.dp,
-                            vertical = 6.dp
-                        )
+                val toolTipLabel = "${VexioI18n.toolName(tool, uiState.language)} (${tool.shortcutHint})"
+                VexioTooltip(text = toolTipLabel) {
+                    Surface(
+                        shape = itemShape,
+                        color = bgColor,
+                        modifier = Modifier
+                            .scale(scale)
+                            .clip(itemShape)
+                            .clickable { onSelectTool(tool) }
                     ) {
-                        Icon(
-                            imageVector = resolveToolIcon(tool),
-                            contentDescription = "${tool.displayName} (${tool.shortcutHint})",
-                            tint = contentColor,
-                            modifier = Modifier.size(17.dp)
-                        )
-                        if (isSelected) {
-                            Spacer(Modifier.width(5.dp))
-                            Text(
-                                text = VexioI18n.toolName(tool, uiState.language),
-                                style = MaterialTheme.typography.labelMedium,
-                                color = contentColor
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(
+                                horizontal = if (isSelected) 11.dp else 8.dp,
+                                vertical = 6.dp
                             )
+                        ) {
+                            Icon(
+                                imageVector = resolveToolIcon(tool),
+                                contentDescription = toolTipLabel,
+                                tint = contentColor,
+                                modifier = Modifier.size(17.dp)
+                            )
+                            if (isSelected) {
+                                Spacer(Modifier.width(5.dp))
+                                Text(
+                                    text = VexioI18n.toolName(tool, uiState.language),
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = contentColor
+                                )
+                            }
                         }
                     }
                 }
@@ -4345,6 +4356,25 @@ private fun ShapeSheetSectionTablePane(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun VexioTooltip(
+    text: String,
+    content: @Composable () -> Unit
+) {
+    TooltipBox(
+        positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
+        tooltip = {
+            PlainTooltip {
+                Text(text = text, style = MaterialTheme.typography.labelSmall)
+            }
+        },
+        state = rememberTooltipState()
+    ) {
+        content()
+    }
+}
+
 @Composable
 private fun ShapeInspectorPane(
     uiState: WorkstationUiState,
@@ -4353,15 +4383,31 @@ private fun ShapeInspectorPane(
     onSelectCell: (String) -> Unit,
     onQuickGuardToggle: (ShapeSheetCellEntry) -> Unit
 ) {
-    val semanticColors = LocalVexioSemanticColors.current
     val lang = uiState.language
     var selectedTab by remember { mutableStateOf(0) }
     var inspectorFontMenuOpen by remember { mutableStateOf(false) }
 
+    val obj: InspectedObjectUiState? = if (uiState.selectedShapeId > 0L) uiState.inspectedObject else null
+    var nameDraft by remember(obj?.id, obj?.name) { mutableStateOf(obj?.name.orEmpty()) }
+    var textDraft by remember(obj?.id, obj?.text) { mutableStateOf(obj?.text.orEmpty()) }
+    var newPropName by remember { mutableStateOf("") }
+    var newPropValue by remember { mutableStateOf("") }
+    var newLayerName by remember { mutableStateOf("") }
+
+    val unitSuffix = if (uiState.metricUnits) "mm" else "in"
+    fun formatInchesNumeric(v: Double): String =
+        if (uiState.metricUnits) "%.1f".format(java.util.Locale.US, v * 25.4) else "%.2f".format(java.util.Locale.US, v)
+    fun toEngineFormula(raw: String): String {
+        val clean = raw.trim().replace(',', '.')
+        if (clean.isEmpty()) return "0 $unitSuffix"
+        if (clean.startsWith("=")) return clean
+        return if (clean.toDoubleOrNull() != null) "$clean $unitSuffix" else clean
+    }
+
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainerLow,
         modifier = Modifier
-            .width(296.dp)
+            .width(308.dp)
             .fillMaxHeight()
     ) {
         Column(
@@ -4371,16 +4417,104 @@ private fun ShapeInspectorPane(
                 .padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Text(
-                text = VexioI18n.shapeAndLayerInspectorTitle(lang),
-                style = MaterialTheme.typography.titleSmall,
-                maxLines = 1,
-                softWrap = false
-            )
+            // Persistent Top MS Visio Object / Page Identity Card
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = MaterialTheme.colorScheme.surfaceContainerLowest,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                if (obj != null) {
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.padding(10.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Sheet.${obj.id}",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = obj.typeSubtitle,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                            VexioTooltip(text = "ShapeSheet (Shift+F5)") {
+                                IconButton(
+                                    onClick = { viewModel.toggleShapeSheetDrawer() },
+                                    modifier = Modifier.size(28.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Functions,
+                                        contentDescription = "ShapeSheet",
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                            }
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            OutlinedTextField(
+                                value = nameDraft,
+                                onValueChange = { nameDraft = it },
+                                label = { Text(VexioI18n.objectNameLabel(lang), style = MaterialTheme.typography.labelSmall) },
+                                singleLine = true,
+                                textStyle = MaterialTheme.typography.bodySmall,
+                                modifier = Modifier.weight(1f)
+                            )
+                            TextButton(
+                                onClick = { viewModel.renameSelectedShape(nameDraft) },
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                            ) {
+                                Text(VexioI18n.applyButton(lang), style = MaterialTheme.typography.labelSmall)
+                            }
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            OutlinedTextField(
+                                value = textDraft,
+                                onValueChange = { textDraft = it },
+                                label = { Text(VexioI18n.objectCaptionLabel(lang), style = MaterialTheme.typography.labelSmall) },
+                                singleLine = true,
+                                textStyle = MaterialTheme.typography.bodySmall,
+                                modifier = Modifier.weight(1f)
+                            )
+                            TextButton(
+                                onClick = { viewModel.setSelectedShapeLabelText(textDraft) },
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                            ) {
+                                Text(VexioI18n.applyButton(lang), style = MaterialTheme.typography.labelSmall)
+                            }
+                        }
+                    }
+                } else {
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                        modifier = Modifier.padding(10.dp)
+                    ) {
+                        Text(
+                            text = VexioI18n.pagePropertiesTitle(lang),
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "${formatInchesNumeric(uiState.pageWidthInches)} × ${formatInchesNumeric(uiState.pageHeightInches)} $unitSuffix • ${uiState.pageShapeCount} shapes",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
 
-            // Single-line non-wrapping Inspector Segmented Tabs ("Format" | "Geometry" | "Validate" — NEVER wraps!)
+            // 4-Tab MS Visio Inspector Strip (Format | Size & Pos | Data | Layers)
             Row(
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                horizontalArrangement = Arrangement.spacedBy(3.dp),
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(10.dp))
@@ -4389,8 +4523,9 @@ private fun ShapeInspectorPane(
             ) {
                 listOf(
                     0 to lang.inspectorFormatTab,
-                    1 to lang.inspectorGeometryTab,
-                    2 to lang.inspectorValidateTab
+                    1 to lang.inspectorSizePosTab,
+                    2 to lang.inspectorDataTab,
+                    3 to lang.inspectorLayersTab
                 ).forEach { (idx, label) ->
                     val active = selectedTab == idx
                     Surface(
@@ -4401,7 +4536,7 @@ private fun ShapeInspectorPane(
                             .clip(RoundedCornerShape(8.dp))
                             .clickable { selectedTab = idx }
                     ) {
-                        Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(vertical = 5.dp, horizontal = 4.dp)) {
+                        Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(vertical = 6.dp, horizontal = 3.dp)) {
                             Text(
                                 text = label,
                                 style = MaterialTheme.typography.labelSmall,
@@ -4419,295 +4554,528 @@ private fun ShapeInspectorPane(
                 }
             }
 
-            when (selectedTab) {
-                0 -> {
-                    // Format Tab: OS Font Family + Full Spectrum Color Pickers (Text, Highlight, Fill, Line)
-                    Surface(
-                        shape = RoundedCornerShape(14.dp),
-                        color = MaterialTheme.colorScheme.surfaceContainerLowest,
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                        modifier = Modifier.fillMaxWidth()
+            if (obj == null && selectedTab != 3) {
+                // Page Inspector fallback when no object is selected on canvas
+                Surface(
+                    shape = RoundedCornerShape(14.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainerLowest,
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.padding(12.dp)
                     ) {
-                        Column(
-                            verticalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier.padding(12.dp)
+                        FilledTonalButton(
+                            onClick = { viewModel.fitPageToWindow() },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(10.dp)
                         ) {
-                            Text(
-                                text = uiState.selectedShapeName,
-                                style = MaterialTheme.typography.labelLarge,
-                                maxLines = 1,
-                                softWrap = false,
-                                overflow = TextOverflow.Ellipsis
-                            )
-
-                            // Installed OS Font Picker
-                            Box(modifier = Modifier.fillMaxWidth()) {
-                                FilledTonalButton(
-                                    onClick = { inspectorFontMenuOpen = true },
-                                    modifier = Modifier.fillMaxWidth(),
-                                    shape = RoundedCornerShape(10.dp),
-                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
-                                ) {
-                                    Text(
-                                        text = VexioI18n.fontButtonLabel(uiState.textFontFamily, uiState.textFontSizePt, lang),
-                                        style = MaterialTheme.typography.labelMedium,
-                                        fontFamily = resolveComposeFontFamily(uiState.textFontFamily),
-                                        maxLines = 1,
-                                        softWrap = false,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                }
-                                DropdownMenu(
-                                    expanded = inspectorFontMenuOpen,
-                                    onDismissRequest = { inspectorFontMenuOpen = false },
-                                    modifier = Modifier
-                                        .width(248.dp)
-                                        .heightIn(max = 320.dp)
-                                ) {
-                                    uiState.availableFontFamilies.forEach { f ->
-                                        DropdownMenuItem(
-                                            text = {
-                                                Text(
-                                                    text = f,
-                                                    fontFamily = resolveComposeFontFamily(f),
-                                                    maxLines = 1,
-                                                    softWrap = false
-                                                )
-                                            },
-                                            leadingIcon = {
-                                                if (f.equals(uiState.textFontFamily, ignoreCase = true)) {
-                                                    Icon(Icons.Default.Check, contentDescription = null)
-                                                }
-                                            },
-                                            onClick = {
-                                                inspectorFontMenuOpen = false
-                                                viewModel.applyRichTextStyle(fontFamily = f)
-                                            }
-                                        )
-                                    }
-                                }
-                            }
-
-                            // 2x2 Grid of Full Color Picker Triggers
-                            Row(
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Box(modifier = Modifier.weight(1f)) {
-                                    ColorSwatchActionPill(
-                                        label = lang.fillColorLabel,
-                                        swatchColor = parseColorHexOrFallback(uiState.shapeFillColorHex, Color(0xFFE8F0FE)),
-                                        isTransparent = false,
-                                        onClick = { onOpenColorPicker(VexioColorPickerTarget.SHAPE_FILL) }
-                                    )
-                                }
-                                Box(modifier = Modifier.weight(1f)) {
-                                    ColorSwatchActionPill(
-                                        label = lang.lineColorLabel,
-                                        swatchColor = parseColorHexOrFallback(uiState.shapeLineColorHex, Color(0xFF1A73E8)),
-                                        isTransparent = false,
-                                        onClick = { onOpenColorPicker(VexioColorPickerTarget.SHAPE_LINE) }
-                                    )
-                                }
-                            }
-                            Row(
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Box(modifier = Modifier.weight(1f)) {
-                                    ColorSwatchActionPill(
-                                        label = lang.textColorLabel,
-                                        swatchColor = parseColorHexOrFallback(uiState.textColorHex, Color(0xFF0F172A)),
-                                        isTransparent = false,
-                                        onClick = { onOpenColorPicker(VexioColorPickerTarget.TEXT_FG) }
-                                    )
-                                }
-                                Box(modifier = Modifier.weight(1f)) {
-                                    ColorSwatchActionPill(
-                                        label = lang.highlightColorLabel,
-                                        swatchColor = parseColorHexOrFallback(uiState.textBgColorHex, Color(0xFFFEF08A)),
-                                        isTransparent = uiState.textBgColorHex == "none",
-                                        onClick = { onOpenColorPicker(VexioColorPickerTarget.TEXT_BG) }
-                                    )
-                                }
-                            }
-                            if (uiState.textBgColorHex != "none") {
-                                TextButton(
-                                    onClick = { viewModel.applyRichTextStyle(bgColorHex = "none") },
-                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
-                                ) {
-                                    Text(lang.clearHighlightLabel, style = MaterialTheme.typography.labelSmall)
-                                }
-                            }
+                            Text(VexioI18n.fitToScreenLabel(lang), style = MaterialTheme.typography.labelMedium)
                         }
-                    }
-
-                    // Plan 2 Enterprise Telemetry Card
-                    Surface(
-                        shape = RoundedCornerShape(14.dp),
-                        color = MaterialTheme.colorScheme.surfaceContainer,
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(
-                            verticalArrangement = Arrangement.spacedBy(4.dp),
-                            modifier = Modifier.padding(12.dp)
-                        ) {
-                            Text(
-                                text = VexioI18n.telemetryCardTitle(lang),
-                                style = MaterialTheme.typography.labelLarge,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                            Text(
-                                text = VexioI18n.themeLabelPrefix(
-                                    "${uiState.activeThemeSlug} (${uiState.activeThemeVariant + 1}/4)",
-                                    lang
-                                ),
-                                style = MaterialTheme.typography.labelSmall
-                            )
-                            Text(
-                                text = VexioI18n.effectsLabel(uiState.activeVisualPresets.joinToString(", "), lang),
-                                style = MaterialTheme.typography.labelSmall
-                            )
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                            listOf(
+                                VexioPagePresetSpec.A4_LANDSCAPE to "A4",
+                                VexioPagePresetSpec.A3_LANDSCAPE to "A3",
+                                VexioPagePresetSpec.LETTER_LANDSCAPE to "Letter"
+                            ).forEach { (preset, code) ->
+                                ExpressivePlan2ActionPill(
+                                    label = code,
+                                    selected = uiState.activePagePreset == preset,
+                                    onClick = { viewModel.applyPagePreset(preset) }
+                                )
+                            }
                         }
                     }
                 }
-
-                1 -> {
-                    // Geometry Tab: ShapeSheet Cells + GUARD() Toggle
-                    Surface(
-                        shape = RoundedCornerShape(14.dp),
-                        color = MaterialTheme.colorScheme.surfaceContainerLowest,
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(modifier = Modifier.padding(12.dp)) {
-                            Text(
-                                text = uiState.selectedShapeName,
-                                style = MaterialTheme.typography.labelLarge,
-                                maxLines = 1,
-                                softWrap = false,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            Spacer(Modifier.height(6.dp))
-                            uiState.shapeSheetCells.take(10).forEach { cell ->
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clip(RoundedCornerShape(6.dp))
-                                        .clickable { onSelectCell(cell.cellName) }
-                                        .padding(vertical = 4.dp)
-                                ) {
-                                    Text(
-                                        text = cell.cellName,
-                                        style = MaterialTheme.typography.labelMedium,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        maxLines = 1,
-                                        softWrap = false,
-                                        modifier = Modifier.width(76.dp)
+            } else {
+                when (selectedTab) {
+                    0 -> {
+                        val curObj = obj ?: return@Column
+                        // TAB 0: FORMAT SHAPE (Fill, Line & Arrows, Text, Effects)
+                        Surface(
+                            shape = RoundedCornerShape(14.dp),
+                            color = MaterialTheme.colorScheme.surfaceContainerLowest,
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.padding(12.dp)
+                            ) {
+                                // Fill Pattern Pills
+                                Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.fillMaxWidth()) {
+                                    ExpressivePlan2ActionPill(
+                                        label = "No Fill",
+                                        selected = curObj.fillPattern == 0,
+                                        onClick = { viewModel.setCellForSelection("FillPattern", "0") }
                                     )
-                                    Text(
-                                        text = cell.formula,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        maxLines = 1,
-                                        softWrap = false,
-                                        overflow = TextOverflow.Ellipsis,
+                                    ExpressivePlan2ActionPill(
+                                        label = "Solid",
+                                        selected = curObj.fillPattern == 1,
+                                        onClick = { viewModel.setCellForSelection("FillPattern", "1") }
+                                    )
+                                    ExpressivePlan2ActionPill(
+                                        label = "Gradient",
+                                        selected = curObj.fillPattern >= 25,
+                                        onClick = { viewModel.applyVisualPreset("grad_linear") }
+                                    )
+                                }
+
+                                // Fill / Line / Text / Highlight Color Swatches
+                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                                    Box(modifier = Modifier.weight(1f)) {
+                                        ColorSwatchActionPill(
+                                            label = lang.fillColorLabel,
+                                            swatchColor = parseColorHexOrFallback(uiState.shapeFillColorHex, Color(0xFFE8F0FE)),
+                                            isTransparent = curObj.fillPattern == 0,
+                                            onClick = { onOpenColorPicker(VexioColorPickerTarget.SHAPE_FILL) }
+                                        )
+                                    }
+                                    Box(modifier = Modifier.weight(1f)) {
+                                        ColorSwatchActionPill(
+                                            label = lang.lineColorLabel,
+                                            swatchColor = parseColorHexOrFallback(uiState.shapeLineColorHex, Color(0xFF1A73E8)),
+                                            isTransparent = curObj.linePattern == 0,
+                                            onClick = { onOpenColorPicker(VexioColorPickerTarget.SHAPE_LINE) }
+                                        )
+                                    }
+                                }
+
+                                // Transparency Slider
+                                Text(
+                                    text = "${VexioI18n.transparencyLabel(lang)}: ${curObj.fillTransPct}%",
+                                    style = MaterialTheme.typography.labelSmall
+                                )
+                                Slider(
+                                    value = curObj.fillTransPct.toFloat(),
+                                    onValueChange = { pct ->
+                                        viewModel.setCellForSelection("FillForegndTrans", "${pct.toInt()}%")
+                                    },
+                                    valueRange = 0f..100f,
+                                    steps = 9
+                                )
+
+                                HorizontalDivider()
+
+                                // Line Pattern & Weight
+                                Text(
+                                    text = "${VexioI18n.lineWeightLabel(lang)}: ${"%.2f".format(java.util.Locale.US, curObj.lineWeightPt)} pt",
+                                    style = MaterialTheme.typography.labelSmall
+                                )
+                                Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.fillMaxWidth()) {
+                                    listOf("0.5 pt", "1 pt", "1.5 pt", "2.5 pt").forEach { wt ->
+                                        ExpressivePlan2ActionPill(
+                                            label = wt,
+                                            selected = false,
+                                            onClick = { viewModel.setCellForSelection("LineWeight", wt) }
+                                        )
+                                    }
+                                }
+                                Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.fillMaxWidth()) {
+                                    listOf(0 to "No Line", 1 to "Solid", 2 to "Dashed", 3 to "Dotted").forEach { (pat, lbl) ->
+                                        ExpressivePlan2ActionPill(
+                                            label = lbl,
+                                            selected = curObj.linePattern == pat,
+                                            onClick = { viewModel.setCellForSelection("LinePattern", "$pat") }
+                                        )
+                                    }
+                                }
+                                Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.fillMaxWidth()) {
+                                    listOf(0 to "No ▶", 1 to "Open ›", 4 to "Arrow ▶", 11 to "◆").forEach { (arr, lbl) ->
+                                        ExpressivePlan2ActionPill(
+                                            label = lbl,
+                                            selected = curObj.endArrow == arr,
+                                            onClick = { viewModel.setCellForSelection("EndArrow", "$arr") }
+                                        )
+                                    }
+                                }
+
+                                HorizontalDivider()
+
+                                // Installed OS Font + Text Color
+                                Box(modifier = Modifier.fillMaxWidth()) {
+                                    FilledTonalButton(
+                                        onClick = { inspectorFontMenuOpen = true },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        shape = RoundedCornerShape(10.dp),
+                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
+                                    ) {
+                                        Text(
+                                            text = VexioI18n.fontButtonLabel(uiState.textFontFamily, uiState.textFontSizePt, lang),
+                                            style = MaterialTheme.typography.labelMedium,
+                                            fontFamily = resolveComposeFontFamily(uiState.textFontFamily),
+                                            maxLines = 1,
+                                            softWrap = false,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                    DropdownMenu(
+                                        expanded = inspectorFontMenuOpen,
+                                        onDismissRequest = { inspectorFontMenuOpen = false },
+                                        modifier = Modifier
+                                            .width(248.dp)
+                                            .heightIn(max = 320.dp)
+                                    ) {
+                                        uiState.availableFontFamilies.forEach { f ->
+                                            DropdownMenuItem(
+                                                text = {
+                                                    Text(
+                                                        text = f,
+                                                        fontFamily = resolveComposeFontFamily(f),
+                                                        maxLines = 1,
+                                                        softWrap = false
+                                                    )
+                                                },
+                                                leadingIcon = {
+                                                    if (f.equals(uiState.textFontFamily, ignoreCase = true)) {
+                                                        Icon(Icons.Default.Check, contentDescription = null)
+                                                    }
+                                                },
+                                                onClick = {
+                                                    inspectorFontMenuOpen = false
+                                                    viewModel.applyRichTextStyle(fontFamily = f)
+                                                }
+                                            )
+                                        }
+                                    }
+                                }
+
+                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                                    Box(modifier = Modifier.weight(1f)) {
+                                        ColorSwatchActionPill(
+                                            label = lang.textColorLabel,
+                                            swatchColor = parseColorHexOrFallback(uiState.textColorHex, Color(0xFF0F172A)),
+                                            isTransparent = false,
+                                            onClick = { onOpenColorPicker(VexioColorPickerTarget.TEXT_FG) }
+                                        )
+                                    }
+                                    Box(modifier = Modifier.weight(1f)) {
+                                        ColorSwatchActionPill(
+                                            label = lang.highlightColorLabel,
+                                            swatchColor = parseColorHexOrFallback(uiState.textBgColorHex, Color(0xFFFEF08A)),
+                                            isTransparent = uiState.textBgColorHex == "none",
+                                            onClick = { onOpenColorPicker(VexioColorPickerTarget.TEXT_BG) }
+                                        )
+                                    }
+                                }
+                                if (uiState.textBgColorHex != "none") {
+                                    TextButton(
+                                        onClick = { viewModel.applyRichTextStyle(bgColorHex = "none") },
+                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                                    ) {
+                                        Text(lang.clearHighlightLabel, style = MaterialTheme.typography.labelSmall)
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    1 -> {
+                        val curObj = obj ?: return@Column
+                        // TAB 1: SIZE & POSITION + ARRANGE + PROTECTION
+                        var xDraft by remember(curObj.id, curObj.pinXIn, uiState.metricUnits) { mutableStateOf(formatInchesNumeric(curObj.pinXIn)) }
+                        var yDraft by remember(curObj.id, curObj.pinYIn, uiState.metricUnits) { mutableStateOf(formatInchesNumeric(curObj.pinYIn)) }
+                        var wDraft by remember(curObj.id, curObj.widthIn, uiState.metricUnits) { mutableStateOf(formatInchesNumeric(curObj.widthIn)) }
+                        var hDraft by remember(curObj.id, curObj.heightIn, uiState.metricUnits) { mutableStateOf(formatInchesNumeric(curObj.heightIn)) }
+                        var angDraft by remember(curObj.id, curObj.angleDeg) { mutableStateOf("%.1f".format(java.util.Locale.US, curObj.angleDeg)) }
+
+                        Surface(
+                            shape = RoundedCornerShape(14.dp),
+                            color = MaterialTheme.colorScheme.surfaceContainerLowest,
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.padding(12.dp)
+                            ) {
+                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                                    OutlinedTextField(
+                                        value = xDraft,
+                                        onValueChange = { xDraft = it },
+                                        label = { Text("X ($unitSuffix)", style = MaterialTheme.typography.labelSmall) },
+                                        singleLine = true,
+                                        textStyle = MaterialTheme.typography.bodySmall,
                                         modifier = Modifier.weight(1f)
                                     )
-                                    IconButton(
-                                        onClick = { onQuickGuardToggle(cell) },
-                                        modifier = Modifier.size(24.dp)
+                                    OutlinedTextField(
+                                        value = yDraft,
+                                        onValueChange = { yDraft = it },
+                                        label = { Text("Y ($unitSuffix)", style = MaterialTheme.typography.labelSmall) },
+                                        singleLine = true,
+                                        textStyle = MaterialTheme.typography.bodySmall,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                }
+                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                                    OutlinedTextField(
+                                        value = wDraft,
+                                        onValueChange = { wDraft = it },
+                                        label = { Text("${VexioI18n.widthLabel(lang)} ($unitSuffix)", style = MaterialTheme.typography.labelSmall) },
+                                        singleLine = true,
+                                        textStyle = MaterialTheme.typography.bodySmall,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    OutlinedTextField(
+                                        value = hDraft,
+                                        onValueChange = { hDraft = it },
+                                        label = { Text("${VexioI18n.heightLabel(lang)} ($unitSuffix)", style = MaterialTheme.typography.labelSmall) },
+                                        singleLine = true,
+                                        textStyle = MaterialTheme.typography.bodySmall,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                }
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    OutlinedTextField(
+                                        value = angDraft,
+                                        onValueChange = { angDraft = it },
+                                        label = { Text("${VexioI18n.angleLabel(lang)} (deg)", style = MaterialTheme.typography.labelSmall) },
+                                        singleLine = true,
+                                        textStyle = MaterialTheme.typography.bodySmall,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    FilledTonalButton(
+                                        onClick = {
+                                            viewModel.setCellForSelection("PinX", toEngineFormula(xDraft))
+                                            viewModel.setCellForSelection("PinY", toEngineFormula(yDraft))
+                                            viewModel.setCellForSelection("Width", toEngineFormula(wDraft))
+                                            viewModel.setCellForSelection("Height", toEngineFormula(hDraft))
+                                            val cleanAng = angDraft.trim().replace(',', '.').ifEmpty { "0" }
+                                            viewModel.setCellForSelection(
+                                                "Angle",
+                                                if (cleanAng.contains("deg") || cleanAng.startsWith("=")) cleanAng else "$cleanAng deg"
+                                            )
+                                        },
+                                        shape = RoundedCornerShape(10.dp)
                                     ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Lock,
-                                            contentDescription = "Toggle GUARD()",
-                                            tint = if (cell.isGuarded) {
-                                                semanticColors.guardBadgeForeground
-                                            } else {
-                                                MaterialTheme.colorScheme.outlineVariant
-                                            },
-                                            modifier = Modifier.size(14.dp)
-                                        )
+                                        Text(VexioI18n.applyButton(lang), style = MaterialTheme.typography.labelSmall)
                                     }
+                                }
+
+                                // Rotate / Flip / Z-Order / Group Row
+                                Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.fillMaxWidth()) {
+                                    ExpressivePlan2ActionPill(label = "↺ 90°", selected = false, onClick = { viewModel.rotateOrFlipSelectedShapes(deltaAngleDeg = 90.0) })
+                                    ExpressivePlan2ActionPill(label = "↻ 90°", selected = false, onClick = { viewModel.rotateOrFlipSelectedShapes(deltaAngleDeg = -90.0) })
+                                    ExpressivePlan2ActionPill(label = "⇆", selected = curObj.flipX, onClick = { viewModel.rotateOrFlipSelectedShapes(toggleFlipX = true) })
+                                    ExpressivePlan2ActionPill(label = "⇅", selected = curObj.flipY, onClick = { viewModel.rotateOrFlipSelectedShapes(toggleFlipY = true) })
+                                    VexioTooltip(text = "Bring to Front") {
+                                        IconButton(onClick = { viewModel.reorderSelectedShapes("front") }, modifier = Modifier.size(28.dp)) {
+                                            Icon(Icons.Default.FlipToFront, contentDescription = "Bring to Front", modifier = Modifier.size(16.dp))
+                                        }
+                                    }
+                                    VexioTooltip(text = "Send to Back") {
+                                        IconButton(onClick = { viewModel.reorderSelectedShapes("back") }, modifier = Modifier.size(28.dp)) {
+                                            Icon(Icons.Default.FlipToBack, contentDescription = "Send to Back", modifier = Modifier.size(16.dp))
+                                        }
+                                    }
+                                }
+
+                                HorizontalDivider()
+
+                                Text(VexioI18n.protectionTitle(lang), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Checkbox(
+                                        checked = curObj.lockAspect,
+                                        onCheckedChange = { v -> viewModel.setCellForSelection("LockAspect", if (v) "TRUE" else "FALSE", forceSetf = true) }
+                                    )
+                                    Text(VexioI18n.lockAspectLabel(lang), style = MaterialTheme.typography.labelSmall)
+                                }
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Checkbox(
+                                        checked = curObj.lockSize,
+                                        onCheckedChange = { v ->
+                                            val f = if (v) "TRUE" else "FALSE"
+                                            viewModel.setCellForSelection("LockWidth", f, forceSetf = true)
+                                            viewModel.setCellForSelection("LockHeight", f, forceSetf = true)
+                                        }
+                                    )
+                                    Text(VexioI18n.lockSizeLabel(lang), style = MaterialTheme.typography.labelSmall)
+                                }
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Checkbox(
+                                        checked = curObj.lockPosition,
+                                        onCheckedChange = { v ->
+                                            val f = if (v) "TRUE" else "FALSE"
+                                            viewModel.setCellForSelection("LockMoveX", f, forceSetf = true)
+                                            viewModel.setCellForSelection("LockMoveY", f, forceSetf = true)
+                                        }
+                                    )
+                                    Text(VexioI18n.lockPositionLabel(lang), style = MaterialTheme.typography.labelSmall)
                                 }
                             }
                         }
                     }
-                }
 
-                else -> {
-                    // Validate Tab: BPMN 2.0 / UML 2.5 Validator + Subprocess/CRDT/Shortcuts
-                    Surface(
-                        shape = RoundedCornerShape(14.dp),
-                        color = semanticColors.validationPassContainer,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(12.dp)
+                    2 -> {
+                        // TAB 2: SHAPE DATA (Prop.*)
+                        Surface(
+                            shape = RoundedCornerShape(14.dp),
+                            color = MaterialTheme.colorScheme.surfaceContainerLowest,
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.Verified,
-                                contentDescription = null,
-                                tint = semanticColors.validationPassForeground,
-                                modifier = Modifier.size(20.dp)
-                            )
-                            Spacer(Modifier.width(8.dp))
-                            Column {
-                                Text(
-                                    text = "${uiState.validationSummary.standard} Validator",
-                                    style = MaterialTheme.typography.labelLarge,
-                                    color = semanticColors.validationPassForeground
+                            Column(
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.padding(12.dp)
+                            ) {
+                                Text("Shape Data (Prop.*)", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+                                if (uiState.shapeDataItems.isEmpty()) {
+                                    Text(
+                                        text = "No Prop.* fields defined on this object.",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                } else {
+                                    uiState.shapeDataItems.forEach { sd: ShapeDataUiItem ->
+                                        var sdValDraft by remember(sd.rowName, sd.value) { mutableStateOf(sd.value) }
+                                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Text(sd.label, style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f))
+                                                Text(sd.dataTypeLabel, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                                IconButton(
+                                                    onClick = { viewModel.deleteSelectedShapeData(sd.rowName) },
+                                                    modifier = Modifier.size(24.dp)
+                                                ) {
+                                                    Icon(Icons.Default.DeleteOutline, contentDescription = "Delete", modifier = Modifier.size(15.dp))
+                                                }
+                                            }
+                                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                                OutlinedTextField(
+                                                    value = sdValDraft,
+                                                    onValueChange = { sdValDraft = it },
+                                                    singleLine = true,
+                                                    textStyle = MaterialTheme.typography.bodySmall,
+                                                    modifier = Modifier.weight(1f)
+                                                )
+                                                TextButton(
+                                                    onClick = { viewModel.upsertSelectedShapeData(sd.rowName, sd.label, sd.dataTypeCode, sdValDraft) },
+                                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                                                ) {
+                                                    Text(VexioI18n.applyButton(lang), style = MaterialTheme.typography.labelSmall)
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
+                                HorizontalDivider()
+
+                                OutlinedTextField(
+                                    value = newPropName,
+                                    onValueChange = { newPropName = it },
+                                    label = { Text("Prop. Name (e.g. Owner)", style = MaterialTheme.typography.labelSmall) },
+                                    singleLine = true,
+                                    textStyle = MaterialTheme.typography.bodySmall,
+                                    modifier = Modifier.fillMaxWidth()
                                 )
-                                Text(
-                                    text = uiState.validationSummary.statusMessage,
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = semanticColors.validationPassForeground
+                                OutlinedTextField(
+                                    value = newPropValue,
+                                    onValueChange = { newPropValue = it },
+                                    label = { Text("Value", style = MaterialTheme.typography.labelSmall) },
+                                    singleLine = true,
+                                    textStyle = MaterialTheme.typography.bodySmall,
+                                    modifier = Modifier.fillMaxWidth()
                                 )
+                                FilledTonalButton(
+                                    onClick = {
+                                        if (newPropName.isNotBlank()) {
+                                            viewModel.upsertSelectedShapeData(newPropName, newPropName, 0, newPropValue)
+                                            newPropName = ""
+                                            newPropValue = ""
+                                        }
+                                    },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(10.dp)
+                                ) {
+                                    Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(Modifier.width(4.dp))
+                                    Text(VexioI18n.addFieldLabel(lang), style = MaterialTheme.typography.labelSmall)
+                                }
                             }
                         }
                     }
 
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        ExpressivePlan2ActionPill(
-                            label = "Run BPMN 2.0",
-                            selected = uiState.validationSummary.standard == "BPMN 2.0",
-                            onClick = { viewModel.validateActiveDiagram("bpmn") }
-                        )
-                        ExpressivePlan2ActionPill(
-                            label = "Run UML 2.5",
-                            selected = uiState.validationSummary.standard == "UML 2.5",
-                            onClick = { viewModel.validateActiveDiagram("uml") }
-                        )
-                        ExpressivePlan2ActionPill(
-                            label = "Workflow",
-                            selected = uiState.validationSummary.standard == "Workflow",
-                            onClick = { viewModel.validateActiveDiagram("workflow") }
-                        )
-                    }
-
-                    Surface(
-                        shape = RoundedCornerShape(14.dp),
-                        color = MaterialTheme.colorScheme.surfaceContainer,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(
-                            verticalArrangement = Arrangement.spacedBy(3.dp),
-                            modifier = Modifier.padding(12.dp)
+                    else -> {
+                        // TAB 3: LAYERS (Object Layer Membership + Visibility/Lock/Print)
+                        Surface(
+                            shape = RoundedCornerShape(14.dp),
+                            color = MaterialTheme.colorScheme.surfaceContainerLowest,
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text(
-                                text = VexioI18n.hardwareShortcutsTitle(lang),
-                                style = MaterialTheme.typography.labelLarge
-                            )
-                            Text("Ctrl+S / Ctrl+Shift+S  Save / Save As", style = MaterialTheme.typography.labelSmall)
-                            Text("Ctrl+N  New Side-by-Side Window", style = MaterialTheme.typography.labelSmall)
-                            Text("Ctrl+1..5  Pointer / Text / Conn / Ink / Freeform", style = MaterialTheme.typography.labelSmall)
-                            Text("Shift+F5  ShapeSheet Formula Grid", style = MaterialTheme.typography.labelSmall)
-                            Text("Ctrl+P  Vector PDF OS Print", style = MaterialTheme.typography.labelSmall)
+                            Column(
+                                verticalArrangement = Arrangement.spacedBy(6.dp),
+                                modifier = Modifier.padding(12.dp)
+                            ) {
+                                uiState.pageLayers.forEach { layer: DiagramLayerUiItem ->
+                                    val isMember = obj?.layerIndices?.contains(layer.ix) == true
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        if (obj != null) {
+                                            Checkbox(
+                                                checked = isMember,
+                                                onCheckedChange = { checked ->
+                                                    viewModel.setSelectedShapeLayerMembership(layer.ix, checked)
+                                                }
+                                            )
+                                        }
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(layer.name, style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                            Text("${layer.memberCount} shapes", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                        VexioTooltip(text = if (layer.visible) "Hide Layer" else "Show Layer") {
+                                            TextButton(
+                                                onClick = {
+                                                    viewModel.updatePageLayerFlags(layer.ix, !layer.visible, layer.lock, layer.print, layer.snapGlue)
+                                                },
+                                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
+                                            ) {
+                                                Text(if (layer.visible) "Vis" else "Hid", style = MaterialTheme.typography.labelSmall)
+                                            }
+                                        }
+                                        VexioTooltip(text = if (layer.lock) "Unlock Layer" else "Lock Layer") {
+                                            IconButton(
+                                                onClick = {
+                                                    viewModel.updatePageLayerFlags(layer.ix, layer.visible, !layer.lock, layer.print, layer.snapGlue)
+                                                },
+                                                modifier = Modifier.size(26.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Lock,
+                                                    contentDescription = "Lock",
+                                                    tint = if (layer.lock) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.outlineVariant,
+                                                    modifier = Modifier.size(15.dp)
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+
+                                HorizontalDivider()
+
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    OutlinedTextField(
+                                        value = newLayerName,
+                                        onValueChange = { newLayerName = it },
+                                        label = { Text(VexioI18n.addLayerLabel(lang), style = MaterialTheme.typography.labelSmall) },
+                                        singleLine = true,
+                                        textStyle = MaterialTheme.typography.bodySmall,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    FilledTonalIconButton(
+                                        onClick = {
+                                            viewModel.addPageLayer(newLayerName)
+                                            newLayerName = ""
+                                        },
+                                        modifier = Modifier.size(34.dp)
+                                    ) {
+                                        Icon(Icons.Default.Add, contentDescription = VexioI18n.addLayerLabel(lang), modifier = Modifier.size(18.dp))
+                                    }
+                                }
+                            }
                         }
                     }
                 }

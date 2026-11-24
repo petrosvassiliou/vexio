@@ -13,6 +13,7 @@ public struct HoverSwitchMenuButton<MenuContent: View>: View {
     public let id: String
     public let title: String
     public let systemImage: String
+    public let tooltip: String
     @ObservedObject public var coordinator: HoverSwitchMenuCoordinator
     @ViewBuilder public let content: () -> MenuContent
 
@@ -20,12 +21,14 @@ public struct HoverSwitchMenuButton<MenuContent: View>: View {
         id: String,
         title: String,
         systemImage: String,
+        tooltip: String = "",
         coordinator: HoverSwitchMenuCoordinator,
         @ViewBuilder content: @escaping () -> MenuContent
     ) {
         self.id = id
         self.title = title
         self.systemImage = systemImage
+        self.tooltip = tooltip
         self.coordinator = coordinator
         self.content = content
     }
@@ -64,6 +67,7 @@ public struct HoverSwitchMenuButton<MenuContent: View>: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .help(tooltip.isEmpty ? title : tooltip)
         .onHover { hovering in
             // Chrome / native macOS menu bar behavior: if ANY sibling menu is currently open,
             // hovering onto another menu button immediately switches the open menu!
@@ -267,21 +271,23 @@ public struct VexioHeaderAndRibbonBar: View {
     public var body: some View {
         VStack(spacing: 4) {
             topTitleAndTabStrip
+                .frame(minHeight: 30)
             if !isRibbonCollapsed {
                 ribbonBodyPanel
             }
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 5)
-        .liquidGlassSurface(cornerRadius: 14, elevation: .toolbarBar)
+        .padding(.top, 7)
+        .padding(.bottom, 6)
+        .background(.thinMaterial)
     }
 
     // MARK: - Row 1: Unified Window Header (Inline Traffic Lights) + Save / Save As + Editable Title + Ribbon Tabs
 
     private var topTitleAndTabStrip: some View {
         HStack(spacing: 8) {
-            // Reserve 68pt inline for native macOS window traffic lights so zero blank titlebar strip is wasted above Row 1!
-            Spacer().frame(width: 68)
+            // Reserve 74pt inline for native macOS window traffic lights inside flush top bar so traffic lights never overlap any border!
+            Spacer().frame(width: 74)
 
             // Left: Stencil toggle + Visio "File" Backstage button + Save / Save As / Undo / Redo + Editable Document Name
             HStack(spacing: 5) {
@@ -310,6 +316,7 @@ public struct VexioHeaderAndRibbonBar: View {
                         .background(Capsule().fill(Color.accentColor))
                 }
                 .buttonStyle(.plain)
+                .help("\(i18n.t("file")) — New, Open, Save, Templates & Settings")
 
                 LiquidGlassIconButton(systemImage: "square.and.arrow.down", title: "\(i18n.t("saveFile")) (⌘S)") {
                     onRequestSaveFile()
@@ -400,6 +407,7 @@ public struct VexioHeaderAndRibbonBar: View {
                                 )
                         }
                         .buttonStyle(.plain)
+                        .help("\(i18n.t(tab.rawValue)) Ribbon Tab (click active tab to collapse/expand)")
                     }
 
                     Button {
@@ -948,6 +956,7 @@ public struct VexioHeaderAndRibbonBar: View {
                         }
                         .buttonStyle(.bordered)
                         .controlSize(.small)
+                        .help(preset.displayLabel)
                     }
 
                     HoverSwitchMenuButton(
@@ -1137,17 +1146,20 @@ public struct VexioHeaderAndRibbonBar: View {
             Divider().frame(height: 44)
             ribbonGroup(title: "Zoom & Preview") {
                 HStack(spacing: 6) {
-                    ribbonCompactButton("1.magnifyingglass", "100%") {
+                    ribbonCompactButton("arrow.up.left.and.down.right.magnifyingglass", "Fit Page", tip: "Fit Diagram to Window") {
+                        session.fitViewportToActivePage()
+                    }
+                    ribbonCompactButton("1.magnifyingglass", "100%", tip: "Reset Zoom to 100%") {
                         session.zoomScale = 1.0
                         session.panOffset = .zero
                     }
-                    ribbonCompactButton("plus.magnifyingglass", "Zoom In") {
+                    ribbonCompactButton("plus.magnifyingglass", "Zoom In", tip: "Zoom In (+25%)") {
                         session.zoomScale = min(session.zoomScale * 1.25, 16.0)
                     }
-                    ribbonCompactButton("minus.magnifyingglass", "Zoom Out") {
+                    ribbonCompactButton("minus.magnifyingglass", "Zoom Out", tip: "Zoom Out (-20%)") {
                         session.zoomScale = max(session.zoomScale / 1.25, 0.1)
                     }
-                    ribbonCompactButton("eye", "Preview") {
+                    ribbonCompactButton("eye", "Preview", tip: "High-DPI Print / Render Preview") {
                         onRequestOffscreenPreview()
                     }
                 }
