@@ -472,217 +472,231 @@ public struct VexioWorkspaceView: View {
             }
 
             // Bottom Page Switcher (Single-Line Scrollable + Inline Rename), Subprocess, Compare & Zoom Liquid Glass Pill Controls
-            VStack {
-                Spacer()
-                HStack(spacing: 12) {
-                    LiquidGlassPillCluster(cornerRadius: 14) {
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: 4) {
-                                ForEach(session.pages) { page in
-                                    let isCurrent = (session.activePageId == page.id)
-                                    if renamingPageId == page.id {
-                                        SelectAllInlineTextField(
-                                            text: $renamePageDraft,
-                                            placeholder: page.title,
-                                            fontSize: 11.5,
-                                            fontWeight: .semibold,
-                                            onCommit: {
-                                                session.renamePage(pageId: page.id, to: renamePageDraft, undoManager: undoManager)
-                                                renamingPageId = nil
-                                            },
-                                            onCancel: {
-                                                renamingPageId = nil
-                                            }
-                                        )
-                                        .frame(width: 132, height: 22)
-                                    } else {
-                                        HStack(spacing: 4) {
-                                            if page.isBackgroundPage {
-                                                Image(systemName: "square.on.square.dashed")
-                                                    .font(.system(size: 10))
-                                            }
-                                            Text(page.title)
-                                                .font(.system(size: 11.5, weight: isCurrent ? .semibold : .regular))
-                                                .lineLimit(1)
-                                                .fixedSize(horizontal: true, vertical: false)
+            bottomLiquidGlassBar
+        }
+    }
+
+    private var bottomLiquidGlassBar: some View {
+        VStack {
+            Spacer()
+            HStack(spacing: 12) {
+                LiquidGlassPillCluster(cornerRadius: 14) {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 4) {
+                            ForEach(session.pages) { page in
+                                let isCurrent = (session.activePageId == page.id)
+                                if renamingPageId == page.id {
+                                    SelectAllInlineTextField(
+                                        text: $renamePageDraft,
+                                        placeholder: page.title,
+                                        fontSize: 11.5,
+                                        fontWeight: .semibold,
+                                        onCommit: {
+                                            session.renamePage(pageId: page.id, to: renamePageDraft, undoManager: undoManager)
+                                            renamingPageId = nil
+                                        },
+                                        onCancel: {
+                                            renamingPageId = nil
                                         }
-                                        .padding(.horizontal, 8)
-                                        .padding(.vertical, 4)
-                                        .background(
-                                            Capsule()
-                                                .fill(isCurrent ? Color.accentColor.opacity(0.22) : Color.clear)
-                                        )
-                                        .contentShape(Capsule())
-                                        .help("\(page.title) — \(i18n.t("doubleClickRenameHint"))")
-                                        .onTapGesture(count: 2) {
+                                    )
+                                    .frame(width: 132, height: 22)
+                                } else {
+                                    HStack(spacing: 4) {
+                                        if page.isBackgroundPage {
+                                            Image(systemName: "square.on.square.dashed")
+                                                .font(.system(size: 10))
+                                        }
+                                        Text(page.title)
+                                            .font(.system(size: 11.5, weight: isCurrent ? .semibold : .regular))
+                                            .lineLimit(1)
+                                            .fixedSize(horizontal: true, vertical: false)
+                                    }
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 4)
+                                    .background(
+                                        Capsule()
+                                            .fill(isCurrent ? Color.accentColor.opacity(0.22) : Color.clear)
+                                    )
+                                    .contentShape(Capsule())
+                                    .help("\(page.title) — \(i18n.t("doubleClickRenameHint"))")
+                                    .onTapGesture(count: 2) {
+                                        session.selectPage(page.id)
+                                        renamePageDraft = page.title
+                                        renamingPageId = page.id
+                                    }
+                                    .onTapGesture(count: 1) {
+                                        withAnimation(LiquidGlassPhysics.standardSpring) {
                                             session.selectPage(page.id)
-                                            renamePageDraft = page.title
-                                            renamingPageId = page.id
                                         }
-                                        .onTapGesture(count: 1) {
-                                            withAnimation(LiquidGlassPhysics.standardSpring) {
-                                                session.selectPage(page.id)
-                                            }
-                                        }
-                                        .contextMenu {
-                                            Button("Switch to \(page.title)") {
-                                                session.selectPage(page.id)
-                                            }
-                                            Button(i18n.t("renamePage")) {
-                                                session.selectPage(page.id)
-                                                renamePageDraft = page.title
-                                                renamingPageId = page.id
-                                            }
-                                            Button("Duplicate Page") {
-                                                session.duplicatePage(pageId: page.id, undoManager: undoManager)
-                                            }
-                                            Button("Delete Page", role: .destructive) {
-                                                session.deletePage(pageId: page.id, undoManager: undoManager)
-                                            }
-                                            .disabled(session.pages.filter { !$0.isBackgroundPage && $0.id != page.id }.isEmpty)
-                                            Divider()
-                                            Menu("Page Setup & Size") {
-                                                Button("ISO A4 Landscape (297 × 210 mm)") {
-                                                    session.selectPage(page.id)
-                                                    session.applyPagePreset("a4", landscape: true, undoManager: undoManager)
-                                                }
-                                                Button("ISO A4 Portrait (210 × 297 mm)") {
-                                                    session.selectPage(page.id)
-                                                    session.applyPagePreset("a4", landscape: false, undoManager: undoManager)
-                                                }
-                                                Button("ISO A3 Landscape (420 × 297 mm)") {
-                                                    session.selectPage(page.id)
-                                                    session.applyPagePreset("a3", landscape: true, undoManager: undoManager)
-                                                }
-                                                Button("US Letter Landscape (11 × 8.5 in)") {
-                                                    session.selectPage(page.id)
-                                                    session.applyPagePreset("letter", landscape: true, undoManager: undoManager)
-                                                }
-                                            }
-                                            Menu("Page Background") {
-                                                Button(page.isBackgroundPage ? "✓ Background Page" : "Mark as Background Page") {
-                                                    session.updatePageBackground(
-                                                        pageId: page.id,
-                                                        isBackground: !page.isBackgroundPage,
-                                                        undoManager: undoManager
-                                                    )
-                                                }
-                                                Divider()
-                                                Button("Paper: Pure White") {
-                                                    session.updatePageBackground(pageId: page.id, isBackground: page.isBackgroundPage, pageColorHex: "#FFFFFF", undoManager: undoManager)
-                                                }
-                                                Button("Paper: Warm Ivory") {
-                                                    session.updatePageBackground(pageId: page.id, isBackground: page.isBackgroundPage, pageColorHex: "#FAF8F5", undoManager: undoManager)
-                                                }
-                                                Button("Paper: Soft Slate") {
-                                                    session.updatePageBackground(pageId: page.id, isBackground: page.isBackgroundPage, pageColorHex: "#F1F5F9", undoManager: undoManager)
-                                                }
-                                                Button("Paper: Blueprint Tint") {
-                                                    session.updatePageBackground(pageId: page.id, isBackground: page.isBackgroundPage, pageColorHex: "#EFF6FF", undoManager: undoManager)
-                                                }
-                                            }
-                                            Divider()
-                                            Button("Insert New Page") {
-                                                session.addNewPage()
-                                            }
-                                            Button("Create Linked Subprocess…") {
-                                                session.createSubprocessDrilldown(undoManager: undoManager)
-                                            }
-                                            Divider()
-                                            Button("Auto-Layout Active Page") {
-                                                session.applyAutoLayout(.hierarchicalTopDown, undoManager: undoManager)
-                                            }
-                                        }
+                                    }
+                                    .contextMenu {
+                                        pageTabContextMenu(
+                                            pageId: page.id,
+                                            pageTitle: page.title,
+                                            isBackground: page.isBackgroundPage
+                                        )
                                     }
                                 }
                             }
-                            .padding(.vertical, 1)
                         }
-                        .frame(maxWidth: 440, maxHeight: 28)
-                        .fixedSize(horizontal: false, vertical: true)
-
-                        Button {
-                            withAnimation(LiquidGlassPhysics.standardSpring) {
-                                session.addNewPage()
-                            }
-                        } label: {
-                            Image(systemName: "plus.circle")
-                                .font(.system(size: 12.5, weight: .medium))
-                        }
-                        .buttonStyle(.plain)
-                        .help("Insert New Page (⇧⌘N)")
-
-                        Divider().frame(height: 14)
-
-                        Button {
-                            withAnimation(LiquidGlassPhysics.standardSpring) {
-                                session.createSubprocessDrilldown(undoManager: undoManager)
-                            }
-                        } label: {
-                            Image(systemName: "arrow.turn.down.right")
-                                .font(.system(size: 11.5, weight: .medium))
-                        }
-                        .buttonStyle(.plain)
-                        .help("Create & Link Drill-Down Subprocess Page (⇧⌘P)")
-
-                        Button {
-                            withAnimation(LiquidGlassPhysics.standardSpring) {
-                                session.compareWithSnapshot()
-                            }
-                        } label: {
-                            Image(systemName: "arrow.left.arrow.right.square")
-                                .font(.system(size: 11.5, weight: .medium))
-                        }
-                        .buttonStyle(.plain)
-                        .help("Compare Active Diagram Against Baseline Snapshot (⇧⌘D)")
-
-                        Divider().frame(height: 14)
-
-                        Text(
-                            "X: \(i18n.unitPreference.formatFromInches(Double(session.cursorCanvasInches.x)))  Y: \(i18n.unitPreference.formatFromInches(Double(session.cursorCanvasInches.y)))"
-                        )
-                        .font(.system(size: 10.5, design: .monospaced))
-                        .lineLimit(1)
-                        .fixedSize(horizontal: true, vertical: false)
-                        .foregroundStyle(.secondary)
+                        .padding(.vertical, 1)
                     }
+                    .frame(maxWidth: 440, maxHeight: 28)
                     .fixedSize(horizontal: false, vertical: true)
 
-                    Spacer(minLength: 8)
-
-                    // Zoom & Viewport Fit Pill
-                    LiquidGlassPillCluster(cornerRadius: 14) {
-                        LiquidGlassIconButton(systemImage: "minus.magnifyingglass", title: "Zoom Out") {
-                            session.zoomScale = max(session.zoomScale / 1.25, 0.10)
+                    Button {
+                        withAnimation(LiquidGlassPhysics.standardSpring) {
+                            session.addNewPage()
                         }
-
-                        Slider(value: $session.zoomScale, in: 0.10...8.0)
-                            .frame(width: 88)
-                            .controlSize(.small)
-
-                        Text("\(Int((session.zoomScale * 100.0).rounded()))%")
-                            .font(.system(size: 11.5, weight: .medium, design: .monospaced))
-                            .lineLimit(1)
-                            .frame(width: 46, alignment: .trailing)
-
-                        LiquidGlassIconButton(systemImage: "plus.magnifyingglass", title: "Zoom In") {
-                            session.zoomScale = min(session.zoomScale * 1.25, 16.0)
-                        }
-
-                        Divider().frame(height: 14)
-
-                        LiquidGlassIconButton(
-                            systemImage: "arrow.up.left.and.down.right.magnifyingglass",
-                            title: "Fit Page to Window (⌘0)"
-                        ) {
-                            session.fitViewportToActivePage()
-                        }
+                    } label: {
+                        Image(systemName: "plus.circle")
+                            .font(.system(size: 12.5, weight: .medium))
                     }
-                    .fixedSize(horizontal: true, vertical: true)
+                    .buttonStyle(.plain)
+                    .help("Insert New Page (⇧⌘N)")
+
+                    Divider().frame(height: 14)
+
+                    Button {
+                        withAnimation(LiquidGlassPhysics.standardSpring) {
+                            session.createSubprocessDrilldown(undoManager: undoManager)
+                        }
+                    } label: {
+                        Image(systemName: "arrow.turn.down.right")
+                            .font(.system(size: 11.5, weight: .medium))
+                    }
+                    .buttonStyle(.plain)
+                    .help("Create & Link Drill-Down Subprocess Page (⇧⌘P)")
+
+                    Button {
+                        withAnimation(LiquidGlassPhysics.standardSpring) {
+                            session.compareWithSnapshot()
+                        }
+                    } label: {
+                        Image(systemName: "arrow.left.arrow.right.square")
+                            .font(.system(size: 11.5, weight: .medium))
+                    }
+                    .buttonStyle(.plain)
+                    .help("Compare Active Diagram Against Baseline Snapshot (⇧⌘D)")
+
+                    Divider().frame(height: 14)
+
+                    Text(
+                        "X: \(i18n.unitPreference.formatFromInches(Double(session.cursorCanvasInches.x)))  Y: \(i18n.unitPreference.formatFromInches(Double(session.cursorCanvasInches.y)))"
+                    )
+                    .font(.system(size: 10.5, design: .monospaced))
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .foregroundStyle(.secondary)
                 }
-                .padding(.horizontal, 16)
-                .padding(.bottom, 10)
+                .fixedSize(horizontal: false, vertical: true)
+
+                Spacer(minLength: 8)
+
+                // Zoom & Viewport Fit Pill
+                LiquidGlassPillCluster(cornerRadius: 14) {
+                    LiquidGlassIconButton(systemImage: "minus.magnifyingglass", title: "Zoom Out") {
+                        session.zoomScale = max(session.zoomScale / 1.25, 0.10)
+                    }
+
+                    Slider(value: $session.zoomScale, in: 0.10...8.0)
+                        .frame(width: 88)
+                        .controlSize(.small)
+
+                    Text("\(Int((session.zoomScale * 100.0).rounded()))%")
+                        .font(.system(size: 11.5, weight: .medium, design: .monospaced))
+                        .lineLimit(1)
+                        .frame(width: 46, alignment: .trailing)
+
+                    LiquidGlassIconButton(systemImage: "plus.magnifyingglass", title: "Zoom In") {
+                        session.zoomScale = min(session.zoomScale * 1.25, 16.0)
+                    }
+
+                    Divider().frame(height: 14)
+
+                    LiquidGlassIconButton(
+                        systemImage: "arrow.up.left.and.down.right.magnifyingglass",
+                        title: "Fit Page to Window (⌘0)"
+                    ) {
+                        session.fitViewportToActivePage()
+                    }
+                }
+                .fixedSize(horizontal: true, vertical: true)
             }
+            .padding(.horizontal, 16)
+            .padding(.bottom, 10)
+        }
+    }
+
+    @ViewBuilder
+    private func pageTabContextMenu(pageId: UInt32, pageTitle: String, isBackground: Bool) -> some View {
+        let canDelete = !session.pages.filter { !$0.isBackgroundPage && $0.id != pageId }.isEmpty
+        Button("Switch to \(pageTitle)") {
+            session.selectPage(pageId)
+        }
+        Button(i18n.t("renamePage")) {
+            session.selectPage(pageId)
+            renamePageDraft = pageTitle
+            renamingPageId = pageId
+        }
+        Button("Duplicate Page") {
+            session.duplicatePage(pageId: pageId, undoManager: undoManager)
+        }
+        Button("Delete Page", role: .destructive) {
+            session.deletePage(pageId: pageId, undoManager: undoManager)
+        }
+        .disabled(!canDelete)
+        Divider()
+        Menu("Page Setup & Size") {
+            Button("ISO A4 Landscape (297 × 210 mm)") {
+                session.selectPage(pageId)
+                session.applyPagePreset("a4", landscape: true, undoManager: undoManager)
+            }
+            Button("ISO A4 Portrait (210 × 297 mm)") {
+                session.selectPage(pageId)
+                session.applyPagePreset("a4", landscape: false, undoManager: undoManager)
+            }
+            Button("ISO A3 Landscape (420 × 297 mm)") {
+                session.selectPage(pageId)
+                session.applyPagePreset("a3", landscape: true, undoManager: undoManager)
+            }
+            Button("US Letter Landscape (11 × 8.5 in)") {
+                session.selectPage(pageId)
+                session.applyPagePreset("letter", landscape: true, undoManager: undoManager)
+            }
+        }
+        Menu("Page Background") {
+            Button(isBackground ? "✓ Background Page" : "Mark as Background Page") {
+                session.updatePageBackground(
+                    pageId: pageId,
+                    isBackground: !isBackground,
+                    undoManager: undoManager
+                )
+            }
+            Divider()
+            Button("Paper: Pure White") {
+                session.updatePageBackground(pageId: pageId, isBackground: isBackground, pageColorHex: "#FFFFFF", undoManager: undoManager)
+            }
+            Button("Paper: Warm Ivory") {
+                session.updatePageBackground(pageId: pageId, isBackground: isBackground, pageColorHex: "#FAF8F5", undoManager: undoManager)
+            }
+            Button("Paper: Soft Slate") {
+                session.updatePageBackground(pageId: pageId, isBackground: isBackground, pageColorHex: "#F1F5F9", undoManager: undoManager)
+            }
+            Button("Paper: Blueprint Tint") {
+                session.updatePageBackground(pageId: pageId, isBackground: isBackground, pageColorHex: "#EFF6FF", undoManager: undoManager)
+            }
+        }
+        Divider()
+        Button("Insert New Page") {
+            session.addNewPage()
+        }
+        Button("Create Linked Subprocess…") {
+            session.createSubprocessDrilldown(undoManager: undoManager)
+        }
+        Divider()
+        Button("Auto-Layout Active Page") {
+            session.applyAutoLayout(.hierarchicalTopDown, undoManager: undoManager)
         }
     }
 

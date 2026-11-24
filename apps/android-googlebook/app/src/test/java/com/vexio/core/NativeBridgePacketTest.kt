@@ -670,7 +670,7 @@ class NativeBridgePacketTest {
     @Test
     fun v021StencilCatalogInitDynamicJsonAndVersionMetadataWorkDeterministically() {
         val vm = VexioSessionViewModel()
-        assertEquals(22, vm.uiState.value.stencilCategories.size)
+        assertEquals(32, vm.uiState.value.stencilCategories.size)
         assertTrue(vm.uiState.value.stencilMasters.isNotEmpty())
         assertTrue(
             "Expected 0.4.0-alpha in updateStatusMessage, got: ${vm.uiState.value.updateStatusMessage}",

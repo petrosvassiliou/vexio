@@ -116,10 +116,20 @@ async function main() {
     'ui_application_wireframes.vssx',
     'project_schedule_gantt_timeline.vssx',
     'value_stream_mapping_lean_vsm.vssx',
+    'it_generic_security_scanning_ecceman_mtmnet_openvas.vssx',
+    'security_carrier_vendors_palo_alto_fortinet_check_point_juniper_huawei.vssx',
+    'multi_cloud_kubernetes_vmware_aws_gcp_oci_k8s_vsphere.vssx',
+    'rack_power_cabling_kvm_cyberpower_tripp_lite_raritan_blackbox_hellermanntyton.vssx',
+    'enterprise_nas_smb_network_unified_comms_synology_qnap_tp_link_poly_avaya.vssx',
+    'c4_architecture_enterprise_integration_patterns_eip.vssx',
+    'decision_case_risk_modeling_cmmn_1_1_dmn_1_3_coras.vssx',
+    'data_vault_2_0_adapt_olap_bi.vssx',
+    'systems_engineering_ontology_sysml_idef0_idef3_idef5.vssx',
+    'smart_home_iot_digital_logic_gds_ia_ux.vssx',
   ]) {
     assert(swText.includes(`/stencils/${stFile}`), `sw.js missing precached stencil ${stFile}`);
   }
-  console.log(`  ✓ ChromeOS WCO, File Handlers, ${jsAssets.length} code-split chunks (<500 KB each), and 22 .vssx Stencil Packs verified.`);
+  console.log(`  ✓ ChromeOS WCO, File Handlers, ${jsAssets.length} code-split chunks (<500 KB each), and 32 .vssx Stencil Packs verified.`);
 
   console.log('=== [4/6] Verifying 100% Unauthenticated Offline Rust WASM SIMD Engine & Core Tools ===');
   const distWasmJs = pathToFileURL(resolve(DIST_DIR, 'wasm/vexio_core.js')).href;
@@ -130,17 +140,24 @@ async function main() {
   const session = new wasmMod.WasmVexioSession('Offline ChromeOS Test');
   assert.equal(manifest.theme_color, '#f8fafc', 'ChromeOS PWA manifest must default to Light Mode');
   const packOrder = JSON.parse(session.list_builtin_pack_order_json());
-  assert.equal(packOrder.length, 22, 'WASM session must expose canonical order for all 22 stencil packs');
+  assert.equal(packOrder.length, 32, 'WASM session must expose canonical order for all 32 stencil packs');
   const stencilMap = JSON.parse(session.list_builtin_stencils_json());
-  assert.equal(Object.keys(stencilMap).length, 22, 'WASM session must expose all 22 stencil packs');
+  assert.equal(Object.keys(stencilMap).length, 32, 'WASM session must expose all 32 stencil packs');
   const stencilPreviews = JSON.parse(session.list_builtin_stencil_previews_json());
-  assert.equal(Object.keys(stencilPreviews).length, 22, 'WASM session must generate SVG previews for all 22 packs');
+  assert.equal(Object.keys(stencilPreviews).length, 32, 'WASM session must generate SVG previews for all 32 packs');
   const totalPreviews = Object.values(stencilPreviews).reduce((acc, arr) => acc + arr.length, 0);
-  assert(totalPreviews >= 500, `Expected >= 500 high-definition vector stencil previews, got ${totalPreviews}`);
+  assert(totalPreviews >= 700, `Expected >= 700 high-definition vector stencil previews, got ${totalPreviews}`);
   for (const [pk, items] of Object.entries(stencilPreviews)) {
     assert(items.length >= 18, `Expected >= 18 stencils in pack ${pk}, got ${items.length}`);
     for (const it of items) {
-      assert(it.svg.includes('<svg') && it.svg.includes('<path'), `Missing vector <path> preview for ${pk}:${it.name}`);
+      assert(
+        it.svg.includes('<svg') &&
+          (it.svg.includes('<path') ||
+            it.svg.includes('<ellipse') ||
+            it.svg.includes('<rect') ||
+            it.svg.includes('<polygon')),
+        `Missing vector primitive preview for ${pk}:${it.name}`,
+      );
     }
   }
 

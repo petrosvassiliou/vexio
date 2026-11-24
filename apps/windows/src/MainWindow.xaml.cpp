@@ -795,7 +795,7 @@ void MainWindow::InitializeStencilCatalog() {
     m_allMasters.clear();
     m_stencilPackNames.clear();
 
-    constexpr std::array<std::string_view, 22> kCanonicalPackOrder{
+    constexpr std::array<std::string_view, 32> kCanonicalPackOrder{
         "Basic Shapes",
         "Basic Flowchart",
         "Microsoft 365 & Office",
@@ -817,7 +817,17 @@ void MainWindow::InitializeStencilCatalog() {
         "P&ID Process Engineering",
         "UI & Application Wireframes",
         "Project Schedule (Gantt & Timeline)",
-        "Value Stream Mapping (Lean VSM)"
+        "Value Stream Mapping (Lean VSM)",
+        "IT Generic & Security Scanning (ECCEMAN / MTMnet / OpenVAS)",
+        "Security & Carrier Vendors (Palo Alto / Fortinet / Check Point / Juniper / Huawei)",
+        "Multi-Cloud, Kubernetes & VMware (AWS / GCP / OCI / K8s / vSphere)",
+        "Rack Power, Cabling & KVM (CyberPower / Tripp Lite / Raritan / BlackBox / HellermannTyton)",
+        "Enterprise NAS, SMB Network & Unified Comms (Synology / QNAP / TP-Link / Poly / Avaya)",
+        "C4 Architecture & Enterprise Integration Patterns (EIP)",
+        "Decision, Case & Risk Modeling (CMMN 1.1 / DMN 1.3 / CORAS)",
+        "Data Vault 2.0 & ADAPT OLAP BI",
+        "Systems Engineering & Ontology (SysML & IDEF0 / IDEF3 / IDEF5)",
+        "Smart Home IoT, Digital Logic & GDS / IA UX"
     };
 
     if (m_doc) {
@@ -4179,7 +4189,7 @@ void MainWindow::ApplyLanguageStrings() {
     static constexpr UiLangPack kEn{
         L"File", L"Home", L"Insert", L"Design", L"Data", L"Process", L"Review", L"View", L"Developer",
         L"Export ▾", L"Help & Updates ▾", L"Updates", L"+ Import Visio Stencil (.vssx / .vss)",
-        L"← Continue to Canvas", L"Start or Open a Diagram Inside Vexio", L"Search 520+ shapes in 22 packs...",
+        L"← Continue to Canvas", L"Start or Open a Diagram Inside Vexio", L"Search 730+ shapes in 32 packs...",
         L"Save (Ctrl+S)", L"Save As… (Ctrl+Shift+S)", L"Save As…", L"Rename"
     };
     static constexpr UiLangPack kDe{
