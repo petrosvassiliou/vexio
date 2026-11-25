@@ -2,6 +2,11 @@ name: Utility — Capture Native Platform Screenshots (macOS, Windows & Android/
 
 on:
   workflow_dispatch:
+    inputs:
+      skip_macos:
+        description: "Skip macOS capture when already downloaded"
+        required: false
+        default: "false"
 
 permissions:
   contents: read
@@ -16,6 +21,7 @@ env:
 
 jobs:
   capture-macos-liquid-glass:
+    if: ${{ github.event.inputs.skip_macos != 'true' }}
     name: Capture macOS 15 Native (Swift 6 Liquid Glass + Metal)
     runs-on: macos-15
     steps:
@@ -150,7 +156,7 @@ jobs:
           Invoke-WebRequest -Uri "https://aka.ms/windowsappsdk/1.6/latest/windowsappruntimeinstall-x64.exe" -OutFile $Installer
           Start-Process -FilePath $Installer -ArgumentList "--quiet", "--force" -Wait -NoNewWindow
 
-      - name: Establish Interactive Desktop Session & Capture WinUI 3 Screenshots
+      - name: Capture WinUI 3 Screenshots via In-Process RenderTargetBitmap
         shell: pwsh
         run: |
           $ShotDir = "C:\vexio-shots"
@@ -162,29 +168,8 @@ jobs:
           New-Item -ItemType Directory -Force -Path $UserStencilDir | Out-Null
           Copy-Item "${{ github.workspace }}\stencils\*.vssx" "$UserStencilDir\" -Force
 
-          # Start a 1920x1200 local RDP interactive console session for runneradmin so DWM + WinUI 3 render full visuals
-          $RdpPass = "VexioRdp#2026!Aa"
-          net user runneradmin $RdpPass
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name 'fDenyTSConnections' -Value 0
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name 'UserAuthentication' -Value 0
-          Enable-NetFirewallRule -DisplayGroup "Remote Desktop" -ErrorAction SilentlyContinue
-          cmdkey /generic:TERMSRV/127.0.0.2 /user:runneradmin /pass:$RdpPass | Out-Null
-          Start-Process -FilePath "mstsc.exe" -ArgumentList "/v:127.0.0.2", "/w:1920", "/h:1200"
-
-          for ($i = 0; $i -lt 30; $i++) {
-            $qw = qwinsta 2>&1 | Out-String
-            if ($qw -match "runneradmin\s+\d+\s+Active") {
-              Write-Host "Interactive RDP session is Active!"
-              break
-            }
-            Start-Sleep -Seconds 1
-          }
-          qwinsta
-
           $WorkerScript = @"
           `$ErrorActionPreference = 'Continue'
-          Add-Type -AssemblyName System.Windows.Forms
-          Add-Type -AssemblyName System.Drawing
           `$BinExe = '$BinDir\Vexio.exe'
 
           function Run-Shot([string]`$OutPng, [string]`$Tpl, [string]`$Title, [string]`$Border, [string]`$Dark, [string]`$Ss) {
@@ -195,21 +180,12 @@ jobs:
             `$env:VEXIO_CAPTURE_DARK       = `$Dark
             `$env:VEXIO_CAPTURE_SHAPESHEET = `$Ss
             `$proc = Start-Process -FilePath `$BinExe -WorkingDirectory '$BinDir' -PassThru
-            `$exited = `$proc.WaitForExit(20000)
-            if (-not (Test-Path `$OutPng)) {
-              # Fallback desktop window capture if RenderTargetBitmap did not flush yet
-              `$bmp = New-Object System.Drawing.Bitmap 1600, 1000
-              `$gfx = [System.Drawing.Graphics]::FromImage(`$bmp)
-              `$gfx.CopyFromScreen(40, 40, 0, 0, `$bmp.Size)
-              `$gfx.Dispose()
-              `$bmp.Save(`$OutPng, [System.Drawing.Imaging.ImageFormat]::Png)
-              `$bmp.Dispose()
-            }
+            `$exited = `$proc.WaitForExit(25000)
             if (-not `$exited) { Stop-Process -Id `$proc.Id -Force -ErrorAction SilentlyContinue }
           }
 
           Run-Shot '$ShotDir\windows-01-winui3-workstation.png' 'cloud_microservices' 'Cloud-Kubernetes-Architecture.vsdx' 'modern_banner' '0' '0'
-          Run-Shot '$ShotDir\windows-02-dark-bpmn-shapesheet.png' 'bpmn_fulfillment' 'BPMN-2-0-Order-Fulfillment.vsdx' 'executive_underline' '1' '1'
+          Run-Shot '$ShotDir\windows-02-bpmn-shapesheet.png' 'bpmn_fulfillment' 'BPMN-2-0-Order-Fulfillment.vsdx' 'executive_underline' '0' '1'
 
           Set-Content -Path '$ShotDir\done.txt' -Value 'ok'
           "@
@@ -317,26 +293,14 @@ jobs:
           adb install -r "${APK_PATH}"
 
           # Screenshot 1: Googlebook OS 3-Pane Workstation (Light Mode — Cloud Kubernetes Architecture + Modern Header Banner)
-          adb shell am start -W -n com.vexio/.MainActivity \
-            -a com.vexio.action.NEW_DOCUMENT_WINDOW \
-            --es vexio.template "cloud_microservices" \
-            --es vexio.doc_title "Cloud_Kubernetes_Architecture.vsdx" \
-            --es vexio.border "modern_banner" \
-            --es vexio.stencil_cat "Microsoft Azure & Hybrid Cloud"
+          adb shell "am start -W -n com.vexio.googlebook/com.vexio.MainActivity -a com.vexio.action.NEW_DOCUMENT_WINDOW --es vexio.template cloud_microservices --es vexio.doc_title Cloud_Kubernetes_Architecture.vsdx --es vexio.border modern_banner"
           sleep 10
           adb exec-out screencap -p > android-shots/android-01-googlebook-workstation.png
 
           # Screenshot 2: Googlebook OS Dark Mode + BPMN 2.0 + Docked ShapeSheet Drawer
-          adb shell am force-stop com.vexio
+          adb shell am force-stop com.vexio.googlebook
           sleep 1
-          adb shell am start -W -n com.vexio/.MainActivity \
-            -a com.vexio.action.NEW_DOCUMENT_WINDOW \
-            --es vexio.template "bpmn_fulfillment" \
-            --es vexio.doc_title "BPMN2_Order_Fulfillment.vsdx" \
-            --es vexio.border "executive_underline" \
-            --es vexio.stencil_cat "BPMN 2.0" \
-            --ez vexio.shapesheet true \
-            --ez vexio.dark true
+          adb shell "am start -W -n com.vexio.googlebook/com.vexio.MainActivity -a com.vexio.action.NEW_DOCUMENT_WINDOW --es vexio.template bpmn_fulfillment --es vexio.doc_title BPMN2_Order_Fulfillment.vsdx --es vexio.border executive_underline --es vexio.stencil_cat 'BPMN 2.0' --ez vexio.shapesheet true --ez vexio.dark true"
           sleep 10
           adb exec-out screencap -p > android-shots/android-02-dark-bpmn-shapesheet.png
 

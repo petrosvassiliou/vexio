@@ -450,8 +450,15 @@ fire_and_forget MainWindow::RunAutomatedScreenshotIfRequestedAsync() {
     if (const HWND hwnd = GetNativeWindowHandle(); hwnd != nullptr) {
         const WindowId windowId = GetWindowIdFromWindow(hwnd);
         if (const auto appWindow = Microsoft::UI::Windowing::AppWindow::GetFromWindowId(windowId)) {
-            appWindow.MoveAndResize(Windows::Graphics::RectInt32{40, 40, 1600, 1000});
+            appWindow.MoveAndResize(Windows::Graphics::RectInt32{0, 0, 1840, 1120});
         }
+    }
+    if (auto fe = Content().try_as<FrameworkElement>()) {
+        fe.Width(1840.0);
+        fe.Height(1120.0);
+        fe.Measure(Windows::Foundation::Size{1840.0f, 1120.0f});
+        fe.Arrange(Windows::Foundation::Rect{0.0f, 0.0f, 1840.0f, 1120.0f});
+        fe.UpdateLayout();
     }
 
     m_isAutoFitPage = true;
@@ -472,6 +479,13 @@ fire_and_forget MainWindow::RunAutomatedScreenshotIfRequestedAsync() {
         auto self = weakSelf.get();
         if (!self) co_return;
 
+        if (auto fe = self->Content().try_as<FrameworkElement>()) {
+            fe.Width(1840.0);
+            fe.Height(1120.0);
+            fe.Measure(Windows::Foundation::Size{1840.0f, 1120.0f});
+            fe.Arrange(Windows::Foundation::Rect{0.0f, 0.0f, 1840.0f, 1120.0f});
+            fe.UpdateLayout();
+        }
         self->AttachOrResizeDx12SwapChain();
         self->FitPageToWindow();
         self->PresentViewportFrame();
@@ -486,19 +500,10 @@ fire_and_forget MainWindow::RunAutomatedScreenshotIfRequestedAsync() {
             const int32_t pw = rtb.PixelWidth();
             const int32_t ph = rtb.PixelHeight();
             if (pw > 0 && ph > 0 && pixelBuf.Length() >= static_cast<uint32_t>(pw * ph * 4)) {
-                const std::filesystem::path targetPath{outPathWide};
-                std::error_code ec{};
-                if (targetPath.has_parent_path()) {
-                    std::filesystem::create_directories(targetPath.parent_path(), ec);
-                }
-                StorageFolder folder = co_await StorageFolder::GetFolderFromPathAsync(targetPath.parent_path().wstring());
-                StorageFile outFile = co_await folder.CreateFileAsync(
-                    targetPath.filename().wstring(),
-                    CreationCollisionOption::ReplaceExisting);
-                IRandomAccessStream stream = co_await outFile.OpenAsync(FileAccessMode::ReadWrite);
+                InMemoryRandomAccessStream memStream{};
                 auto encoder = co_await Windows::Graphics::Imaging::BitmapEncoder::CreateAsync(
                     Windows::Graphics::Imaging::BitmapEncoder::PngEncoderId(),
-                    stream);
+                    memStream);
                 const winrt::array_view<const uint8_t> bgraView{
                     pixelBuf.data(),
                     static_cast<uint32_t>(pw) * static_cast<uint32_t>(ph) * 4u
@@ -512,7 +517,26 @@ fire_and_forget MainWindow::RunAutomatedScreenshotIfRequestedAsync() {
                     96.0,
                     bgraView);
                 co_await encoder.FlushAsync();
-                stream.Close();
+
+                const uint64_t pngSize = memStream.Size();
+                if (pngSize > 0) {
+                    memStream.Seek(0);
+                    Buffer pngBuf{static_cast<uint32_t>(pngSize)};
+                    const IBuffer readBuf = co_await memStream.ReadAsync(
+                        pngBuf,
+                        static_cast<uint32_t>(pngSize),
+                        InputStreamOptions::None);
+                    const std::filesystem::path targetPath{outPathWide};
+                    std::error_code ec{};
+                    if (targetPath.has_parent_path()) {
+                        std::filesystem::create_directories(targetPath.parent_path(), ec);
+                    }
+                    std::ofstream ofs{targetPath, std::ios::binary | std::ios::trunc};
+                    ofs.write(
+                        reinterpret_cast<const char*>(readBuf.data()),
+                        static_cast<std::streamsize>(readBuf.Length()));
+                    ofs.flush();
+                }
             }
         } catch (...) {
         }
