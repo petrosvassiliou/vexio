@@ -46,6 +46,8 @@ jobs:
       - name: Build vexio-core & Swift 6 VexioMacApp (arm64)
         run: |
           cargo build --release -p vexio-core --target aarch64-apple-darwin
+          mkdir -p target/universal/release
+          cp -f target/aarch64-apple-darwin/release/libvexio_core.a target/universal/release/libvexio_core.a
           cp -f target/aarch64-apple-darwin/release/libvexio_core.a target/release-static-libvexio_core.a
           swift build --package-path apps/macos -c release --arch arm64 --product VexioMacApp
 
@@ -294,12 +296,53 @@ jobs:
         run: |
           gradle assembleDebug --no-daemon --stacktrace
 
-      - name: Enable KVM Hardware Acceleration
+      - name: Enable KVM Hardware Acceleration & Write Capture Script
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
           ls -la /dev/kvm || true
+
+          cat << 'EOF' > "${RUNNER_TEMP}/capture_android.sh"
+          #!/usr/bin/env bash
+          set -euxo pipefail
+          mkdir -p android-shots
+          adb wait-for-device
+          adb shell wm size 2560x1600
+          adb shell wm density 320
+          adb shell wm dismiss-keyguard || true
+          adb shell input keyevent 82 || true
+
+          APK_PATH=$(ls apps/android-googlebook/app/build/outputs/apk/debug/*.apk | head -n 1)
+          adb install -r "${APK_PATH}"
+
+          # Screenshot 1: Googlebook OS 3-Pane Workstation (Light Mode — Cloud Kubernetes Architecture + Modern Header Banner)
+          adb shell am start -W -n com.vexio/.MainActivity \
+            -a com.vexio.action.NEW_DOCUMENT_WINDOW \
+            --es vexio.template "cloud_microservices" \
+            --es vexio.doc_title "Cloud_Kubernetes_Architecture.vsdx" \
+            --es vexio.border "modern_banner" \
+            --es vexio.stencil_cat "Microsoft Azure & Hybrid Cloud"
+          sleep 10
+          adb exec-out screencap -p > android-shots/android-01-googlebook-workstation.png
+
+          # Screenshot 2: Googlebook OS Dark Mode + BPMN 2.0 + Docked ShapeSheet Drawer
+          adb shell am force-stop com.vexio
+          sleep 1
+          adb shell am start -W -n com.vexio/.MainActivity \
+            -a com.vexio.action.NEW_DOCUMENT_WINDOW \
+            --es vexio.template "bpmn_fulfillment" \
+            --es vexio.doc_title "BPMN2_Order_Fulfillment.vsdx" \
+            --es vexio.border "executive_underline" \
+            --es vexio.stencil_cat "BPMN 2.0" \
+            --ez vexio.shapesheet true \
+            --ez vexio.dark true
+          sleep 10
+          adb exec-out screencap -p > android-shots/android-02-dark-bpmn-shapesheet.png
+
+          ls -lh android-shots/
+          EOF
+          chmod +x "${RUNNER_TEMP}/capture_android.sh"
 
       - name: Boot 2560x1600 Googlebook/Tablet AVD & Capture Native Compose M3E Screenshots
         uses: reactivecircus/android-emulator-runner@v2
@@ -309,43 +352,7 @@ jobs:
           arch: x86_64
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -memory 4096
-          script: |
-            mkdir -p android-shots
-            adb wait-for-device
-            adb shell wm size 2560x1600
-            adb shell wm density 320
-            adb shell wm dismiss-keyguard || true
-            adb shell input keyevent 82 || true
-            adb shell settings put policy policy_control immersive.full=* || true
-
-            APK_PATH=$(ls apps/android-googlebook/app/build/outputs/apk/debug/*.apk | head -n 1)
-            adb install -r "${APK_PATH}"
-
-            # Screenshot 1: Googlebook OS 3-Pane Workstation (Light Mode — Cloud Kubernetes Architecture + Modern Header Banner)
-            adb shell am start -W -n com.vexio/.MainActivity \
-              -a com.vexio.action.NEW_DOCUMENT_WINDOW \
-              --es vexio.template "cloud_microservices" \
-              --es vexio.doc_title "Cloud_Kubernetes_Architecture.vsdx" \
-              --es vexio.border "modern_banner" \
-              --es vexio.stencil_cat "Microsoft Azure & Hybrid Cloud"
-            sleep 9
-            adb exec-out screencap -p > android-shots/android-01-googlebook-workstation.png
-
-            # Screenshot 2: Googlebook OS Dark Mode + BPMN 2.0 + Docked ShapeSheet Drawer
-            adb shell am force-stop com.vexio
-            sleep 1
-            adb shell am start -W -n com.vexio/.MainActivity \
-              -a com.vexio.action.NEW_DOCUMENT_WINDOW \
-              --es vexio.template "bpmn_fulfillment" \
-              --es vexio.doc_title "BPMN2_Order_Fulfillment.vsdx" \
-              --es vexio.border "executive_underline" \
-              --es vexio.stencil_cat "BPMN 2.0" \
-              --ez vexio.shapesheet true \
-              --ez vexio.dark true
-            sleep 9
-            adb exec-out screencap -p > android-shots/android-02-dark-bpmn-shapesheet.png
-
-            ls -lh android-shots/
+          script: bash "${RUNNER_TEMP}/capture_android.sh"
 
       - name: Upload Android & Googlebook OS Native Screenshots
         uses: actions/upload-artifact@v4

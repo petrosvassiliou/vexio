@@ -475,7 +475,9 @@ fire_and_forget MainWindow::RunAutomatedScreenshotIfRequestedAsync() {
         self->AttachOrResizeDx12SwapChain();
         self->FitPageToWindow();
         self->PresentViewportFrame();
-        self->UpdateLayout();
+        if (auto contentEl = self->Content()) {
+            contentEl.UpdateLayout();
+        }
 
         try {
             RenderTargetBitmap rtb{};
