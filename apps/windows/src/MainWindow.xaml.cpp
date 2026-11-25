@@ -450,15 +450,8 @@ fire_and_forget MainWindow::RunAutomatedScreenshotIfRequestedAsync() {
     if (const HWND hwnd = GetNativeWindowHandle(); hwnd != nullptr) {
         const WindowId windowId = GetWindowIdFromWindow(hwnd);
         if (const auto appWindow = Microsoft::UI::Windowing::AppWindow::GetFromWindowId(windowId)) {
-            appWindow.MoveAndResize(Windows::Graphics::RectInt32{0, 0, 1840, 1120});
+            appWindow.MoveAndResize(Windows::Graphics::RectInt32{0, 0, 1600, 1000});
         }
-    }
-    if (auto fe = Content().try_as<FrameworkElement>()) {
-        fe.Width(1840.0);
-        fe.Height(1120.0);
-        fe.Measure(Windows::Foundation::Size{1840.0f, 1120.0f});
-        fe.Arrange(Windows::Foundation::Rect{0.0f, 0.0f, 1840.0f, 1120.0f});
-        fe.UpdateLayout();
     }
 
     m_isAutoFitPage = true;
@@ -471,21 +464,14 @@ fire_and_forget MainWindow::RunAutomatedScreenshotIfRequestedAsync() {
     MarkDocumentDirty(false);
 
     const auto weakSelf = get_weak();
-    auto timer = DispatcherQueue().CreateTimer();
-    timer.Interval(std::chrono::milliseconds{2200});
-    timer.IsRepeating(false);
-    timer.Tick([weakSelf, outPathWide](Microsoft::UI::Dispatching::DispatcherQueueTimer const& sender, IInspectable const&) -> fire_and_forget {
+    m_screenshotTimer = DispatcherQueue().CreateTimer();
+    m_screenshotTimer.Interval(std::chrono::milliseconds{2500});
+    m_screenshotTimer.IsRepeating(false);
+    m_screenshotTimer.Tick([weakSelf, outPathWide](Microsoft::UI::Dispatching::DispatcherQueueTimer const& sender, IInspectable const&) -> fire_and_forget {
         sender.Stop();
         auto self = weakSelf.get();
         if (!self) co_return;
 
-        if (auto fe = self->Content().try_as<FrameworkElement>()) {
-            fe.Width(1840.0);
-            fe.Height(1120.0);
-            fe.Measure(Windows::Foundation::Size{1840.0f, 1120.0f});
-            fe.Arrange(Windows::Foundation::Rect{0.0f, 0.0f, 1840.0f, 1120.0f});
-            fe.UpdateLayout();
-        }
         self->AttachOrResizeDx12SwapChain();
         self->FitPageToWindow();
         self->PresentViewportFrame();
@@ -544,7 +530,7 @@ fire_and_forget MainWindow::RunAutomatedScreenshotIfRequestedAsync() {
         self->m_isApprovedToClose = true;
         Application::Current().Exit();
     });
-    timer.Start();
+    m_screenshotTimer.Start();
 }
 
 void MainWindow::OnSwapChainPanelSizeChanged(IInspectable const&, SizeChangedEventArgs const&) {

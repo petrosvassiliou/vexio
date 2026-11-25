@@ -474,6 +474,7 @@ private:
     bool   m_isApprovedToClose{false};
     bool   m_isClosingPromptOpen{false};
     bool   m_screenshotCaptureScheduled{false};
+    winrt::Microsoft::UI::Dispatching::DispatcherQueueTimer m_screenshotTimer{nullptr};
     uint64_t m_savedStateRevision{0};
     winrt::event_token m_appWindowClosingToken{};
     double m_zoomPercent{100.0};

@@ -7,6 +7,10 @@ on:
         description: "Skip macOS capture when already downloaded"
         required: false
         default: "false"
+      skip_android:
+        description: "Skip Android capture when already downloaded"
+        required: false
+        default: "false"
 
 permissions:
   contents: read
@@ -168,31 +172,93 @@ jobs:
           New-Item -ItemType Directory -Force -Path $UserStencilDir | Out-Null
           Copy-Item "${{ github.workspace }}\stencils\*.vssx" "$UserStencilDir\" -Force
 
-          $WorkerScript = @"
-          `$ErrorActionPreference = 'Continue'
-          `$BinExe = '$BinDir\Vexio.exe'
+          $WorkerScript = @'
+          param([string]$BinDir, [string]$ShotDir)
+          $ErrorActionPreference = 'Continue'
+          Add-Type -AssemblyName System.Windows.Forms
+          Add-Type -AssemblyName System.Drawing
+          $CsCode = '
+          using System;
+          using System.Runtime.InteropServices;
+          public class Win32Disp {
+            [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left, Top, Right, Bottom; }
+            [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
+            [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]
+            public struct DEVMODE {
+              [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)] public string dmDeviceName;
+              public short dmSpecVersion; public short dmDriverVersion; public short dmSize; public short dmDriverExtra;
+              public int dmFields; public int dmPositionX; public int dmPositionY; public int dmDisplayOrientation;
+              public int dmDisplayFixedOutput; public short dmColor; public short dmDuplex; public short dmYResolution;
+              public short dmTTOption; public short dmCollate;
+              [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)] public string dmFormName;
+              public short dmLogPixels; public int dmBitsPerPel; public int dmPelsWidth; public int dmPelsHeight;
+              public int dmDisplayFlags; public int dmDisplayFrequency;
+              public int dmICMMethod; public int dmICMIntent; public int dmMediaType; public int dmDitherType;
+              public int dmReserved1; public int dmReserved2; public int dmPanningWidth; public int dmPanningHeight;
+            }
+            [DllImport("user32.dll", CharSet = CharSet.Ansi)]
+            public static extern int EnumDisplaySettings(string deviceName, int modeNum, ref DEVMODE devMode);
+            [DllImport("user32.dll", CharSet = CharSet.Ansi)]
+            public static extern int ChangeDisplaySettings(ref DEVMODE devMode, int flags);
+            public static void TrySet1920x1080() {
+              DEVMODE dm = new DEVMODE();
+              dm.dmSize = (short)Marshal.SizeOf(typeof(DEVMODE));
+              if (EnumDisplaySettings(null, -1, ref dm) != 0) {
+                dm.dmPelsWidth = 1920; dm.dmPelsHeight = 1080; dm.dmFields = 0x00080000 | 0x00100000;
+                ChangeDisplaySettings(ref dm, 0);
+              }
+            }
+          }
+          '
+          Add-Type -TypeDefinition $CsCode
+          [Win32Disp]::TrySet1920x1080()
+          Start-Sleep -Milliseconds 600
+          $BinExe = Join-Path $BinDir 'Vexio.exe'
 
-          function Run-Shot([string]`$OutPng, [string]`$Tpl, [string]`$Title, [string]`$Border, [string]`$Dark, [string]`$Ss) {
-            `$env:VEXIO_CAPTURE_SCREENSHOT = `$OutPng
-            `$env:VEXIO_CAPTURE_TEMPLATE   = `$Tpl
-            `$env:VEXIO_CAPTURE_DOC_TITLE  = `$Title
-            `$env:VEXIO_CAPTURE_BORDER     = `$Border
-            `$env:VEXIO_CAPTURE_DARK       = `$Dark
-            `$env:VEXIO_CAPTURE_SHAPESHEET = `$Ss
-            `$proc = Start-Process -FilePath `$BinExe -WorkingDirectory '$BinDir' -PassThru
-            `$exited = `$proc.WaitForExit(25000)
-            if (-not `$exited) { Stop-Process -Id `$proc.Id -Force -ErrorAction SilentlyContinue }
+          function Run-Shot([string]$OutPng, [string]$Tpl, [string]$Title, [string]$Border, [string]$Dark, [string]$Ss) {
+            $env:VEXIO_CAPTURE_SCREENSHOT = $OutPng
+            $env:VEXIO_CAPTURE_TEMPLATE   = $Tpl
+            $env:VEXIO_CAPTURE_DOC_TITLE  = $Title
+            $env:VEXIO_CAPTURE_BORDER     = $Border
+            $env:VEXIO_CAPTURE_DARK       = $Dark
+            $env:VEXIO_CAPTURE_SHAPESHEET = $Ss
+            $proc = Start-Process -FilePath $BinExe -WorkingDirectory $BinDir -PassThru
+            $exited = $proc.WaitForExit(14000)
+            if (-not (Test-Path $OutPng)) {
+              $proc.Refresh()
+              $hwnd = $proc.MainWindowHandle
+              $r = New-Object Win32Disp+RECT
+              if ($hwnd -ne [IntPtr]::Zero -and [Win32Disp]::GetWindowRect($hwnd, [ref]$r)) {
+                $w = [Math]::Max(320, $r.Right - $r.Left)
+                $h = [Math]::Max(240, $r.Bottom - $r.Top)
+                $bmp = New-Object System.Drawing.Bitmap $w, $h
+                $gfx = [System.Drawing.Graphics]::FromImage($bmp)
+                $gfx.CopyFromScreen($r.Left, $r.Top, 0, 0, $bmp.Size)
+                $gfx.Dispose()
+                $bmp.Save($OutPng, [System.Drawing.Imaging.ImageFormat]::Png)
+                $bmp.Dispose()
+              } else {
+                $bounds = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
+                $bmp = New-Object System.Drawing.Bitmap $bounds.Width, $bounds.Height
+                $gfx = [System.Drawing.Graphics]::FromImage($bmp)
+                $gfx.CopyFromScreen($bounds.X, $bounds.Y, 0, 0, $bmp.Size)
+                $gfx.Dispose()
+                $bmp.Save($OutPng, [System.Drawing.Imaging.ImageFormat]::Png)
+                $bmp.Dispose()
+              }
+            }
+            if (-not $exited) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue }
           }
 
-          Run-Shot '$ShotDir\windows-01-winui3-workstation.png' 'cloud_microservices' 'Cloud-Kubernetes-Architecture.vsdx' 'modern_banner' '0' '0'
-          Run-Shot '$ShotDir\windows-02-bpmn-shapesheet.png' 'bpmn_fulfillment' 'BPMN-2-0-Order-Fulfillment.vsdx' 'executive_underline' '0' '1'
+          Run-Shot (Join-Path $ShotDir 'windows-01-winui3-workstation.png') 'cloud_microservices' 'Cloud-Kubernetes-Architecture.vsdx' 'modern_banner' '0' '0'
+          Run-Shot (Join-Path $ShotDir 'windows-02-bpmn-shapesheet.png') 'bpmn_fulfillment' 'BPMN-2-0-Order-Fulfillment.vsdx' 'executive_underline' '0' '1'
 
-          Set-Content -Path '$ShotDir\done.txt' -Value 'ok'
-          "@
+          Set-Content -Path (Join-Path $ShotDir 'done.txt') -Value 'ok'
+'@
           $WorkerPath = "$ShotDir\capture_worker.ps1"
           Set-Content -Path $WorkerPath -Value $WorkerScript -Encoding UTF8
 
-          $Action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$WorkerPath`""
+          $Action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$WorkerPath`" -BinDir `"$BinDir`" -ShotDir `"$ShotDir`""
           $Principal = New-ScheduledTaskPrincipal -UserId "runneradmin" -LogonType Interactive -RunLevel Highest
           Register-ScheduledTask -TaskName "VexioCaptureWinUI3" -Action $Action -Principal $Principal -Force | Out-Null
           Start-ScheduledTask -TaskName "VexioCaptureWinUI3"
@@ -214,6 +280,7 @@ jobs:
           if-no-files-found: error
 
   capture-android-googlebook:
+    if: ${{ github.event.inputs.skip_android != 'true' }}
     name: Capture Android & Googlebook OS Native (Compose M3E + Vulkan JNI)
     runs-on: ubuntu-latest
     steps:
