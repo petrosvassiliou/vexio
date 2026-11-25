@@ -595,8 +595,8 @@ public struct VexioHeaderAndRibbonBar: View {
                         id: "home.headings",
                         title: i18n.t("headings"),
                         systemImage: "textformat.size",
-                        coordinator: menuCoordinator,
-                        tooltip: "Apply Visio Title / Heading style to selection (or insert onto page)"
+                        tooltip: "Apply Visio Title / Heading style to selection (or insert onto page)",
+                        coordinator: menuCoordinator
                     ) {
                         ForEach(VexioTextHeadingPreset.allCases) { preset in
                             Button(preset.displayName) {
@@ -953,8 +953,8 @@ public struct VexioHeaderAndRibbonBar: View {
                         id: "insert.headings",
                         title: i18n.t("insertTitleHeading"),
                         systemImage: "textformat.alt",
-                        coordinator: menuCoordinator,
-                        tooltip: "Insert a Visio Title, Subtitle, Heading (H1–H3), or Section Banner"
+                        tooltip: "Insert a Visio Title, Subtitle, Heading (H1–H3), or Section Banner",
+                        coordinator: menuCoordinator
                     ) {
                         ForEach([
                             VexioTextHeadingPreset.title,
@@ -1052,8 +1052,8 @@ public struct VexioHeaderAndRibbonBar: View {
                         id: "design.borders",
                         title: i18n.t("bordersAndTitles"),
                         systemImage: "rectangle.topthird.inset.filled",
-                        coordinator: menuCoordinator,
-                        tooltip: "Apply Visio Page Borders & Title Blocks"
+                        tooltip: "Apply Visio Page Borders & Title Blocks",
+                        coordinator: menuCoordinator
                     ) {
                         ForEach(VexioBorderTitleStyle.allCases.filter { $0 != .none }) { style in
                             Button(style.displayName) {

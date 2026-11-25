@@ -291,11 +291,11 @@ class NativeBridgePacketTest {
         assertEquals(16, VexioTool.entries.size)
         assertEquals((0..15).toSet(), VexioTool.entries.map { it.nativeCode }.toSet())
 
-        // All 32 Visio Professional & Awesome-Visio stencil categories are present
-        assertEquals(32, BuiltInStencilCatalog.categories.size)
+        // All 33 Visio Professional & Awesome-Visio stencil categories are present
+        assertEquals(33, BuiltInStencilCatalog.categories.size)
         assertEquals(33, state.stencilCategories.size)
         val distinctCategories = state.stencilMasters.map { it.category }.distinct()
-        assertEquals(32, distinctCategories.size)
+        assertEquals(33, distinctCategories.size)
         assertTrue(state.stencilCategories.contains("Microsoft 365 & Office"))
         assertTrue(state.stencilCategories.contains("Microsoft Servers & Active Directory"))
         assertTrue(state.stencilCategories.contains("Microsoft Azure & Hybrid Cloud"))
