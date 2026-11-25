@@ -779,7 +779,7 @@ class VexioChromeOsApp {
       return true;
     }
   })();
-  private updateStatusText = 'Vexio v0.4.1-alpha • Automatic updates enabled';
+  private updateStatusText = 'Vexio v0.4.2-alpha • Automatic updates enabled';
   private latestReleaseTag: string | null = null;
   private latestReleaseUrl = 'https://github.com/petrosvassiliou/vexio/releases';
 
@@ -1220,7 +1220,7 @@ class VexioChromeOsApp {
       return;
     }
 
-    const currentVersion = '0.4.1-alpha';
+    const currentVersion = '0.4.2-alpha';
     try {
       const resp = await fetch('https://api.github.com/repos/petrosvassiliou/vexio/releases', {
         headers: { Accept: 'application/vnd.github+json' },
@@ -2680,6 +2680,18 @@ class VexioChromeOsApp {
           <div class="ribbon-divider"></div>
 
           <span class="ribbon-group-label">Font &amp; Paragraph</span>
+          <select class="cell-input" id="ribbon-heading-preset" style="width:126px;height:26px;padding:1px 6px;font-size:11.5px;font-weight:600" title="Apply Visio Title / Heading Style to Selection (or Insert onto Page)">
+            <option value="">Headings ▾</option>
+            <option value="title">Diagram Title (24pt)</option>
+            <option value="subtitle">Subtitle (14pt)</option>
+            <option value="h1">Heading 1 — Rule (18pt)</option>
+            <option value="h2">Heading 2 (14pt)</option>
+            <option value="h3">Heading 3 (12pt)</option>
+            <option value="section_banner">Section Banner</option>
+            <option value="callout_title">Accent Callout</option>
+            <option value="body">Body Text (11pt)</option>
+            <option value="caption">Caption (9.5pt)</option>
+          </select>
           <select class="cell-input" id="ribbon-font-family" style="width:136px;height:26px;padding:1px 6px;font-size:11.5px" title="Installed OS &amp; Document Font Families (${fontList.length})">
             ${fontList
               .map(
@@ -2771,6 +2783,16 @@ class VexioChromeOsApp {
           <button class="m3-btn active" id="btn-ribbon-import-vssx">${this.i18n.importVisioStencil}</button>
           <div class="ribbon-divider"></div>
           <span class="ribbon-group-label">Diagram Structure</span>
+          <select class="cell-input" id="ribbon-insert-heading" style="width:138px;height:28px;padding:2px 6px;font-size:11.5px;font-weight:600" title="Insert a Visio Title, Subtitle, Heading (H1–H3), or Section Banner">
+            <option value="">+ Title / Heading ▾</option>
+            <option value="title">Diagram Title (24pt)</option>
+            <option value="subtitle">Subtitle (14pt)</option>
+            <option value="h1">Heading 1 — Underlined</option>
+            <option value="h2">Heading 2</option>
+            <option value="h3">Heading 3</option>
+            <option value="section_banner">Section Header Banner</option>
+            <option value="callout_title">Accent Callout Header</option>
+          </select>
           <button class="m3-btn tonal" id="btn-ins-container">Container Box</button>
           <button class="m3-btn tonal" id="btn-ins-swimlanes">Swimlanes</button>
           <button class="m3-btn tonal" id="btn-ins-callout">Callout Note</button>
@@ -2824,7 +2846,15 @@ class VexioChromeOsApp {
           <button class="m3-btn" data-vis-preset="bevel_3d" ${selDisabled}>3D Bevel</button>
           <button class="m3-btn" data-layout="tb">Top-Down</button>
           <button class="m3-btn" data-layout="lr">Left-Right</button>
-          <button class="m3-btn" id="btn-iso-title-block">ISO Title Block</button>
+          <select class="cell-input" id="ribbon-border-title-select" style="width:154px;height:28px;padding:2px 6px;font-size:11.5px;font-weight:600" title="Apply Visio Page Borders &amp; Title Blocks">
+            <option value="">Borders &amp; Titles ▾</option>
+            <option value="modern_banner">Modern Header Banner</option>
+            <option value="executive_underline">Executive Title &amp; Rule</option>
+            <option value="classic_frame">Classic Frame &amp; Title</option>
+            <option value="pill_banner">Rounded Pill Banner</option>
+            <option value="iso_engineering">ISO 7200 Engineering Block</option>
+            <option value="none">None (Remove Border/Title)</option>
+          </select>
         `;
       case 'Data': {
         const dgEnabled = Boolean(this.snapshot?.dataLinkState?.dataGraphics?.enabled);
@@ -4438,7 +4468,7 @@ class VexioChromeOsApp {
             </div>
             <div class="list-row-card" style="flex-direction:column;align-items:flex-start;gap:6px">
               <strong>${this.updateStatusText}</strong>
-              <span style="font-size:11.5px;color:var(--m3-text-muted)">Installed build: Vexio v0.4.1-alpha • Offline-First Workbox PWA + GitHub Releases channel</span>
+              <span style="font-size:11.5px;color:var(--m3-text-muted)">Installed build: Vexio v0.4.2-alpha • Offline-First Workbox PWA + GitHub Releases channel</span>
             </div>
             <label style="display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer">
               <input type="checkbox" id="chk-auto-updates" ${this.autoCheckUpdates ? 'checked' : ''} />
@@ -5799,11 +5829,56 @@ class VexioChromeOsApp {
       });
     });
 
-    document.getElementById('btn-iso-title-block')?.addEventListener('click', async () => {
-      const res = await this.callEngine('applyTitleBlockBorder', {
-        projectCode: 'VEX-ARCH-2026',
-        author: this.cloudState.user?.email ?? 'Principal Systems Architect',
-        revision: 'Rev 2.0',
+    document.getElementById('ribbon-heading-preset')?.addEventListener('change', async (ev) => {
+      const sel = ev.target as HTMLSelectElement;
+      const presetSlug = sel.value;
+      sel.value = '';
+      if (!presetSlug) return;
+      const res = await this.callEngine('applyOrInsertHeading', {
+        presetSlug,
+        forceInsert: false,
+        shapeIds: this.selectedShapeIds,
+      });
+      this.snapshot = res.snapshot;
+      if (res.inserted && res.shapeId > 0) {
+        this.activeTool = 'pointer';
+        this.setSingleSelection(res.shapeId);
+      }
+      this.persistMutationSideEffects(res.wal);
+      this.render();
+    });
+
+    document.getElementById('ribbon-insert-heading')?.addEventListener('change', async (ev) => {
+      const sel = ev.target as HTMLSelectElement;
+      const presetSlug = sel.value;
+      sel.value = '';
+      if (!presetSlug) return;
+      const res = await this.callEngine('applyOrInsertHeading', {
+        presetSlug,
+        forceInsert: true,
+        shapeIds: [],
+      });
+      this.snapshot = res.snapshot;
+      if (res.shapeId > 0) {
+        this.activeTool = 'pointer';
+        this.setSingleSelection(res.shapeId);
+      }
+      this.persistMutationSideEffects(res.wal);
+      this.render();
+    });
+
+    document.getElementById('ribbon-border-title-select')?.addEventListener('change', async (ev) => {
+      const sel = ev.target as HTMLSelectElement;
+      const styleSlug = sel.value;
+      sel.value = '';
+      if (!styleSlug) return;
+      const docTitle = this.currentFileName.replace(/\.[^.]+$/, '') || 'Architecture Diagram';
+      const res = await this.callEngine('applyBorderAndTitle', {
+        styleSlug,
+        title: docTitle,
+        subtitle: '',
+        author: this.cloudState.user?.email ?? 'Vexio Workstation',
+        dateOrRev: new Date().toISOString().slice(0, 10),
       });
       this.snapshot = res.snapshot;
       this.persistMutationSideEffects(res.wal);

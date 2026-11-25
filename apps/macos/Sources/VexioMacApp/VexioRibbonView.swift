@@ -67,7 +67,7 @@ public struct HoverSwitchMenuButton<MenuContent: View>: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help(tooltip.isEmpty ? title : tooltip)
+        .help(isOpen ? "" : (tooltip.isEmpty ? title : tooltip))
         .onHover { hovering in
             // Chrome / native macOS menu bar behavior: if ANY sibling menu is currently open,
             // hovering onto another menu button immediately switches the open menu!
@@ -588,9 +588,26 @@ public struct VexioHeaderAndRibbonBar: View {
 
             Divider().frame(height: 44)
 
-            // Native OS Installed Fonts + Native macOS ColorPicker (NSColorPanel)
+            // Native OS Installed Fonts + Visio Headings + Native macOS ColorPicker (NSColorPanel)
             ribbonGroup(title: i18n.t("font")) {
                 HStack(spacing: 5) {
+                    HoverSwitchMenuButton(
+                        id: "home.headings",
+                        title: i18n.t("headings"),
+                        systemImage: "textformat.size",
+                        coordinator: menuCoordinator,
+                        tooltip: "Apply Visio Title / Heading style to selection (or insert onto page)"
+                    ) {
+                        ForEach(VexioTextHeadingPreset.allCases) { preset in
+                            Button(preset.displayName) {
+                                session.applyOrInsertHeading(preset, forceInsert: false, undoManager: undoManager)
+                                menuCoordinator.activeMenuID = nil
+                            }
+                            .buttonStyle(.plain)
+                            .padding(.vertical, 2.5)
+                        }
+                    }
+
                     Picker("", selection: Binding(
                         get: { session.selectedFontFamily },
                         set: { session.applyTextStyle(fontFamily: $0, undoManager: undoManager) }
@@ -932,6 +949,32 @@ public struct VexioHeaderAndRibbonBar: View {
             Divider().frame(height: 44)
             ribbonGroup(title: "Diagram Objects") {
                 HStack(spacing: 6) {
+                    HoverSwitchMenuButton(
+                        id: "insert.headings",
+                        title: i18n.t("insertTitleHeading"),
+                        systemImage: "textformat.alt",
+                        coordinator: menuCoordinator,
+                        tooltip: "Insert a Visio Title, Subtitle, Heading (H1–H3), or Section Banner"
+                    ) {
+                        ForEach([
+                            VexioTextHeadingPreset.title,
+                            .subtitle,
+                            .h1,
+                            .h2,
+                            .h3,
+                            .sectionBanner,
+                            .calloutTitle,
+                            .caption,
+                        ]) { preset in
+                            Button("Insert \(preset.displayName)") {
+                                session.applyOrInsertHeading(preset, forceInsert: true, undoManager: undoManager)
+                                menuCoordinator.activeMenuID = nil
+                            }
+                            .buttonStyle(.plain)
+                            .padding(.vertical, 2.5)
+                        }
+                    }
+
                     ribbonCompactButton("character.textbox", "Insert Text Box") {
                         session.insertTextBoxAndBeginEditing(atCanvasInches: CGPoint(x: 4.5, y: 4.5), undoManager: undoManager)
                     }
@@ -1003,8 +1046,38 @@ public struct VexioHeaderAndRibbonBar: View {
 
             Divider().frame(height: 44)
 
-            ribbonGroup(title: "Themes & Bg") {
+            ribbonGroup(title: "Themes & Titles") {
                 HStack(spacing: 5) {
+                    HoverSwitchMenuButton(
+                        id: "design.borders",
+                        title: i18n.t("bordersAndTitles"),
+                        systemImage: "rectangle.topthird.inset.filled",
+                        coordinator: menuCoordinator,
+                        tooltip: "Apply Visio Page Borders & Title Blocks"
+                    ) {
+                        ForEach(VexioBorderTitleStyle.allCases.filter { $0 != .none }) { style in
+                            Button(style.displayName) {
+                                session.applyBordersAndTitles(style: style, undoManager: undoManager)
+                                menuCoordinator.activeMenuID = nil
+                            }
+                            .buttonStyle(.plain)
+                            .padding(.vertical, 2.5)
+                        }
+                        Divider()
+                        Button("Customize Title & Metadata…") {
+                            menuCoordinator.activeMenuID = nil
+                            NotificationCenter.default.post(name: .vexioOpenBordersAndTitlesSheet, object: nil)
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.vertical, 2.5)
+                        Button("None (Remove Border & Title)") {
+                            session.applyBordersAndTitles(style: .none, undoManager: undoManager)
+                            menuCoordinator.activeMenuID = nil
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.vertical, 2.5)
+                    }
+
                     HoverSwitchMenuButton(
                         id: "design.themes",
                         title: "Themes",

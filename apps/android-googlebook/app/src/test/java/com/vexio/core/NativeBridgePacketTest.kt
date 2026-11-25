@@ -293,7 +293,7 @@ class NativeBridgePacketTest {
 
         // All 32 Visio Professional & Awesome-Visio stencil categories are present
         assertEquals(32, BuiltInStencilCatalog.categories.size)
-        assertEquals(32, state.stencilCategories.size)
+        assertEquals(33, state.stencilCategories.size)
         val distinctCategories = state.stencilMasters.map { it.category }.distinct()
         assertEquals(32, distinctCategories.size)
         assertTrue(state.stencilCategories.contains("Microsoft 365 & Office"))
@@ -670,11 +670,11 @@ class NativeBridgePacketTest {
     @Test
     fun v021StencilCatalogInitDynamicJsonAndVersionMetadataWorkDeterministically() {
         val vm = VexioSessionViewModel()
-        assertEquals(32, vm.uiState.value.stencilCategories.size)
+        assertEquals(33, vm.uiState.value.stencilCategories.size)
         assertTrue(vm.uiState.value.stencilMasters.isNotEmpty())
         assertTrue(
-            "Expected 0.4.1-alpha in updateStatusMessage, got: ${vm.uiState.value.updateStatusMessage}",
-            vm.uiState.value.updateStatusMessage.contains("0.4.1-alpha")
+            "Expected 0.4.2-alpha in updateStatusMessage, got: ${vm.uiState.value.updateStatusMessage}",
+            vm.uiState.value.updateStatusMessage.contains("0.4.2-alpha")
         )
 
         val sampleNativeJson = """

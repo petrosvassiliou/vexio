@@ -266,6 +266,157 @@ public enum VexioCanvasTool: String, CaseIterable, Identifiable, Sendable {
         case .highlighter: return "⇧⌘7"
         }
     }
+
+    public func localizedTitle(_ lang: VexioAppLanguage) -> String {
+        switch (self, lang) {
+        case (.pointer, .de): return "Auswahl"
+        case (.pointer, .it): return "Seleziona"
+        case (.pointer, .fr): return "Sélection"
+        case (.pointer, .es): return "Seleccionar"
+        case (.pointer, .el): return "Επιλογή"
+        case (.pan, .de): return "Verschieben"
+        case (.pan, .it): return "Panoramica"
+        case (.pan, .fr): return "Main"
+        case (.pan, .es): return "Mano"
+        case (.pan, .el): return "Μετακίνηση"
+        case (.connector, .de): return "Verbinder"
+        case (.connector, .it): return "Connettore"
+        case (.connector, .fr): return "Connecteur"
+        case (.connector, .es): return "Conector"
+        case (.connector, .el): return "Σύνδεση"
+        case (.line, .de): return "Linie"
+        case (.line, .it): return "Linea"
+        case (.line, .fr): return "Ligne"
+        case (.line, .es): return "Línea"
+        case (.line, .el): return "Γραμμή"
+        case (.arc, .de): return "Bogen"
+        case (.arc, .it): return "Arco"
+        case (.arc, .fr): return "Arc"
+        case (.arc, .es): return "Arco"
+        case (.arc, .el): return "Τόξο"
+        case (.freeform, .de): return "Freihandform"
+        case (.freeform, .it): return "Forma libera"
+        case (.freeform, .fr): return "Forme libre"
+        case (.freeform, .es): return "Forma libre"
+        case (.freeform, .el): return "Ελεύθερη καμπύλη"
+        case (.rectangle, .de): return "Rechteck"
+        case (.rectangle, .it): return "Rettangolo"
+        case (.rectangle, .fr): return "Rectangle"
+        case (.rectangle, .es): return "Rectángulo"
+        case (.rectangle, .el): return "Ορθογώνιο"
+        case (.roundedRect, .en): return "Rounded Rectangle"
+        case (.roundedRect, .de): return "Abgerundetes Rechteck"
+        case (.roundedRect, .it): return "Rettangolo arrotondato"
+        case (.roundedRect, .fr): return "Rectangle arrondi"
+        case (.roundedRect, .es): return "Rectángulo redondeado"
+        case (.roundedRect, .el): return "Στρογγυλεμένο ορθογώνιο"
+        case (.ellipse, .de): return "Kreis / Ellipse"
+        case (.ellipse, .it): return "Cerchio / Ellisse"
+        case (.ellipse, .fr): return "Cercle / Ellipse"
+        case (.ellipse, .es): return "Círculo / Elipse"
+        case (.ellipse, .el): return "Κύκλος / Έλλειψη"
+        case (.diamond, .de): return "Raute"
+        case (.diamond, .it): return "Rombo"
+        case (.diamond, .fr): return "Losange"
+        case (.diamond, .es): return "Rombo"
+        case (.diamond, .el): return "Ρόμβος"
+        case (.triangle, .de): return "Dreieck"
+        case (.triangle, .it): return "Triangolo"
+        case (.triangle, .fr): return "Triangle"
+        case (.triangle, .es): return "Triángulo"
+        case (.triangle, .el): return "Τρίγωνο"
+        case (.hexagon, .de): return "Sechseck"
+        case (.hexagon, .it): return "Esagono"
+        case (.hexagon, .fr): return "Hexagone"
+        case (.hexagon, .es): return "Hexágono"
+        case (.hexagon, .el): return "Εξάγωνο"
+        case (.star, .de): return "Stern"
+        case (.star, .it): return "Stella"
+        case (.star, .fr): return "Étoile"
+        case (.star, .es): return "Estrella"
+        case (.star, .el): return "Αστέρι"
+        case (.text, .de): return "Textfeld"
+        case (.text, .it): return "Testo"
+        case (.text, .fr): return "Texte"
+        case (.text, .es): return "Texto"
+        case (.text, .el): return "Κείμενο"
+        case (.ink, .de): return "Freihandstift"
+        case (.ink, .it): return "Penna inchiostro"
+        case (.ink, .fr): return "Stylo encre"
+        case (.ink, .es): return "Lápiz"
+        case (.ink, .el): return "Πένα"
+        case (.highlighter, .de): return "Textmarker"
+        case (.highlighter, .it): return "Evidenziatore"
+        case (.highlighter, .fr): return "Surligneur"
+        case (.highlighter, .es): return "Resaltador"
+        case (.highlighter, .el): return "Μαρκαδόρος"
+        default: return rawValue
+        }
+    }
+}
+
+public enum VexioTextHeadingPreset: String, CaseIterable, Identifiable, Sendable {
+    case title = "title"
+    case subtitle = "subtitle"
+    case h1 = "h1"
+    case h2 = "h2"
+    case h3 = "h3"
+    case sectionBanner = "section_banner"
+    case calloutTitle = "callout_title"
+    case body = "body"
+    case caption = "caption"
+
+    public var id: String { rawValue }
+
+    public var displayName: String {
+        switch self {
+        case .title: return "Diagram Title (24 pt Bold)"
+        case .subtitle: return "Subtitle (14 pt)"
+        case .h1: return "Heading 1 — Underlined (18 pt)"
+        case .h2: return "Heading 2 (14 pt Bold)"
+        case .h3: return "Heading 3 (12 pt Accent)"
+        case .sectionBanner: return "Section Header Banner"
+        case .calloutTitle: return "Accent Callout Header"
+        case .body: return "Body Text (11 pt)"
+        case .caption: return "Caption / Footnote (9.5 pt)"
+        }
+    }
+
+    public var shortChipLabel: String {
+        switch self {
+        case .title: return "Title"
+        case .subtitle: return "Subtitle"
+        case .h1: return "H1"
+        case .h2: return "H2"
+        case .h3: return "H3"
+        case .sectionBanner: return "Banner"
+        case .calloutTitle: return "Callout"
+        case .body: return "Body"
+        case .caption: return "Caption"
+        }
+    }
+}
+
+public enum VexioBorderTitleStyle: String, CaseIterable, Identifiable, Sendable {
+    case modernBanner = "modern_banner"
+    case executiveUnderline = "executive_underline"
+    case classicFrame = "classic_frame"
+    case pillBanner = "pill_banner"
+    case isoEngineering = "iso_engineering"
+    case none = "none"
+
+    public var id: String { rawValue }
+
+    public var displayName: String {
+        switch self {
+        case .modernBanner: return "Modern Header Banner"
+        case .executiveUnderline: return "Executive Title & Accent Rule"
+        case .classicFrame: return "Classic Frame & Title"
+        case .pillBanner: return "Rounded Pill Banner"
+        case .isoEngineering: return "ISO 7200 / ANSI Engineering Block"
+        case .none: return "None (Remove Border & Title)"
+        }
+    }
 }
 
 public enum ConnectorRoutingStyle: String, CaseIterable, Identifiable, Sendable {
@@ -1952,6 +2103,95 @@ private final class NativeDocumentCore: @unchecked Sendable {
         if let err = VexioBridgeError.from(status: status, context: "set_page_background(\(pageId))") {
             throw err
         }
+    }
+
+    func applyHeadingPreset(pageId: UInt32, shapeIds: [UInt64], presetSlug: String) throws -> UInt32 {
+        lock.lock()
+        defer { lock.unlock() }
+        var outCount: UInt32 = 0
+        let status: VexioStatus = shapeIds.withUnsafeBufferPointer { buf in
+            presetSlug.withCString { presetCStr in
+                vexio_doc_apply_heading_preset(
+                    doc,
+                    pageId,
+                    buf.baseAddress,
+                    buf.count,
+                    presetCStr,
+                    &outCount
+                )
+            }
+        }
+        if let err = VexioBridgeError.from(status: status, context: "apply_heading_preset(\(presetSlug))") {
+            throw err
+        }
+        return outCount
+    }
+
+    func insertHeading(
+        pageId: UInt32,
+        presetSlug: String,
+        customText: String?,
+        xIn: Double,
+        yIn: Double
+    ) throws -> UInt64 {
+        lock.lock()
+        defer { lock.unlock() }
+        var outSid: UInt64 = 0
+        let textStr = customText ?? ""
+        let status: VexioStatus = presetSlug.withCString { presetCStr in
+            textStr.withCString { textCStr in
+                vexio_doc_insert_heading(
+                    doc,
+                    pageId,
+                    presetCStr,
+                    textStr.isEmpty ? nil : textCStr,
+                    xIn,
+                    yIn,
+                    &outSid
+                )
+            }
+        }
+        if let err = VexioBridgeError.from(status: status, context: "insert_heading(\(presetSlug))") {
+            throw err
+        }
+        return outSid
+    }
+
+    func applyBorderAndTitle(
+        pageId: UInt32,
+        styleSlug: String,
+        title: String,
+        subtitle: String,
+        author: String,
+        dateOrRev: String
+    ) throws -> UInt32 {
+        lock.lock()
+        defer { lock.unlock() }
+        var outBgPid: UInt32 = 0
+        let status: VexioStatus = styleSlug.withCString { sCStr in
+            title.withCString { tCStr in
+                subtitle.withCString { subCStr in
+                    author.withCString { aCStr in
+                        dateOrRev.withCString { dCStr in
+                            vexio_doc_apply_border_and_title(
+                                doc,
+                                pageId,
+                                sCStr,
+                                tCStr,
+                                subCStr,
+                                aCStr,
+                                dCStr,
+                                &outBgPid
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        if let err = VexioBridgeError.from(status: status, context: "apply_border_and_title(\(styleSlug))") {
+            throw err
+        }
+        return outBgPid
     }
 
     func importStencilBytes(fileName: String, bytes: Data) throws -> String {
@@ -4479,6 +4719,89 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
                 let scale = NSScreen.main?.backingScaleFactor ?? 2.0
                 beginInlineEditing(shapeId: sid, backingScale: scale)
             }
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    public func applyOrInsertHeading(
+        _ preset: VexioTextHeadingPreset,
+        forceInsert: Bool = false,
+        customText: String? = nil,
+        undoManager: UndoManager?
+    ) {
+        let targets = selectedShapeIds.isEmpty
+            ? (selectedShapeId != 0 ? [selectedShapeId] : [])
+            : selectedShapeIds
+
+        do {
+            if !forceInsert && !targets.isEmpty {
+                let count = try core.applyHeadingPreset(
+                    pageId: activePageId,
+                    shapeIds: targets,
+                    presetSlug: preset.rawValue
+                )
+                if count > 0 {
+                    registerJournalUndoStep(actionName: "Apply \(preset.shortChipLabel) Style", undoManager: undoManager)
+                    reloadSelectedShapeSheetCells()
+                    syncSelectedShapeMetadataFromCore()
+                    core.renderViewportFrame()
+                    statusMessage = "Applied \(preset.displayName) to \(count) shape(s)"
+                    return
+                }
+            }
+
+            let sid = try core.insertHeading(
+                pageId: activePageId,
+                presetSlug: preset.rawValue,
+                customText: customText,
+                xIn: 0.0,
+                yIn: 0.0
+            )
+            activeTool = .pointer
+            if sid != 0 {
+                selectedShapeId = sid
+                selectedShapeIds = [sid]
+                registerJournalUndoStep(actionName: "Insert \(preset.shortChipLabel)", undoManager: undoManager)
+                reloadSelectedShapeSheetCells()
+                syncSelectedShapeMetadataFromCore()
+                core.renderViewportFrame()
+                let scale = NSScreen.main?.backingScaleFactor ?? 2.0
+                beginInlineEditing(shapeId: sid, backingScale: scale)
+                statusMessage = "Inserted \(preset.displayName)"
+            }
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    public func applyBordersAndTitles(
+        style: VexioBorderTitleStyle,
+        title: String = "",
+        subtitle: String = "",
+        author: String = "",
+        dateOrRev: String = "",
+        undoManager: UndoManager?
+    ) {
+        let resolvedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? documentTitle
+            : title.trimmingCharacters(in: .whitespacesAndNewlines)
+        do {
+            _ = try core.applyBorderAndTitle(
+                pageId: activePageId,
+                styleSlug: style.rawValue,
+                title: resolvedTitle,
+                subtitle: subtitle,
+                author: author,
+                dateOrRev: dateOrRev
+            )
+            registerJournalUndoStep(actionName: "Borders & Titles", undoManager: undoManager)
+            syncSelectedShapeMetadataFromCore()
+            core.setViewportPage(pageId: activePageId)
+            core.renderViewportFrame()
+            statusMessage = style == .none
+                ? "Removed page border & title"
+                : "Applied \(style.displayName)"
         } catch {
             statusMessage = error.localizedDescription
         }

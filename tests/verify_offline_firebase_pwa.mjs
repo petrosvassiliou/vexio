@@ -105,6 +105,7 @@ async function main() {
     'cloud_architecture_aws_gcp_azure.vssx',
     'arrows_block_arrows.vssx',
     'callouts_notes_containers.vssx',
+    'titles_headings_banners.vssx',
     'cross_functional_swimlanes.vssx',
     'bpmn_2_0.vssx',
     'uml_2_5.vssx',
@@ -129,7 +130,7 @@ async function main() {
   ]) {
     assert(swText.includes(`/stencils/${stFile}`), `sw.js missing precached stencil ${stFile}`);
   }
-  console.log(`  ✓ ChromeOS WCO, File Handlers, ${jsAssets.length} code-split chunks (<500 KB each), and 32 .vssx Stencil Packs verified.`);
+  console.log(`  ✓ ChromeOS WCO, File Handlers, ${jsAssets.length} code-split chunks (<500 KB each), and 33 .vssx Stencil Packs verified.`);
 
   console.log('=== [4/6] Verifying 100% Unauthenticated Offline Rust WASM SIMD Engine & Core Tools ===');
   const distWasmJs = pathToFileURL(resolve(DIST_DIR, 'wasm/vexio_core.js')).href;
@@ -140,13 +141,13 @@ async function main() {
   const session = new wasmMod.WasmVexioSession('Offline ChromeOS Test');
   assert.equal(manifest.theme_color, '#f8fafc', 'ChromeOS PWA manifest must default to Light Mode');
   const packOrder = JSON.parse(session.list_builtin_pack_order_json());
-  assert.equal(packOrder.length, 32, 'WASM session must expose canonical order for all 32 stencil packs');
+  assert.equal(packOrder.length, 33, 'WASM session must expose canonical order for all 33 stencil packs');
   const stencilMap = JSON.parse(session.list_builtin_stencils_json());
-  assert.equal(Object.keys(stencilMap).length, 32, 'WASM session must expose all 32 stencil packs');
+  assert.equal(Object.keys(stencilMap).length, 33, 'WASM session must expose all 33 stencil packs');
   const stencilPreviews = JSON.parse(session.list_builtin_stencil_previews_json());
-  assert.equal(Object.keys(stencilPreviews).length, 32, 'WASM session must generate SVG previews for all 32 packs');
+  assert.equal(Object.keys(stencilPreviews).length, 33, 'WASM session must generate SVG previews for all 33 packs');
   const totalPreviews = Object.values(stencilPreviews).reduce((acc, arr) => acc + arr.length, 0);
-  assert(totalPreviews >= 700, `Expected >= 700 high-definition vector stencil previews, got ${totalPreviews}`);
+  assert(totalPreviews >= 750, `Expected >= 750 high-definition vector stencil previews, got ${totalPreviews}`);
   for (const [pk, items] of Object.entries(stencilPreviews)) {
     assert(items.length >= 18, `Expected >= 18 stencils in pack ${pk}, got ${items.length}`);
     for (const it of items) {

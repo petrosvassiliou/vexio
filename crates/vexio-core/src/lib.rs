@@ -358,9 +358,9 @@ mod tests {
             build_org_chart_from_csv, build_project_timeline, instantiate_starter_template,
         };
 
-        // 1. Verify all 32 built-in stencil packs (725+ masters across Visio Pro & Awesome-Visio domains) round-trip cleanly
+        // 1. Verify all 33 built-in stencil packs (750+ masters across Visio Pro & Awesome-Visio domains) round-trip cleanly
         let packs = build_all_builtin_stencils();
-        assert_eq!(packs.len(), 32, "Expected 32 built-in domain stencil packs");
+        assert_eq!(packs.len(), 33, "Expected 33 built-in domain stencil packs");
         for pack in &packs {
             assert!(!pack.masters.is_empty(), "Pack {} must have masters", pack.title);
             let mut sess = DocumentSession::new_blank(&pack.title);
@@ -549,7 +549,7 @@ mod tests {
     #[test]
     fn all_builtin_stencils_resize_freely_and_vssx_import_roundtrips() {
         let packs = crate::domains::build_all_builtin_stencils();
-        assert_eq!(packs.len(), 32);
+        assert_eq!(packs.len(), 33);
         let mut total_tested = 0usize;
         for pack in &packs {
             let mut sess = DocumentSession::new_blank(&pack.title);

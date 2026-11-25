@@ -514,6 +514,386 @@ pub fn apply_iso_title_block_background(
     Some(bg_id)
 }
 
+///Applies or removes a Microsoft Visio `Design -> Borders & Titles` style on `target_page_id`.
+///
+/// Supported `style_slug` values:
+/// - `"none"` / `"remove"` / `"clear"` — detaches and cleans up any managed border/title background page
+/// - `"modern_banner"` — full-width modern header band with left bold Title, right Subtitle/Author/Date & cobalt underline
+/// - `"executive_underline"` — frameless executive Title + Subtitle + full-width horizontal accent divider rule
+/// - `"classic_frame"` — outer margin sheet frame + top-left shaded header box + bottom-right metadata stamp
+/// - `"pill_banner"` — rounded capsule header banner centered along the top margin
+/// - `"iso_engineering"` / `"iso"` — full ISO 7200 / ANSI Y14.1 double border + bottom-right engineering block
+pub fn apply_border_and_title_style(
+    doc: &mut VisioDocument,
+    target_page_id: u32,
+    style_slug: &str,
+    title_text: &str,
+    subtitle_text: &str,
+    author: &str,
+    date_or_rev: &str,
+) -> Option<u32> {
+    let norm = style_slug.trim().to_ascii_lowercase();
+    let (w_in, h_in, target_page_name, old_back_id) = {
+        let page = doc.page(target_page_id)?;
+        let w = page
+            .page_sheet
+            .get_f64("PageWidth")
+            .unwrap_or(11.6929)
+            .max(3.0);
+        let h = page
+            .page_sheet
+            .get_f64("PageHeight")
+            .unwrap_or(8.2677)
+            .max(3.0);
+        (w, h, page.name.clone(), page.back_page_id)
+    };
+
+    if matches!(norm.as_str(), "" | "none" | "remove" | "clear") {
+        if let Some(target_page) = doc.page_mut(target_page_id) {
+            target_page.back_page_id = None;
+        }
+        if let Some(bg_id) = old_back_id {
+            let still_used = doc
+                .pages
+                .iter()
+                .any(|p| p.id != target_page_id && p.back_page_id == Some(bg_id));
+            let is_managed_bg = doc.page(bg_id).is_some_and(|p| {
+                p.is_background
+                    && (p.name.eq_ignore_ascii_case("ISO Title Block")
+                        || p.name.eq_ignore_ascii_case("Borders & Titles"))
+            });
+            if !still_used && is_managed_bg {
+                doc.pages.retain(|p| p.id != bg_id);
+            }
+        }
+        doc.header_footer.header_left.clear();
+        doc.header_footer.header_center.clear();
+        doc.header_footer.header_right.clear();
+        ReactiveEngine::recalculate_document(doc);
+        return Some(0);
+    }
+
+    let resolved_title = if !title_text.trim().is_empty() {
+        title_text.trim().to_string()
+    } else if !doc.properties.title.trim().is_empty() {
+        doc.properties.title.clone()
+    } else {
+        target_page_name.clone()
+    };
+    let resolved_subtitle = subtitle_text.trim();
+    let resolved_author = author.trim();
+    let resolved_date = date_or_rev.trim();
+
+    if matches!(norm.as_str(), "iso" | "iso_engineering" | "engineering") {
+        if !title_text.trim().is_empty() {
+            doc.properties.title = resolved_title;
+        }
+        let proj = if resolved_subtitle.is_empty() {
+            "VEX-001"
+        } else {
+            resolved_subtitle
+        };
+        let auth = if resolved_author.is_empty() {
+            "Engineering"
+        } else {
+            resolved_author
+        };
+        let rev = if resolved_date.is_empty() {
+            "A.1"
+        } else {
+            resolved_date
+        };
+        return apply_iso_title_block_background(doc, target_page_id, proj, auth, rev);
+    }
+
+    let bg_id = if let Some(existing_bg) = doc
+        .pages
+        .iter()
+        .find(|p| p.is_background && p.name.eq_ignore_ascii_case("Borders & Titles"))
+    {
+        existing_bg.id
+    } else {
+        let next_id = doc.pages.iter().map(|p| p.id).max().unwrap_or(0) + 1;
+        let mut bg = VisioPage::new(next_id, "Borders & Titles", w_in, h_in);
+        bg.is_background = true;
+        doc.pages.push(bg);
+        next_id
+    };
+
+    let meta_parts: Vec<&str> = [resolved_subtitle, resolved_author, resolved_date]
+        .into_iter()
+        .filter(|s| !s.is_empty())
+        .collect();
+    let meta_joined = meta_parts.join("  •  ");
+
+    if let Some(bg_page) = doc.page_mut(bg_id) {
+        bg_page.is_background = true;
+        bg_page.page_sheet.set_formula(
+            "PageWidth",
+            format!("{} in", format_clean_f64(w_in)),
+            Some(Unit::Inch),
+        );
+        bg_page.page_sheet.set_formula(
+            "PageHeight",
+            format!("{} in", format_clean_f64(h_in)),
+            Some(Unit::Inch),
+        );
+        bg_page.shapes.clear();
+
+        match norm.as_str() {
+            "executive_underline" => {
+                let margin = 0.48;
+                let usable_w = (w_in - margin * 2.0).max(2.0);
+                let title_y = h_in - 0.56;
+
+                let mut title_sh = VisioShape::new_rect(
+                    1,
+                    "ExecutiveTitle",
+                    margin + usable_w * 0.34,
+                    title_y,
+                    usable_w * 0.68,
+                    0.46,
+                );
+                if let Some(g) = title_sh.sheet.geometries.first_mut() {
+                    g.no_fill = "TRUE".into();
+                }
+                title_sh.sheet.sync_all_sections_to_cells();
+                title_sh.text = resolved_title.clone();
+                title_sh.sheet.set_formula("LinePattern", "0", None);
+                title_sh.sheet.set_formula("Char.Size", "22 pt", Some(Unit::Point));
+                title_sh.sheet.set_formula("Char.Style", "1", None);
+                title_sh.sheet.set_formula("Char.Color", "=RGB(15,23,42)", Some(Unit::Color));
+                title_sh.sheet.set_formula("Para.HorzAlign", "0", None);
+                bg_page.shapes.push(title_sh);
+
+                if !meta_joined.is_empty() {
+                    let mut sub_sh = VisioShape::new_rect(
+                        2,
+                        "ExecutiveSubtitle",
+                        w_in - margin - usable_w * 0.22,
+                        title_y - 0.02,
+                        usable_w * 0.44,
+                        0.36,
+                    );
+                    if let Some(g) = sub_sh.sheet.geometries.first_mut() {
+                        g.no_fill = "TRUE".into();
+                    }
+                    sub_sh.sheet.sync_all_sections_to_cells();
+                    sub_sh.text = meta_joined.clone();
+                    sub_sh.sheet.set_formula("LinePattern", "0", None);
+                    sub_sh.sheet.set_formula("Char.Size", "10.5 pt", Some(Unit::Point));
+                    sub_sh.sheet.set_formula("Char.Color", "=RGB(71,85,105)", Some(Unit::Color));
+                    sub_sh.sheet.set_formula("Para.HorzAlign", "2", None);
+                    bg_page.shapes.push(sub_sh);
+                }
+
+                let mut rule = VisioShape::new_rect(
+                    3,
+                    "ExecutiveAccentRule",
+                    w_in * 0.5,
+                    h_in - 0.86,
+                    usable_w,
+                    0.04,
+                );
+                let mut rule_g = GeometrySection::new(1);
+                rule_g.no_fill = "TRUE".into();
+                rule_g.rows = vec![
+                    GeometryRow::move_to(1, "0 in", "=Height*0.5"),
+                    GeometryRow::line_to(2, "=Width", "=Height*0.5"),
+                ];
+                rule.sheet.geometries = vec![rule_g];
+                rule.sheet.sync_all_sections_to_cells();
+                rule.sheet.set_formula("FillPattern", "0", None);
+                rule.sheet.set_formula("LineWeight", "2 pt", Some(Unit::Point));
+                rule.sheet.set_formula("LineColor", "=RGB(37,99,235)", Some(Unit::Color));
+                bg_page.shapes.push(rule);
+            }
+            "classic_frame" => {
+                let margin = 0.40;
+                let frame_w = (w_in - margin * 2.0).max(2.0);
+                let frame_h = (h_in - margin * 2.0).max(2.0);
+                let mut frame = VisioShape::new_rect(
+                    1,
+                    "ClassicBorderFrame",
+                    w_in * 0.5,
+                    h_in * 0.5,
+                    frame_w,
+                    frame_h,
+                );
+                if let Some(g) = frame.sheet.geometries.first_mut() {
+                    g.no_fill = "TRUE".into();
+                }
+                frame.sheet.sync_all_sections_to_cells();
+                frame.sheet.set_formula("LineWeight", "1.25 pt", Some(Unit::Point));
+                frame.sheet.set_formula("LineColor", "=RGB(51,65,85)", Some(Unit::Color));
+                bg_page.shapes.push(frame);
+
+                let hdr_w = (frame_w * 0.48).clamp(2.8, 5.2);
+                let hdr_h = 0.54;
+                let mut hdr = VisioShape::new_rect(
+                    2,
+                    "ClassicTitleBox",
+                    margin + hdr_w * 0.5,
+                    h_in - margin - hdr_h * 0.5,
+                    hdr_w,
+                    hdr_h,
+                );
+                hdr.text = if resolved_subtitle.is_empty() {
+                    resolved_title.clone()
+                } else {
+                    format!("{resolved_title}\n{resolved_subtitle}")
+                };
+                hdr.sheet.set_formula("FillForegnd", "=RGB(241,245,249)", Some(Unit::Color));
+                hdr.sheet.set_formula("LineColor", "=RGB(51,65,85)", Some(Unit::Color));
+                hdr.sheet.set_formula("LineWeight", "1 pt", Some(Unit::Point));
+                hdr.sheet.set_formula("Char.Size", "15 pt", Some(Unit::Point));
+                hdr.sheet.set_formula("Char.Style", "1", None);
+                hdr.sheet.set_formula("Char.Color", "=RGB(15,23,42)", Some(Unit::Color));
+                hdr.sheet.set_formula("Para.HorzAlign", "0", None);
+                bg_page.shapes.push(hdr);
+
+                let stamp_label = [resolved_author, resolved_date]
+                    .into_iter()
+                    .filter(|s| !s.is_empty())
+                    .collect::<Vec<_>>()
+                    .join("  |  ");
+                if !stamp_label.is_empty() {
+                    let st_w = 2.6_f64.min(frame_w * 0.45);
+                    let st_h = 0.34;
+                    let mut stamp = VisioShape::new_rect(
+                        3,
+                        "ClassicFooterStamp",
+                        w_in - margin - st_w * 0.5,
+                        margin + st_h * 0.5,
+                        st_w,
+                        st_h,
+                    );
+                    stamp.text = stamp_label;
+                    stamp.sheet.set_formula("FillForegnd", "=RGB(248,250,252)", Some(Unit::Color));
+                    stamp.sheet.set_formula("LineColor", "=RGB(100,116,139)", Some(Unit::Color));
+                    stamp.sheet.set_formula("Char.Size", "9.5 pt", Some(Unit::Point));
+                    stamp.sheet.set_formula("Char.Color", "=RGB(71,85,105)", Some(Unit::Color));
+                    bg_page.shapes.push(stamp);
+                }
+            }
+            "pill_banner" => {
+                let banner_w = (w_in - 1.1).max(2.4);
+                let banner_h = 0.62;
+                let mut pill = VisioShape::new_rect(
+                    1,
+                    "PillTitleBanner",
+                    w_in * 0.5,
+                    h_in - 0.62,
+                    banner_w,
+                    banner_h,
+                );
+                pill.text = if meta_joined.is_empty() {
+                    resolved_title.clone()
+                } else {
+                    format!("{resolved_title}   —   {meta_joined}")
+                };
+                pill.sheet.set_formula("Rounding", "0.28 in", Some(Unit::Inch));
+                pill.sheet.set_formula("FillForegnd", "=RGB(239,246,255)", Some(Unit::Color));
+                pill.sheet.set_formula("LineColor", "=RGB(37,99,235)", Some(Unit::Color));
+                pill.sheet.set_formula("LineWeight", "1.5 pt", Some(Unit::Point));
+                pill.sheet.set_formula("Char.Size", "17 pt", Some(Unit::Point));
+                pill.sheet.set_formula("Char.Style", "1", None);
+                pill.sheet.set_formula("Char.Color", "=RGB(30,58,138)", Some(Unit::Color));
+                pill.sheet.set_formula("Para.HorzAlign", "1", None);
+                bg_page.shapes.push(pill);
+            }
+            _ => {
+                // Default: "modern_banner" — Visio Modern Full-Width Header Bar
+                let margin = 0.36;
+                let bar_w = (w_in - margin * 2.0).max(2.4);
+                let bar_h = 0.66;
+                let bar_cy = h_in - margin - bar_h * 0.5;
+
+                let mut bar = VisioShape::new_rect(1, "ModernHeaderBanner", w_in * 0.5, bar_cy, bar_w, bar_h);
+                bar.sheet.set_formula("Rounding", "0.08 in", Some(Unit::Inch));
+                bar.sheet.set_formula("FillForegnd", "=RGB(15,23,42)", Some(Unit::Color));
+                bar.sheet.set_formula("LineColor", "=RGB(30,41,59)", Some(Unit::Color));
+                bar.sheet.set_formula("LineWeight", "1 pt", Some(Unit::Point));
+                bg_page.shapes.push(bar);
+
+                let mut title_sh = VisioShape::new_rect(
+                    2,
+                    "ModernHeaderTitle",
+                    margin + 0.18 + (bar_w * 0.56) * 0.5,
+                    bar_cy,
+                    bar_w * 0.56,
+                    bar_h * 0.82,
+                );
+                if let Some(g) = title_sh.sheet.geometries.first_mut() {
+                    g.no_fill = "TRUE".into();
+                }
+                title_sh.sheet.sync_all_sections_to_cells();
+                title_sh.text = resolved_title.clone();
+                title_sh.sheet.set_formula("LinePattern", "0", None);
+                title_sh.sheet.set_formula("Char.Size", "19 pt", Some(Unit::Point));
+                title_sh.sheet.set_formula("Char.Style", "1", None);
+                title_sh.sheet.set_formula("Char.Color", "=RGB(255,255,255)", Some(Unit::Color));
+                title_sh.sheet.set_formula("Para.HorzAlign", "0", None);
+                bg_page.shapes.push(title_sh);
+
+                if !meta_joined.is_empty() {
+                    let mut meta_sh = VisioShape::new_rect(
+                        3,
+                        "ModernHeaderMeta",
+                        w_in - margin - 0.18 - (bar_w * 0.38) * 0.5,
+                        bar_cy,
+                        bar_w * 0.38,
+                        bar_h * 0.78,
+                    );
+                    if let Some(g) = meta_sh.sheet.geometries.first_mut() {
+                        g.no_fill = "TRUE".into();
+                    }
+                    meta_sh.sheet.sync_all_sections_to_cells();
+                    meta_sh.text = meta_joined.clone();
+                    meta_sh.sheet.set_formula("LinePattern", "0", None);
+                    meta_sh.sheet.set_formula("Char.Size", "10.5 pt", Some(Unit::Point));
+                    meta_sh.sheet.set_formula("Char.Color", "=RGB(186,230,253)", Some(Unit::Color));
+                    meta_sh.sheet.set_formula("Para.HorzAlign", "2", None);
+                    bg_page.shapes.push(meta_sh);
+                }
+
+                let mut accent_line = VisioShape::new_rect(
+                    4,
+                    "ModernHeaderAccentLine",
+                    w_in * 0.5,
+                    bar_cy - bar_h * 0.5 - 0.04,
+                    bar_w,
+                    0.04,
+                );
+                let mut accent_g = GeometrySection::new(1);
+                accent_g.no_fill = "TRUE".into();
+                accent_g.rows = vec![
+                    GeometryRow::move_to(1, "0 in", "=Height*0.5"),
+                    GeometryRow::line_to(2, "=Width", "=Height*0.5"),
+                ];
+                accent_line.sheet.geometries = vec![accent_g];
+                accent_line.sheet.sync_all_sections_to_cells();
+                accent_line.sheet.set_formula("FillPattern", "0", None);
+                accent_line.sheet.set_formula("LineWeight", "2.25 pt", Some(Unit::Point));
+                accent_line.sheet.set_formula("LineColor", "=RGB(37,99,235)", Some(Unit::Color));
+                bg_page.shapes.push(accent_line);
+            }
+        }
+    }
+
+    if let Some(target_page) = doc.page_mut(target_page_id) {
+        target_page.back_page_id = Some(bg_id);
+    }
+    doc.header_footer.header_left = resolved_subtitle.to_string();
+    doc.header_footer.header_center = resolved_title;
+    doc.header_footer.header_right = resolved_date.to_string();
+    doc.header_footer.footer_left = resolved_author.to_string();
+    doc.header_footer.footer_right = format!("Sheet: {target_page_name}");
+
+    ReactiveEngine::recalculate_document(doc);
+    Some(bg_id)
+}
+
 // ============================================================================
 // 3. Presentation `SlideSnippetFrame` + OpenXML `.pptx` & `.docx` Exporters
 // ============================================================================

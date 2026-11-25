@@ -2574,4 +2574,49 @@ impl WasmVexioSession {
         self.inner
             .set_page_background(page_id, is_background, back_page_id, page_color_formula)
     }
+
+    pub fn apply_heading_preset(
+        &mut self,
+        page_id: u32,
+        shape_ids: &[u32],
+        preset_slug: &str,
+    ) -> u32 {
+        let ids: Vec<u64> = shape_ids.iter().map(|&id| id as u64).collect();
+        self.inner
+            .apply_text_heading_preset(page_id, &ids, preset_slug)
+            .unwrap_or(0) as u32
+    }
+
+    pub fn insert_heading(
+        &mut self,
+        page_id: u32,
+        preset_slug: &str,
+        custom_text: &str,
+        x_in: f64,
+        y_in: f64,
+    ) -> Result<u32, JsValue> {
+        let text_opt = if custom_text.trim().is_empty() {
+            None
+        } else {
+            Some(custom_text)
+        };
+        self.inner
+            .insert_text_heading(page_id, preset_slug, text_opt, x_in, y_in)
+            .map(|id| id as u32)
+            .map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
+    pub fn apply_border_and_title(
+        &mut self,
+        page_id: u32,
+        style_slug: &str,
+        title: &str,
+        subtitle: &str,
+        author: &str,
+        date_or_rev: &str,
+    ) -> u32 {
+        self.inner
+            .apply_border_and_title(page_id, style_slug, title, subtitle, author, date_or_rev)
+            .unwrap_or(0)
+    }
 }

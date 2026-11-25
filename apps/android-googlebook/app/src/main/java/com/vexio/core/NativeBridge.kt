@@ -682,6 +682,35 @@ object NativeBridge {
         backPageId: Int,
         pageColorFormula: String
     ): Boolean
+
+    @JvmStatic
+    external fun nativeApplyHeadingPreset(
+        docPtr: Long,
+        pageId: Int,
+        shapeIds: LongArray,
+        presetSlug: String
+    ): Int
+
+    @JvmStatic
+    external fun nativeInsertHeading(
+        docPtr: Long,
+        pageId: Int,
+        presetSlug: String,
+        customText: String,
+        xIn: Double,
+        yIn: Double
+    ): Long
+
+    @JvmStatic
+    external fun nativeApplyBorderAndTitle(
+        docPtr: Long,
+        pageId: Int,
+        styleSlug: String,
+        title: String,
+        subtitle: String,
+        author: String,
+        dateOrRev: String
+    ): Int
 }
 
 /**
@@ -1672,7 +1701,7 @@ data class WorkstationUiState(
     val inlineTextEditor: InlineCanvasEditorModel? = null,
     val smartGuidesEnabled: Boolean = true,
     val autoCheckUpdates: Boolean = true,
-    val updateStatusMessage: String = "Vexio v0.4.1-alpha • Automatic update check enabled",
+    val updateStatusMessage: String = "Vexio v0.4.2-alpha • Automatic update check enabled",
     val availableUpdateTag: String? = null,
     val availableUpdateUrl: String? = null,
     val showUpdateDialog: Boolean = false,
@@ -1755,6 +1784,7 @@ object BuiltInStencilCatalog {
         "Cloud Architecture (AWS / GCP / Azure)",
         "Arrows & Block Arrows",
         "Callouts, Notes & Containers",
+        "Titles, Headings & Banners",
         "Cross-Functional Swimlanes",
         "BPMN 2.0",
         "UML 2.5",
@@ -1808,6 +1838,7 @@ object BuiltInStencilCatalog {
         StencilMasterItem("Cloud Architecture (AWS / GCP / Azure)::Compute VM", "Compute VM", "Cloud Architecture (AWS / GCP / Azure)", "1.60 in", "1.00 in", "RGB(239,246,255)", "RoundedRect"),
         StencilMasterItem("Arrows & Block Arrows::Right Block Arrow", "Right Block Arrow", "Arrows & Block Arrows", "1.70 in", "0.85 in", "RGB(219,234,254)", "Arrow"),
         StencilMasterItem("Callouts, Notes & Containers::Callout Bubble", "Callout Bubble", "Callouts, Notes & Containers", "1.70 in", "1.10 in", "RGB(254,249,195)", "Callout"),
+        StencilMasterItem("Titles, Headings & Banners::Diagram Title", "Diagram Title", "Titles, Headings & Banners", "3.80 in", "0.62 in", "RGB(248,250,252)", "Rect"),
         StencilMasterItem("Cross-Functional Swimlanes::Horizontal Swimlane", "Horizontal Swimlane", "Cross-Functional Swimlanes", "8.50 in", "2.20 in", "RGB(248,250,252)", "Swimlane"),
         StencilMasterItem("BPMN 2.0::User Task", "User Task", "BPMN 2.0", "1.75 in", "1.00 in", "RGB(232,240,254)", "RoundedRect"),
         StencilMasterItem("BPMN 2.0::Exclusive Gateway", "Exclusive Gateway", "BPMN 2.0", "0.75 in", "0.75 in", "RGB(254,247,224)", "Diamond"),
@@ -4961,6 +4992,117 @@ class VexioSessionViewModel(
     }
 
     @Synchronized
+    fun applyOrInsertHeading(presetSlug: String, forceInsert: Boolean = false): Long {
+        val cur = _uiState.value
+        val targets = cur.selectedShapeIds.filter { it > 0L }.ifEmpty {
+            if (cur.selectedShapeId > 0L) listOf(cur.selectedShapeId) else emptyList()
+        }
+        val sizePt = when (presetSlug) {
+            "title" -> 24
+            "subtitle" -> 14
+            "h1" -> 18
+            "h2" -> 14
+            "h3" -> 12
+            "section_banner", "callout_title" -> 13
+            "caption" -> 10
+            else -> 11
+        }
+        val isBold = presetSlug in setOf("title", "h1", "h2", "h3", "section_banner", "callout_title")
+
+        if (!forceInsert && targets.isNotEmpty()) {
+            if (NativeBridge.isNativeAvailable && docPtr != 0L) {
+                NativeBridge.nativeApplyHeadingPreset(
+                    docPtr = docPtr,
+                    pageId = resolveNativePageId(cur.activePageId),
+                    shapeIds = targets.toLongArray(),
+                    presetSlug = presetSlug
+                )
+                refreshSelectedShapeFormulas()
+                presentViewportOrFallback()
+            }
+            _uiState.update {
+                it.copy(
+                    textFontSizePt = sizePt,
+                    textBold = isBold,
+                    textItalic = presetSlug == "caption",
+                    isDirty = true,
+                    canUndo = true,
+                    statusBanner = "Applied Visio heading style ($presetSlug)"
+                )
+            }
+            return targets.first()
+        }
+
+        val insertedId = if (NativeBridge.isNativeAvailable && docPtr != 0L) {
+            val id = NativeBridge.nativeInsertHeading(
+                docPtr = docPtr,
+                pageId = resolveNativePageId(cur.activePageId),
+                presetSlug = presetSlug,
+                customText = "",
+                xIn = 0.0,
+                yIn = 0.0
+            )
+            if (id > 0L && viewportPtr != 0L) {
+                NativeBridge.nativeSetSelectionIds(viewportPtr, docPtr, longArrayOf(id))
+            }
+            refreshSelectedShapeFormulas()
+            presentViewportOrFallback()
+            id
+        } else {
+            nextSyntheticShapeId++
+        }
+
+        if (insertedId > 0L) {
+            _uiState.update {
+                it.copy(
+                    activeTool = VexioTool.POINTER,
+                    selectedShapeId = insertedId,
+                    selectedShapeIds = listOf(insertedId),
+                    textFontSizePt = sizePt,
+                    textBold = isBold,
+                    isDirty = true,
+                    canUndo = true,
+                    statusBanner = "Inserted Visio heading ($presetSlug)"
+                )
+            }
+            beginInlineTextEdit(insertedId, isNewTextShape = false)
+        }
+        return insertedId
+    }
+
+    @Synchronized
+    fun applyBorderAndTitle(styleSlug: String) {
+        val cur = _uiState.value
+        val docTitle = cur.documentTitle.substringBeforeLast(".")
+        if (NativeBridge.isNativeAvailable && docPtr != 0L) {
+            NativeBridge.nativeApplyBorderAndTitle(
+                docPtr = docPtr,
+                pageId = resolveNativePageId(cur.activePageId),
+                styleSlug = styleSlug,
+                title = docTitle,
+                subtitle = "",
+                author = "Vexio Workstation",
+                dateOrRev = ""
+            )
+            if (viewportPtr != 0L) {
+                NativeBridge.nativeSetViewportPage(viewportPtr, docPtr, resolveNativePageId(cur.activePageId))
+            }
+            presentViewportOrFallback()
+        }
+        _uiState.update {
+            it.copy(
+                isDirty = true,
+                canUndo = true,
+                statusBanner = if (styleSlug == "none") {
+                    "Removed page border & title"
+                } else {
+                    "Applied Borders & Titles ($styleSlug)"
+                }
+            )
+        }
+    }
+
+    @Synchronized
     fun onCanvasDoubleTap(xPx: Float, yPx: Float) {
         var hitShapeId = 0L
         if (NativeBridge.isNativeAvailable && viewportPtr != 0L && docPtr != 0L) {
@@ -5154,7 +5296,7 @@ class VexioSessionViewModel(
                     instanceFollowRedirects = true
                     connectTimeout = 20_000
                     readTimeout = 45_000
-                    setRequestProperty("User-Agent", "Vexio-Android-Workstation/0.4.1-alpha")
+                    setRequestProperty("User-Agent", "Vexio-Android-Workstation/0.4.2-alpha")
                 }
                 try {
                     val code = conn.responseCode
@@ -6111,7 +6253,7 @@ class VexioSessionViewModel(
             }
         }
         viewModelScope.launch(ioDispatcher) {
-            val currentVersion = "0.4.1-alpha"
+            val currentVersion = "0.4.2-alpha"
             var latestTag: String? = null
             var downloadUrl = "https://github.com/petrosvassiliou/vexio/releases"
             var ok = false
@@ -6122,7 +6264,7 @@ class VexioSessionViewModel(
                     requestMethod = "GET"
                     connectTimeout = 4500
                     readTimeout = 4500
-                    setRequestProperty("User-Agent", "Vexio-Android-Googlebook/0.4.1-alpha")
+                    setRequestProperty("User-Agent", "Vexio-Android-Googlebook/0.4.2-alpha")
                     setRequestProperty("Accept", "application/vnd.github+json")
                 }
                 if (conn.responseCode in 200..299) {

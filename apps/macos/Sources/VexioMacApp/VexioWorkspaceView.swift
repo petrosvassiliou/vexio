@@ -111,6 +111,7 @@ public struct VexioWorkspaceView: View {
     @State private var renamePageDraft: String = ""
     @State private var isStencilCatalogPresented: Bool = false
     @State private var pageSetupSheetPageId: UInt32? = nil
+    @State private var isBordersAndTitlesSheetPresented: Bool = false
 
     // ShapeSheet Editor State
     @State private var selectedShapeSheetSection: ShapeSheetSectionCategory?
@@ -278,6 +279,9 @@ public struct VexioWorkspaceView: View {
         .onReceive(NotificationCenter.default.publisher(for: .vexioOpenStencilCatalogSheet)) { _ in
             isStencilCatalogPresented = true
         }
+        .onReceive(NotificationCenter.default.publisher(for: .vexioOpenBordersAndTitlesSheet)) { _ in
+            isBordersAndTitlesSheetPresented = true
+        }
         .onReceive(NotificationCenter.default.publisher(for: .vexioOpenPageSetupSheet)) { note in
             if let pid = note.object as? UInt32 {
                 pageSetupSheetPageId = pid
@@ -323,6 +327,11 @@ public struct VexioWorkspaceView: View {
         .sheet(isPresented: $isStencilCatalogPresented) {
             VexioOfficialStencilCatalogSheet(session: session) {
                 isStencilCatalogPresented = false
+            }
+        }
+        .sheet(isPresented: $isBordersAndTitlesSheetPresented) {
+            VexioBordersAndTitlesSheet(session: session) {
+                isBordersAndTitlesSheetPresented = false
             }
         }
         .sheet(
@@ -928,6 +937,7 @@ public extension Notification.Name {
     static let vexioImportStencilSheet = Notification.Name("app.vexio.importStencilSheet")
     static let vexioOpenStencilCatalogSheet = Notification.Name("app.vexio.openStencilCatalogSheet")
     static let vexioOpenPageSetupSheet = Notification.Name("app.vexio.openPageSetupSheet")
+    static let vexioOpenBordersAndTitlesSheet = Notification.Name("app.vexio.openBordersAndTitlesSheet")
     static let vexioExportFormatRequested = Notification.Name("app.vexio.exportFormatRequested")
     static let vexioOpenExternalURL = Notification.Name("app.vexio.openExternalURL")
 }
@@ -1823,6 +1833,33 @@ private struct VexioInspectorSidebar: View {
 
                 Divider()
 
+                HStack(spacing: 6) {
+                    Button {
+                        session.applyOrInsertHeading(.title, forceInsert: true, undoManager: undoManager)
+                    } label: {
+                        Label("Add Title", systemImage: "textformat.size.larger")
+                            .font(.system(size: 11, weight: .medium))
+                            .lineLimit(1)
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .help("Insert a Visio Diagram Title at the top of the page")
+
+                    Button {
+                        NotificationCenter.default.post(name: .vexioOpenBordersAndTitlesSheet, object: nil)
+                    } label: {
+                        Label(i18n.t("bordersAndTitles"), systemImage: "rectangle.topthird.inset.filled")
+                            .font(.system(size: 11, weight: .medium))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.85)
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .help("Configure Visio Borders & Titles Header / Engineering Block")
+                }
+
                 Toggle("Smart Alignment Guides", isOn: $session.smartGuidesEnabled)
                     .font(.system(size: 11.5))
                     .help("Show dynamic alignment & equal-spacing guides while dragging shapes")
@@ -1838,6 +1875,23 @@ private struct VexioInspectorSidebar: View {
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)
                 .help("Zoom and center active page so the entire diagram fits on screen")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var inspectorHeadingStyleStrip: some View {
+        let quickPresets: [VexioTextHeadingPreset] = [.title, .subtitle, .h1, .h2, .h3, .sectionBanner, .body]
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 4) {
+                ForEach(quickPresets) { preset in
+                    Button(preset.shortChipLabel) {
+                        session.applyOrInsertHeading(preset, forceInsert: false, undoManager: undoManager)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.mini)
+                    .help("Apply \(preset.displayName)")
+                }
             }
         }
     }
@@ -2111,6 +2165,9 @@ private struct VexioInspectorSidebar: View {
             // 1C. TEXT & FONT SECTION
             DisclosureGroup(isExpanded: $isTextExpanded) {
                 VStack(alignment: .leading, spacing: 8) {
+                    inspectorHeadingStyleStrip
+                        .padding(.top, 4)
+
                     HStack(spacing: 6) {
                         Picker("", selection: Binding(
                             get: { session.selectedFontFamily },
@@ -2139,7 +2196,6 @@ private struct VexioInspectorSidebar: View {
                         .controlSize(.small)
                         .help("Font Size (pt)")
                     }
-                    .padding(.top, 4)
 
                     HStack(spacing: 5) {
                         inspectorSmallToggleButton("B", bold: true, active: (session.selectedCharStyle & 1) != 0, tip: "Bold (⌘B)") {
@@ -3862,6 +3918,134 @@ private struct VexioPageSetupSheet: View {
             isBackground: isBackground,
             backPageId: assignedBackPageId,
             pageColorHex: pageColorHex,
+            undoManager: undoManager
+        )
+        onClose()
+    }
+}
+
+// MARK: - Visio "Design -> Borders & Titles" Gallery & Metadata Customization Sheet
+
+private struct VexioBordersAndTitlesSheet: View {
+    @ObservedObject var session: VexioDocumentSession
+    @ObservedObject private var i18n: VexioLocalization = .shared
+    let onClose: () -> Void
+
+    @Environment(\.undoManager) private var undoManager
+
+    @State private var selectedStyle: VexioBorderTitleStyle = .modernBanner
+    @State private var titleDraft: String = ""
+    @State private var subtitleDraft: String = ""
+    @State private var authorDraft: String = ""
+    @State private var dateDraft: String = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                Label(i18n.t("bordersAndTitles"), systemImage: "rectangle.topthird.inset.filled")
+                    .font(.system(size: 16, weight: .semibold))
+                Spacer()
+                Button("Remove Border & Title", role: .destructive) {
+                    session.applyBordersAndTitles(style: .none, undoManager: undoManager)
+                    onClose()
+                }
+                .buttonStyle(.bordered)
+                Button(i18n.t("cancel"), action: onClose)
+                    .keyboardShortcut(.cancelAction)
+                Button("Apply", action: applySelection)
+                    .buttonStyle(.borderedProminent)
+                    .keyboardShortcut(.defaultAction)
+            }
+
+            Divider()
+
+            stylePickerSection
+            metadataFieldsSection
+        }
+        .padding(18)
+        .frame(width: 510)
+        .onAppear {
+            titleDraft = session.documentTitle
+            let formatter = DateFormatter()
+            formatter.dateStyle = .medium
+            dateDraft = formatter.string(from: Date())
+            authorDraft = NSFullUserName()
+        }
+    }
+
+    @ViewBuilder
+    private var stylePickerSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Border & Title Style")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.secondary)
+
+            ForEach(VexioBorderTitleStyle.allCases.filter { $0 != .none }) { style in
+                let active = (selectedStyle == style)
+                Button {
+                    selectedStyle = style
+                } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: active ? "checkmark.circle.fill" : "circle")
+                            .foregroundStyle(active ? Color.accentColor : .secondary)
+                        Text(style.displayName)
+                            .font(.system(size: 12.5, weight: active ? .semibold : .regular))
+                        Spacer()
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 7)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill(active ? Color.accentColor.opacity(0.12) : Color.primary.opacity(0.04))
+                    )
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var metadataFieldsSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Divider()
+            HStack(spacing: 10) {
+                Text("Diagram Title")
+                    .font(.system(size: 12, weight: .medium))
+                    .frame(width: 110, alignment: .leading)
+                TextField("System Architecture", text: $titleDraft)
+                    .textFieldStyle(.roundedBorder)
+            }
+            HStack(spacing: 10) {
+                Text("Subtitle / Code")
+                    .font(.system(size: 12, weight: .medium))
+                    .frame(width: 110, alignment: .leading)
+                TextField("Phase 2 Overview / VEX-001", text: $subtitleDraft)
+                    .textFieldStyle(.roundedBorder)
+            }
+            HStack(spacing: 10) {
+                Text("Author")
+                    .font(.system(size: 12, weight: .medium))
+                    .frame(width: 110, alignment: .leading)
+                TextField("Author", text: $authorDraft)
+                    .textFieldStyle(.roundedBorder)
+            }
+            HStack(spacing: 10) {
+                Text("Date / Revision")
+                    .font(.system(size: 12, weight: .medium))
+                    .frame(width: 110, alignment: .leading)
+                TextField("Rev 1.0", text: $dateDraft)
+                    .textFieldStyle(.roundedBorder)
+            }
+        }
+    }
+
+    private func applySelection() {
+        session.applyBordersAndTitles(
+            style: selectedStyle,
+            title: titleDraft,
+            subtitle: subtitleDraft,
+            author: authorDraft,
+            dateOrRev: dateDraft,
             undoManager: undoManager
         )
         onClose()

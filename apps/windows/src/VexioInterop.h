@@ -914,6 +914,91 @@ public:
         );
     }
 
+    [[nodiscard]] VexioResult<uint32_t> ApplyHeadingPreset(
+        uint32_t pageId,
+        std::span<const uint64_t> shapeIds,
+        std::string_view presetSlugUtf8
+    ) {
+        if (m_ptr == nullptr || presetSlugUtf8.empty()) {
+            return VexioResult<uint32_t>{VEXIO_ERR_INVALID_ARG, std::nullopt};
+        }
+        const std::string preset{presetSlugUtf8};
+        uint32_t outCount = 0;
+        const VexioStatus status = vexio_doc_apply_heading_preset(
+            m_ptr,
+            pageId,
+            shapeIds.empty() ? nullptr : shapeIds.data(),
+            shapeIds.size(),
+            preset.c_str(),
+            &outCount
+        );
+        if (status != VEXIO_OK) {
+            return VexioResult<uint32_t>{status, std::nullopt};
+        }
+        return VexioResult<uint32_t>{VEXIO_OK, outCount};
+    }
+
+    [[nodiscard]] VexioResult<uint64_t> InsertHeading(
+        uint32_t pageId,
+        std::string_view presetSlugUtf8,
+        std::string_view customTextUtf8 = {},
+        double xIn = 0.0,
+        double yIn = 0.0
+    ) {
+        if (m_ptr == nullptr || presetSlugUtf8.empty()) {
+            return VexioResult<uint64_t>{VEXIO_ERR_INVALID_ARG, std::nullopt};
+        }
+        const std::string preset{presetSlugUtf8};
+        const std::string txt{customTextUtf8};
+        uint64_t outSid = 0;
+        const VexioStatus status = vexio_doc_insert_heading(
+            m_ptr,
+            pageId,
+            preset.c_str(),
+            txt.empty() ? nullptr : txt.c_str(),
+            xIn,
+            yIn,
+            &outSid
+        );
+        if (status != VEXIO_OK) {
+            return VexioResult<uint64_t>{status, std::nullopt};
+        }
+        return VexioResult<uint64_t>{VEXIO_OK, outSid};
+    }
+
+    [[nodiscard]] VexioResult<uint32_t> ApplyBorderAndTitle(
+        uint32_t pageId,
+        std::string_view styleSlugUtf8,
+        std::string_view titleUtf8 = {},
+        std::string_view subtitleUtf8 = {},
+        std::string_view authorUtf8 = {},
+        std::string_view dateOrRevUtf8 = {}
+    ) {
+        if (m_ptr == nullptr || styleSlugUtf8.empty()) {
+            return VexioResult<uint32_t>{VEXIO_ERR_INVALID_ARG, std::nullopt};
+        }
+        const std::string style{styleSlugUtf8};
+        const std::string title{titleUtf8};
+        const std::string sub{subtitleUtf8};
+        const std::string author{authorUtf8};
+        const std::string date{dateOrRevUtf8};
+        uint32_t outBgPid = 0;
+        const VexioStatus status = vexio_doc_apply_border_and_title(
+            m_ptr,
+            pageId,
+            style.c_str(),
+            title.c_str(),
+            sub.c_str(),
+            author.c_str(),
+            date.c_str(),
+            &outBgPid
+        );
+        if (status != VEXIO_OK) {
+            return VexioResult<uint32_t>{status, std::nullopt};
+        }
+        return VexioResult<uint32_t>{VEXIO_OK, outBgPid};
+    }
+
     [[nodiscard]] VexioResult<uint32_t> AddLayer(uint32_t pageId, std::string_view layerNameUtf8) {
         if (m_ptr == nullptr) {
             return VexioResult<uint32_t>{VEXIO_ERR_INVALID_ARG, std::nullopt};

@@ -2540,6 +2540,92 @@ void MainWindow::OnPageSetupClick(IInspectable const&, RoutedEventArgs const&) {
     ShowPageSetupDialogAsync();
 }
 
+void MainWindow::OnHeadingPresetMenuClick(IInspectable const& sender, RoutedEventArgs const&) {
+    if (!m_doc) return;
+    auto item = sender.try_as<MenuFlyoutItem>();
+    if (!item || !item.Tag()) return;
+    const std::string preset = vexio::win::ToUtf8(unbox_value<hstring>(item.Tag()));
+    if (preset.empty()) return;
+
+    std::vector<uint64_t> targets = m_selectedShapeIds;
+    if (targets.empty() && m_selectedShapeId != 0) {
+        targets.push_back(m_selectedShapeId);
+    }
+    if (!targets.empty()) {
+        const auto res = m_doc.ApplyHeadingPreset(m_activePageId, targets, preset);
+        if (res.ok() && *res.value > 0) {
+            MarkDocumentDirty(true);
+            PresentViewportFrame();
+            SyncInspectorFromShapeSheet();
+            RefreshShapeSheetSectionRows();
+            return;
+        }
+    }
+
+    const auto inserted = m_doc.InsertHeading(m_activePageId, preset);
+    if (inserted.ok() && *inserted.value != 0) {
+        m_selectedShapeId = *inserted.value;
+        m_selectedShapeIds = {m_selectedShapeId};
+        if (m_viewport) {
+            (void)m_viewport.SetSelection(m_doc, m_selectedShapeIds);
+        }
+        MarkDocumentDirty(true);
+        PresentViewportFrame();
+        SyncInspectorFromShapeSheet();
+        RefreshShapeSheetSectionRows();
+        BeginInlineCanvasShapeTextEdit(m_selectedShapeId, false);
+    }
+}
+
+void MainWindow::OnInsertHeadingMenuClick(IInspectable const& sender, RoutedEventArgs const&) {
+    if (!m_doc) return;
+    auto item = sender.try_as<MenuFlyoutItem>();
+    if (!item || !item.Tag()) return;
+    const std::string preset = vexio::win::ToUtf8(unbox_value<hstring>(item.Tag()));
+    if (preset.empty()) return;
+
+    const auto inserted = m_doc.InsertHeading(m_activePageId, preset);
+    if (inserted.ok() && *inserted.value != 0) {
+        m_selectedShapeId = *inserted.value;
+        m_selectedShapeIds = {m_selectedShapeId};
+        if (m_viewport) {
+            (void)m_viewport.SetSelection(m_doc, m_selectedShapeIds);
+        }
+        MarkDocumentDirty(true);
+        PresentViewportFrame();
+        SyncInspectorFromShapeSheet();
+        RefreshShapeSheetSectionRows();
+        BeginInlineCanvasShapeTextEdit(m_selectedShapeId, false);
+    }
+}
+
+void MainWindow::OnBorderTitleMenuClick(IInspectable const& sender, RoutedEventArgs const&) {
+    if (!m_doc) return;
+    auto item = sender.try_as<MenuFlyoutItem>();
+    if (!item || !item.Tag()) return;
+    const std::string styleSlug = vexio::win::ToUtf8(unbox_value<hstring>(item.Tag()));
+    if (styleSlug.empty()) return;
+
+    std::wstring cleanTitle = m_documentDisplayName;
+    if (const auto dot = cleanTitle.rfind(L'.'); dot != std::wstring::npos && dot > 0) {
+        cleanTitle = cleanTitle.substr(0, dot);
+    }
+    const auto res = m_doc.ApplyBorderAndTitle(
+        m_activePageId,
+        styleSlug,
+        vexio::win::ToUtf8(cleanTitle),
+        "",
+        "Vexio Workstation",
+        ""
+    );
+    if (res.ok()) {
+        SyncPagesFromCoreState(false);
+        RebuildPageTabsStrip();
+        MarkDocumentDirty(true);
+        PresentViewportFrame();
+    }
+}
+
 void MainWindow::OnPageOrientationChanged(IInspectable const&, SelectionChangedEventArgs const&) {
     if (!m_isInitialized || !m_doc) return;
     const int32_t idx = PageOrientationCombo().SelectedIndex();
@@ -4891,7 +4977,7 @@ fire_and_forget MainWindow::ShowOfficialStencilCatalogDialogAsync() {
     }
 
     Windows::Web::Http::HttpClient client{};
-    client.DefaultRequestHeaders().UserAgent().TryParseAdd(L"Vexio-Windows/0.4.1-alpha");
+    client.DefaultRequestHeaders().UserAgent().TryParseAdd(L"Vexio-Windows/0.4.2-alpha");
     uint32_t installedCount = 0;
 
     for (auto const& target : targets) {
@@ -5153,7 +5239,7 @@ void MainWindow::OnCheckUpdatesClick(IInspectable const&, RoutedEventArgs const&
 }
 
 fire_and_forget MainWindow::CheckForUpdatesAsync(bool userInitiated) {
-    constexpr std::wstring_view kCurrentVersion = L"0.4.1-alpha";
+    constexpr std::wstring_view kCurrentVersion = L"0.4.2-alpha";
     const auto weakSelf = get_weak();
 
     if (userInitiated) {
@@ -5167,7 +5253,7 @@ fire_and_forget MainWindow::CheckForUpdatesAsync(bool userInitiated) {
 
     try {
         Windows::Web::Http::HttpClient client{};
-        client.DefaultRequestHeaders().UserAgent().TryParseAdd(L"Vexio-Windows/0.4.1-alpha");
+        client.DefaultRequestHeaders().UserAgent().TryParseAdd(L"Vexio-Windows/0.4.2-alpha");
         client.DefaultRequestHeaders().Accept().TryParseAdd(L"application/vnd.github+json");
 
         const Uri apiUri{L"https://api.github.com/repos/petrosvassiliou/vexio/releases"};
@@ -5176,7 +5262,7 @@ fire_and_forget MainWindow::CheckForUpdatesAsync(bool userInitiated) {
         Windows::Data::Json::JsonArray releasesArr{nullptr};
         if (Windows::Data::Json::JsonArray::TryParse(body, releasesArr) && releasesArr.Size() > 0) {
             const auto relObj = releasesArr.GetObjectAt(0);
-            latestTag = relObj.GetNamedString(L"tag_name", L"v0.4.1-alpha").c_str();
+            latestTag = relObj.GetNamedString(L"tag_name", L"v0.4.2-alpha").c_str();
             releaseUrl = relObj.GetNamedString(L"html_url", releaseUrl).c_str();
             if (relObj.HasKey(L"assets")) {
                 const auto assets = relObj.GetNamedArray(L"assets");
@@ -5238,7 +5324,7 @@ fire_and_forget MainWindow::CheckForUpdatesAsync(bool userInitiated) {
         }
     } else {
         self->BackstageUpdateStatusText().Text(hstring{
-            std::format(L"Vexio is up to date ({}).", latestTag.empty() ? L"v0.4.1-alpha" : latestTag)
+            std::format(L"Vexio is up to date ({}).", latestTag.empty() ? L"v0.4.2-alpha" : latestTag)
         });
         if (userInitiated) {
             ContentDialog dlg{};
@@ -5246,7 +5332,7 @@ fire_and_forget MainWindow::CheckForUpdatesAsync(bool userInitiated) {
             dlg.Title(box_value(L"Vexio is Up to Date"));
             dlg.Content(box_value(hstring{std::format(
                 L"You are running the latest version of Vexio Professional ({}).",
-                latestTag.empty() ? L"v0.4.1-alpha" : latestTag)}));
+                latestTag.empty() ? L"v0.4.2-alpha" : latestTag)}));
             dlg.PrimaryButtonText(L"View Release Notes");
             dlg.CloseButtonText(L"OK");
             dlg.DefaultButton(ContentDialogButton::Close);

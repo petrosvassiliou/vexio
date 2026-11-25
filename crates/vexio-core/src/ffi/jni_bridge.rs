@@ -2811,3 +2811,117 @@ pub unsafe extern "system" fn Java_com_vexio_core_NativeBridge_nativeSetPageBack
     }))
     .unwrap_or(JNI_FALSE)
 }
+
+#[no_mangle]
+pub extern "system" fn Java_com_vexio_core_NativeBridge_nativeApplyHeadingPreset<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    doc_ptr: jlong,
+    page_id: jint,
+    shape_ids: JLongArray<'local>,
+    preset_slug: JString<'local>,
+) -> jint {
+    catch_unwind(AssertUnwindSafe(|| {
+        if doc_ptr == 0 || page_id <= 0 || shape_ids.is_null() || preset_slug.is_null() {
+            return 0;
+        }
+        let Ok(preset_s) = env.get_string(&preset_slug).map(String::from) else {
+            return 0;
+        };
+        let len = env.get_array_length(&shape_ids).unwrap_or(0).max(0) as usize;
+        let mut raw_ids = vec![0i64; len];
+        if len > 0 && env.get_long_array_region(&shape_ids, 0, &mut raw_ids).is_err() {
+            return 0;
+        }
+        let ids: Vec<u64> = raw_ids.into_iter().filter(|&v| v > 0).map(|v| v as u64).collect();
+        // SAFETY: `doc_ptr` verified non-zero handle.
+        let doc = unsafe { &mut *(doc_ptr as *mut VexioDoc) };
+        doc.session
+            .apply_text_heading_preset(page_id as u32, &ids, &preset_s)
+            .unwrap_or(0) as jint
+    }))
+    .unwrap_or(0)
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_vexio_core_NativeBridge_nativeInsertHeading<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    doc_ptr: jlong,
+    page_id: jint,
+    preset_slug: JString<'local>,
+    custom_text: JString<'local>,
+    x_in: jdouble,
+    y_in: jdouble,
+) -> jlong {
+    catch_unwind(AssertUnwindSafe(|| {
+        if doc_ptr == 0 || page_id <= 0 || preset_slug.is_null() {
+            return 0;
+        }
+        let Ok(preset_s) = env.get_string(&preset_slug).map(String::from) else {
+            return 0;
+        };
+        let text_opt = if custom_text.is_null() {
+            None
+        } else {
+            env.get_string(&custom_text).map(String::from).ok()
+        };
+        // SAFETY: `doc_ptr` verified non-zero handle.
+        let doc = unsafe { &mut *(doc_ptr as *mut VexioDoc) };
+        doc.session
+            .insert_text_heading(
+                page_id as u32,
+                &preset_s,
+                text_opt.as_deref(),
+                x_in,
+                y_in,
+            )
+            .unwrap_or(0) as jlong
+    }))
+    .unwrap_or(0)
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_vexio_core_NativeBridge_nativeApplyBorderAndTitle<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    doc_ptr: jlong,
+    page_id: jint,
+    style_slug: JString<'local>,
+    title: JString<'local>,
+    subtitle: JString<'local>,
+    author: JString<'local>,
+    date_or_rev: JString<'local>,
+) -> jint {
+    catch_unwind(AssertUnwindSafe(|| {
+        if doc_ptr == 0 || page_id <= 0 || style_slug.is_null() {
+            return -1;
+        }
+        let read_s = |env: &mut JNIEnv<'local>, js: &JString<'local>| -> String {
+            if js.is_null() {
+                String::new()
+            } else {
+                env.get_string(js).map(String::from).unwrap_or_default()
+            }
+        };
+        let style_s = read_s(&mut env, &style_slug);
+        let title_s = read_s(&mut env, &title);
+        let sub_s = read_s(&mut env, &subtitle);
+        let auth_s = read_s(&mut env, &author);
+        let date_s = read_s(&mut env, &date_or_rev);
+        // SAFETY: `doc_ptr` verified non-zero handle.
+        let doc = unsafe { &mut *(doc_ptr as *mut VexioDoc) };
+        doc.session
+            .apply_border_and_title(
+                page_id as u32,
+                &style_s,
+                &title_s,
+                &sub_s,
+                &auth_s,
+                &date_s,
+            )
+            .map(|id| id as jint)
+            .unwrap_or(-1)
+    }))
+    .unwrap_or(-1)
+}

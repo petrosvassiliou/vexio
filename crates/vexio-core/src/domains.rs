@@ -1407,6 +1407,30 @@ pub fn build_all_builtin_stencils() -> Vec<StencilPack> {
             ],
         ),
         make_stencil_pack(
+            "Titles, Headings & Banners",
+            "Titles",
+            &[
+                ("Diagram Title", "Rectangle", 3.80, 0.62, "title_main"),
+                ("Diagram Subtitle", "Rectangle", 3.60, 0.46, "title_subtitle"),
+                ("Heading 1 — Underlined", "Rectangle", 3.20, 0.50, "title_h1_rule"),
+                ("Heading 2 — Section", "Rectangle", 2.80, 0.44, "title_h2"),
+                ("Heading 3 — Eyebrow", "Rectangle", 2.40, 0.38, "title_h3"),
+                ("Modern Header Banner", "Rectangle", 4.60, 0.64, "title_modern_banner"),
+                ("Executive Accent Header", "Rectangle", 4.20, 0.58, "title_exec_accent"),
+                ("Pill Capsule Title", "Pill", 3.60, 0.56, "title_pill_banner"),
+                ("Chevron Phase Header", "Chevron", 2.80, 0.58, "title_chevron_hdr"),
+                ("Ribbon Scroll Banner", "BannerRibbon", 3.20, 0.66, "title_ribbon_scroll"),
+                ("Section Divider Rule", "Rectangle", 4.40, 0.24, "title_divider_rule"),
+                ("Numbered Section Header", "Rectangle", 3.40, 0.52, "title_numbered_sec"),
+                ("KPI Metric Headline", "Rectangle", 2.20, 0.96, "title_kpi_card"),
+                ("Document Metadata Stamp", "Rectangle", 2.80, 0.68, "title_meta_stamp"),
+                ("Draft / Status Watermark", "Pill", 1.90, 0.48, "title_status_stamp"),
+                ("Revision History Header", "Rectangle", 3.60, 0.72, "title_rev_table"),
+                ("Legend & Key Header", "Rectangle", 2.40, 0.52, "title_legend_hdr"),
+                ("ISO Corner Title Block", "Rectangle", 3.40, 0.92, "title_iso_corner"),
+            ],
+        ),
+        make_stencil_pack(
             "Cross-Functional Swimlanes",
             "Swimlanes",
             &[
@@ -2581,6 +2605,11 @@ fn apply_domain_master_styling_and_details(
         ("Callouts", "basic_callout") | ("Callouts", "basic_note") => ("254,249,195", "202,138,4", 1.65),
         ("Callouts", "callout_badge") => ("220,252,231", "22,163,74", 1.6),
         ("Callouts", _) => ("248,250,252", "71,85,105", 1.6),
+        ("Titles", "title_modern_banner") => ("15,23,42", "30,41,59", 1.5),
+        ("Titles", "title_pill_banner") | ("Titles", "title_chevron_hdr") => ("219,234,254", "37,99,235", 1.6),
+        ("Titles", "title_status_stamp") => ("254,243,199", "217,119,6", 1.6),
+        ("Titles", "title_kpi_card") => ("239,246,255", "29,78,216", 1.55),
+        ("Titles", _) => ("248,250,252", "37,99,235", 1.5),
         ("Swimlanes", "swimlane_handoff") => ("219,234,254", "29,78,216", 1.6),
         ("Swimlanes", _) => ("248,250,252", "71,85,105", 1.65),
         ("Process Engineering", _) => ("240,249,255", "3,105,161", 1.65),
@@ -5091,6 +5120,132 @@ fn append_extended_role_vector_details(
             ];
             sh.sheet.add_geometry(detail);
         }
+        "title_main" => {
+            sh.sheet.set_formula("Char.Size", "22 pt", Some(Unit::Point));
+            sh.sheet.set_formula("Char.Style", "1", None);
+            sh.sheet.set_formula("Char.Color", "=RGB(15,23,42)", Some(Unit::Color));
+            sh.sheet.set_formula("Para.HorzAlign", "0", None);
+            detail.rows = vec![
+                GeometryRow::move_to(1, "0 in", "0 in"),
+                GeometryRow::line_to(2, "=Width", "0 in"),
+                GeometryRow::move_to(3, "=Width*0.04", "=Height*0.20"),
+                GeometryRow::line_to(4, "=Width*0.42", "=Height*0.20"),
+            ];
+            sh.sheet.add_geometry(detail);
+        }
+        "title_subtitle" => {
+            sh.sheet.set_formula("Char.Size", "14 pt", Some(Unit::Point));
+            sh.sheet.set_formula("Char.Color", "=RGB(71,85,105)", Some(Unit::Color));
+            sh.sheet.set_formula("Para.HorzAlign", "0", None);
+            detail.rows = vec![
+                GeometryRow::move_to(1, "=Width*0.04", "=Height*0.22"),
+                GeometryRow::line_to(2, "=Width*0.64", "=Height*0.22"),
+            ];
+            sh.sheet.add_geometry(detail);
+        }
+        "title_h1_rule" => {
+            sh.sheet.set_formula("Char.Size", "18 pt", Some(Unit::Point));
+            sh.sheet.set_formula("Char.Style", "1", None);
+            sh.sheet.set_formula("Char.Color", "=RGB(15,23,42)", Some(Unit::Color));
+            sh.sheet.set_formula("Para.HorzAlign", "0", None);
+            detail.rows = vec![
+                GeometryRow::move_to(1, "0 in", "=Height*0.14"),
+                GeometryRow::line_to(2, "=Width", "=Height*0.14"),
+                GeometryRow::move_to(3, "0 in", "=Height*0.06"),
+                GeometryRow::line_to(4, "=Width*0.38", "=Height*0.06"),
+            ];
+            sh.sheet.add_geometry(detail);
+        }
+        "title_h2" => {
+            sh.sheet.set_formula("Char.Size", "14 pt", Some(Unit::Point));
+            sh.sheet.set_formula("Char.Style", "1", None);
+            sh.sheet.set_formula("Char.Color", "=RGB(30,41,59)", Some(Unit::Color));
+            sh.sheet.set_formula("Para.HorzAlign", "0", None);
+            detail.rows = vec![
+                GeometryRow::move_to(1, "=Width*0.03", "=Height*0.18"),
+                GeometryRow::line_to(2, "=Width*0.03", "=Height*0.82"),
+            ];
+            sh.sheet.add_geometry(detail);
+        }
+        "title_h3" => {
+            sh.sheet.set_formula("Char.Size", "12 pt", Some(Unit::Point));
+            sh.sheet.set_formula("Char.Style", "1", None);
+            sh.sheet.set_formula("Char.Color", "=RGB(29,78,216)", Some(Unit::Color));
+            sh.sheet.set_formula("Para.HorzAlign", "0", None);
+            detail.rows = vec![
+                GeometryRow::move_to(1, "0 in", "=Height*0.50"),
+                GeometryRow::line_to(2, "=Width*0.08", "=Height*0.50"),
+            ];
+            sh.sheet.add_geometry(detail);
+        }
+        "title_modern_banner" => {
+            sh.sheet.set_formula("Char.Size", "16 pt", Some(Unit::Point));
+            sh.sheet.set_formula("Char.Style", "1", None);
+            sh.sheet.set_formula("Char.Color", "=RGB(255,255,255)", Some(Unit::Color));
+            sh.sheet.set_formula("Para.HorzAlign", "0", None);
+            detail.rows = vec![
+                GeometryRow::move_to(1, "0 in", "=Height*0.12"),
+                GeometryRow::line_to(2, "=Width", "=Height*0.12"),
+            ];
+            sh.sheet.add_geometry(detail);
+        }
+        "title_exec_accent" => {
+            sh.sheet.set_formula("Char.Size", "15 pt", Some(Unit::Point));
+            sh.sheet.set_formula("Char.Style", "1", None);
+            sh.sheet.set_formula("Para.HorzAlign", "0", None);
+            detail.rows = vec![
+                GeometryRow::move_to(1, "=Width*0.04", "=Height*0.14"),
+                GeometryRow::line_to(2, "=Width*0.04", "=Height*0.86"),
+                GeometryRow::move_to(3, "0 in", "0 in"),
+                GeometryRow::line_to(4, "=Width", "0 in"),
+            ];
+            sh.sheet.add_geometry(detail);
+        }
+        "title_divider_rule" => {
+            detail.rows = vec![
+                GeometryRow::move_to(1, "0 in", "=Height*0.50"),
+                GeometryRow::line_to(2, "=Width", "=Height*0.50"),
+                GeometryRow::move_to(3, "0 in", "=Height*0.30"),
+                GeometryRow::line_to(4, "=Width*0.22", "=Height*0.30"),
+            ];
+            sh.sheet.add_geometry(detail);
+        }
+        "title_numbered_sec" => {
+            sh.sheet.set_formula("Char.Size", "14 pt", Some(Unit::Point));
+            sh.sheet.set_formula("Char.Style", "1", None);
+            detail.rows = vec![
+                GeometryRow::move_to(1, "=Width*0.16", "0 in"),
+                GeometryRow::line_to(2, "=Width*0.16", "=Height"),
+            ];
+            sh.sheet.add_geometry(detail);
+        }
+        "title_kpi_card" => {
+            sh.sheet.set_formula("Char.Size", "18 pt", Some(Unit::Point));
+            sh.sheet.set_formula("Char.Style", "1", None);
+            detail.rows = vec![
+                GeometryRow::move_to(1, "=Width*0.08", "=Height*0.32"),
+                GeometryRow::line_to(2, "=Width*0.92", "=Height*0.32"),
+            ];
+            sh.sheet.add_geometry(detail);
+        }
+        "title_meta_stamp" | "title_rev_table" | "title_iso_corner" => {
+            detail.rows = vec![
+                GeometryRow::move_to(1, "0 in", "=Height*0.64"),
+                GeometryRow::line_to(2, "=Width", "=Height*0.64"),
+                GeometryRow::move_to(3, "=Width*0.50", "0 in"),
+                GeometryRow::line_to(4, "=Width*0.50", "=Height*0.64"),
+            ];
+            sh.sheet.add_geometry(detail);
+        }
+        "title_legend_hdr" => {
+            sh.sheet.set_formula("Char.Size", "13 pt", Some(Unit::Point));
+            sh.sheet.set_formula("Char.Style", "1", None);
+            detail.rows = vec![
+                GeometryRow::move_to(1, "0 in", "=Height*0.22"),
+                GeometryRow::line_to(2, "=Width", "=Height*0.22"),
+            ];
+            sh.sheet.add_geometry(detail);
+        }
         _ => {
             // Pure canonical Visio shapes (`Start Event`, `End Event`, `Task`, `Process`, `Decision`,
             // `Rectangle`, `Circle`, `Diamond`, etc.) remain clean without spurious interior lines!
@@ -5743,11 +5898,11 @@ mod stencil_preview_tests {
     #[test]
     fn all_builtin_stencil_masters_generate_distinct_vector_svg_previews() {
         let previews = list_builtin_stencil_previews();
-        assert_eq!(previews.len(), 32, "expected 32 stencil categories");
+        assert_eq!(previews.len(), 33, "expected 33 stencil categories");
         let total: usize = previews.values().map(|v| v.len()).sum();
         assert!(
-            total >= 700,
-            "expected >= 700 high-definition masters across 32 packs, got {total}"
+            total >= 750,
+            "expected >= 750 high-definition masters across 33 packs, got {total}"
         );
         for (pack_name, masters) in &previews {
             assert!(

@@ -177,7 +177,7 @@ object VexioI18n {
             }
         }
         if ("Automatic update check enabled" in raw) {
-            val ver = raw.substringAfter("Vexio ", "").substringBefore(" •").ifBlank { "v0.4.1-alpha" }
+            val ver = raw.substringAfter("Vexio ", "").substringBefore(" •").ifBlank { "v0.4.2-alpha" }
             return when (lang) {
                 EN -> "Vexio $ver • Automatic update check enabled"
                 DE -> "Vexio $ver • Automatische Update-Prüfung aktiviert"
@@ -580,6 +580,7 @@ object VexioI18n {
             "Basic Flowchart" -> when (lang) { DE -> "Standard-Flussdiagramm"; IT -> "Diagramma di flusso base"; FR -> "Organigramme simple"; ES -> "Diagrama de flujo básico"; GR -> "Βασικό διάγραμμα ροής"; else -> category }
             "Arrows & Connectors" -> when (lang) { DE -> "Pfeile & Verbinder"; IT -> "Frecce e connettori"; FR -> "Flèches et connecteurs"; ES -> "Flechas y conectores"; GR -> "Βέλη & γραμμές σύνδεσης"; else -> category }
             "Callouts, Notes & Containers" -> when (lang) { DE -> "Legenden, Notizen & Container"; IT -> "Didascalie, note e contenitori"; FR -> "Légendes, notes et conteneurs"; ES -> "Llamadas, notas y contenedores"; GR -> "Επεξηγήσεις, σημειώσεις & πλαίσια"; else -> category }
+            "Titles, Headings & Banners" -> when (lang) { DE -> "Titel, Überschriften & Banner"; IT -> "Titoli, intestazioni e banner"; FR -> "Titres, en-têtes et bannières"; ES -> "Títulos, encabezados y banners"; GR -> "Τίτλοι, επικεφαλίδες & banner"; else -> category }
             "Cross-Functional Swimlanes" -> when (lang) { DE -> "Funktionsübergreifende Swimlanes"; IT -> "Corsie interfunzionali"; FR -> "Couloirs interfonctionnels"; ES -> "Calles multifuncionales"; GR -> "Διαλειτουργικές λωρίδες"; else -> category }
             "Database Crow's Foot ERD" -> when (lang) { DE -> "Datenbank-ERD (Krähenfuß)"; IT -> "Database ERD Crow's Foot"; FR -> "Base de données ERD"; ES -> "Base de datos ERD"; GR -> "Βάση δεδομένων ERD"; else -> category }
             "Microsoft 365 & Office" -> when (lang) { DE -> "Microsoft 365 & Office"; IT -> "Microsoft 365 & Office"; FR -> "Microsoft 365 & Office"; ES -> "Microsoft 365 y Office"; GR -> "Microsoft 365 & Office"; else -> category }

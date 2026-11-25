@@ -1637,6 +1637,39 @@ private fun ClassicVisioM3Ribbon(
                 ) {
                     when (uiState.activeRibbonTab) {
                         "Home" -> {
+                            var headingMenuOpen by remember { mutableStateOf(false) }
+                            Box {
+                                ExpressivePlan2ActionPill(
+                                    label = "Headings ▾",
+                                    selected = false,
+                                    onClick = { headingMenuOpen = true }
+                                )
+                                DropdownMenu(
+                                    expanded = headingMenuOpen,
+                                    onDismissRequest = { headingMenuOpen = false }
+                                ) {
+                                    listOf(
+                                        "title" to "Diagram Title (24 pt Bold)",
+                                        "subtitle" to "Subtitle (14 pt)",
+                                        "h1" to "Heading 1 — Underlined (18 pt)",
+                                        "h2" to "Heading 2 (14 pt Bold)",
+                                        "h3" to "Heading 3 (12 pt Accent)",
+                                        "section_banner" to "Section Header Banner",
+                                        "callout_title" to "Accent Callout Header",
+                                        "body" to "Body Text (11 pt)",
+                                        "caption" to "Caption / Note (9.5 pt)"
+                                    ).forEach { (slug, label) ->
+                                        DropdownMenuItem(
+                                            text = { Text(label) },
+                                            onClick = {
+                                                headingMenuOpen = false
+                                                viewModel.applyOrInsertHeading(slug, forceInsert = false)
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+
                             // Installed OS Fonts Selector (Searchable + Rendered in Native FontFamily)
                             Box {
                                 ExpressivePlan2ActionPill(
@@ -1891,6 +1924,7 @@ private fun ClassicVisioM3Ribbon(
                         }
 
                         "Insert" -> {
+                            var insertHeadingMenuOpen by remember { mutableStateOf(false) }
                             ExpressivePlan2ActionPill(
                                 label = VexioI18n.newPagePill(lang),
                                 selected = false,
@@ -1901,6 +1935,35 @@ private fun ClassicVisioM3Ribbon(
                                 selected = true,
                                 onClick = onImportStencilClick
                             )
+                            Box {
+                                ExpressivePlan2ActionPill(
+                                    label = "+ Title / Heading ▾",
+                                    selected = false,
+                                    onClick = { insertHeadingMenuOpen = true }
+                                )
+                                DropdownMenu(
+                                    expanded = insertHeadingMenuOpen,
+                                    onDismissRequest = { insertHeadingMenuOpen = false }
+                                ) {
+                                    listOf(
+                                        "title" to "Insert Diagram Title (24 pt)",
+                                        "subtitle" to "Insert Subtitle (14 pt)",
+                                        "h1" to "Insert Heading 1 — Underlined",
+                                        "h2" to "Insert Heading 2",
+                                        "h3" to "Insert Heading 3",
+                                        "section_banner" to "Insert Section Header Banner",
+                                        "callout_title" to "Insert Accent Callout Header"
+                                    ).forEach { (slug, label) ->
+                                        DropdownMenuItem(
+                                            text = { Text(label) },
+                                            onClick = {
+                                                insertHeadingMenuOpen = false
+                                                viewModel.applyOrInsertHeading(slug, forceInsert = true)
+                                            }
+                                        )
+                                    }
+                                }
+                            }
                             ExpressivePlan2ActionPill(
                                 label = VexioI18n.textBoxPill(lang),
                                 selected = uiState.activeTool == VexioTool.TEXT_BLOCK,
@@ -1929,6 +1992,7 @@ private fun ClassicVisioM3Ribbon(
                         }
 
                         "Design" -> {
+                            var bordersMenuOpen by remember { mutableStateOf(false) }
                             Box {
                                 ExpressivePlan2ActionPill(
                                     label = VexioI18n.pageSizePrefix(VexioI18n.pagePresetLabel(uiState.activePagePreset, lang), lang),
@@ -1947,6 +2011,34 @@ private fun ClassicVisioM3Ribbon(
                                             onClick = {
                                                 pageSizeMenuOpen = false
                                                 viewModel.applyPagePreset(preset)
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                            Box {
+                                ExpressivePlan2ActionPill(
+                                    label = "Borders & Titles ▾",
+                                    selected = false,
+                                    onClick = { bordersMenuOpen = true }
+                                )
+                                DropdownMenu(
+                                    expanded = bordersMenuOpen,
+                                    onDismissRequest = { bordersMenuOpen = false }
+                                ) {
+                                    listOf(
+                                        "modern_banner" to "Modern Header Banner",
+                                        "executive_underline" to "Executive Title & Accent Rule",
+                                        "classic_frame" to "Classic Frame & Title",
+                                        "pill_banner" to "Rounded Pill Banner",
+                                        "iso_engineering" to "ISO 7200 / ANSI Engineering Block",
+                                        "none" to "None (Remove Border & Title)"
+                                    ).forEach { (slug, label) ->
+                                        DropdownMenuItem(
+                                            text = { Text(label) },
+                                            onClick = {
+                                                bordersMenuOpen = false
+                                                viewModel.applyBorderAndTitle(slug)
                                             }
                                         )
                                     }

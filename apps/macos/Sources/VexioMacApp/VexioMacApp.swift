@@ -190,6 +190,21 @@ public struct VexioGlobalMenuCommands: Commands {
 
             Divider()
 
+            Menu("Text Headings & Titles") {
+                ForEach(VexioTextHeadingPreset.allCases) { preset in
+                    Button(preset.displayName) {
+                        session?.applyOrInsertHeading(preset, forceInsert: false, undoManager: NSApp.keyWindow?.undoManager)
+                    }
+                }
+                Divider()
+                Button("Borders & Titles…") {
+                    NotificationCenter.default.post(name: .vexioOpenBordersAndTitlesSheet, object: nil)
+                }
+            }
+            .disabled(session == nil)
+
+            Divider()
+
             Button("Bold") {
                 session?.applyTextStyle(toggleStyleMask: 1, undoManager: NSApp.keyWindow?.undoManager)
             }

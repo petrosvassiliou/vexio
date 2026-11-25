@@ -220,11 +220,14 @@ public struct VibrancySidebarContainer<Content: View>: NSViewRepresentable {
 
 public struct LiquidGlassFloatingPalette: View {
     @Binding var selectedTool: VexioCanvasTool
+    @ObservedObject private var i18n: VexioLocalization = .shared
     @Namespace private var activeLensNamespace
     @State private var dragDisplacement: CGSize = .zero
     @State private var committedOffset: CGSize = .zero
     @State private var hoveredTool: VexioCanvasTool? = nil
+    @State private var visibleTooltipTool: VexioCanvasTool? = nil
     @State private var hoveredRowIndex: Int = 0
+    @State private var tooltipDelayTask: Task<Void, Never>? = nil
 
     private let paletteColumns = [
         GridItem(.fixed(32), spacing: 4),
@@ -272,6 +275,8 @@ public struct LiquidGlassFloatingPalette: View {
                     let isSelected = (selectedTool == tool)
                     let isHovered = (hoveredTool == tool)
                     Button {
+                        tooltipDelayTask?.cancel()
+                        visibleTooltipTool = nil
                         withAnimation(LiquidGlassPhysics.standardSpring) {
                             selectedTool = tool
                         }
@@ -309,16 +314,29 @@ public struct LiquidGlassFloatingPalette: View {
                     }
                     .buttonStyle(.plain)
                     .onHover { inside in
-                        withAnimation(.easeOut(duration: 0.14)) {
-                            if inside {
-                                hoveredTool = tool
-                                hoveredRowIndex = idx / 2
-                            } else if hoveredTool == tool {
+                        tooltipDelayTask?.cancel()
+                        if inside {
+                            hoveredTool = tool
+                            hoveredRowIndex = idx / 2
+                            tooltipDelayTask = Task { @MainActor in
+                                try? await Task.sleep(nanoseconds: 340_000_000)
+                                guard !Task.isCancelled, hoveredTool == tool else { return }
+                                withAnimation(.easeOut(duration: 0.14)) {
+                                    visibleTooltipTool = tool
+                                }
+                            }
+                        } else {
+                            if hoveredTool == tool {
                                 hoveredTool = nil
+                            }
+                            if visibleTooltipTool == tool {
+                                withAnimation(.easeOut(duration: 0.10)) {
+                                    visibleTooltipTool = nil
+                                }
                             }
                         }
                     }
-                    .help("\(tool.rawValue) (\(tool.shortcutHint))")
+                    .accessibilityLabel("\(tool.localizedTitle(i18n.language)) (\(tool.shortcutHint))")
                 }
             }
         }
@@ -327,36 +345,36 @@ public struct LiquidGlassFloatingPalette: View {
         .frame(width: 82)
         .liquidGlassSurface(cornerRadius: 16, elevation: .floatingPalette)
         .overlay(alignment: .topLeading) {
-            if let tool = hoveredTool {
-                HStack(spacing: 6) {
-                    Text(tool.rawValue)
-                        .font(.system(size: 11.5, weight: .semibold))
+            if let tool = visibleTooltipTool {
+                HStack(spacing: 5) {
+                    Text(tool.localizedTitle(i18n.language))
+                        .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(.primary)
                     Text(tool.shortcutHint)
-                        .font(.system(size: 10, weight: .bold, design: .monospaced))
+                        .font(.system(size: 9.5, weight: .semibold, design: .monospaced))
                         .foregroundStyle(.secondary)
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 1.5)
+                        .padding(.horizontal, 4.5)
+                        .padding(.vertical, 1)
                         .background(
                             RoundedRectangle(cornerRadius: 4, style: .continuous)
-                                .fill(Color.primary.opacity(0.09))
+                                .fill(Color.primary.opacity(0.08))
                         )
                 }
-                .padding(.horizontal, 9)
-                .padding(.vertical, 5)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
                 .fixedSize()
                 .background(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
                         .fill(.regularMaterial)
                 )
                 .overlay(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .strokeBorder(Color.primary.opacity(0.14), lineWidth: 0.8)
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .strokeBorder(Color.primary.opacity(0.12), lineWidth: 0.75)
                 )
-                .shadow(color: .black.opacity(0.18), radius: 8, x: 0, y: 3)
-                .offset(x: 90, y: CGFloat(18 + hoveredRowIndex * 34))
+                .shadow(color: .black.opacity(0.14), radius: 6, x: 0, y: 2)
+                .offset(x: 88, y: CGFloat(19 + hoveredRowIndex * 34))
                 .allowsHitTesting(false)
-                .transition(.opacity.combined(with: .scale(scale: 0.95, anchor: .leading)))
+                .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .leading)))
             }
         }
         .zIndex(20)

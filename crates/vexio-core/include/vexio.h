@@ -169,6 +169,11 @@ VexioStatus vexio_doc_duplicate_page(VexioDoc* doc, uint32_t page_id, uint32_t* 
 VexioStatus vexio_doc_delete_page(VexioDoc* doc, uint32_t page_id);
 VexioStatus vexio_doc_set_page_background(VexioDoc* doc, uint32_t page_id, bool is_background, uint32_t back_page_id, const char* page_color_formula_utf8);
 
+/* v0.4.2-alpha: Visio Text Headings, Titles & Design Borders/Titles Gallery */
+VexioStatus vexio_doc_apply_heading_preset(VexioDoc* doc, uint32_t page_id, const uint64_t* shape_ids_ptr, size_t shape_ids_len, const char* preset_slug_utf8, uint32_t* out_modified_count);
+VexioStatus vexio_doc_insert_heading(VexioDoc* doc, uint32_t page_id, const char* preset_slug_utf8, const char* custom_text_utf8, double x_in, double y_in, uint64_t* out_shape_id);
+VexioStatus vexio_doc_apply_border_and_title(VexioDoc* doc, uint32_t page_id, const char* style_slug_utf8, const char* title_utf8, const char* subtitle_utf8, const char* author_utf8, const char* date_or_rev_utf8, uint32_t* out_bg_page_id);
+
 #ifdef __cplusplus
 }
 #endif

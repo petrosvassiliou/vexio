@@ -4302,6 +4302,132 @@ pub unsafe extern "C" fn vexio_doc_set_page_background(
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn vexio_doc_apply_heading_preset(
+    doc: *mut VexioDoc,
+    page_id: u32,
+    shape_ids_ptr: *const u64,
+    shape_ids_len: usize,
+    preset_slug_utf8: *const c_char,
+    out_modified_count: *mut u32,
+) -> VexioStatus {
+    catch_ffi_status(|| {
+        if doc.is_null() || preset_slug_utf8.is_null() {
+            return VexioStatus::ErrInvalidArg;
+        }
+        let ids: &[u64] = if shape_ids_ptr.is_null() || shape_ids_len == 0 {
+            &[]
+        } else {
+            // SAFETY: `shape_ids_ptr` verified non-null with length `shape_ids_len`.
+            unsafe { std::slice::from_raw_parts(shape_ids_ptr, shape_ids_len) }
+        };
+        // SAFETY: `preset_slug_utf8` verified non-null.
+        let Ok(preset_str) = unsafe { CStr::from_ptr(preset_slug_utf8) }.to_str() else {
+            return VexioStatus::ErrInvalidArg;
+        };
+        // SAFETY: `doc` verified non-null.
+        let d = unsafe { &mut *doc };
+        match d.session.apply_text_heading_preset(page_id, ids, preset_str) {
+            Ok(n) => {
+                if !out_modified_count.is_null() {
+                    // SAFETY: `out_modified_count` verified non-null.
+                    unsafe { *out_modified_count = n as u32 };
+                }
+                VexioStatus::Ok
+            }
+            Err(e) => map_core_err(e),
+        }
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_doc_insert_heading(
+    doc: *mut VexioDoc,
+    page_id: u32,
+    preset_slug_utf8: *const c_char,
+    custom_text_utf8: *const c_char,
+    x_in: f64,
+    y_in: f64,
+    out_shape_id: *mut u64,
+) -> VexioStatus {
+    catch_ffi_status(|| {
+        if doc.is_null() || preset_slug_utf8.is_null() {
+            return VexioStatus::ErrInvalidArg;
+        }
+        // SAFETY: `preset_slug_utf8` verified non-null.
+        let Ok(preset_str) = unsafe { CStr::from_ptr(preset_slug_utf8) }.to_str() else {
+            return VexioStatus::ErrInvalidArg;
+        };
+        let custom_opt = if custom_text_utf8.is_null() {
+            None
+        } else {
+            // SAFETY: `custom_text_utf8` verified non-null.
+            unsafe { CStr::from_ptr(custom_text_utf8) }.to_str().ok()
+        };
+        // SAFETY: `doc` verified non-null.
+        let d = unsafe { &mut *doc };
+        match d
+            .session
+            .insert_text_heading(page_id, preset_str, custom_opt, x_in, y_in)
+        {
+            Ok(sid) => {
+                if !out_shape_id.is_null() {
+                    // SAFETY: `out_shape_id` verified non-null.
+                    unsafe { *out_shape_id = sid };
+                }
+                VexioStatus::Ok
+            }
+            Err(e) => map_core_err(e),
+        }
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_doc_apply_border_and_title(
+    doc: *mut VexioDoc,
+    page_id: u32,
+    style_slug_utf8: *const c_char,
+    title_utf8: *const c_char,
+    subtitle_utf8: *const c_char,
+    author_utf8: *const c_char,
+    date_or_rev_utf8: *const c_char,
+    out_bg_page_id: *mut u32,
+) -> VexioStatus {
+    catch_ffi_status(|| {
+        if doc.is_null() || style_slug_utf8.is_null() {
+            return VexioStatus::ErrInvalidArg;
+        }
+        let read_opt_str = |p: *const c_char| -> &str {
+            if p.is_null() {
+                ""
+            } else {
+                // SAFETY: `p` verified non-null.
+                unsafe { CStr::from_ptr(p) }.to_str().unwrap_or("")
+            }
+        };
+        let style_s = read_opt_str(style_slug_utf8);
+        let title_s = read_opt_str(title_utf8);
+        let sub_s = read_opt_str(subtitle_utf8);
+        let author_s = read_opt_str(author_utf8);
+        let date_s = read_opt_str(date_or_rev_utf8);
+        // SAFETY: `doc` verified non-null.
+        let d = unsafe { &mut *doc };
+        match d
+            .session
+            .apply_border_and_title(page_id, style_s, title_s, sub_s, author_s, date_s)
+        {
+            Ok(bg_pid) => {
+                if !out_bg_page_id.is_null() {
+                    // SAFETY: `out_bg_page_id` verified non-null.
+                    unsafe { *out_bg_page_id = bg_pid };
+                }
+                VexioStatus::Ok
+            }
+            Err(e) => map_core_err(e),
+        }
+    })
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn vexio_register_font_bytes(
     font_bytes: VexioByteSlice,
     family_override_utf8: *const c_char,
@@ -6430,6 +6556,78 @@ mod tests {
             assert!(bg_state_str.contains(&format!("\"backPageId\":{}", dup_pid)));
 
             assert_eq!(vexio_doc_delete_page(doc, dup_pid), VexioStatus::Ok);
+
+            // v0.4.2-alpha: Visio Text Headings, Titles & Borders/Titles Gallery
+            let h1_slug = CString::new("h1").unwrap();
+            let h1_text = CString::new("System Architecture Overview").unwrap();
+            let mut inserted_h1_id: u64 = 0;
+            assert_eq!(
+                vexio_doc_insert_heading(
+                    doc,
+                    added_pid,
+                    h1_slug.as_ptr(),
+                    h1_text.as_ptr(),
+                    0.0,
+                    0.0,
+                    &mut inserted_h1_id
+                ),
+                VexioStatus::Ok
+            );
+            assert!(inserted_h1_id > 0);
+
+            let banner_slug = CString::new("section_banner").unwrap();
+            let mut modified_headings: u32 = 0;
+            assert_eq!(
+                vexio_doc_apply_heading_preset(
+                    doc,
+                    added_pid,
+                    &inserted_h1_id,
+                    1,
+                    banner_slug.as_ptr(),
+                    &mut modified_headings
+                ),
+                VexioStatus::Ok
+            );
+            assert_eq!(modified_headings, 1);
+
+            let bt_style = CString::new("modern_banner").unwrap();
+            let bt_title = CString::new("Global Cloud Network").unwrap();
+            let bt_sub = CString::new("Phase 2 Topology").unwrap();
+            let bt_author = CString::new("Architecture Team").unwrap();
+            let bt_date = CString::new("2026-11-25").unwrap();
+            let mut bt_bg_id: u32 = 0;
+            assert_eq!(
+                vexio_doc_apply_border_and_title(
+                    doc,
+                    added_pid,
+                    bt_style.as_ptr(),
+                    bt_title.as_ptr(),
+                    bt_sub.as_ptr(),
+                    bt_author.as_ptr(),
+                    bt_date.as_ptr(),
+                    &mut bt_bg_id
+                ),
+                VexioStatus::Ok
+            );
+            assert!(bt_bg_id > 0);
+
+            let bt_none = CString::new("none").unwrap();
+            let mut cleared_bg_id: u32 = 99;
+            assert_eq!(
+                vexio_doc_apply_border_and_title(
+                    doc,
+                    added_pid,
+                    bt_none.as_ptr(),
+                    std::ptr::null(),
+                    std::ptr::null(),
+                    std::ptr::null(),
+                    std::ptr::null(),
+                    &mut cleared_bg_id
+                ),
+                VexioStatus::Ok
+            );
+            assert_eq!(cleared_bg_id, 0);
+
             let remaining_fg: Vec<u32> = (*doc)
                 .session
                 .doc

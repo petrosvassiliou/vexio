@@ -3490,6 +3490,257 @@ impl DocumentSession {
         Ok(touched)
     }
 
+    /// Resolve a Microsoft Visio Typography / Heading preset (`title`, `subtitle`, `h1`, `h2`, `h3`,
+    /// `section_banner`, `callout_title`, `body`, `caption`) into `(size_pt, char_style, text_rgb, align, default_w, default_h, default_label)`.
+    fn resolve_heading_preset_spec(
+        preset_slug: &str,
+    ) -> (f64, u8, &'static str, u8, f64, f64, &'static str) {
+        match preset_slug.trim().to_ascii_lowercase().as_str() {
+            "title" => (24.0, 1, "15,23,42", 0, 4.8, 0.62, "Diagram Title"),
+            "subtitle" => (14.0, 0, "71,85,105", 0, 4.6, 0.44, "Subtitle or overview"),
+            "h1" | "heading1" => (18.0, 1, "15,23,42", 0, 3.8, 0.50, "Heading 1"),
+            "h2" | "heading2" => (14.0, 1, "30,41,59", 0, 3.2, 0.42, "Heading 2"),
+            "h3" | "heading3" => (12.0, 1, "29,78,216", 0, 2.8, 0.36, "HEADING 3"),
+            "section_banner" | "banner" => (13.0, 1, "255,255,255", 0, 4.4, 0.48, "Section Header"),
+            "callout_title" => (13.0, 1, "30,58,138", 0, 3.6, 0.46, "Key Section"),
+            "caption" => (9.5, 2, "100,116,139", 0, 3.0, 0.34, "Figure caption or note"),
+            _ => (11.0, 0, "15,23,42", 0, 3.4, 0.46, "Body text"),
+        }
+    }
+
+    /// Apply a Microsoft Visio Text Heading / Title typography preset to one or more existing shapes
+    /// as a single atomic Undo/Redo batch.
+    pub fn apply_text_heading_preset(
+        &mut self,
+        page_id: u32,
+        shape_ids: &[u64],
+        preset_slug: &str,
+    ) -> Result<usize, CoreError> {
+        let norm = preset_slug.trim().to_ascii_lowercase();
+        let (size_pt, char_style, text_rgb, horiz_align, _, _, _) =
+            Self::resolve_heading_preset_spec(&norm);
+
+        let Some(page) = self.doc.page(page_id) else {
+            return Ok(0);
+        };
+        let mut cmds: Vec<DocCommand> = Vec::new();
+        let mut touched = 0usize;
+
+        for &sid in shape_ids {
+            let Some(sh) = page.find_shape(sid) else {
+                continue;
+            };
+            let before_len = cmds.len();
+            let mut set_cell = |cname: &str, new_f: String| {
+                let existing = sh.sheet.get_cell(cname);
+                if existing.is_some_and(|c| c.formula == new_f) {
+                    return;
+                }
+                let old_f = existing
+                    .map(|c| c.formula.clone())
+                    .unwrap_or_else(|| "0".into());
+                cmds.push(DocCommand::SetCellFormula {
+                    page_id,
+                    shape_id: sid,
+                    cell_name: cname.to_string(),
+                    old_formula: old_f,
+                    new_formula: new_f,
+                    force_setf: false,
+                });
+            };
+
+            set_cell("Char.Size", format!("{} pt", format_clean_f64(size_pt)));
+            set_cell("Char.Style", char_style.to_string());
+            set_cell("Char.Color", format!("=RGB({text_rgb})"));
+            set_cell("Para.HorzAlign", horiz_align.to_string());
+
+            if matches!(norm.as_str(), "section_banner" | "banner") {
+                set_cell("FillPattern", "1".into());
+                set_cell("FillForegnd", "=RGB(30,64,175)".into());
+                set_cell("LinePattern", "1".into());
+                set_cell("LineColor", "=RGB(30,58,138)".into());
+                set_cell("Rounding", "0.08 in".into());
+            } else if norm == "callout_title" {
+                set_cell("FillPattern", "1".into());
+                set_cell("FillForegnd", "=RGB(239,246,255)".into());
+                set_cell("LinePattern", "1".into());
+                set_cell("LineColor", "=RGB(37,99,235)".into());
+                set_cell("LineWeight", "1.25 pt".into());
+                set_cell("Rounding", "0.06 in".into());
+            }
+
+            if cmds.len() > before_len {
+                touched += 1;
+            }
+        }
+
+        if !cmds.is_empty() {
+            self.journal.execute(
+                &mut self.doc,
+                DocCommand::Batch {
+                    label: format!("Apply Heading Style ({preset_slug})"),
+                    commands: cmds,
+                },
+            )?;
+        }
+        Ok(touched)
+    }
+
+    /// Insert a standalone Microsoft Visio Title, Subtitle, Heading (`H1`–`H3`), Section Banner,
+    /// or Caption block onto `page_id` (using smart page-header coordinates when `x_in <= 0 && y_in <= 0`).
+    pub fn insert_text_heading(
+        &mut self,
+        page_id: u32,
+        preset_slug: &str,
+        custom_text: Option<&str>,
+        x_in: f64,
+        y_in: f64,
+    ) -> Result<u64, CoreError> {
+        let norm = preset_slug.trim().to_ascii_lowercase();
+        let (size_pt, char_style, text_rgb, horiz_align, def_w, def_h, def_label) =
+            Self::resolve_heading_preset_spec(&norm);
+
+        let (page_w, page_h, sid) = {
+            let page = self
+                .doc
+                .page(page_id)
+                .ok_or(CoreError::Journal(JournalError::PageNotFound(page_id)))?;
+            let pw = page.page_sheet.get_f64("PageWidth").unwrap_or(11.6929).max(3.0);
+            let ph = page.page_sheet.get_f64("PageHeight").unwrap_or(8.2677).max(3.0);
+            (pw, ph, page.next_shape_id())
+        };
+
+        let w = def_w.min((page_w - 0.8).max(1.8));
+        let h = def_h;
+        let (px, py) = if x_in > 0.0 || y_in > 0.0 {
+            (x_in, y_in)
+        } else {
+            match norm.as_str() {
+                "title" => (0.55 + w * 0.5, (page_h - 0.65).max(h * 0.6)),
+                "subtitle" => (0.55 + w * 0.5, (page_h - 1.14).max(h * 0.6)),
+                _ => (page_w * 0.5, page_h * 0.62),
+            }
+        };
+
+        let shape_name = match norm.as_str() {
+            "title" => format!("Title.{sid}"),
+            "subtitle" => format!("Subtitle.{sid}"),
+            "h1" | "heading1" => format!("Heading1.{sid}"),
+            "h2" | "heading2" => format!("Heading2.{sid}"),
+            "h3" | "heading3" => format!("Heading3.{sid}"),
+            "section_banner" | "banner" => format!("SectionBanner.{sid}"),
+            "callout_title" => format!("CalloutHeader.{sid}"),
+            "caption" => format!("Caption.{sid}"),
+            _ => format!("BodyText.{sid}"),
+        };
+
+        let mut sh = VisioShape::new_rect(sid, &shape_name, px, py, w, h);
+        sh.text = custom_text
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .unwrap_or(def_label)
+            .to_string();
+
+        sh.sheet
+            .set_formula("Char.Size", format!("{} pt", format_clean_f64(size_pt)), Some(Unit::Point));
+        sh.sheet
+            .set_formula("Char.Style", char_style.to_string(), None);
+        sh.sheet
+            .set_formula("Char.Color", format!("=RGB({text_rgb})"), Some(Unit::Color));
+        sh.sheet
+            .set_formula("Para.HorzAlign", horiz_align.to_string(), None);
+
+        match norm.as_str() {
+            "section_banner" | "banner" => {
+                sh.sheet.set_formula("FillPattern", "1", None);
+                sh.sheet
+                    .set_formula("FillForegnd", "=RGB(30,64,175)", Some(Unit::Color));
+                sh.sheet.set_formula("LinePattern", "1", None);
+                sh.sheet
+                    .set_formula("LineColor", "=RGB(30,58,138)", Some(Unit::Color));
+                sh.sheet
+                    .set_formula("Rounding", "0.08 in", Some(Unit::Inch));
+            }
+            "callout_title" => {
+                sh.sheet.set_formula("FillPattern", "1", None);
+                sh.sheet
+                    .set_formula("FillForegnd", "=RGB(239,246,255)", Some(Unit::Color));
+                sh.sheet.set_formula("LinePattern", "1", None);
+                sh.sheet
+                    .set_formula("LineColor", "=RGB(37,99,235)", Some(Unit::Color));
+                sh.sheet
+                    .set_formula("LineWeight", "1.25 pt", Some(Unit::Point));
+                sh.sheet
+                    .set_formula("Rounding", "0.06 in", Some(Unit::Inch));
+            }
+            "h1" | "heading1" => {
+                // Frameless fill + crisp bottom accent underline rule (`Geometry1` open bottom line)
+                let mut g = vexio_shapesheet::GeometrySection::new(1);
+                g.no_fill = "TRUE".into();
+                g.rows = vec![
+                    vexio_shapesheet::GeometryRow::move_to(1, "0 in", "0 in"),
+                    vexio_shapesheet::GeometryRow::line_to(2, "=Width", "0 in"),
+                ];
+                sh.sheet.geometries = vec![g];
+                sh.sheet.sync_all_sections_to_cells();
+                sh.sheet.set_formula("FillPattern", "0", None);
+                sh.sheet.set_formula("LinePattern", "1", None);
+                sh.sheet
+                    .set_formula("LineColor", "=RGB(37,99,235)", Some(Unit::Color));
+                sh.sheet
+                    .set_formula("LineWeight", "1.75 pt", Some(Unit::Point));
+            }
+            _ => {
+                // Pure frameless Visio text heading / title block
+                if let Some(g) = sh.sheet.geometries.first_mut() {
+                    g.no_fill = "TRUE".into();
+                }
+                sh.sheet.sync_all_sections_to_cells();
+                sh.sheet.set_formula("FillPattern", "0", None);
+                sh.sheet.set_formula("LinePattern", "0", None);
+            }
+        }
+
+        self.journal.execute(
+            &mut self.doc,
+            DocCommand::AddShape {
+                page_id,
+                shape: sh,
+            },
+        )?;
+        Ok(sid)
+    }
+
+    /// Apply or remove a Microsoft Visio `Design -> Borders & Titles` page style in an undoable transaction.
+    pub fn apply_border_and_title(
+        &mut self,
+        page_id: u32,
+        style_slug: &str,
+        title_text: &str,
+        subtitle_text: &str,
+        author: &str,
+        date_or_rev: &str,
+    ) -> Result<u32, CoreError> {
+        if self.doc.page(page_id).is_none() {
+            return Err(CoreError::Journal(JournalError::PageNotFound(page_id)));
+        }
+        let mut bg_pid = 0u32;
+        self.journal
+            .record_mutation(&mut self.doc, "Borders & Titles", |doc| {
+                bg_pid = crate::enterprise_plan2::apply_border_and_title_style(
+                    doc,
+                    page_id,
+                    style_slug,
+                    title_text,
+                    subtitle_text,
+                    author,
+                    date_or_rev,
+                )
+                .unwrap_or(0);
+            });
+        Ok(bg_pid)
+    }
+
     /// Rotate (`delta_angle_deg`, e.g. `+90` left / `-90` right in Visio's CCW angle convention)
     /// and/or flip (`FlipX`, `FlipY`) all selected stencils and shapes as a single undoable operation.
     pub fn rotate_or_flip_shapes(
@@ -5511,5 +5762,89 @@ fn clear_subtree_preview_text(sh: &mut VisioShape) {
             child.text.clear();
         }
         clear_subtree_preview_text(child);
+    }
+}
+
+#[cfg(test)]
+mod headings_and_titles_tests {
+    use super::*;
+
+    #[test]
+    fn visio_headings_titles_and_borders_roundtrip_and_undo() {
+        let mut session = DocumentSession::new_blank("Architecture Overview");
+        let page_id = session.doc.pages[0].id;
+
+        // 1. Insert standalone Title, Subtitle, Heading 1, Section Banner, and Callout Header
+        let title_sid = session
+            .insert_text_heading(page_id, "title", Some("Cloud Architecture"), 0.0, 0.0)
+            .expect("insert title");
+        let subtitle_sid = session
+            .insert_text_heading(page_id, "subtitle", Some("Q4 Production Blueprint"), 0.0, 0.0)
+            .expect("insert subtitle");
+        let h1_sid = session
+            .insert_text_heading(page_id, "h1", Some("1. Core Services"), 3.0, 5.0)
+            .expect("insert h1");
+        let banner_sid = session
+            .insert_text_heading(page_id, "section_banner", Some("DMZ Ingress"), 3.0, 4.0)
+            .expect("insert banner");
+
+        assert_ne!(title_sid, subtitle_sid);
+        assert_ne!(h1_sid, banner_sid);
+
+        // Verify Heading 1 has frameless fill + accent bottom underline geometry
+        let h1_shape = session.doc.page(page_id).unwrap().find_shape(h1_sid).unwrap();
+        assert_eq!(h1_shape.text, "1. Core Services");
+        assert_eq!(h1_shape.sheet.get_f64("FillPattern").unwrap_or(1.0) as i32, 0);
+        assert_eq!(h1_shape.sheet.get_f64("LinePattern").unwrap_or(0.0) as i32, 1);
+
+        // 2. Apply typography preset onto existing shapes + Undo/Redo verification
+        let updated = session
+            .apply_text_heading_preset(page_id, &[subtitle_sid], "h1")
+            .expect("apply h1 preset");
+        assert_eq!(updated, 1);
+        let sub_after = session.doc.page(page_id).unwrap().find_shape(subtitle_sid).unwrap();
+        assert!((sub_after.sheet.get_f64("Char.Size").unwrap_or(0.0) - (18.0 / 72.0)).abs() < 1e-3);
+        assert_eq!(sub_after.sheet.get_f64("Char.Style").unwrap_or(0.0) as i32, 1);
+
+        assert!(session.journal.undo(&mut session.doc).expect("undo preset"));
+        let sub_undone = session.doc.page(page_id).unwrap().find_shape(subtitle_sid).unwrap();
+        assert!((sub_undone.sheet.get_f64("Char.Size").unwrap_or(0.0) - (14.0 / 72.0)).abs() < 1e-3);
+        assert_eq!(sub_undone.sheet.get_f64("Char.Style").unwrap_or(1.0) as i32, 0);
+        assert!(session.journal.redo(&mut session.doc).expect("redo preset"));
+
+        // 3. Apply all Borders & Titles gallery variants + clean "none" removal
+        for style in [
+            "modern_banner",
+            "executive_underline",
+            "classic_frame",
+            "pill_banner",
+            "iso_engineering",
+        ] {
+            let bg_id = session
+                .apply_border_and_title(
+                    page_id,
+                    style,
+                    "Cloud Architecture",
+                    "PRJ-2026",
+                    "Platform Team",
+                    "Rev 1.2",
+                )
+                .expect("apply border style");
+            assert!(bg_id > 0, "style {style} must link background page");
+            assert_eq!(session.doc.page(page_id).unwrap().back_page_id, Some(bg_id));
+        }
+
+        // Round-trip through lossless .vsdx bytes while background title page is linked
+        let vsdx_bytes = session.save_format("vsdx").expect("save vsdx");
+        let mut reloaded = DocumentSession::new_blank("Reloaded");
+        reloaded.open_bytes(&vsdx_bytes, "vsdx").expect("reload vsdx");
+        assert!(reloaded.doc.pages[0].back_page_id.is_some());
+
+        // Detach via "none"
+        let cleared = session
+            .apply_border_and_title(page_id, "none", "", "", "", "")
+            .expect("remove border and title");
+        assert_eq!(cleared, 0);
+        assert_eq!(session.doc.page(page_id).unwrap().back_page_id, None);
     }
 }

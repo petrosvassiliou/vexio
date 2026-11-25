@@ -345,6 +345,22 @@ interface WasmSessionInstance {
     back_page_id: number,
     page_color_formula: string
   ): boolean;
+  apply_heading_preset?(page_id: number, shape_ids: Uint32Array, preset_slug: string): number;
+  insert_heading?(
+    page_id: number,
+    preset_slug: string,
+    custom_text: string,
+    x_in: number,
+    y_in: number
+  ): number;
+  apply_border_and_title?(
+    page_id: number,
+    style_slug: string,
+    title: string,
+    subtitle: string,
+    author: string,
+    date_or_rev: string
+  ): number;
   undo(): boolean;
   redo(): boolean;
   export_wal(): Uint8Array;
@@ -868,6 +884,68 @@ self.onmessage = async (ev: MessageEvent) => {
           String(payload.author ?? 'Principal Architect'),
           String(payload.revision ?? 'Rev A')
         );
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, bgPageId, wal, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'applyOrInsertHeading': {
+        const presetSlug = String(payload.presetSlug ?? 'h1');
+        const forceInsert = Boolean(payload.forceInsert);
+        const targetIds: number[] = Array.isArray(payload.shapeIds)
+          ? payload.shapeIds.map(Number).filter((n: number) => n > 0)
+          : [];
+        if (!forceInsert && targetIds.length > 0 && session.apply_heading_preset) {
+          const count = session.apply_heading_preset(
+            activePageId,
+            new Uint32Array(targetIds),
+            presetSlug
+          );
+          const wal = session.export_wal();
+          self.postMessage({
+            id,
+            ok: true,
+            inserted: false,
+            modifiedCount: count,
+            shapeId: targetIds[0],
+            wal,
+            snapshot: buildSnapshot(session),
+          });
+          break;
+        }
+        const createdId = session.insert_heading
+          ? session.insert_heading(
+              activePageId,
+              presetSlug,
+              String(payload.customText ?? ''),
+              Number(payload.xIn ?? 0),
+              Number(payload.yIn ?? 0)
+            )
+          : 0;
+        if (createdId > 0) {
+          selectedShapeIds = [createdId];
+        }
+        const wal = session.export_wal();
+        self.postMessage({
+          id,
+          ok: true,
+          inserted: true,
+          shapeId: createdId,
+          wal,
+          snapshot: buildSnapshot(session),
+        });
+        break;
+      }
+      case 'applyBorderAndTitle': {
+        const bgPageId = session.apply_border_and_title
+          ? session.apply_border_and_title(
+              activePageId,
+              String(payload.styleSlug ?? 'modern_banner'),
+              String(payload.title ?? ''),
+              String(payload.subtitle ?? ''),
+              String(payload.author ?? ''),
+              String(payload.dateOrRev ?? '')
+            )
+          : 0;
         const wal = session.export_wal();
         self.postMessage({ id, ok: true, bgPageId, wal, snapshot: buildSnapshot(session) });
         break;

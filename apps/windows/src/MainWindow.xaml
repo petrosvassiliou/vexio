@@ -278,6 +278,23 @@
                                             <x:String>36</x:String>
                                             <x:String>48</x:String>
                                         </ComboBox>
+                                        <Button Padding="7,2" Content="Headings ▾" FontSize="11" FontWeight="SemiBold"
+                                                ToolTipService.ToolTip="Apply Visio Title / Heading Style to Selection (or Insert onto Page)">
+                                            <Button.Flyout>
+                                                <MenuFlyout>
+                                                    <MenuFlyoutItem Text="Diagram Title (24 pt Bold)" Tag="title" Click="OnHeadingPresetMenuClick" />
+                                                    <MenuFlyoutItem Text="Subtitle (14 pt)" Tag="subtitle" Click="OnHeadingPresetMenuClick" />
+                                                    <MenuFlyoutItem Text="Heading 1 — Underlined (18 pt)" Tag="h1" Click="OnHeadingPresetMenuClick" />
+                                                    <MenuFlyoutItem Text="Heading 2 (14 pt Bold)" Tag="h2" Click="OnHeadingPresetMenuClick" />
+                                                    <MenuFlyoutItem Text="Heading 3 (12 pt Accent)" Tag="h3" Click="OnHeadingPresetMenuClick" />
+                                                    <MenuFlyoutItem Text="Section Header Banner" Tag="section_banner" Click="OnHeadingPresetMenuClick" />
+                                                    <MenuFlyoutItem Text="Accent Callout Header" Tag="callout_title" Click="OnHeadingPresetMenuClick" />
+                                                    <MenuFlyoutSeparator />
+                                                    <MenuFlyoutItem Text="Body Text (11 pt)" Tag="body" Click="OnHeadingPresetMenuClick" />
+                                                    <MenuFlyoutItem Text="Caption / Note (9.5 pt)" Tag="caption" Click="OnHeadingPresetMenuClick" />
+                                                </MenuFlyout>
+                                            </Button.Flyout>
+                                        </Button>
                                         <Button Padding="5,2" Click="OnGrowFontSizeClick" Content="A▲" FontSize="10.5" ToolTipService.ToolTip="Increase Font Size" />
                                         <Button Padding="5,2" Click="OnShrinkFontSizeClick" Content="A▼" FontSize="10.5" ToolTipService.ToolTip="Decrease Font Size" />
                                         <Button Padding="7,2" Content="A Color ▾" FontSize="11" ToolTipService.ToolTip="Text Color (Native OS Color Picker)">
@@ -475,6 +492,20 @@
                             <AppBarSeparator />
                             <StackPanel>
                                 <StackPanel Orientation="Horizontal" Spacing="4" Height="56">
+                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Content="Title / Heading ▾" FontWeight="SemiBold"
+                                            ToolTipService.ToolTip="Insert a Visio Diagram Title, Subtitle, Heading (H1–H3), or Section Banner">
+                                        <Button.Flyout>
+                                            <MenuFlyout>
+                                                <MenuFlyoutItem Text="Insert Diagram Title (24 pt)" Tag="title" Click="OnInsertHeadingMenuClick" />
+                                                <MenuFlyoutItem Text="Insert Subtitle (14 pt)" Tag="subtitle" Click="OnInsertHeadingMenuClick" />
+                                                <MenuFlyoutItem Text="Insert Heading 1 — Underlined" Tag="h1" Click="OnInsertHeadingMenuClick" />
+                                                <MenuFlyoutItem Text="Insert Heading 2" Tag="h2" Click="OnInsertHeadingMenuClick" />
+                                                <MenuFlyoutItem Text="Insert Heading 3" Tag="h3" Click="OnInsertHeadingMenuClick" />
+                                                <MenuFlyoutItem Text="Insert Section Header Banner" Tag="section_banner" Click="OnInsertHeadingMenuClick" />
+                                                <MenuFlyoutItem Text="Insert Accent Callout Header" Tag="callout_title" Click="OnInsertHeadingMenuClick" />
+                                            </MenuFlyout>
+                                        </Button.Flyout>
+                                    </Button>
                                     <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnInsertContainerClick" Content="Container" />
                                     <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnInsertSwimlaneClick" Content="Swimlane" />
                                     <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnInsertCalloutClick" Content="Callout" />
@@ -499,6 +530,20 @@
                             <StackPanel>
                                 <StackPanel Orientation="Horizontal" Spacing="6" Height="56" VerticalAlignment="Center">
                                     <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnPageSetupClick" Content="Page Setup (Shift+F4)" />
+                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Content="Borders &amp; Titles ▾" FontWeight="SemiBold"
+                                            ToolTipService.ToolTip="Apply Visio Page Borders &amp; Title Blocks">
+                                        <Button.Flyout>
+                                            <MenuFlyout>
+                                                <MenuFlyoutItem Text="Modern Header Banner" Tag="modern_banner" Click="OnBorderTitleMenuClick" />
+                                                <MenuFlyoutItem Text="Executive Title &amp; Accent Rule" Tag="executive_underline" Click="OnBorderTitleMenuClick" />
+                                                <MenuFlyoutItem Text="Classic Frame &amp; Title" Tag="classic_frame" Click="OnBorderTitleMenuClick" />
+                                                <MenuFlyoutItem Text="Rounded Pill Banner" Tag="pill_banner" Click="OnBorderTitleMenuClick" />
+                                                <MenuFlyoutItem Text="ISO 7200 / ANSI Engineering Block" Tag="iso_engineering" Click="OnBorderTitleMenuClick" />
+                                                <MenuFlyoutSeparator />
+                                                <MenuFlyoutItem Text="None (Remove Border &amp; Title)" Tag="none" Click="OnBorderTitleMenuClick" />
+                                            </MenuFlyout>
+                                        </Button.Flyout>
+                                    </Button>
                                     <ComboBox x:Name="PageOrientationCombo" SelectedIndex="0" Width="212" VerticalAlignment="Center" SelectionChanged="OnPageOrientationChanged"
                                               ToolTipService.ToolTip="ISO Metric (A4, A3, A5, A2) &amp; US ANSI Page Sizes">
                                         <x:String>ISO A4 Landscape (297×210 mm)</x:String>
@@ -1458,7 +1503,7 @@
                                 </StackPanel>
                                 <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
                                     <Button Click="OnCheckUpdatesClick" Content="Check for Updates Now" />
-                                    <TextBlock x:Name="BackstageUpdateStatusText" Text="Vexio v0.4.1-alpha • Automatic background update check enabled."
+                                    <TextBlock x:Name="BackstageUpdateStatusText" Text="Vexio v0.4.2-alpha • Automatic background update check enabled."
                                                FontSize="12" Opacity="0.8" VerticalAlignment="Center" />
                                 </StackPanel>
                             </StackPanel>
