@@ -1639,6 +1639,44 @@ private final class NativeDocumentCore: @unchecked Sendable {
         return cgImage
     }
 
+    func renderActiveViewportRGBA(widthPx: UInt32, heightPx: UInt32) -> CGImage? {
+        lock.lock()
+        defer { lock.unlock() }
+
+        guard let activeViewport = viewport else { return nil }
+        let safeWidth = Int(max(widthPx, 1))
+        let safeHeight = Int(max(heightPx, 1))
+        var rgbaBuffer = VexioOwnedBuffer(ptr: nil, len: 0, cap: 0)
+        let status = vexio_viewport_render_rgba(activeViewport, doc, &rgbaBuffer)
+        guard status == VEXIO_OK else {
+            vexio_buffer_free(rgbaBuffer)
+            return nil
+        }
+
+        let rgbaData = Self.consumeOwnedBufferAsData(rgbaBuffer)
+        let expectedByteCount = safeWidth * safeHeight * 4
+        guard rgbaData.count >= expectedByteCount,
+              let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
+              let dataProvider = CGDataProvider(data: rgbaData as CFData)
+        else {
+            return nil
+        }
+
+        return CGImage(
+            width: safeWidth,
+            height: safeHeight,
+            bitsPerComponent: 8,
+            bitsPerPixel: 32,
+            bytesPerRow: safeWidth * 4,
+            space: colorSpace,
+            bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
+            provider: dataProvider,
+            decode: nil,
+            shouldInterpolate: true,
+            intent: .defaultIntent
+        )
+    }
+
     // MARK: - Phase 7 Plan 2 Thread-Safe C-ABI Operations
 
     func booleanOp(
@@ -2964,6 +3002,35 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
 
     public func detachViewport() {
         core.destroyViewport()
+    }
+
+    public func attachHeadlessCaptureViewport(widthPx: UInt32, heightPx: UInt32, dpiScale: Float) {
+        let safeDpi = CGFloat(max(dpiScale, 0.5))
+        lastViewportLogicalSize = CGSize(width: CGFloat(widthPx) / safeDpi, height: CGFloat(heightPx) / safeDpi)
+        do {
+            try core.bindHeadlessViewport(
+                pageId: activePageId,
+                widthPx: widthPx,
+                heightPx: heightPx,
+                dpiScale: dpiScale
+            )
+            core.setViewportPage(pageId: activePageId)
+            core.setViewportTool(toolCode: activeTool.engineToolCode)
+            if lastViewportLogicalSize.width >= 64 && lastViewportLogicalSize.height >= 64 {
+                needsFitOnViewportReady = false
+                fitViewportToActivePage()
+            } else {
+                needsFitOnViewportReady = true
+                core.renderViewportFrame()
+            }
+            lastBannerError = nil
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    public func renderActiveViewportCGImage(widthPx: UInt32, heightPx: UInt32) -> CGImage? {
+        core.renderActiveViewportRGBA(widthPx: widthPx, heightPx: heightPx)
     }
 
     @discardableResult

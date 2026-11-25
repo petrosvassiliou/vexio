@@ -39,6 +39,11 @@ public struct MetalDiagramCanvas: NSViewRepresentable {
 
 @MainActor
 public final class VexioMetalNSView: NSView {
+    private static let isScreenshotCaptureMode: Bool = {
+        let raw = ProcessInfo.processInfo.environment["VEXIO_CAPTURE_SCREENSHOT"] ?? ""
+        return !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }()
+
     public weak var session: VexioDocumentSession?
     public weak var activeUndoManager: UndoManager?
 
@@ -84,6 +89,13 @@ public final class VexioMetalNSView: NSView {
     }
 
     override public func makeBackingLayer() -> CALayer {
+        if Self.isScreenshotCaptureMode {
+            let captureLayer = CALayer()
+            captureLayer.isOpaque = true
+            captureLayer.contentsGravity = .resize
+            captureLayer.contentsScale = NSScreen.main?.backingScaleFactor ?? 2.0
+            return captureLayer
+        }
         let metalLayer = CAMetalLayer()
         metalLayer.device = MTLCreateSystemDefaultDevice()
         metalLayer.pixelFormat = .bgra8Unorm
@@ -154,9 +166,26 @@ public final class VexioMetalNSView: NSView {
 
     public func syncViewportDrawableIfNeeded(forceRebind: Bool = false) {
         guard window != nil,
-              let session,
-              let metalLayer = metalBackingLayer
+              let session
         else {
+            return
+        }
+
+        if Self.isScreenshotCaptureMode {
+            let scale: CGFloat = 2.0
+            let pixelWidth = max(floor(bounds.width * scale), 1.0)
+            let pixelHeight = max(floor(bounds.height * scale), 1.0)
+            let targetPixelSize = CGSize(width: pixelWidth, height: pixelHeight)
+            guard forceRebind || targetPixelSize != lastBoundPixelSize || scale != lastBoundScale else {
+                return
+            }
+            lastBoundPixelSize = targetPixelSize
+            lastBoundScale = scale
+            refreshCaptureLayerContents()
+            return
+        }
+
+        guard let metalLayer = metalBackingLayer else {
             return
         }
 
@@ -187,6 +216,23 @@ public final class VexioMetalNSView: NSView {
                 heightPx: UInt32(pixelHeight),
                 dpiScale: Float(scale)
             )
+        }
+    }
+
+    public func refreshCaptureLayerContents() {
+        guard Self.isScreenshotCaptureMode, let session else { return }
+        let scale: CGFloat = 2.0
+        let wPx = UInt32(max(floor(bounds.width * scale), 1.0))
+        let hPx = UInt32(max(floor(bounds.height * scale), 1.0))
+        if !session.hasAttachedMetalViewport() {
+            session.attachHeadlessCaptureViewport(widthPx: wPx, heightPx: hPx, dpiScale: Float(scale))
+        } else {
+            session.resizeMetalViewport(widthPx: wPx, heightPx: hPx, dpiScale: Float(scale))
+        }
+        session.fitViewportToActivePage()
+        if let cg = session.renderActiveViewportCGImage(widthPx: wPx, heightPx: hPx) {
+            layer?.contentsScale = scale
+            layer?.contents = cg
         }
     }
 

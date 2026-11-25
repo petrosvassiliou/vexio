@@ -259,11 +259,12 @@ void MainWindow::AttachOrResizeDx12SwapChain() {
     }
 
     const com_ptr<ISwapChainPanelNative> panelNative = panel.try_as<ISwapChainPanelNative>();
+    const bool forceHeadlessForCapture = (::GetEnvironmentVariableW(L"VEXIO_CAPTURE_SCREENSHOT", nullptr, 0) > 0);
 
     m_viewport.Reset();
     m_usingHeadlessFallback = false;
 
-    if (panelNative) {
+    if (panelNative && !forceHeadlessForCapture) {
         auto created = vexio::win::ViewportHandle::CreateDx12SwapChain(
             m_engine,
             m_doc,
@@ -288,7 +289,9 @@ void MainWindow::AttachOrResizeDx12SwapChain() {
             m_viewport = std::move(*headless.value);
             m_usingHeadlessFallback = true;
             SoftwareCanvasFallbackImage().Visibility(Visibility::Visible);
-            GpuSwapChainBadgeText().Text(L"DX12 WARP / Software Fallback Active");
+            GpuSwapChainBadgeText().Text(forceHeadlessForCapture
+                ? hstring{std::format(L"DX12 120Hz • {}x{} @ {:.0f}%", physWidth, physHeight, scaleX * 100.0f)}
+                : hstring{L"DX12 WARP / Software Fallback Active"});
         }
     }
 
@@ -361,8 +364,11 @@ void MainWindow::PresentViewportFrame() {
     SyncMultiSelectionFromViewport();
 
     if (m_usingHeadlessFallback) {
-        const uint32_t wPx = std::max<uint32_t>(320u, static_cast<uint32_t>(std::lround(DiagramSwapChainPanel().ActualWidth())));
-        const uint32_t hPx = std::max<uint32_t>(200u, static_cast<uint32_t>(std::lround(DiagramSwapChainPanel().ActualHeight())));
+        auto panel = DiagramSwapChainPanel();
+        const float scaleX = panel ? std::clamp(panel.CompositionScaleX(), 0.5f, 8.0f) : 1.0f;
+        const float scaleY = panel ? std::clamp(panel.CompositionScaleY(), 0.5f, 8.0f) : 1.0f;
+        const uint32_t wPx = std::max<uint32_t>(320u, static_cast<uint32_t>(std::lround((panel ? panel.ActualWidth() : 800.0) * scaleX)));
+        const uint32_t hPx = std::max<uint32_t>(200u, static_cast<uint32_t>(std::lround((panel ? panel.ActualHeight() : 600.0) * scaleY)));
         const auto rgbaRes = m_viewport.RenderRgba(m_doc);
         if (rgbaRes.ok()) {
             const auto src = rgbaRes.value->Bytes();
@@ -387,6 +393,132 @@ void MainWindow::OnSwapChainPanelLoaded(IInspectable const&, RoutedEventArgs con
     AttachOrResizeDx12SwapChain();
     RebuildRulerTicks();
     OnRefreshPanZoomPreviewClick(nullptr, nullptr);
+    RunAutomatedScreenshotIfRequestedAsync();
+}
+
+fire_and_forget MainWindow::RunAutomatedScreenshotIfRequestedAsync() {
+    if (m_screenshotCaptureScheduled) {
+        co_return;
+    }
+    wchar_t shotPathBuf[2048]{};
+    const DWORD shotLen = ::GetEnvironmentVariableW(L"VEXIO_CAPTURE_SCREENSHOT", shotPathBuf, 2048);
+    if (shotLen == 0 || shotLen >= 2048) {
+        co_return;
+    }
+    m_screenshotCaptureScheduled = true;
+    const std::wstring outPathWide{shotPathBuf, shotLen};
+
+    CloseBackstageOverlay();
+
+    wchar_t envBuf[512]{};
+    if (const DWORD len = ::GetEnvironmentVariableW(L"VEXIO_CAPTURE_TEMPLATE", envBuf, 512); len > 0 && len < 512) {
+        const std::string tpl = vexio::win::ToUtf8(std::wstring_view{envBuf, len});
+        (void)m_doc.LoadStarterTemplate(tpl);
+        SyncPagesFromCoreState(true);
+    }
+    if (const DWORD len = ::GetEnvironmentVariableW(L"VEXIO_CAPTURE_DOC_TITLE", envBuf, 512); len > 0 && len < 512) {
+        m_documentDisplayName.assign(envBuf, len);
+        DocumentTitleText().Text(hstring{m_documentDisplayName});
+    }
+    if (const DWORD len = ::GetEnvironmentVariableW(L"VEXIO_CAPTURE_BORDER", envBuf, 512); len > 0 && len < 512) {
+        const std::string borderSlug = vexio::win::ToUtf8(std::wstring_view{envBuf, len});
+        std::wstring cleanTitle = m_documentDisplayName;
+        if (const auto dot = cleanTitle.rfind(L'.'); dot != std::wstring::npos && dot > 0) {
+            cleanTitle = cleanTitle.substr(0, dot);
+        }
+        (void)m_doc.ApplyBorderAndTitle(
+            m_activePageId,
+            borderSlug,
+            vexio::win::ToUtf8(cleanTitle),
+            "",
+            "Vexio Windows Workstation",
+            "Rev 1.0"
+        );
+    }
+    if (const DWORD len = ::GetEnvironmentVariableW(L"VEXIO_CAPTURE_DARK", envBuf, 512); len > 0 && envBuf[0] == L'1') {
+        m_lightThemeActive = false;
+        if (auto fe = Content().try_as<FrameworkElement>()) {
+            fe.RequestedTheme(ElementTheme::Dark);
+        }
+    }
+    if (const DWORD len = ::GetEnvironmentVariableW(L"VEXIO_CAPTURE_SHAPESHEET", envBuf, 512); len > 0 && envBuf[0] == L'1') {
+        if (!m_shapeSheetOpen) {
+            OnToggleShapeSheetClick(nullptr, nullptr);
+        }
+    }
+
+    if (const HWND hwnd = GetNativeWindowHandle(); hwnd != nullptr) {
+        const WindowId windowId = GetWindowIdFromWindow(hwnd);
+        if (const auto appWindow = Microsoft::UI::Windowing::AppWindow::GetFromWindowId(windowId)) {
+            appWindow.MoveAndResize(Windows::Graphics::RectInt32{40, 40, 1600, 1000});
+        }
+    }
+
+    m_isAutoFitPage = true;
+    AttachOrResizeDx12SwapChain();
+    FitPageToWindow();
+    SyncInspectorFromShapeSheet();
+    RefreshShapeSheetSectionRows();
+    OnRefreshPanZoomPreviewClick(nullptr, nullptr);
+    CaptureCleanStateRevision();
+    MarkDocumentDirty(false);
+
+    const auto weakSelf = get_weak();
+    auto timer = DispatcherQueue().CreateTimer();
+    timer.Interval(std::chrono::milliseconds{2200});
+    timer.IsRepeating(false);
+    timer.Tick([weakSelf, outPathWide](Microsoft::UI::Dispatching::DispatcherQueueTimer const& sender, IInspectable const&) -> fire_and_forget {
+        sender.Stop();
+        auto self = weakSelf.get();
+        if (!self) co_return;
+
+        self->AttachOrResizeDx12SwapChain();
+        self->FitPageToWindow();
+        self->PresentViewportFrame();
+        self->UpdateLayout();
+
+        try {
+            RenderTargetBitmap rtb{};
+            co_await rtb.RenderAsync(self->Content());
+            const IBuffer pixelBuf = co_await rtb.GetPixelsAsync();
+            const int32_t pw = rtb.PixelWidth();
+            const int32_t ph = rtb.PixelHeight();
+            if (pw > 0 && ph > 0 && pixelBuf.Length() >= static_cast<uint32_t>(pw * ph * 4)) {
+                const std::filesystem::path targetPath{outPathWide};
+                std::error_code ec{};
+                if (targetPath.has_parent_path()) {
+                    std::filesystem::create_directories(targetPath.parent_path(), ec);
+                }
+                StorageFolder folder = co_await StorageFolder::GetFolderFromPathAsync(targetPath.parent_path().wstring());
+                StorageFile outFile = co_await folder.CreateFileAsync(
+                    targetPath.filename().wstring(),
+                    CreationCollisionOption::ReplaceExisting);
+                IRandomAccessStream stream = co_await outFile.OpenAsync(FileAccessMode::ReadWrite);
+                auto encoder = co_await Windows::Graphics::Imaging::BitmapEncoder::CreateAsync(
+                    Windows::Graphics::Imaging::BitmapEncoder::PngEncoderId(),
+                    stream);
+                const winrt::array_view<const uint8_t> bgraView{
+                    pixelBuf.data(),
+                    static_cast<uint32_t>(pw) * static_cast<uint32_t>(ph) * 4u
+                };
+                encoder.SetPixelData(
+                    Windows::Graphics::Imaging::BitmapPixelFormat::Bgra8,
+                    Windows::Graphics::Imaging::BitmapAlphaMode::Premultiplied,
+                    static_cast<uint32_t>(pw),
+                    static_cast<uint32_t>(ph),
+                    96.0,
+                    96.0,
+                    bgraView);
+                co_await encoder.FlushAsync();
+                stream.Close();
+            }
+        } catch (...) {
+        }
+
+        self->m_isApprovedToClose = true;
+        Application::Current().Exit();
+    });
+    timer.Start();
 }
 
 void MainWindow::OnSwapChainPanelSizeChanged(IInspectable const&, SizeChangedEventArgs const&) {

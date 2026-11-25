@@ -251,7 +251,12 @@ public struct VexioWorkspaceView: View {
                     session.openLocalFile(from: fileURL)
                 } else if !didHandleInitialLaunchPresentation {
                     didHandleInitialLaunchPresentation = true
-                    if !skipStartScreenOnLaunch {
+                    let captureOut = (ProcessInfo.processInfo.environment["VEXIO_CAPTURE_SCREENSHOT"] ?? "")
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !captureOut.isEmpty {
+                        isBackstagePresented = false
+                        scheduleAutomatedWindowScreenshot(outputPath: captureOut)
+                    } else if !skipStartScreenOnLaunch {
                         isBackstagePresented = true
                     }
                 }
@@ -877,6 +882,126 @@ public struct VexioWorkspaceView: View {
             session.lastBannerError = bridgeErr
         } catch {
             session.statusMessage = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private static func collectMetalCanvasViews(in view: NSView, into list: inout [VexioMetalNSView]) {
+        if let metalView = view as? VexioMetalNSView {
+            list.append(metalView)
+        }
+        for sub in view.subviews {
+            collectMetalCanvasViews(in: sub, into: &list)
+        }
+    }
+
+    @MainActor
+    private func scheduleAutomatedWindowScreenshot(outputPath: String) {
+        let env = ProcessInfo.processInfo.environment
+        if let appearance = env["VEXIO_CAPTURE_APPEARANCE"]?.lowercased() {
+            UserDefaults.standard.set(appearance, forKey: "vexio.appearanceMode")
+            NSApp.appearance = (appearance == "dark")
+                ? NSAppearance(named: .darkAqua)
+                : NSAppearance(named: .aqua)
+        }
+        if let templateId = env["VEXIO_CAPTURE_TEMPLATE"], !templateId.isEmpty {
+            session.loadStarterTemplate(templateId, undoManager: nil)
+        }
+        if let customTitle = env["VEXIO_CAPTURE_DOC_TITLE"], !customTitle.isEmpty {
+            session.documentTitle = customTitle
+        }
+        if let borderRaw = env["VEXIO_CAPTURE_BORDER"],
+           let borderStyle = VexioBorderTitleStyle(rawValue: borderRaw) {
+            session.applyBordersAndTitles(
+                style: borderStyle,
+                title: session.documentTitle,
+                subtitle: env["VEXIO_CAPTURE_SUBTITLE"] ?? "",
+                author: "Vexio macOS Workstation",
+                dateOrRev: "Rev 1.0",
+                undoManager: nil
+            )
+        }
+        if let cat = env["VEXIO_CAPTURE_STENCIL_CATEGORY"], !cat.isEmpty {
+            selectedStencilCategory = cat
+        }
+        if env["VEXIO_CAPTURE_SHAPESHEET"] == "1" {
+            session.showShapeSheetDrawer = true
+        }
+        if env["VEXIO_CAPTURE_VALIDATE"] == "bpmn" {
+            session.runDiagramValidation(standard: .bpmn20)
+        }
+        session.reloadSelectedShapeSheetCells()
+        session.syncSelectedShapeMetadataFromCore()
+
+        let capturedSession = session
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 400_000_000)
+            if let window = NSApp.windows.first(where: { $0.isVisible }) ?? NSApp.windows.first {
+                window.setFrame(NSRect(x: 60, y: 60, width: 1600, height: 1000), display: true)
+                window.makeKeyAndOrderFront(nil)
+            }
+            capturedSession.fitViewportToActivePage()
+
+            try? await Task.sleep(nanoseconds: 1_850_000_000)
+            guard let window = NSApp.windows.first(where: { $0.isVisible }) ?? NSApp.windows.first,
+                  let contentView = window.contentView
+            else {
+                Darwin.exit(1)
+            }
+            let rootView = contentView
+            rootView.wantsLayer = true
+            rootView.layoutSubtreeIfNeeded()
+
+            var metalViews: [VexioMetalNSView] = []
+            Self.collectMetalCanvasViews(in: rootView, into: &metalViews)
+            for mv in metalViews {
+                mv.refreshCaptureLayerContents()
+            }
+            rootView.displayIfNeeded()
+
+            let ptWidth = max(Int(round(rootView.bounds.width)), 1)
+            let ptHeight = max(Int(round(rootView.bounds.height)), 1)
+            let pxWidth = ptWidth * 2
+            let pxHeight = ptHeight * 2
+
+            guard let rep = NSBitmapImageRep(
+                bitmapDataPlanes: nil,
+                pixelsWide: pxWidth,
+                pixelsHigh: pxHeight,
+                bitsPerSample: 8,
+                samplesPerPixel: 4,
+                hasAlpha: true,
+                isPlanar: false,
+                colorSpaceName: .calibratedRGB,
+                bytesPerRow: 0,
+                bitsPerPixel: 0
+            ) else {
+                Darwin.exit(2)
+            }
+            rep.size = NSSize(width: ptWidth, height: ptHeight)
+            NSGraphicsContext.saveGraphicsState()
+            if let ctx = NSGraphicsContext(bitmapImageRep: rep) {
+                NSGraphicsContext.current = ctx
+                let isDark = (NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua)
+                (isDark ? NSColor(calibratedRed: 0.08, green: 0.09, blue: 0.12, alpha: 1.0)
+                        : NSColor(calibratedRed: 0.95, green: 0.96, blue: 0.98, alpha: 1.0)).setFill()
+                NSRect(x: 0, y: 0, width: ptWidth, height: ptHeight).fill()
+            }
+            NSGraphicsContext.restoreGraphicsState()
+            rootView.cacheDisplay(in: rootView.bounds, to: rep)
+
+            if let pngData = rep.representation(using: .png, properties: [:]) {
+                let targetURL = URL(fileURLWithPath: outputPath)
+                try? FileManager.default.createDirectory(
+                    at: targetURL.deletingLastPathComponent(),
+                    withIntermediateDirectories: true
+                )
+                try? pngData.write(to: targetURL)
+            }
+            if let appDel = NSApp.delegate as? VexioAppDelegate {
+                appDel.isConfirmedForceTerminating = true
+            }
+            Darwin.exit(0)
         }
     }
 

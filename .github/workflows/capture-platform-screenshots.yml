@@ -1,0 +1,355 @@
+name: Utility — Capture Native Platform Screenshots (macOS, Windows & Android/Googlebook)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  MACOSX_DEPLOYMENT_TARGET: "15.0"
+  WINDOWS_APP_SDK_VERSION: "1.6.241114003"
+  CPPWINRT_VERSION: "2.0.240405.15"
+  ANDROID_NDK_VERSION: "28.0.13004108"
+  ANDROID_COMPILE_SDK: "36"
+
+jobs:
+  capture-macos-liquid-glass:
+    name: Capture macOS 15 Native (Swift 6 Liquid Glass + Metal)
+    runs-on: macos-15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Select Xcode 16+ (Swift 6 toolchain & macOS 15 SDK)
+        run: |
+          if [ -d "/Applications/Xcode_16.2.app" ]; then
+            sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer
+          elif [ -d "/Applications/Xcode_16.1.app" ]; then
+            sudo xcode-select -s /Applications/Xcode_16.1.app/Contents/Developer
+          elif [ -d "/Applications/Xcode_16.0.app" ]; then
+            sudo xcode-select -s /Applications/Xcode_16.0.app/Contents/Developer
+          fi
+          swift --version
+
+      - name: Install Rust stable toolchain (aarch64-apple-darwin)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+
+      - name: Cache Cargo registry and Darwin artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: macos-universal2
+
+      - name: Build vexio-core & Swift 6 VexioMacApp (arm64)
+        run: |
+          cargo build --release -p vexio-core --target aarch64-apple-darwin
+          cp -f target/aarch64-apple-darwin/release/libvexio_core.a target/release-static-libvexio_core.a
+          swift build --package-path apps/macos -c release --arch arm64 --product VexioMacApp
+
+      - name: Assemble Vexio.app & Capture 3200x2000 Retina Liquid Glass Screenshots
+        run: |
+          ARM_BIN_DIR=$(swift build --package-path apps/macos -c release --arch arm64 --show-bin-path)
+          APP_BUNDLE="apps/macos/build/Vexio.app"
+          OUT_DIR="macos-shots"
+          rm -rf "apps/macos/build" "${OUT_DIR}"
+          mkdir -p \
+            "${APP_BUNDLE}/Contents/MacOS" \
+            "${APP_BUNDLE}/Contents/Resources/Stencils" \
+            "${OUT_DIR}"
+
+          cp -f "${ARM_BIN_DIR}/VexioMacApp" "${APP_BUNDLE}/Contents/MacOS/VexioMacApp"
+          chmod +x "${APP_BUNDLE}/Contents/MacOS/VexioMacApp"
+          cp -f "apps/macos/Info.plist" "${APP_BUNDLE}/Contents/Info.plist"
+          cp -f "apps/macos/Resources/AppIcon.icns" "${APP_BUNDLE}/Contents/Resources/AppIcon.icns"
+          cp -f stencils/*.vssx "${APP_BUNDLE}/Contents/Resources/Stencils/"
+          codesign --force --deep --sign - "${APP_BUNDLE}"
+
+          VEXIO_CAPTURE_SCREENSHOT="${PWD}/${OUT_DIR}/macos-01-liquid-glass-workstation.png" \
+          VEXIO_CAPTURE_APPEARANCE="light" \
+          VEXIO_CAPTURE_TEMPLATE="cloud_microservices" \
+          VEXIO_CAPTURE_DOC_TITLE="Cloud-Kubernetes-Architecture" \
+          VEXIO_CAPTURE_BORDER="modern_banner" \
+          VEXIO_CAPTURE_STENCIL_CATEGORY="Microsoft Azure & Hybrid Cloud" \
+            "${APP_BUNDLE}/Contents/MacOS/VexioMacApp"
+
+          VEXIO_CAPTURE_SCREENSHOT="${PWD}/${OUT_DIR}/macos-02-dark-bpmn-shapesheet.png" \
+          VEXIO_CAPTURE_APPEARANCE="dark" \
+          VEXIO_CAPTURE_TEMPLATE="bpmn_fulfillment" \
+          VEXIO_CAPTURE_DOC_TITLE="BPMN-2-0-Order-Fulfillment" \
+          VEXIO_CAPTURE_BORDER="executive_underline" \
+          VEXIO_CAPTURE_STENCIL_CATEGORY="BPMN 2.0" \
+          VEXIO_CAPTURE_SHAPESHEET="1" \
+          VEXIO_CAPTURE_VALIDATE="bpmn" \
+            "${APP_BUNDLE}/Contents/MacOS/VexioMacApp"
+
+          sips -g pixelWidth -g pixelHeight "${OUT_DIR}"/macos-*.png
+          ls -lh "${OUT_DIR}"/macos-*.png
+
+      - name: Upload macOS Native Screenshots
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshots-macos
+          path: macos-shots/macos-*.png
+          if-no-files-found: error
+
+  capture-windows-winui3:
+    name: Capture Windows 11 Native (WinUI 3 + DirectX 12)
+    runs-on: windows-2022
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust stable toolchain (x86_64-pc-windows-msvc)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Cache Cargo registry and target artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: windows-x86_64-pc-windows-msvc
+
+      - name: Setup NuGet CLI
+        uses: NuGet/setup-nuget@v2
+
+      - name: Build vexio-core C-ABI shared library (x86_64)
+        shell: pwsh
+        run: |
+          cargo build --release -p vexio-core --target x86_64-pc-windows-msvc
+
+      - name: Restore Windows App SDK 1.6 & CppWinRT NuGet packages
+        shell: pwsh
+        run: |
+          $PkgDir = "${{ github.workspace }}/apps/windows/build-x64/packages"
+          New-Item -ItemType Directory -Force -Path $PkgDir | Out-Null
+          nuget install Microsoft.WindowsAppSDK -Version $env:WINDOWS_APP_SDK_VERSION -OutputDirectory $PkgDir -NonInteractive
+          nuget install Microsoft.Windows.CppWinRT -Version $env:CPPWINRT_VERSION -OutputDirectory $PkgDir -NonInteractive
+
+      - name: Configure & Build Vexio Native Windows Workstation (WinUI 3 + DX12)
+        shell: pwsh
+        run: |
+          cmake -S apps/windows `
+            -B "apps/windows/build-x64" `
+            -G "Visual Studio 17 2022" `
+            -A x64 `
+            -DVEXIO_AUTO_BUILD_RUST_CORE=OFF `
+            -DVEXIO_RUST_TARGET_DIR="${{ github.workspace }}/target/x86_64-pc-windows-msvc" `
+            -DWINDOWS_APP_SDK_VERSION="$env:WINDOWS_APP_SDK_VERSION" `
+            -DCPPWINRT_VERSION="$env:CPPWINRT_VERSION"
+          cmake --build "apps/windows/build-x64" --target Vexio --config Release -- /r /m
+
+      - name: Install Windows App SDK 1.6 Runtime
+        shell: pwsh
+        run: |
+          $Installer = "$env:RUNNER_TEMP\WindowsAppRuntimeInstall-x64.exe"
+          Invoke-WebRequest -Uri "https://aka.ms/windowsappsdk/1.6/latest/windowsappruntimeinstall-x64.exe" -OutFile $Installer
+          Start-Process -FilePath $Installer -ArgumentList "--quiet", "--force" -Wait -NoNewWindow
+
+      - name: Establish Interactive Desktop Session & Capture WinUI 3 Screenshots
+        shell: pwsh
+        run: |
+          $ShotDir = "C:\vexio-shots"
+          New-Item -ItemType Directory -Force -Path $ShotDir | Out-Null
+          $BinDir = "${{ github.workspace }}\apps\windows\build-x64\Release"
+          Copy-Item "${{ github.workspace }}\target\x86_64-pc-windows-msvc\release\vexio_core.dll" "$BinDir\vexio_core.dll" -Force
+
+          $UserStencilDir = "$env:LOCALAPPDATA\Vexio\Stencils"
+          New-Item -ItemType Directory -Force -Path $UserStencilDir | Out-Null
+          Copy-Item "${{ github.workspace }}\stencils\*.vssx" "$UserStencilDir\" -Force
+
+          # Start a 1920x1200 local RDP interactive console session for runneradmin so DWM + WinUI 3 render full visuals
+          $RdpPass = "VexioRdp#2026!Aa"
+          net user runneradmin $RdpPass
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name 'fDenyTSConnections' -Value 0
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name 'UserAuthentication' -Value 0
+          Enable-NetFirewallRule -DisplayGroup "Remote Desktop" -ErrorAction SilentlyContinue
+          cmdkey /generic:TERMSRV/127.0.0.2 /user:runneradmin /pass:$RdpPass | Out-Null
+          Start-Process -FilePath "mstsc.exe" -ArgumentList "/v:127.0.0.2", "/w:1920", "/h:1200"
+
+          for ($i = 0; $i -lt 30; $i++) {
+            $qw = qwinsta 2>&1 | Out-String
+            if ($qw -match "runneradmin\s+\d+\s+Active") {
+              Write-Host "Interactive RDP session is Active!"
+              break
+            }
+            Start-Sleep -Seconds 1
+          }
+          qwinsta
+
+          $WorkerScript = @"
+          `$ErrorActionPreference = 'Continue'
+          Add-Type -AssemblyName System.Windows.Forms
+          Add-Type -AssemblyName System.Drawing
+          `$BinExe = '$BinDir\Vexio.exe'
+
+          function Run-Shot([string]`$OutPng, [string]`$Tpl, [string]`$Title, [string]`$Border, [string]`$Dark, [string]`$Ss) {
+            `$env:VEXIO_CAPTURE_SCREENSHOT = `$OutPng
+            `$env:VEXIO_CAPTURE_TEMPLATE   = `$Tpl
+            `$env:VEXIO_CAPTURE_DOC_TITLE  = `$Title
+            `$env:VEXIO_CAPTURE_BORDER     = `$Border
+            `$env:VEXIO_CAPTURE_DARK       = `$Dark
+            `$env:VEXIO_CAPTURE_SHAPESHEET = `$Ss
+            `$proc = Start-Process -FilePath `$BinExe -WorkingDirectory '$BinDir' -PassThru
+            `$exited = `$proc.WaitForExit(20000)
+            if (-not (Test-Path `$OutPng)) {
+              # Fallback desktop window capture if RenderTargetBitmap did not flush yet
+              `$bmp = New-Object System.Drawing.Bitmap 1600, 1000
+              `$gfx = [System.Drawing.Graphics]::FromImage(`$bmp)
+              `$gfx.CopyFromScreen(40, 40, 0, 0, `$bmp.Size)
+              `$gfx.Dispose()
+              `$bmp.Save(`$OutPng, [System.Drawing.Imaging.ImageFormat]::Png)
+              `$bmp.Dispose()
+            }
+            if (-not `$exited) { Stop-Process -Id `$proc.Id -Force -ErrorAction SilentlyContinue }
+          }
+
+          Run-Shot '$ShotDir\windows-01-winui3-workstation.png' 'cloud_microservices' 'Cloud-Kubernetes-Architecture.vsdx' 'modern_banner' '0' '0'
+          Run-Shot '$ShotDir\windows-02-dark-bpmn-shapesheet.png' 'bpmn_fulfillment' 'BPMN-2-0-Order-Fulfillment.vsdx' 'executive_underline' '1' '1'
+
+          Set-Content -Path '$ShotDir\done.txt' -Value 'ok'
+          "@
+          $WorkerPath = "$ShotDir\capture_worker.ps1"
+          Set-Content -Path $WorkerPath -Value $WorkerScript -Encoding UTF8
+
+          $Action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$WorkerPath`""
+          $Principal = New-ScheduledTaskPrincipal -UserId "runneradmin" -LogonType Interactive -RunLevel Highest
+          Register-ScheduledTask -TaskName "VexioCaptureWinUI3" -Action $Action -Principal $Principal -Force | Out-Null
+          Start-ScheduledTask -TaskName "VexioCaptureWinUI3"
+
+          for ($w = 0; $w -lt 90; $w++) {
+            if (Test-Path "$ShotDir\done.txt") { break }
+            Start-Sleep -Seconds 1
+          }
+          Get-ChildItem $ShotDir
+          if (-not (Test-Path "$ShotDir\windows-01-winui3-workstation.png")) {
+            throw "windows-01-winui3-workstation.png was not generated!"
+          }
+
+      - name: Upload Windows Native Screenshots
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshots-windows
+          path: C:/vexio-shots/windows-*.png
+          if-no-files-found: error
+
+  capture-android-googlebook:
+    name: Capture Android & Googlebook OS Native (Compose M3E + Vulkan JNI)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup JDK 17 & JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: |
+            17
+            21
+
+      - name: Setup Android SDK & NDK (${{ env.ANDROID_NDK_VERSION }})
+        uses: android-actions/setup-android@v3
+        with:
+          packages: "platforms;android-${{ env.ANDROID_COMPILE_SDK }} build-tools;35.0.0 ndk;${{ env.ANDROID_NDK_VERSION }}"
+
+      - name: Export ANDROID_NDK_HOME
+        run: |
+          NDK_PATH="${ANDROID_HOME}/ndk/${ANDROID_NDK_VERSION}"
+          echo "ANDROID_NDK_HOME=${NDK_PATH}" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_ROOT=${NDK_PATH}" >> "$GITHUB_ENV"
+
+      - name: Install Rust stable toolchain (x86_64-linux-android)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,x86_64-linux-android
+
+      - name: Cache Cargo registry and Android NDK artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: android-ndk-arm64-x86_64
+
+      - name: Install cargo-ndk & Build x86_64 JNI Native Engine
+        run: |
+          if ! command -v cargo-ndk >/dev/null 2>&1; then
+            cargo install cargo-ndk --locked
+          fi
+          JNI_OUT="apps/android-googlebook/app/src/main/jniLibs"
+          rm -rf "${JNI_OUT}"
+          cargo ndk --platform 29 -t x86_64 -o "${JNI_OUT}" build --release -p vexio-core
+          cp -f "${JNI_OUT}/x86_64/libvexio_core.so" "${JNI_OUT}/x86_64/libvexio_jni.so"
+          ls -lh "${JNI_OUT}/x86_64/"
+
+      - name: Setup Gradle 8.11.1 & Assemble Debug APK
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+
+      - name: Build Debug APK
+        working-directory: apps/android-googlebook
+        env:
+          SKIP_CARGO_NDK: "1"
+        run: |
+          gradle assembleDebug --no-daemon --stacktrace
+
+      - name: Enable KVM Hardware Acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          ls -la /dev/kvm || true
+
+      - name: Boot 2560x1600 Googlebook/Tablet AVD & Capture Native Compose M3E Screenshots
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: default
+          arch: x86_64
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -memory 4096
+          script: |
+            mkdir -p android-shots
+            adb wait-for-device
+            adb shell wm size 2560x1600
+            adb shell wm density 320
+            adb shell wm dismiss-keyguard || true
+            adb shell input keyevent 82 || true
+            adb shell settings put policy policy_control immersive.full=* || true
+
+            APK_PATH=$(ls apps/android-googlebook/app/build/outputs/apk/debug/*.apk | head -n 1)
+            adb install -r "${APK_PATH}"
+
+            # Screenshot 1: Googlebook OS 3-Pane Workstation (Light Mode — Cloud Kubernetes Architecture + Modern Header Banner)
+            adb shell am start -W -n com.vexio/.MainActivity \
+              -a com.vexio.action.NEW_DOCUMENT_WINDOW \
+              --es vexio.template "cloud_microservices" \
+              --es vexio.doc_title "Cloud_Kubernetes_Architecture.vsdx" \
+              --es vexio.border "modern_banner" \
+              --es vexio.stencil_cat "Microsoft Azure & Hybrid Cloud"
+            sleep 9
+            adb exec-out screencap -p > android-shots/android-01-googlebook-workstation.png
+
+            # Screenshot 2: Googlebook OS Dark Mode + BPMN 2.0 + Docked ShapeSheet Drawer
+            adb shell am force-stop com.vexio
+            sleep 1
+            adb shell am start -W -n com.vexio/.MainActivity \
+              -a com.vexio.action.NEW_DOCUMENT_WINDOW \
+              --es vexio.template "bpmn_fulfillment" \
+              --es vexio.doc_title "BPMN2_Order_Fulfillment.vsdx" \
+              --es vexio.border "executive_underline" \
+              --es vexio.stencil_cat "BPMN 2.0" \
+              --ez vexio.shapesheet true \
+              --ez vexio.dark true
+            sleep 9
+            adb exec-out screencap -p > android-shots/android-02-dark-bpmn-shapesheet.png
+
+            ls -lh android-shots/
+
+      - name: Upload Android & Googlebook OS Native Screenshots
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshots-android-googlebook
+          path: android-shots/android-*.png
+          if-no-files-found: error

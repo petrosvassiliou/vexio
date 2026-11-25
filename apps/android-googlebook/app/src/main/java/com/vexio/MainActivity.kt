@@ -220,14 +220,35 @@ class MainActivity : ComponentActivity() {
             }
             ACTION_NEW_DOCUMENT_WINDOW -> {
                 val template = incoming.getStringExtra(EXTRA_DOCUMENT_TEMPLATE) ?: "blank"
-                val initialTitle = when (template) {
-                    "bpmn2" -> "BPMN2_Process_Flow.vsdx"
-                    "cad_floorplan" -> "Architectural_Floorplan.vsdx"
+                val customTitle = incoming.getStringExtra("vexio.doc_title")
+                val initialTitle = when {
+                    !customTitle.isNullOrBlank() -> customTitle
+                    template == "bpmn2" || template == "bpmn_fulfillment" -> "BPMN2_Order_Fulfillment.vsdx"
+                    template == "cloud_microservices" -> "Cloud_Kubernetes_Architecture.vsdx"
+                    template == "cad_floorplan" -> "Architectural_Floorplan.vsdx"
                     else -> "Untitled_Diagram.vsdx"
                 }
                 sessionViewModel.initializeEngineAndBlankDocument(initialTitle, hideStartBackstage = true)
                 if (template != "blank") {
                     sessionViewModel.loadStarterTemplate(template)
+                }
+                val borderSlug = incoming.getStringExtra("vexio.border")
+                if (!borderSlug.isNullOrBlank()) {
+                    sessionViewModel.applyBorderAndTitle(borderSlug)
+                }
+                val stencilCat = incoming.getStringExtra("vexio.stencil_cat")
+                if (!stencilCat.isNullOrBlank()) {
+                    sessionViewModel.selectStencilCategory(stencilCat)
+                }
+                if (incoming.getBooleanExtra("vexio.shapesheet", false) &&
+                    !sessionViewModel.uiState.value.isShapeSheetDrawerExpanded
+                ) {
+                    sessionViewModel.toggleShapeSheetDrawer()
+                }
+                if (incoming.getBooleanExtra("vexio.dark", false) &&
+                    !sessionViewModel.uiState.value.isDarkTheme
+                ) {
+                    sessionViewModel.toggleDarkTheme()
                 }
             }
         }

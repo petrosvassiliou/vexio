@@ -427,6 +427,7 @@ private:
     winrt::fire_and_forget ExportBomReportPickerAsync();
     winrt::fire_and_forget ShowPageSetupDialogAsync();
     winrt::fire_and_forget ShowTiledPrintDialogAsync();
+    winrt::fire_and_forget RunAutomatedScreenshotIfRequestedAsync();
 
 private:
     // RAII Rust Core Handles (vexio.h)
@@ -472,6 +473,7 @@ private:
     bool   m_suppressZoomSliderSync{false};
     bool   m_isApprovedToClose{false};
     bool   m_isClosingPromptOpen{false};
+    bool   m_screenshotCaptureScheduled{false};
     uint64_t m_savedStateRevision{0};
     winrt::event_token m_appWindowClosingToken{};
     double m_zoomPercent{100.0};
