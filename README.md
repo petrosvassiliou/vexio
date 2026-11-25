@@ -2,7 +2,7 @@
 
 <p align="center">
   <strong>Enterprise-Grade 1:1 Microsoft Visio Professional / Plan 2 Functional Parity Suite</strong><br/>
-  Deterministic Rust ShapeSheet &amp; CAD Engine • Native WinUI 3 (DX12) • Native macOS Swift 6 Liquid Glass (Metal) • Native Android &amp; Googlebook OS Compose M3E (Vulkan) • 100% Offline-First ChromeOS Workstation PWA (WASM SIMD + WebGPU)
+  Deterministic Rust ShapeSheet &amp; CAD Engine • Native Windows 11 WinUI 3 (DX12) • Native macOS 15+ Swift 6 Liquid Glass (Metal) • Native Android &amp; Googlebook OS Compose M3E (Vulkan) • 100% Offline-First ChromeOS Workstation PWA (WASM SIMD + WebGPU)
 </p>
 
 <p align="center">
@@ -12,7 +12,11 @@
   <img src="https://img.shields.io/badge/Stencils-33_Packs_%E2%80%A2_756%2B_Masters-b45309?style=for-the-badge" alt="33 Built-In Stencil Packs" />
 </p>
 
-![Vexio Workstation — Cloud & Kubernetes Architecture, Modern Header Banner, Azure Stencils & Live Inspector](docs/screenshots/01-workstation-cloud-architecture.png)
+| Windows 11 Native (`WinUI 3 + DirectX 12`) | macOS 15+ Native (`Swift 6 Liquid Glass + Metal`) |
+| :---: | :---: |
+| ![Vexio on Windows 11 — WinUI 3 + DirectX 12](docs/screenshots/windows-01-winui3-workstation.png) | ![Vexio on macOS 15 — Swift 6 Liquid Glass + Metal](docs/screenshots/macos-01-liquid-glass-workstation.png) |
+| **Android & Googlebook OS (`Jetpack Compose M3E + Vulkan`)** | **ChromeOS Offline-First PWA (`Rust WASM SIMD + WebGPU`)** |
+| ![Vexio on Android & Googlebook OS — Jetpack Compose Material 3 Expressive + Vulkan](docs/screenshots/android-01-googlebook-workstation.png) | ![Vexio on ChromeOS PWA — Rust WASM SIMD + WebGPU](docs/screenshots/01-workstation-cloud-architecture.png) |
 
 **Vexio** is a full-featured, **1:1 Microsoft Visio Professional / Plan 2** diagramming, CAD interop, process engineering, and reactive data-visualization workstation suite.
 
@@ -35,23 +39,48 @@ All compiled native installers and offline bundles are published on the [**`v0.4
 
 ---
 
-## High-Resolution Workstation Gallery (`3200×2000` Retina)
+## Multi-Platform Workstation Gallery
 
-| BPMN 2.0 Process Engineering & Live Rule Validation | Docked ShapeSheet Formula Studio & Crow's Foot ERD |
+### 1. Windows 11 Native Workstation (`WinUI 3 / C++20 + DirectX 12`)
+Built strictly with **WinUI 3 / Windows App SDK 1.6** (`C++20` / `CppWinRT`) and **DirectX 12** (`ISwapChainPanelNative` over `vexio.h` C-ABI) — zero `WebView2`, Electron, or Tauri wrappers.
+
+| Cloud Architecture, Ribbon & Shape Data Task Pane | Docked ShapeSheet Split-View & Live `SETF` Formula Bar |
 | :---: | :---: |
-| ![BPMN 2.0 Order Fulfillment & Structural Validation](docs/screenshots/02-bpmn20-validation-and-process.png) | ![ShapeSheet Formula Studio & Crow's Foot Database ERD](docs/screenshots/03-shapesheet-formula-studio-erd.png) |
-| **Process Ribbon & Structural Validators:** Cross-functional BPMN 2.0 gateways, Executive Title & Accent Rule, subprocess linking, Power Automate export, and real-time **BPMN 2.0 / UML 2.5 / SharePoint** validation diagnostics. | **Interactive ShapeSheet & Developer Studio:** Live `fx` Formula Bar, docked ShapeSheet inspector (`PinX`, `PinY`, `Width`, `Height`, `GUARD(...)`), 2D Boolean geometry operations, VBA macro studio, and SQL DDL ⇄ ERD engineering. |
+| ![Windows 11 WinUI 3 Workstation — Cloud Architecture](docs/screenshots/windows-01-winui3-workstation.png) | ![Windows 11 WinUI 3 — BPMN 2.0 & Docked ShapeSheet Editor](docs/screenshots/windows-02-bpmn-shapesheet.png) |
+| Classic 8-tab Visio Ribbon (`Home`, `Insert`, `Design`, `Data`, `Process`, `Review`, `View`, `Developer`), `Headings` gallery, horizontal/vertical Rulers, `Modern Header Banner`, and `Shape Data` (`Prop.*`) inspector. | Floating `Sheet.1!Width` formula bar + dockable bottom **ShapeSheet** split-view (`Shape Transform`, `GUARD(expr)`, `Force SETF`, `Commit Cell`) with BPMN 2.0 validation active. |
 
-| Dark Mode Workstation & ISO 7200 Engineering Title Block | Streamlined Startup & Enterprise Templates Hub |
+---
+
+### 2. macOS 15+ Native Workstation (`Swift 6 + Apple Liquid Glass + Metal`)
+Built strictly in **Swift 6** (`SwiftUI` + `AppKit`) with **Apple Liquid Glass** translucent materials, `CAMetalLayer` **Metal** viewport rendering, Continuity/Handoff, and a native **`VexioQuickLookExtension`** (`.vsdx`, `.vssx`, `.vstx`, `.vsd`).
+
+| Light Aqua Liquid Glass Workstation (`3200×1368` Retina) | Dark Aqua, BPMN 2.0 Validation & Docked ShapeSheet (`3200×1368` Retina) |
 | :---: | :---: |
-| ![Dark Mode Gantt Schedule & ISO 7200 Engineering Title Block](docs/screenshots/06-dark-mode-gantt-iso-titleblock.png) | ![Startup Hub, Starter Templates & OPFS Snapshots](docs/screenshots/04-startup-hub-and-templates.png) |
-| **Dark Mode, Borders & Titles & Schedules:** `ISO 7200 / ANSI Y14.1` Engineering Title Block with metadata cells, `Titles, Headings & Banners` stencil library, PERT/CPM & Gantt schedule generation, and adaptive dark/light themes. | **Focused Startup Experience:** Direct `.vsdx`/`.vsd`/`.vdx`/`.dwg`/`.dxf` local disk open, 8 instant enterprise starter templates, 6-language switcher (`EN`, `DE`, `IT`, `FR`, `ES`, `GR`), and crash-safe local version snapshots. |
+| ![macOS 15 Swift 6 Liquid Glass — Light Mode Cloud Architecture](docs/screenshots/macos-01-liquid-glass-workstation.png) | ![macOS 15 Swift 6 Liquid Glass — Dark Mode BPMN 2.0 & ShapeSheet](docs/screenshots/macos-02-dark-bpmn-shapesheet.png) |
+| Unified transparent titlebar, Vibrancy Stencil Navigator (`Microsoft Azure & Hybrid Cloud`), refractive **Liquid Glass** floating 16-tool palette, `Format` inspector, and glass page/zoom pills. | Dark Aqua appearance, `BPMN 2.0` vector stencils, `Executive Title & Accent Rule`, live `BPMN 2.0 validation passed (0 issues)` badge, and docked `f(x) Sheet.1!Width` ShapeSheet drawer. |
 
-<p align="center">
-  <img src="docs/screenshots/05-official-stencil-catalog.png" alt="Official & Enterprise Visio Stencil Catalog" width="100%" />
-  <br/>
-  <em><strong>In-App Official &amp; Enterprise Stencil Catalog:</strong> One-click import of official Microsoft 365, Azure Core, Azure Public Service Icons (721 SVGs), Defender/Purview/Entra Security, and Active Directory / Hybrid Network packs alongside local <code>.vssx</code> / <code>.vss</code> / <code>.zip</code> multi-pack imports.</em>
-</p>
+---
+
+### 3. Android & Googlebook OS Native Workstation (`Kotlin + Jetpack Compose M3E + Vulkan JNI`)
+Built strictly in **100% Native Kotlin** with **Jetpack Compose Material 3 Expressive**, **Compose Adaptive / Navigation 3** multi-pane desktop scaffolds, freeform multi-window support, USI low-latency stylus palm rejection, and **Vulkan NDK** (`libvexio_core.so` / `libvexio_jni.so`).
+
+| Expanded 3-Pane Googlebook Workstation (Light M3E) | Dark M3E Workstation, `Σ` Formula Bar & BPMN 2.0 |
+| :---: | :---: |
+| ![Android & Googlebook OS — Material 3 Expressive 3-Pane Workstation](docs/screenshots/android-01-googlebook-workstation.png) | ![Android & Googlebook OS — Dark Mode Formula Bar & BPMN 2.0](docs/screenshots/android-02-dark-bpmn-shapesheet.png) |
+| Adaptive 3-pane desktop layout (`Stencils 756 • 33 Packs`, center canvas with morphing floating tool rail & Visio AutoConnect triangles, and right `Format` / `Size` / `Data` / `Layers` inspector). | Dark Material 3 Expressive tokens, live `Σ Sheet.1!Width = 0.5 in` formula bar with `SETF` override, `BPMN 2.0` stencils, and collapsible ShapeSheet drawer. |
+
+---
+
+### 4. ChromeOS 100% Offline-First Workstation PWA (`Rust WASM SIMD + WebGPU + OPFS WAL`)
+Deployed via **Firebase Hosting** with `COOP: same-origin` / `COEP: require-corp` headers unlocking `SharedArrayBuffer` for multi-threaded **Rust WASM SIMD**, **WebGPU**, **OPFS `FileSystemSyncAccessHandle`** ACID Write-Ahead Logging, Window Controls Overlay, and 100% unauthenticated offline execution.
+
+| Cloud Architecture & Modern Header Banner (`3200×2000` Retina) | BPMN 2.0 Process Ribbon & Structural Validation (`3200×2000` Retina) |
+| :---: | :---: |
+| ![ChromeOS PWA — Cloud Architecture](docs/screenshots/01-workstation-cloud-architecture.png) | ![ChromeOS PWA — BPMN 2.0 Validation](docs/screenshots/02-bpmn20-validation-and-process.png) |
+| **Docked ShapeSheet Studio & Crow's Foot ERD (`3200×2000` Retina)** | **Dark Mode Gantt Schedule & ISO 7200 Title Block (`3200×2000` Retina)** |
+| ![ChromeOS PWA — ShapeSheet Studio & SQL ERD](docs/screenshots/03-shapesheet-formula-studio-erd.png) | ![ChromeOS PWA — Dark Mode Gantt & ISO 7200 Engineering Block](docs/screenshots/06-dark-mode-gantt-iso-titleblock.png) |
+| **Streamlined Startup & Enterprise Templates Hub (`3200×2000` Retina)** | **In-App Official & Enterprise Stencil Catalog (`3200×2000` Retina)** |
+| ![ChromeOS PWA — Startup Hub & Starter Templates](docs/screenshots/04-startup-hub-and-templates.png) | ![ChromeOS PWA — Official Stencil Catalog](docs/screenshots/05-official-stencil-catalog.png) |
 
 ---
 
@@ -135,7 +164,7 @@ vexio/
 │   └── chromeos-pwa/           # Offline-first TypeScript/Vite PWA + WASM SIMD Worker + OPFS WAL + Firebase
 ├── firebase/                   # firebase.json (COOP/COEP), firestore.rules, firestore.indexes.json, storage.rules
 ├── stencils/                   # 33 deterministic IP-clean OpenXML .vssx stencil packs (756+ masters)
-├── docs/screenshots/           # High-resolution (3200x2000 Retina) workstation screenshots
+├── docs/screenshots/           # High-DPI screenshots across Windows, macOS, Android/Googlebook & ChromeOS PWA
 ├── tests/                      # End-to-end Firebase Hosting / Offline / Security Rules verification suite
 └── .agents/rules/              # Architectural invariants & platform HIG enforcement contracts
 ```
@@ -271,3 +300,4 @@ Link a live Firebase project and configure GitHub Actions repository variables (
 | [`release-macos-dmg.yml`](.github/workflows/release-macos-dmg.yml) | `v*` tags (`v0.4.3-alpha`), `workflow_dispatch` | `macos-15` | Universal2 `lipo` `libvexio_core.a`, Swift 6 `VexioMacApp` + `VexioQuickLookExtension`, and `.dmg` GitHub Release packaging |
 | [`release-android-googlebook.yml`](.github/workflows/release-android-googlebook.yml) | `v*` tags (`v0.4.3-alpha`), `workflow_dispatch` | `ubuntu-latest` | Android NDK + `cargo-ndk` (`arm64-v8a`, `x86_64`) `libvexio_core.so` / `libvexio_jni.so`, unit tests, and Gradle `assembleRelease` & `bundleRelease` APK/AAB |
 | [`deploy-firebase-chromeos-pwa.yml`](.github/workflows/deploy-firebase-chromeos-pwa.yml) | `main` push, `v*` tags, `workflow_dispatch` | `ubuntu-latest` | WASM SIMD + 33 `.vssx` stencils + 6-stage Firebase Emulator verification + Release `.zip` + live Firebase Hosting (`COOP`/`COEP`) & Rules deployment |
+| [`capture-platform-screenshots.yml`](.github/workflows/capture-platform-screenshots.yml) | `workflow_dispatch` | `macos-15`, `windows-2022`, `ubuntu-latest` | Automated high-DPI screenshot generation across native macOS Liquid Glass, Windows WinUI 3, and Android/Googlebook Compose M3E |
