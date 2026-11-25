@@ -254,7 +254,7 @@ jobs:
           Run-Shot (Join-Path $ShotDir 'windows-02-bpmn-shapesheet.png') 'bpmn_fulfillment' 'BPMN-2-0-Order-Fulfillment.vsdx' 'executive_underline' '0' '1'
 
           Set-Content -Path (Join-Path $ShotDir 'done.txt') -Value 'ok'
-'@
+          '@
           $WorkerPath = "$ShotDir\capture_worker.ps1"
           Set-Content -Path $WorkerPath -Value $WorkerScript -Encoding UTF8
 
