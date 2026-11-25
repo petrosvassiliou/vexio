@@ -187,6 +187,130 @@ public struct VexioWorkspaceView: View {
     }
 
     public var body: some View {
+        workspaceWithNotifications
+            .userActivity(VexioDocumentSession.continuityEditingActivityType, isActive: true) { activity in
+                session.populateUserActivity(activity, fileURL: session.currentFileURL ?? fileURL)
+            }
+            .onContinueUserActivity(VexioDocumentSession.continuityEditingActivityType) { activity in
+                session.restoreFromUserActivity(activity)
+                syncFormulaBarFromSelection(cellName: activeFormulaCellName)
+            }
+            .fileExporter(
+                isPresented: $isShowingFileExporter,
+                document: preparedExportDocument,
+                contentType: activeExportContentType,
+                defaultFilename: activeExportFilename
+            ) { result in
+                switch result {
+                case .success(let savedURL):
+                    session.statusMessage = "Saved export to \(savedURL.lastPathComponent)"
+                case .failure(let error):
+                    session.statusMessage = "Export cancelled or failed: \(error.localizedDescription)"
+                }
+            }
+            .sheet(isPresented: $isShowingPreviewSheet) {
+                VexioRenderedPreviewModal(
+                    title: session.documentTitle,
+                    cgImage: renderedPreviewImage,
+                    onClose: { isShowingPreviewSheet = false }
+                )
+            }
+            .sheet(isPresented: $updater.isShowingUpdateDialog) {
+                VexioUpdateDialogSheet(updater: updater, i18n: i18n)
+            }
+            .sheet(isPresented: $isStencilCatalogPresented) {
+                VexioOfficialStencilCatalogSheet(session: session) {
+                    isStencilCatalogPresented = false
+                }
+            }
+            .sheet(isPresented: $isBordersAndTitlesSheetPresented) {
+                VexioBordersAndTitlesSheet(session: session) {
+                    isBordersAndTitlesSheetPresented = false
+                }
+            }
+            .sheet(
+                isPresented: Binding(
+                    get: { pageSetupSheetPageId != nil },
+                    set: { if !$0 { pageSetupSheetPageId = nil } }
+                )
+            ) {
+                if let pid = pageSetupSheetPageId {
+                    VexioPageSetupSheet(
+                        session: session,
+                        pageId: pid,
+                        onClose: { pageSetupSheetPageId = nil }
+                    )
+                }
+            }
+    }
+
+    private var workspaceWithNotifications: some View {
+        workspaceGeometryContent
+            .onAppear {
+                if let fileURL {
+                    session.openLocalFile(from: fileURL)
+                } else if !didHandleInitialLaunchPresentation {
+                    didHandleInitialLaunchPresentation = true
+                    if !skipStartScreenOnLaunch {
+                        isBackstagePresented = true
+                    }
+                }
+                session.ensureStencilsLoadedIfNeeded()
+                session.reloadSelectedShapeSheetCells()
+                session.syncSelectedShapeMetadataFromCore()
+                syncFormulaBarFromSelection(cellName: activeFormulaCellName)
+                updater.checkOnLaunchIfEnabled()
+            }
+            .onChange(of: session.activeInlineTextEdit) { _, newValue in
+                if let edit = newValue {
+                    inlineLabelDraft = edit.initialText
+                }
+            }
+            .onChange(of: isBackstagePresented) { _, presented in
+                if !presented && session.isAutoFitPageMode {
+                    DispatchQueue.main.async {
+                        session.fitViewportToActivePage()
+                    }
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .vexioShowFileBackstage)) { _ in
+                withAnimation(LiquidGlassPhysics.standardSpring) {
+                    isBackstagePresented = true
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .vexioOpenFileSheet)) { _ in
+                presentInWindowOpenFileSheet()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .vexioSaveFileSheet)) { _ in
+                presentInWindowSaveSheet()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .vexioSaveAsFileSheet)) { _ in
+                presentInWindowSaveAsSheet()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .vexioImportStencilSheet)) { _ in
+                presentInWindowImportStencilSheet()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .vexioOpenStencilCatalogSheet)) { _ in
+                isStencilCatalogPresented = true
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .vexioOpenBordersAndTitlesSheet)) { _ in
+                isBordersAndTitlesSheetPresented = true
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .vexioOpenPageSetupSheet)) { note in
+                if let pid = note.object as? UInt32 {
+                    pageSetupSheetPageId = pid
+                } else {
+                    pageSetupSheetPageId = session.activePageId
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .vexioExportFormatRequested)) { note in
+                if let raw = note.object as? String, let fmt = VexioExportFormat(rawValue: raw) {
+                    triggerExport(fmt)
+                }
+            }
+    }
+
+    private var workspaceGeometryContent: some View {
         GeometryReader { windowGeo in
             let isCompactStageManagerWidth = windowGeo.size.width < 1160
 
@@ -293,122 +417,6 @@ public struct VexioWorkspaceView: View {
         .ignoresSafeArea(.container, edges: .top)
         .frame(minWidth: 960, minHeight: 620)
         .focusedSceneValue(\.vexioDocumentSession, session)
-        .onAppear {
-            if let fileURL {
-                session.openLocalFile(from: fileURL)
-            } else if !didHandleInitialLaunchPresentation {
-                didHandleInitialLaunchPresentation = true
-                if !skipStartScreenOnLaunch {
-                    isBackstagePresented = true
-                }
-            }
-            session.ensureStencilsLoadedIfNeeded()
-            session.reloadSelectedShapeSheetCells()
-            session.syncSelectedShapeMetadataFromCore()
-            syncFormulaBarFromSelection(cellName: activeFormulaCellName)
-            updater.checkOnLaunchIfEnabled()
-        }
-        .onChange(of: session.activeInlineTextEdit) { _, newValue in
-            if let edit = newValue {
-                inlineLabelDraft = edit.initialText
-            }
-        }
-        .onChange(of: isBackstagePresented) { _, presented in
-            if !presented && session.isAutoFitPageMode {
-                DispatchQueue.main.async {
-                    session.fitViewportToActivePage()
-                }
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .vexioShowFileBackstage)) { _ in
-            withAnimation(LiquidGlassPhysics.standardSpring) {
-                isBackstagePresented = true
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .vexioOpenFileSheet)) { _ in
-            presentInWindowOpenFileSheet()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .vexioSaveFileSheet)) { _ in
-            presentInWindowSaveSheet()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .vexioSaveAsFileSheet)) { _ in
-            presentInWindowSaveAsSheet()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .vexioImportStencilSheet)) { _ in
-            presentInWindowImportStencilSheet()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .vexioOpenStencilCatalogSheet)) { _ in
-            isStencilCatalogPresented = true
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .vexioOpenBordersAndTitlesSheet)) { _ in
-            isBordersAndTitlesSheetPresented = true
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .vexioOpenPageSetupSheet)) { note in
-            if let pid = note.object as? UInt32 {
-                pageSetupSheetPageId = pid
-            } else {
-                pageSetupSheetPageId = session.activePageId
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .vexioExportFormatRequested)) { note in
-            if let raw = note.object as? String, let fmt = VexioExportFormat(rawValue: raw) {
-                triggerExport(fmt)
-            }
-        }
-        .userActivity(VexioDocumentSession.continuityEditingActivityType, isActive: true) { activity in
-            session.populateUserActivity(activity, fileURL: session.currentFileURL ?? fileURL)
-        }
-        .onContinueUserActivity(VexioDocumentSession.continuityEditingActivityType) { activity in
-            session.restoreFromUserActivity(activity)
-            syncFormulaBarFromSelection(cellName: activeFormulaCellName)
-        }
-        .fileExporter(
-            isPresented: $isShowingFileExporter,
-            document: preparedExportDocument,
-            contentType: activeExportContentType,
-            defaultFilename: activeExportFilename
-        ) { result in
-            switch result {
-            case .success(let savedURL):
-                session.statusMessage = "Saved export to \(savedURL.lastPathComponent)"
-            case .failure(let error):
-                session.statusMessage = "Export cancelled or failed: \(error.localizedDescription)"
-            }
-        }
-        .sheet(isPresented: $isShowingPreviewSheet) {
-            VexioRenderedPreviewModal(
-                title: session.documentTitle,
-                cgImage: renderedPreviewImage,
-                onClose: { isShowingPreviewSheet = false }
-            )
-        }
-        .sheet(isPresented: $updater.isShowingUpdateDialog) {
-            VexioUpdateDialogSheet(updater: updater, i18n: i18n)
-        }
-        .sheet(isPresented: $isStencilCatalogPresented) {
-            VexioOfficialStencilCatalogSheet(session: session) {
-                isStencilCatalogPresented = false
-            }
-        }
-        .sheet(isPresented: $isBordersAndTitlesSheetPresented) {
-            VexioBordersAndTitlesSheet(session: session) {
-                isBordersAndTitlesSheetPresented = false
-            }
-        }
-        .sheet(
-            isPresented: Binding(
-                get: { pageSetupSheetPageId != nil },
-                set: { if !$0 { pageSetupSheetPageId = nil } }
-            )
-        ) {
-            if let pid = pageSetupSheetPageId {
-                VexioPageSetupSheet(
-                    session: session,
-                    pageId: pid,
-                    onClose: { pageSetupSheetPageId = nil }
-                )
-            }
-        }
     }
 
     // MARK: - Inline Canvas Shape / Text Box Label Editor Overlay (Uses Selected OS Font)

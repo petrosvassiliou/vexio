@@ -350,7 +350,7 @@ fun GooglebookWorkstationScreen(
     }
 
     if (showUnsavedExitDialog) {
-        val lang = uiState.appLanguage
+        val lang = uiState.language
         AlertDialog(
             onDismissRequest = { showUnsavedExitDialog = false },
             title = {
