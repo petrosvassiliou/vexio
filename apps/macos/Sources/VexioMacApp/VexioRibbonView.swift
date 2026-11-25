@@ -361,6 +361,13 @@ public struct VexioHeaderAndRibbonBar: View {
                                 .padding(.vertical, 1)
                                 .background(Capsule().fill(Color.accentColor.opacity(0.16)))
                                 .fixedSize()
+                            if session.hasUnsavedChanges {
+                                Text("• \(i18n.t("editedBadge"))")
+                                    .font(.system(size: 9.5, weight: .medium))
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                                    .fixedSize()
+                            }
                         }
                         Text(session.statusMessage)
                             .font(.system(size: 9.5))
@@ -1335,14 +1342,14 @@ public struct VexioHeaderAndRibbonBar: View {
                         session.fitViewportToActivePage()
                     }
                     ribbonCompactButton("1.magnifyingglass", "100%", tip: "Reset Zoom to 100%") {
-                        session.zoomScale = 1.0
+                        session.setManualZoomScale(1.0)
                         session.panOffset = .zero
                     }
                     ribbonCompactButton("plus.magnifyingglass", "Zoom In", tip: "Zoom In (+25%)") {
-                        session.zoomScale = min(session.zoomScale * 1.25, 16.0)
+                        session.setManualZoomScale(session.zoomScale * 1.25)
                     }
                     ribbonCompactButton("minus.magnifyingglass", "Zoom Out", tip: "Zoom Out (-20%)") {
-                        session.zoomScale = max(session.zoomScale / 1.25, 0.1)
+                        session.setManualZoomScale(session.zoomScale / 1.25)
                     }
                     ribbonCompactButton("eye", "Preview", tip: "High-DPI Print / Render Preview") {
                         onRequestOffscreenPreview()

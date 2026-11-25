@@ -285,6 +285,7 @@ struct WasmStateJson {
     svg_preview: String,
     can_undo: bool,
     can_redo: bool,
+    state_revision: u64,
     wgpu_surface_active: bool,
 }
 
@@ -1834,6 +1835,7 @@ impl WasmVexioSession {
             svg_preview: export_page_svg(&self.inner.doc, pid),
             can_undo: self.inner.journal.can_undo(),
             can_redo: self.inner.journal.can_redo(),
+            state_revision: self.inner.journal.state_revision(),
             wgpu_surface_active: self.wgpu_renderer.is_some(),
         };
         serde_json::to_string(&state).unwrap_or_else(|_| "{}".into())

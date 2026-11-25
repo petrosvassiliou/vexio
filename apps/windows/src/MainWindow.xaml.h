@@ -382,6 +382,14 @@ private:
     void CommitFormulaToActiveCell(std::wstring const& rawFormulaText);
     void SetActiveTool(ActiveCanvasTool tool);
     void SetZoomPercent(double zoomPercent);
+    void FitPageToWindow();
+    [[nodiscard]] uint64_t ReadCoreStateRevision() const;
+    void CaptureCleanStateRevision();
+    void SyncDirtyStateFromCore();
+    void OnAppWindowClosing(winrt::Microsoft::UI::Windowing::AppWindow const& sender,
+                            winrt::Microsoft::UI::Windowing::AppWindowClosingEventArgs const& args);
+    winrt::fire_and_forget ConfirmSaveBeforeCloseAsync();
+    winrt::Windows::Foundation::IAsyncOperation<bool> SaveDocumentCoreAsync(bool forceSaveAs, std::string forcedExtensionUtf8 = {});
     void ShowBanner(winrt::Microsoft::UI::Xaml::Controls::InfoBarSeverity severity,
                     std::wstring_view title,
                     std::wstring_view message);
@@ -460,6 +468,12 @@ private:
     bool   m_committingInlineEdit{false};
     bool   m_committingTitleEdit{false};
     bool   m_syncingTextControls{false};
+    bool   m_isAutoFitPage{true};
+    bool   m_suppressZoomSliderSync{false};
+    bool   m_isApprovedToClose{false};
+    bool   m_isClosingPromptOpen{false};
+    uint64_t m_savedStateRevision{0};
+    winrt::event_token m_appWindowClosingToken{};
     double m_zoomPercent{100.0};
     double m_shapeSheetHeightPx{248.0};
 

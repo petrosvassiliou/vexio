@@ -628,11 +628,11 @@ pub(crate) fn fit_camera_to_diagram(
     let logical_w = (camera.width_px.max(1) as f64) / dpi;
     let logical_h = (camera.height_px.max(1) as f64) / dpi;
 
-    // Reserve breathing room (6% margin, plus clearance for floating left tool palette when wide enough).
-    let left_pad_pt = if logical_w > 420.0 { 96.0 } else { logical_w * 0.06 };
-    let right_pad_pt = logical_w * 0.05;
-    let top_pad_pt = logical_h * 0.05;
-    let bottom_pad_pt = if logical_h > 320.0 { 54.0 } else { logical_h * 0.06 };
+    // Reserve clean breathing room plus clearance for floating left tool palette and bottom pills.
+    let left_pad_pt = if logical_w > 420.0 { 88.0 } else { logical_w * 0.05 };
+    let right_pad_pt = (logical_w * 0.025).clamp(22.0, 40.0).min(logical_w * 0.08);
+    let top_pad_pt = (logical_h * 0.03).clamp(18.0, 34.0).min(logical_h * 0.08);
+    let bottom_pad_pt = if logical_h > 320.0 { 50.0 } else { logical_h * 0.05 };
 
     let avail_w_pt = (logical_w - left_pad_pt - right_pad_pt).max(logical_w * 0.55).max(1.0);
     let avail_h_pt = (logical_h - top_pad_pt - bottom_pad_pt).max(logical_h * 0.55).max(1.0);
@@ -2278,6 +2278,7 @@ struct NativeStateDto {
     svg_preview: String,
     can_undo: bool,
     can_redo: bool,
+    state_revision: u64,
 }
 
 pub(crate) fn build_native_state_json(session: &DocumentSession, active_page_id: u32) -> String {
@@ -2462,6 +2463,7 @@ pub(crate) fn build_native_state_json(session: &DocumentSession, active_page_id:
         svg_preview: export_page_svg(&session.doc, pid),
         can_undo: session.journal.can_undo(),
         can_redo: session.journal.can_redo(),
+        state_revision: session.journal.state_revision(),
     };
     serde_json::to_string(&dto).unwrap_or_else(|_| "{}".into())
 }

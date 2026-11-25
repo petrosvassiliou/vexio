@@ -53,7 +53,8 @@ type ActiveModal =
   | 'cloud'
   | 'compare'
   | 'link'
-  | 'stencilCatalog';
+  | 'stencilCatalog'
+  | 'unsavedConfirm';
 type ResizeHandleDir = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w';
 
 interface StarterTemplateCard {
@@ -779,7 +780,7 @@ class VexioChromeOsApp {
       return true;
     }
   })();
-  private updateStatusText = 'Vexio v0.4.2-alpha • Automatic updates enabled';
+  private updateStatusText = 'Vexio v0.4.3-alpha • Automatic updates enabled';
   private latestReleaseTag: string | null = null;
   private latestReleaseUrl = 'https://github.com/petrosvassiliou/vexio/releases';
 
@@ -835,6 +836,12 @@ class VexioChromeOsApp {
   private showVertexGrips = false;
   private activeShapeVertices: EditableVertexDto[] = [];
   private zoomPct = 82;
+  private isAutoFitPageMode = true;
+  private savedStateRevision = 0;
+  private hasExplicitTitleUnsavedEdit = false;
+  private viewportResizeObserver: ResizeObserver | null = null;
+  private observedViewportEl: HTMLElement | null = null;
+  private pendingUnsavedAction: (() => Promise<void>) | null = null;
   private cursorCoordsIn: [number, number] = [0, 0];
   private systemFonts: string[] = [];
   private smartGuideReqInFlight = false;
@@ -938,9 +945,50 @@ class VexioChromeOsApp {
     this.render();
   }
 
+  private get hasUnsavedChanges(): boolean {
+    const rev = this.snapshot?.stateRevision ?? 0;
+    return rev !== this.savedStateRevision || this.hasExplicitTitleUnsavedEdit;
+  }
+
+  private markCurrentStateAsClean(): void {
+    this.savedStateRevision = this.snapshot?.stateRevision ?? 0;
+    this.hasExplicitTitleUnsavedEdit = false;
+  }
+
+  private confirmOrRunWithUnsavedCheck(action: () => Promise<void>): void {
+    if (!this.hasUnsavedChanges) {
+      void action();
+      return;
+    }
+    this.pendingUnsavedAction = action;
+    this.activeModal = 'unsavedConfirm';
+    this.render();
+  }
+
+  private ensureViewportResizeObserver(): void {
+    const vp = document.getElementById('canvas-viewport') as HTMLElement | null;
+    if (!vp || vp === this.observedViewportEl || typeof ResizeObserver === 'undefined') {
+      return;
+    }
+    this.viewportResizeObserver?.disconnect();
+    this.observedViewportEl = vp;
+    this.viewportResizeObserver = new ResizeObserver(() => {
+      if (!this.isAutoFitPageMode || this.isRebuildingDom || !this.snapshot) {
+        return;
+      }
+      const nextZoom = this.computeFitZoomPct();
+      if (Math.abs(nextZoom - this.zoomPct) >= 1) {
+        this.zoomPct = nextZoom;
+        this.render();
+      }
+    });
+    this.viewportResizeObserver.observe(vp);
+  }
+
   private async syncCanvasAfterDocumentOpen(): Promise<void> {
     this.renamingPageId = null;
     this.editingShapeId = null;
+    this.isAutoFitPageMode = true;
     if (this.wgpuAttached && this.snapshot) {
       const dpi = window.devicePixelRatio || 1;
       await this.callEngine('resizeOffscreenCanvas', {
@@ -972,6 +1020,9 @@ class VexioChromeOsApp {
       return;
     }
     const normalized = /\.[a-z0-9]+$/i.test(cleaned) ? cleaned : `${cleaned}.vsdx`;
+    if (this.currentFileName !== normalized && !this.activeFileHandle) {
+      this.hasExplicitTitleUnsavedEdit = true;
+    }
     this.currentFileName = normalized;
     try {
       const res = await this.callEngine('setDocumentTitle', { title: normalized });
@@ -1193,7 +1244,12 @@ class VexioChromeOsApp {
       });
     }
     this.activeModal = null;
+    this.isAutoFitPageMode = true;
     this.zoomPct = this.computeFitZoomPct();
+    if (resetBlank) {
+      this.activeFileHandle = null;
+      this.markCurrentStateAsClean();
+    }
     this.persistMutationSideEffects(res.wal);
     this.showToast(`Page setup: ${preset.label}`, 'info');
     this.render();
@@ -1220,7 +1276,7 @@ class VexioChromeOsApp {
       return;
     }
 
-    const currentVersion = '0.4.2-alpha';
+    const currentVersion = '0.4.3-alpha';
     try {
       const resp = await fetch('https://api.github.com/repos/petrosvassiliou/vexio/releases', {
         headers: { Accept: 'application/vnd.github+json' },
@@ -1554,6 +1610,21 @@ class VexioChromeOsApp {
     }
 
     bindWindowControlsOverlay();
+    window.addEventListener('beforeunload', (ev) => {
+      if (this.hasUnsavedChanges) {
+        ev.preventDefault();
+        ev.returnValue = '';
+      }
+    });
+    window.addEventListener('resize', () => {
+      if (this.isAutoFitPageMode && this.snapshot && !this.isRebuildingDom) {
+        const nextZoom = this.computeFitZoomPct();
+        if (Math.abs(nextZoom - this.zoomPct) >= 1) {
+          this.zoomPct = nextZoom;
+          this.render();
+        }
+      }
+    });
     registerChromeOsFileLaunchHandler(async (opened) => {
       this.launchedWithExternalFile = true;
       this.activeModal = null;
@@ -1561,6 +1632,7 @@ class VexioChromeOsApp {
       this.currentFileName = opened.name;
       const res = await this.callEngine('openBytes', { bytes: opened.bytes, ext: opened.ext });
       this.snapshot = res.snapshot;
+      this.markCurrentStateAsClean();
       await this.syncCanvasAfterDocumentOpen();
       this.setSingleSelection(this.snapshot?.shapes[0]?.id ?? null);
       this.render();
@@ -1635,6 +1707,7 @@ class VexioChromeOsApp {
         landscape: true,
       });
       this.snapshot = initRes.snapshot;
+      this.markCurrentStateAsClean();
       if (initRes.stencils && Object.keys(initRes.stencils).length > 0) {
         this.stencilCatalog = { ...FALLBACK_STENCILS, ...initRes.stencils };
       }
@@ -2276,6 +2349,7 @@ class VexioChromeOsApp {
     this.currentFileName = opened.name;
     const res = await this.callEngine('openBytes', { bytes: opened.bytes, ext: opened.ext });
     this.snapshot = res.snapshot;
+    this.markCurrentStateAsClean();
     this.activeModal = null;
     await this.syncCanvasAfterDocumentOpen();
     this.setSingleSelection(this.snapshot?.shapes[0]?.id ?? null);
@@ -2284,7 +2358,7 @@ class VexioChromeOsApp {
     this.render();
   }
 
-  private async handleSaveInPlace(ext: string): Promise<void> {
+  private async handleSaveInPlace(ext: string): Promise<boolean> {
     const { bytes, wal } = await this.callEngine('saveFormat', { ext });
     this.persistMutationSideEffects(wal);
     const isCurrentVsdx = /\.vsd[xm]$/i.test(this.currentFileName);
@@ -2292,18 +2366,25 @@ class VexioChromeOsApp {
     const targetName = ext === 'vsdx' ? (isCurrentVsdx ? this.currentFileName : `${baseStem}.vsdx`) : `${baseStem}.${ext}`;
     const reusableHandle = ext === 'vsdx' && isCurrentVsdx ? this.activeFileHandle : null;
     const handle = await saveLocalDiagramInPlace(reusableHandle, targetName, bytes);
+    const savedOk = Boolean(handle) || !('showSaveFilePicker' in window);
     if (ext === 'vsdx' && handle) {
       this.activeFileHandle = handle;
       this.currentFileName = handle.name || targetName;
+    }
+    if (ext === 'vsdx' && savedOk) {
+      this.markCurrentStateAsClean();
       this.render();
     }
-    if (ext === 'vsdx' && this.cloudState.user) {
+    if (ext === 'vsdx' && savedOk && this.cloudState.user) {
       await this.firebaseSync.backupWorkspaceToCloud(this.docId, this.currentFileName, 'vsdx', bytes);
     }
-    this.showToast(`Saved ${handle?.name || targetName}`, 'info');
+    if (savedOk) {
+      this.showToast(`Saved ${handle?.name || targetName}`, 'info');
+    }
+    return savedOk;
   }
 
-  private async handleSaveAs(ext = 'vsdx'): Promise<void> {
+  private async handleSaveAs(ext = 'vsdx'): Promise<boolean> {
     this.openHeaderMenu = null;
     const { bytes, wal } = await this.callEngine('saveFormat', { ext });
     this.persistMutationSideEffects(wal);
@@ -2311,17 +2392,22 @@ class VexioChromeOsApp {
     const suggestedName = `${baseStem}-copy.${ext}`;
     // Always pass null existingHandle so the OS Save As dialog opens unconditionally
     const handle = await saveLocalDiagramInPlace(null, suggestedName, bytes);
+    const savedOk = Boolean(handle) || !('showSaveFilePicker' in window);
     if (ext === 'vsdx' && handle) {
       this.activeFileHandle = handle;
       this.currentFileName = handle.name || suggestedName;
+    }
+    if (ext === 'vsdx' && savedOk) {
+      this.markCurrentStateAsClean();
       if (this.cloudState.user) {
         await this.firebaseSync.backupWorkspaceToCloud(this.docId, this.currentFileName, 'vsdx', bytes);
       }
       this.render();
     }
-    if (handle || !window.showSaveFilePicker) {
+    if (savedOk) {
       this.showToast(`Saved As ${handle?.name || suggestedName}`, 'info');
     }
+    return savedOk;
   }
 
   private clientToPageInches(hostEl: HTMLElement, clientX: number, clientY: number): [number, number] {
@@ -3362,7 +3448,7 @@ class VexioChromeOsApp {
           ${
             this.isRenamingDocTitle
               ? `<input id="doc-title-inline-input" class="doc-title-inline-input no-drag" value="${this.renameDocDraft.replace(/"/g, '&quot;')}" aria-label="Document Name" />`
-              : `<span class="doc-title-pill no-drag" id="doc-title-pill" title="${t.renameHint} (${this.currentFileName})">${this.currentFileName}</span>`
+              : `<span class="doc-title-pill no-drag" id="doc-title-pill" title="${t.renameHint} (${this.currentFileName})">${this.currentFileName}${this.hasUnsavedChanges ? ' •' : ''}</span>`
           }
 
           <div class="top-menubar no-drag" role="menubar">
@@ -3697,7 +3783,7 @@ class VexioChromeOsApp {
               <button class="m3-btn icon-only" id="btn-zoom-out" title="Zoom Out (Ctrl+Wheel)" style="width:24px;height:24px">−</button>
               <span class="zoom-readout">${this.zoomPct}%</span>
               <button class="m3-btn icon-only" id="btn-zoom-in" title="Zoom In (Ctrl+Wheel)" style="width:24px;height:24px">+</button>
-              <button class="m3-btn" id="btn-zoom-reset" title="Fit Page to Window" style="height:24px;padding:0 7px;font-size:11px">Fit</button>
+              <button class="m3-btn ${this.isAutoFitPageMode ? 'active' : ''}" id="btn-zoom-reset" title="Fit Page to Window" style="height:24px;padding:0 7px;font-size:11px">Fit</button>
               <button class="m3-btn" id="btn-zoom-100-pill" title="Actual Size (100%)" style="height:24px;padding:0 6px;font-size:11px">100%</button>
               <button class="m3-btn ${this.showMinimap ? 'active' : ''}" id="btn-zoom-map-pill" title="Toggle Overview Minimap" style="height:24px;padding:0 6px;font-size:11px">Map</button>
             </div>
@@ -4458,6 +4544,55 @@ class VexioChromeOsApp {
       `;
     }
 
+    if (this.activeModal === 'unsavedConfirm') {
+      const lc = normalizeLangCode(this.lang);
+      const promptTitles: Record<VexioLangCode, string> = {
+        en: `Save changes to "${this.currentFileName}"?`,
+        de: `Änderungen an „${this.currentFileName}“ speichern?`,
+        it: `Salvare le modifiche apportate a "${this.currentFileName}"?`,
+        fr: `Enregistrer les modifications apportées à « ${this.currentFileName} » ?`,
+        es: `¿Guardar los cambios en "${this.currentFileName}"?`,
+        gr: `Θέλετε να αποθηκεύσετε τις αλλαγές στο «${this.currentFileName}»;`,
+      };
+      const promptBodies: Record<VexioLangCode, string> = {
+        en: 'Your unsaved changes will be lost if you continue without saving.',
+        de: 'Nicht gespeicherte Änderungen gehen verloren, wenn Sie ohne Speichern fortfahren.',
+        it: 'Le modifiche non salvate andranno perse se continui senza salvare.',
+        fr: 'Vos modifications non enregistrées seront perdues si vous continuez sans enregistrer.',
+        es: 'Los cambios no guardados se perderán si continúas sin guardar.',
+        gr: 'Οι μη αποθηκευμένες αλλαγές θα χαθούν αν συνεχίσετε χωρίς αποθήκευση.',
+      };
+      const dontSaveLabels: Record<VexioLangCode, string> = {
+        en: "Don't Save",
+        de: 'Nicht speichern',
+        it: 'Non salvare',
+        fr: 'Ne pas enregistrer',
+        es: 'No guardar',
+        gr: 'Μη αποθήκευση',
+      };
+      const cancelLabels: Record<VexioLangCode, string> = {
+        en: 'Cancel',
+        de: 'Abbrechen',
+        it: 'Annulla',
+        fr: 'Annuler',
+        es: 'Cancelar',
+        gr: 'Ακύρωση',
+      };
+      return `
+        <div class="modal-backdrop">
+          <div class="modal-card" style="max-width:460px">
+            <strong style="font-size:15px">${promptTitles[lc]}</strong>
+            <p style="margin:4px 0 8px;font-size:12.5px;color:var(--m3-text-muted)">${promptBodies[lc]}</p>
+            <div style="display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap">
+              <button class="m3-btn" id="btn-unsaved-cancel">${cancelLabels[lc]}</button>
+              <button class="m3-btn tonal" id="btn-unsaved-discard">${dontSaveLabels[lc]}</button>
+              <button class="m3-btn active" id="btn-unsaved-save">${t.saveFile}</button>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
     if (this.activeModal === 'updates') {
       return `
         <div class="modal-backdrop">
@@ -4468,7 +4603,7 @@ class VexioChromeOsApp {
             </div>
             <div class="list-row-card" style="flex-direction:column;align-items:flex-start;gap:6px">
               <strong>${this.updateStatusText}</strong>
-              <span style="font-size:11.5px;color:var(--m3-text-muted)">Installed build: Vexio v0.4.2-alpha • Offline-First Workbox PWA + GitHub Releases channel</span>
+              <span style="font-size:11.5px;color:var(--m3-text-muted)">Installed build: Vexio v0.4.3-alpha • Offline-First Workbox PWA + GitHub Releases channel</span>
             </div>
             <label style="display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer">
               <input type="checkbox" id="chk-auto-updates" ${this.autoCheckUpdates ? 'checked' : ''} />
@@ -4902,6 +5037,27 @@ class VexioChromeOsApp {
     document.getElementById('btn-backstage')?.addEventListener('click', () => this.openBackstageModal());
     document.getElementById('btn-brand-backstage')?.addEventListener('click', () => this.openBackstageModal());
     document.getElementById('btn-open-versions')?.addEventListener('click', () => this.openBackstageModal());
+    this.ensureViewportResizeObserver();
+
+    document.getElementById('btn-unsaved-cancel')?.addEventListener('click', () => {
+      this.pendingUnsavedAction = null;
+      this.activeModal = null;
+      this.render();
+    });
+    document.getElementById('btn-unsaved-discard')?.addEventListener('click', async () => {
+      const next = this.pendingUnsavedAction;
+      this.pendingUnsavedAction = null;
+      this.activeModal = null;
+      if (next) await next();
+    });
+    document.getElementById('btn-unsaved-save')?.addEventListener('click', async () => {
+      const savedOk = await this.handleSaveInPlace('vsdx');
+      if (!savedOk) return;
+      const next = this.pendingUnsavedAction;
+      this.pendingUnsavedAction = null;
+      this.activeModal = null;
+      if (next) await next();
+    });
 
     document.getElementById('btn-snapshot-quick')?.addEventListener('click', async () => {
       await this.saveNewVersionSnapshot(`Checkpoint ${new Date().toLocaleTimeString()}`);
@@ -5033,16 +5189,16 @@ class VexioChromeOsApp {
             await this.openBackstageModal();
             break;
           case 'new-a4':
-            await this.applyPagePresetById('a4_l', true);
+            this.confirmOrRunWithUnsavedCheck(() => this.applyPagePresetById('a4_l', true));
             break;
           case 'new-a3':
-            await this.applyPagePresetById('a3_l', true);
+            this.confirmOrRunWithUnsavedCheck(() => this.applyPagePresetById('a3_l', true));
             break;
           case 'new-letter':
-            await this.applyPagePresetById('letter_l', true);
+            this.confirmOrRunWithUnsavedCheck(() => this.applyPagePresetById('letter_l', true));
             break;
           case 'open-disk':
-            await this.handleOpenDisk();
+            this.confirmOrRunWithUnsavedCheck(() => this.handleOpenDisk());
             break;
           case 'import-stencil':
             this.render();
@@ -6017,6 +6173,8 @@ class VexioChromeOsApp {
             dpi,
           });
         }
+        this.isAutoFitPageMode = true;
+        this.zoomPct = this.computeFitZoomPct();
         this.persistMutationSideEffects(res.wal);
         this.render();
       });
@@ -6351,26 +6509,32 @@ class VexioChromeOsApp {
     });
 
     document.getElementById('btn-fit-window')?.addEventListener('click', () => {
+      this.isAutoFitPageMode = true;
       this.zoomPct = this.computeFitZoomPct();
       this.render();
     });
     document.getElementById('btn-zoom-reset')?.addEventListener('click', () => {
+      this.isAutoFitPageMode = true;
       this.zoomPct = this.computeFitZoomPct();
       this.render();
     });
     document.getElementById('btn-zoom-100')?.addEventListener('click', () => {
+      this.isAutoFitPageMode = false;
       this.zoomPct = 100;
       this.render();
     });
     document.getElementById('btn-zoom-100-pill')?.addEventListener('click', () => {
+      this.isAutoFitPageMode = false;
       this.zoomPct = 100;
       this.render();
     });
     document.getElementById('btn-zoom-in')?.addEventListener('click', () => {
+      this.isAutoFitPageMode = false;
       this.zoomPct = Math.min(400, this.zoomPct + 15);
       this.render();
     });
     document.getElementById('btn-zoom-out')?.addEventListener('click', () => {
+      this.isAutoFitPageMode = false;
       this.zoomPct = Math.max(25, this.zoomPct - 15);
       this.render();
     });
@@ -6383,6 +6547,7 @@ class VexioChromeOsApp {
         (ev) => {
           if (ev.ctrlKey || ev.metaKey) {
             ev.preventDefault();
+            this.isAutoFitPageMode = false;
             const delta = ev.deltaY < 0 ? 10 : -10;
             this.zoomPct = Math.max(25, Math.min(400, this.zoomPct + delta));
             this.render();
@@ -8617,6 +8782,7 @@ class VexioChromeOsApp {
     });
 
     document.getElementById('zoom-slider')?.addEventListener('input', (e) => {
+      this.isAutoFitPageMode = false;
       this.zoomPct = Number((e.target as HTMLInputElement).value);
       this.render();
     });

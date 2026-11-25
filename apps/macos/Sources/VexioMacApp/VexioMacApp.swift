@@ -3,9 +3,160 @@ import SwiftUI
 
 // MARK: - Native AppKit Lifecycle Delegate (NSDocument Tabbing, Metal & Continuity Handoff)
 
+// MARK: - Native Unsaved Changes Save / Don't Save / Cancel Coordinator (App Quit & Window Close)
+
+@MainActor
+public enum VexioUnsavedChangesCoordinator {
+    public static func runSavePanel(
+        for session: VexioDocumentSession,
+        attachedTo window: NSWindow?,
+        completion: @escaping @MainActor (Bool) -> Void
+    ) {
+        if let existingURL = session.currentFileURL {
+            do {
+                try session.saveToURL(existingURL)
+                completion(true)
+            } catch {
+                session.statusMessage = error.localizedDescription
+                completion(false)
+            }
+            return
+        }
+
+        let i18n = VexioLocalization.shared
+        let panel = NSSavePanel()
+        panel.title = i18n.t("saveAs")
+        let formats: [(label: String, ext: String)] = [
+            ("Visio Drawing (.vsdx)", "vsdx"),
+            ("Visio Stencil (.vssx)", "vssx"),
+            ("Visio Template (.vstx)", "vstx"),
+            ("Visio Legacy Binary (.vsd)", "vsd"),
+            ("Visio XML Drawing (.vdx)", "vdx"),
+            ("AutoCAD Drawing Exchange (.dxf)", "dxf"),
+            ("Vector PDF Document (.pdf)", "pdf"),
+            ("Scalable Vector Graphics (.svg)", "svg"),
+            ("PNG Image (.png)", "png"),
+        ]
+        let popup = NSPopUpButton(frame: NSRect(x: 0, y: 0, width: 260, height: 26), pullsDown: false)
+        for item in formats {
+            popup.addItem(withTitle: item.label)
+        }
+        let accessory = NSStackView()
+        accessory.orientation = .horizontal
+        accessory.spacing = 8
+        accessory.edgeInsets = NSEdgeInsets(top: 8, left: 12, bottom: 8, right: 12)
+        let fmtLabel = NSTextField(labelWithString: "Format:")
+        fmtLabel.font = NSFont.systemFont(ofSize: 12, weight: .medium)
+        accessory.addArrangedSubview(fmtLabel)
+        accessory.addArrangedSubview(popup)
+        panel.accessoryView = accessory
+        panel.nameFieldStringValue = "\(session.documentTitle).vsdx"
+        panel.canCreateDirectories = true
+        panel.isExtensionHidden = false
+
+        let handleSaveResponse: @MainActor (NSApplication.ModalResponse) -> Void = { response in
+            guard response == .OK, var chosenURL = panel.url else {
+                completion(false)
+                return
+            }
+            let idx = max(0, min(popup.indexOfSelectedItem, formats.count - 1))
+            let chosenExt = formats[idx].ext
+            if chosenURL.pathExtension.lowercased() != chosenExt {
+                chosenURL = chosenURL.deletingPathExtension().appendingPathExtension(chosenExt)
+            }
+            do {
+                try session.saveToURL(chosenURL)
+                completion(true)
+            } catch {
+                session.statusMessage = error.localizedDescription
+                completion(false)
+            }
+        }
+
+        if let hostWindow = window, hostWindow.isVisible {
+            panel.beginSheetModal(for: hostWindow) { response in
+                Task { @MainActor in
+                    handleSaveResponse(response)
+                }
+            }
+        } else {
+            let response = panel.runModal()
+            handleSaveResponse(response)
+        }
+    }
+
+    public static func promptSaveChanges(
+        for session: VexioDocumentSession,
+        attachedTo window: NSWindow?,
+        completion: @escaping @MainActor (_ shouldProceed: Bool) -> Void
+    ) {
+        let i18n = VexioLocalization.shared
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        let titleFmt = i18n.t("unsavedPromptTitle")
+        alert.messageText = titleFmt.replacingOccurrences(of: "%@", with: session.documentTitle)
+        alert.informativeText = i18n.t("unsavedPromptMessage")
+
+        let saveBtn = alert.addButton(withTitle: i18n.t("saveFile"))
+        saveBtn.keyEquivalent = "\r"
+
+        let cancelBtn = alert.addButton(withTitle: i18n.t("cancel"))
+        cancelBtn.keyEquivalent = "\u{1b}"
+
+        let dontSaveBtn = alert.addButton(withTitle: i18n.t("dontSave"))
+        dontSaveBtn.keyEquivalent = "d"
+        dontSaveBtn.keyEquivalentModifierMask = [.command]
+        dontSaveBtn.hasDestructiveAction = true
+
+        let handleAlertResponse: @MainActor (NSApplication.ModalResponse) -> Void = { response in
+            switch response {
+            case .alertFirstButtonReturn:
+                runSavePanel(for: session, attachedTo: window) { didSave in
+                    completion(didSave)
+                }
+            case .alertThirdButtonReturn:
+                // Don't Save — proceed with closing/quitting
+                completion(true)
+            default:
+                // Cancel
+                completion(false)
+            }
+        }
+
+        if let hostWindow = window, hostWindow.isVisible {
+            hostWindow.makeKeyAndOrderFront(nil)
+            alert.beginSheetModal(for: hostWindow) { response in
+                Task { @MainActor in
+                    handleAlertResponse(response)
+                }
+            }
+        } else {
+            NSApp.activate(ignoringOtherApps: true)
+            let response = alert.runModal()
+            handleAlertResponse(response)
+        }
+    }
+}
+
 @MainActor
 public final class VexioAppDelegate: NSObject, NSApplicationDelegate {
     public var pendingExternalURL: URL?
+    public var isConfirmedForceTerminating: Bool = false
+
+    private struct WeakSessionEntry {
+        weak var session: VexioDocumentSession?
+        weak var window: NSWindow?
+    }
+
+    private var trackedSessions: [ObjectIdentifier: WeakSessionEntry] = [:]
+
+    public func registerSession(_ session: VexioDocumentSession, window: NSWindow?) {
+        trackedSessions[ObjectIdentifier(session)] = WeakSessionEntry(session: session, window: window)
+    }
+
+    public func unregisterSession(_ session: VexioDocumentSession) {
+        trackedSessions.removeValue(forKey: ObjectIdentifier(session))
+    }
 
     public func applicationDidFinishLaunching(_ notification: Notification) {
         NSWindow.allowsAutomaticWindowTabbing = true
@@ -27,6 +178,50 @@ public final class VexioAppDelegate: NSObject, NSApplicationDelegate {
 
     public func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         false
+    }
+
+    public func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        if isConfirmedForceTerminating {
+            return .terminateNow
+        }
+        trackedSessions = trackedSessions.filter { $0.value.session != nil }
+        let dirtyQueue: [(VexioDocumentSession, NSWindow?)] = trackedSessions.values.compactMap { entry in
+            guard let s = entry.session, s.hasUnsavedChanges else { return nil }
+            return (s, entry.window)
+        }
+        guard !dirtyQueue.isEmpty else {
+            return .terminateNow
+        }
+
+        confirmDirtyQueueForTermination(dirtyQueue, index: 0)
+        return .terminateLater
+    }
+
+    private func confirmDirtyQueueForTermination(
+        _ queue: [(VexioDocumentSession, NSWindow?)],
+        index: Int
+    ) {
+        guard index < queue.count else {
+            isConfirmedForceTerminating = true
+            NSApp.reply(toApplicationShouldTerminate: true)
+            return
+        }
+        let (session, win) = queue[index]
+        guard session.hasUnsavedChanges else {
+            confirmDirtyQueueForTermination(queue, index: index + 1)
+            return
+        }
+        VexioUnsavedChangesCoordinator.promptSaveChanges(for: session, attachedTo: win ?? NSApp.keyWindow) { [weak self] shouldProceed in
+            guard let self else {
+                NSApp.reply(toApplicationShouldTerminate: shouldProceed)
+                return
+            }
+            if shouldProceed {
+                self.confirmDirtyQueueForTermination(queue, index: index + 1)
+            } else {
+                NSApp.reply(toApplicationShouldTerminate: false)
+            }
+        }
     }
 
     public func application(_ application: NSApplication, open urls: [URL]) {
@@ -323,14 +518,14 @@ public struct VexioGlobalMenuCommands: Commands {
 
             Button("Zoom In") {
                 guard let session else { return }
-                session.zoomScale = min(session.zoomScale * 1.25, 16.0)
+                session.setManualZoomScale(session.zoomScale * 1.25)
             }
             .keyboardShortcut("+", modifiers: [.command])
             .disabled(session == nil)
 
             Button("Zoom Out") {
                 guard let session else { return }
-                session.zoomScale = max(session.zoomScale / 1.25, 0.10)
+                session.setManualZoomScale(session.zoomScale / 1.25)
             }
             .keyboardShortcut("-", modifiers: [.command])
             .disabled(session == nil)

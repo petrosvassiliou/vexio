@@ -204,6 +204,9 @@ void MainWindow::ConfigureCustomTitleBar() {
         if (const Microsoft::UI::Windowing::AppWindow appWindow =
                 Microsoft::UI::Windowing::AppWindow::GetFromWindowId(windowId))
         {
+            if (!m_appWindowClosingToken) {
+                m_appWindowClosingToken = appWindow.Closing({this, &MainWindow::OnAppWindowClosing});
+            }
             appWindow.Resize(Windows::Graphics::SizeInt32{1600, 980});
             if (Microsoft::UI::Windowing::AppWindowTitleBar::IsCustomizationSupported()) {
                 auto titleBar = appWindow.TitleBar();
@@ -246,7 +249,11 @@ void MainWindow::AttachOrResizeDx12SwapChain() {
                     std::format(L"DX12 120Hz • {}x{} @ {:.0f}%", physWidth, physHeight, scaleX * 100.0f)
                 });
             }
-            PresentViewportFrame();
+            if (m_isAutoFitPage) {
+                FitPageToWindow();
+            } else {
+                PresentViewportFrame();
+            }
             return;
         }
     }
@@ -289,7 +296,11 @@ void MainWindow::AttachOrResizeDx12SwapChain() {
         (void)m_viewport.SetPage(m_doc, m_activePageId);
         (void)m_viewport.SetTool(static_cast<uint32_t>(m_activeTool));
         (void)m_viewport.SetSmartGuides(m_smartGuidesEnabled);
-        PresentViewportFrame();
+        if (m_isAutoFitPage) {
+            FitPageToWindow();
+        } else {
+            PresentViewportFrame();
+        }
     }
 }
 
@@ -1797,10 +1808,9 @@ void MainWindow::RebuildPageTabsStrip() {
             m_activePageId = targetId;
             if (m_viewport && m_doc) {
                 (void)m_viewport.SetPage(m_doc, m_activePageId);
-                (void)m_viewport.SetZoom(m_doc, 0.0);
             }
             RebuildPageTabsStrip();
-            PresentViewportFrame();
+            FitPageToWindow();
             SyncInspectorFromShapeSheet();
             RefreshShapeSheetSectionRows();
         });
@@ -2018,10 +2028,13 @@ void MainWindow::OnRenameActivePageClick(IInspectable const&, RoutedEventArgs co
 }
 
 void MainWindow::SetZoomPercent(double zoomPercent) {
+    m_isAutoFitPage = false;
     m_zoomPercent = std::clamp(zoomPercent, 25.0, 400.0);
+    m_suppressZoomSliderSync = true;
     if (std::abs(StatusZoomSlider().Value() - m_zoomPercent) > 0.5) {
         StatusZoomSlider().Value(m_zoomPercent);
     }
+    m_suppressZoomSliderSync = false;
     StatusZoomPercentText().Text(hstring{std::format(L"{:.0f}%", m_zoomPercent)});
     if (m_viewport && m_doc) {
         (void)m_viewport.SetZoom(m_doc, m_zoomPercent / 100.0);
@@ -2030,8 +2043,49 @@ void MainWindow::SetZoomPercent(double zoomPercent) {
     RebuildRulerTicks();
 }
 
+void MainWindow::FitPageToWindow() {
+    m_isAutoFitPage = true;
+    double pw = 297.0 / 25.4;
+    double ph = 210.0 / 25.4;
+    if (m_doc) {
+        const auto stateRes = m_doc.GetStateJson(m_activePageId);
+        if (stateRes.ok() && !stateRes.value->empty()) {
+            Windows::Data::Json::JsonObject stateObj{nullptr};
+            if (Windows::Data::Json::JsonObject::TryParse(*stateRes.value, stateObj)) {
+                pw = std::max(0.5, stateObj.GetNamedNumber(L"pageWidthIn", pw));
+                ph = std::max(0.5, stateObj.GetNamedNumber(L"pageHeightIn", ph));
+            }
+        }
+    }
+    if (auto panel = DiagramSwapChainPanel()) {
+        const double lw = panel.ActualWidth();
+        const double lh = panel.ActualHeight();
+        if (lw >= 64.0 && lh >= 64.0) {
+            const double leftPad = lw > 420.0 ? 88.0 : lw * 0.05;
+            const double rightPad = std::min(std::clamp(lw * 0.025, 22.0, 40.0), lw * 0.08);
+            const double topPad = std::min(std::clamp(lh * 0.03, 18.0, 34.0), lh * 0.08);
+            const double botPad = lh > 320.0 ? 50.0 : lh * 0.05;
+            const double availW = std::max(lw - leftPad - rightPad, lw * 0.55);
+            const double availH = std::max(lh - topPad - botPad, lh * 0.55);
+            const double ppi = std::min(availW / pw, availH / ph);
+            m_zoomPercent = std::clamp((ppi / 96.0) * 100.0, 25.0, 400.0);
+            m_suppressZoomSliderSync = true;
+            if (std::abs(StatusZoomSlider().Value() - m_zoomPercent) > 0.5) {
+                StatusZoomSlider().Value(m_zoomPercent);
+            }
+            m_suppressZoomSliderSync = false;
+            StatusZoomPercentText().Text(hstring{std::format(L"{:.0f}%", m_zoomPercent)});
+        }
+    }
+    if (m_viewport && m_doc) {
+        (void)m_viewport.SetZoom(m_doc, 0.0);
+        PresentViewportFrame();
+    }
+    RebuildRulerTicks();
+}
+
 void MainWindow::OnZoomSliderValueChanged(IInspectable const&, RangeBaseValueChangedEventArgs const& e) {
-    if (m_isInitialized) {
+    if (m_isInitialized && !m_suppressZoomSliderSync) {
         SetZoomPercent(e.NewValue());
     }
 }
@@ -2040,11 +2094,7 @@ void MainWindow::OnZoom50Click(IInspectable const&, RoutedEventArgs const&)  { S
 void MainWindow::OnZoom100Click(IInspectable const&, RoutedEventArgs const&) { SetZoomPercent(100.0); }
 void MainWindow::OnZoom200Click(IInspectable const&, RoutedEventArgs const&) { SetZoomPercent(200.0); }
 void MainWindow::OnFitToWindowClick(IInspectable const&, RoutedEventArgs const&) {
-    if (m_viewport && m_doc) {
-        (void)m_viewport.SetZoom(m_doc, 0.0);
-        PresentViewportFrame();
-    }
-    SetZoomPercent(100.0);
+    FitPageToWindow();
 }
 
 // ===========================================================================
@@ -2245,6 +2295,7 @@ void MainWindow::OnViewSmartGuidesChanged(IInspectable const&, RoutedEventArgs c
 void MainWindow::OnUndoClick(IInspectable const&, RoutedEventArgs const&) {
     if (!m_doc) return;
     if (m_doc.Undo() == VEXIO_OK) {
+        SyncDirtyStateFromCore();
         PresentViewportFrame();
         SyncInspectorFromShapeSheet();
         RefreshShapeSheetSectionRows();
@@ -2254,6 +2305,7 @@ void MainWindow::OnUndoClick(IInspectable const&, RoutedEventArgs const&) {
 void MainWindow::OnRedoClick(IInspectable const&, RoutedEventArgs const&) {
     if (!m_doc) return;
     if (m_doc.Redo() == VEXIO_OK) {
+        SyncDirtyStateFromCore();
         PresentViewportFrame();
         SyncInspectorFromShapeSheet();
         RefreshShapeSheetSectionRows();
@@ -2675,9 +2727,8 @@ void MainWindow::OnPageOrientationChanged(IInspectable const&, SelectionChangedE
     PageScaleSummaryText().Text(m_metricUnits
         ? L"Scale: 1:1 • Units: Millimeters"
         : L"Scale: 1:1 • Units: Inches");
-    RebuildRulerTicks();
     MarkDocumentDirty(true);
-    PresentViewportFrame();
+    FitPageToWindow();
 }
 
 void MainWindow::OnDrawingScaleChanged(IInspectable const&, SelectionChangedEventArgs const&) {
@@ -3286,12 +3337,13 @@ fire_and_forget MainWindow::OpenStorageFileAsync(StorageFile file) {
         self->SyncPagesFromCoreState(true);
 
         self->DocumentFormatBadgeText().Text(hstring{FormatBadgeForExtension(ext)});
+        self->m_isAutoFitPage = true;
+        self->CaptureCleanStateRevision();
         self->MarkDocumentDirty(false);
         self->AttachOrResizeDx12SwapChain();
         if (self->m_viewport && self->m_doc) {
             (void)self->m_viewport.SetPage(self->m_doc, self->m_activePageId);
-            (void)self->m_viewport.SetZoom(self->m_doc, 0.0);
-            self->PresentViewportFrame();
+            self->FitPageToWindow();
         }
         self->SyncInspectorFromShapeSheet();
         self->RefreshShapeSheetSectionRows();
@@ -3331,13 +3383,17 @@ fire_and_forget MainWindow::PromptOpenFilePickerAsync() {
 }
 
 fire_and_forget MainWindow::SaveDocumentAsync(bool forceSaveAs, std::string forcedExtensionUtf8) {
-    if (!m_doc) co_return;
+    (void)co_await SaveDocumentCoreAsync(forceSaveAs, std::move(forcedExtensionUtf8));
+}
+
+IAsyncOperation<bool> MainWindow::SaveDocumentCoreAsync(bool forceSaveAs, std::string forcedExtensionUtf8) {
+    if (!m_doc) co_return false;
     const auto weakSelf = get_weak();
 
     StorageFile targetFile = (!forceSaveAs && forcedExtensionUtf8.empty()) ? m_currentStorageFile : nullptr;
     if (!targetFile) {
         const HWND hwnd = GetNativeWindowHandle();
-        if (hwnd == nullptr) co_return;
+        if (hwnd == nullptr) co_return false;
 
         FileSavePicker picker{};
         if (auto initWithWin = picker.try_as<::IInitializeWithWindow>()) {
@@ -3390,11 +3446,11 @@ fire_and_forget MainWindow::SaveDocumentAsync(bool forceSaveAs, std::string forc
         }
 
         targetFile = co_await picker.PickSaveFileAsync();
-        if (!targetFile) co_return;
+        if (!targetFile) co_return false;
     }
 
     auto self = weakSelf.get();
-    if (!self) co_return;
+    if (!self) co_return false;
 
     const std::string ext = forcedExtensionUtf8.empty()
         ? NormalizeExtensionWithoutDot(targetFile.FileType())
@@ -3403,7 +3459,7 @@ fire_and_forget MainWindow::SaveDocumentAsync(bool forceSaveAs, std::string forc
     auto savedRes = self->m_doc.SaveFormat(ext);
     if (!savedRes.ok()) {
         self->ShowBanner(InfoBarSeverity::Error, L"Save / Export Failed", savedRes.message());
-        co_return;
+        co_return false;
     }
 
     const std::vector<uint8_t> payload = savedRes.value->ToVector();
@@ -3418,6 +3474,7 @@ fire_and_forget MainWindow::SaveDocumentAsync(bool forceSaveAs, std::string forc
             strongSelf->m_activeFormatExt = ext;
             strongSelf->DocumentFormatBadgeText().Text(hstring{FormatBadgeForExtension(ext)});
             strongSelf->RefreshBaselineSnapshot();
+            strongSelf->CaptureCleanStateRevision();
             strongSelf->MarkDocumentDirty(false);
         }
         strongSelf->ShowBanner(
@@ -3425,6 +3482,7 @@ fire_and_forget MainWindow::SaveDocumentAsync(bool forceSaveAs, std::string forc
             L"Saved Deterministic Package",
             std::format(L"Wrote {} ({} bytes) losslessly.", targetFile.Name().c_str(), payload.size()));
     }
+    co_return true;
 }
 
 // ===========================================================================
@@ -4186,6 +4244,108 @@ void MainWindow::ShowBanner(InfoBarSeverity severity, std::wstring_view title, s
     bar.IsOpen(true);
 }
 
+uint64_t MainWindow::ReadCoreStateRevision() const {
+    if (!m_doc) return 0u;
+    const auto stateRes = m_doc.GetStateJson(m_activePageId);
+    if (!stateRes.ok() || stateRes.value->empty()) return 0u;
+    Windows::Data::Json::JsonObject stateObj{nullptr};
+    if (!Windows::Data::Json::JsonObject::TryParse(*stateRes.value, stateObj)) return 0u;
+    return static_cast<uint64_t>(stateObj.GetNamedNumber(L"stateRevision", 0.0));
+}
+
+void MainWindow::CaptureCleanStateRevision() {
+    m_savedStateRevision = ReadCoreStateRevision();
+}
+
+void MainWindow::SyncDirtyStateFromCore() {
+    MarkDocumentDirty(ReadCoreStateRevision() != m_savedStateRevision);
+}
+
+void MainWindow::OnAppWindowClosing(
+    Microsoft::UI::Windowing::AppWindow const&,
+    Microsoft::UI::Windowing::AppWindowClosingEventArgs const& args)
+{
+    if (!m_isDirty || m_isApprovedToClose) {
+        return;
+    }
+    args.Cancel(true);
+    if (!m_isClosingPromptOpen) {
+        ConfirmSaveBeforeCloseAsync();
+    }
+}
+
+fire_and_forget MainWindow::ConfirmSaveBeforeCloseAsync() {
+    if (m_isClosingPromptOpen) co_return;
+    m_isClosingPromptOpen = true;
+    const auto weakSelf = get_weak();
+
+    ContentDialog dialog{};
+    if (Content() && Content().XamlRoot()) {
+        dialog.XamlRoot(Content().XamlRoot());
+    }
+
+    std::wstring titleText = std::format(L"Save changes to \"{}\"?", m_documentDisplayName);
+    std::wstring bodyText  = L"Your changes will be lost if you close Vexio without saving.";
+    std::wstring saveBtn   = L"Save";
+    std::wstring dontBtn   = L"Don't Save";
+    std::wstring cancelBtn = L"Cancel";
+
+    if (m_languageCode == "de") {
+        titleText = std::format(L"Änderungen an „{}“ speichern?", m_documentDisplayName);
+        bodyText  = L"Nicht gespeicherte Änderungen gehen beim Beenden verloren.";
+        saveBtn   = L"Speichern";
+        dontBtn   = L"Nicht speichern";
+        cancelBtn = L"Abbrechen";
+    } else if (m_languageCode == "it") {
+        titleText = std::format(L"Salvare le modifiche apportate a \"{}\"?", m_documentDisplayName);
+        bodyText  = L"Le modifiche andranno perse se chiudi senza salvare.";
+        saveBtn   = L"Salva";
+        dontBtn   = L"Non salvare";
+        cancelBtn = L"Annulla";
+    } else if (m_languageCode == "fr") {
+        titleText = std::format(L"Enregistrer les modifications apportées à « {} » ?", m_documentDisplayName);
+        bodyText  = L"Vos modifications seront perdues si vous quittez sans enregistrer.";
+        saveBtn   = L"Enregistrer";
+        dontBtn   = L"Ne pas enregistrer";
+        cancelBtn = L"Annuler";
+    } else if (m_languageCode == "es") {
+        titleText = std::format(L"¿Guardar los cambios en \"{}\"?", m_documentDisplayName);
+        bodyText  = L"Los cambios se perderán si sales sin guardar.";
+        saveBtn   = L"Guardar";
+        dontBtn   = L"No guardar";
+        cancelBtn = L"Cancelar";
+    } else if (m_languageCode == "el") {
+        titleText = std::format(L"Θέλετε να αποθηκεύσετε τις αλλαγές στο «{}»;", m_documentDisplayName);
+        bodyText  = L"Οι αλλαγές σας θα χαθούν αν κλείσετε χωρίς αποθήκευση.";
+        saveBtn   = L"Αποθήκευση";
+        dontBtn   = L"Μη αποθήκευση";
+        cancelBtn = L"Ακύρωση";
+    }
+
+    dialog.Title(box_value(hstring{titleText}));
+    dialog.Content(box_value(hstring{bodyText}));
+    dialog.PrimaryButtonText(hstring{saveBtn});
+    dialog.SecondaryButtonText(hstring{dontBtn});
+    dialog.CloseButtonText(hstring{cancelBtn});
+    dialog.DefaultButton(ContentDialogButton::Primary);
+
+    const ContentDialogResult res = co_await dialog.ShowAsync();
+    auto self = weakSelf.get();
+    if (!self) co_return;
+    self->m_isClosingPromptOpen = false;
+
+    if (res == ContentDialogResult::Primary) {
+        const bool savedOk = co_await self->SaveDocumentCoreAsync(false);
+        if (auto afterSave = weakSelf.get(); afterSave && savedOk) {
+            afterSave->m_isApprovedToClose = true;
+            afterSave->Close();
+        }
+    } else if (res == ContentDialogResult::Secondary) {
+        self->m_isApprovedToClose = true;
+        self->Close();
+    }
+}
+
 void MainWindow::MarkDocumentDirty(bool dirty) {
     m_isDirty = dirty;
     const std::wstring suffix = dirty ? L" *" : L"";
@@ -4509,8 +4669,11 @@ void MainWindow::CreateNewBlankWithPreset(
     RefreshBaselineSnapshot();
     RebuildPageTabsStrip();
     RebuildRulerTicks();
+    m_isAutoFitPage = true;
+    CaptureCleanStateRevision();
     MarkDocumentDirty(false);
     AttachOrResizeDx12SwapChain();
+    FitPageToWindow();
     SyncInspectorFromShapeSheet();
     RefreshShapeSheetSectionRows();
 }
@@ -4977,7 +5140,7 @@ fire_and_forget MainWindow::ShowOfficialStencilCatalogDialogAsync() {
     }
 
     Windows::Web::Http::HttpClient client{};
-    client.DefaultRequestHeaders().UserAgent().TryParseAdd(L"Vexio-Windows/0.4.2-alpha");
+    client.DefaultRequestHeaders().UserAgent().TryParseAdd(L"Vexio-Windows/0.4.3-alpha");
     uint32_t installedCount = 0;
 
     for (auto const& target : targets) {
@@ -5239,7 +5402,7 @@ void MainWindow::OnCheckUpdatesClick(IInspectable const&, RoutedEventArgs const&
 }
 
 fire_and_forget MainWindow::CheckForUpdatesAsync(bool userInitiated) {
-    constexpr std::wstring_view kCurrentVersion = L"0.4.2-alpha";
+    constexpr std::wstring_view kCurrentVersion = L"0.4.3-alpha";
     const auto weakSelf = get_weak();
 
     if (userInitiated) {
@@ -5253,7 +5416,7 @@ fire_and_forget MainWindow::CheckForUpdatesAsync(bool userInitiated) {
 
     try {
         Windows::Web::Http::HttpClient client{};
-        client.DefaultRequestHeaders().UserAgent().TryParseAdd(L"Vexio-Windows/0.4.2-alpha");
+        client.DefaultRequestHeaders().UserAgent().TryParseAdd(L"Vexio-Windows/0.4.3-alpha");
         client.DefaultRequestHeaders().Accept().TryParseAdd(L"application/vnd.github+json");
 
         const Uri apiUri{L"https://api.github.com/repos/petrosvassiliou/vexio/releases"};
@@ -5262,7 +5425,7 @@ fire_and_forget MainWindow::CheckForUpdatesAsync(bool userInitiated) {
         Windows::Data::Json::JsonArray releasesArr{nullptr};
         if (Windows::Data::Json::JsonArray::TryParse(body, releasesArr) && releasesArr.Size() > 0) {
             const auto relObj = releasesArr.GetObjectAt(0);
-            latestTag = relObj.GetNamedString(L"tag_name", L"v0.4.2-alpha").c_str();
+            latestTag = relObj.GetNamedString(L"tag_name", L"v0.4.3-alpha").c_str();
             releaseUrl = relObj.GetNamedString(L"html_url", releaseUrl).c_str();
             if (relObj.HasKey(L"assets")) {
                 const auto assets = relObj.GetNamedArray(L"assets");
@@ -5324,7 +5487,7 @@ fire_and_forget MainWindow::CheckForUpdatesAsync(bool userInitiated) {
         }
     } else {
         self->BackstageUpdateStatusText().Text(hstring{
-            std::format(L"Vexio is up to date ({}).", latestTag.empty() ? L"v0.4.2-alpha" : latestTag)
+            std::format(L"Vexio is up to date ({}).", latestTag.empty() ? L"v0.4.3-alpha" : latestTag)
         });
         if (userInitiated) {
             ContentDialog dlg{};
@@ -5332,7 +5495,7 @@ fire_and_forget MainWindow::CheckForUpdatesAsync(bool userInitiated) {
             dlg.Title(box_value(L"Vexio is Up to Date"));
             dlg.Content(box_value(hstring{std::format(
                 L"You are running the latest version of Vexio Professional ({}).",
-                latestTag.empty() ? L"v0.4.2-alpha" : latestTag)}));
+                latestTag.empty() ? L"v0.4.3-alpha" : latestTag)}));
             dlg.PrimaryButtonText(L"View Release Notes");
             dlg.CloseButtonText(L"OK");
             dlg.DefaultButton(ContentDialogButton::Close);

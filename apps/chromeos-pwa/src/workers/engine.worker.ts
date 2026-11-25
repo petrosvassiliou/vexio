@@ -187,6 +187,7 @@ export interface EngineSnapshot {
   svgPreview: string;
   canUndo: boolean;
   canRedo: boolean;
+  stateRevision?: number;
   wgpuSurfaceActive: boolean;
   validationIssues: Array<{
     id: number;

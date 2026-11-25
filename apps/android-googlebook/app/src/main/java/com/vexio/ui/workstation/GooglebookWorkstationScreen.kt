@@ -19,6 +19,7 @@ import android.view.MotionEvent
 import android.view.SurfaceHolder
 import android.view.SurfaceView
 import android.view.View
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.expandVertically
@@ -333,6 +334,8 @@ fun GooglebookWorkstationScreen(
     onExportBomReportRequested: () -> Unit = {},
     onExportJpgRequested: () -> Unit = { viewModel.exportPlan2Artifact("jpg") },
     onExportFormatRequested: (String) -> Unit = { fmt -> viewModel.exportPlan2Artifact(fmt) },
+    onSaveAndExitRequested: () -> Unit = { onSaveDocumentRequested() },
+    onDiscardAndExitRequested: () -> Unit = { },
     onPrintRequested: () -> Unit = { }
 ) {
     val context = LocalContext.current
@@ -340,6 +343,59 @@ fun GooglebookWorkstationScreen(
     val semanticColors = LocalVexioSemanticColors.current
     val rootFocusRequester = remember { FocusRequester() }
     val formulaFocusRequester = remember { FocusRequester() }
+    var showUnsavedExitDialog by remember { mutableStateOf(false) }
+
+    BackHandler(enabled = !uiState.showStartBackstage && uiState.isDirty) {
+        showUnsavedExitDialog = true
+    }
+
+    if (showUnsavedExitDialog) {
+        val lang = uiState.appLanguage
+        AlertDialog(
+            onDismissRequest = { showUnsavedExitDialog = false },
+            title = {
+                Text(
+                    text = VexioI18n.unsavedPromptTitle(uiState.documentTitle, lang),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+            },
+            text = {
+                Text(
+                    text = VexioI18n.unsavedPromptMessage(lang),
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showUnsavedExitDialog = false
+                        onSaveAndExitRequested()
+                    }
+                ) {
+                    Text(lang.saveLabel)
+                }
+            },
+            dismissButton = {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(onClick = { showUnsavedExitDialog = false }) {
+                        Text(VexioI18n.cancelButton(lang))
+                    }
+                    OutlinedButton(
+                        onClick = {
+                            showUnsavedExitDialog = false
+                            onDiscardAndExitRequested()
+                        }
+                    ) {
+                        Text(
+                            text = VexioI18n.dontSaveButton(lang),
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+                }
+            }
+        )
+    }
 
     // Navigation 3 typed backstack preserving adaptive pane state across live window resizing
     val navBackStack = remember {
@@ -407,6 +463,15 @@ fun GooglebookWorkstationScreen(
                     // Ctrl + N -> Launch New Independent Side-by-Side Document Window
                     ctrlOrMeta && keyEvent.key == Key.N -> {
                         launchNewDocumentWindow(context, template = "blank")
+                        true
+                    }
+                    // Ctrl + W / Ctrl + Q -> Close Window (prompts Save / Don't Save / Cancel if dirty!)
+                    ctrlOrMeta && (keyEvent.key == Key.W || keyEvent.key == Key.Q) -> {
+                        if (uiState.isDirty) {
+                            showUnsavedExitDialog = true
+                        } else {
+                            (context as? Activity)?.finish()
+                        }
                         true
                     }
                     // Ctrl + P -> Native OS Vector PDF PrintManager

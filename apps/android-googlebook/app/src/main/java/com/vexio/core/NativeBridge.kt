@@ -1651,6 +1651,7 @@ data class WorkstationUiState(
     val activeTool: VexioTool = VexioTool.POINTER,
     val activeCursor: VexioCursorKind = VexioCursorKind.ARROW,
     val zoomPercent: Int = 100,
+    val isAutoFitPage: Boolean = true,
     val activePageId: Int = 1,
     val pages: List<DiagramPageTab> = listOf(
         DiagramPageTab(1, "Page-1", if (detectDefaultMetricUnits()) "ISO A4 • mm" else "1 in = 1 in"),
@@ -1701,7 +1702,7 @@ data class WorkstationUiState(
     val inlineTextEditor: InlineCanvasEditorModel? = null,
     val smartGuidesEnabled: Boolean = true,
     val autoCheckUpdates: Boolean = true,
-    val updateStatusMessage: String = "Vexio v0.4.2-alpha • Automatic update check enabled",
+    val updateStatusMessage: String = "Vexio v0.4.3-alpha • Automatic update check enabled",
     val availableUpdateTag: String? = null,
     val availableUpdateUrl: String? = null,
     val showUpdateDialog: Boolean = false,
@@ -1929,6 +1930,8 @@ class VexioSessionViewModel(
     private var nextSyntheticShapeId: Long = 3L
     private var viewportWidthPx: Int = 0
     private var viewportHeightPx: Int = 0
+    private var viewportDensity: Float = 2.0f
+    private var savedStateRevision: Long = 0L
     private var directViewportRgbaBuffer: ByteBuffer? = null
     private val lenientJson = Json { ignoreUnknownKeys = true }
     private val syntheticGroups = linkedMapOf<Long, List<Long>>()
@@ -2168,6 +2171,7 @@ class VexioSessionViewModel(
             state.copy(
                 documentTitle = title,
                 isDirty = false,
+                isAutoFitPage = true,
                 showStartBackstage = if (hideStartBackstage) false else state.showStartBackstage,
                 statusBanner = if (NativeBridge.isNativeAvailable && enginePtr != 0L) {
                     "Vexio Rust Engine Active • ${state.stencilMasters.size} Stencils Ready"
@@ -2177,8 +2181,40 @@ class VexioSessionViewModel(
             )
         }
         refreshSelectedShapeFormulas()
+        savedStateRevision = readNativeStateRevision()
         captureBaselineSnapshot()
-        presentViewportOrFallback()
+        if (_uiState.value.isAutoFitPage && viewportWidthPx > 0 && viewportHeightPx > 0) {
+            fitPageToWindow()
+        } else {
+            presentViewportOrFallback()
+        }
+    }
+
+    private fun readNativeStateRevision(): Long {
+        if (!NativeBridge.isNativeAvailable || docPtr == 0L) return 0L
+        val raw = runCatching {
+            NativeBridge.nativeGetStateJson(docPtr, resolveNativePageId(_uiState.value.activePageId))
+        }.getOrDefault("")
+        if (raw.isBlank()) return 0L
+        val match = Regex("\"stateRevision\"\\s*:\\s*(\\d+)").find(raw)
+        return match?.groupValues?.getOrNull(1)?.toLongOrNull() ?: 0L
+    }
+
+    private fun computeFitZoomPercent(): Int {
+        val safeDensity = viewportDensity.coerceAtLeast(0.5f).toDouble()
+        val lw = viewportWidthPx.toDouble() / safeDensity
+        val lh = viewportHeightPx.toDouble() / safeDensity
+        if (lw < 64.0 || lh < 64.0) return _uiState.value.zoomPercent
+        val leftPad = if (lw > 420.0) 88.0 else lw * 0.05
+        val rightPad = (lw * 0.025).coerceIn(22.0, 40.0).coerceAtMost(lw * 0.08)
+        val topPad = (lh * 0.03).coerceIn(18.0, 34.0).coerceAtMost(lh * 0.08)
+        val botPad = if (lh > 320.0) 50.0 else lh * 0.05
+        val availW = (lw - leftPad - rightPad).coerceAtLeast(lw * 0.55)
+        val availH = (lh - topPad - botPad).coerceAtLeast(lh * 0.55)
+        val pw = _uiState.value.pageWidthInches.coerceAtLeast(0.5)
+        val ph = _uiState.value.pageHeightInches.coerceAtLeast(0.5)
+        val ppi = minOf(availW / pw, availH / ph)
+        return ((ppi / 96.0) * 100.0).toInt().coerceIn(10, 800)
     }
 
     @Synchronized
@@ -2206,9 +2242,19 @@ class VexioSessionViewModel(
                     listOf(_uiState.value.selectedShapeId)
                 }
                 syncViewportSelection(initialSel)
-                presentViewportOrFallback()
+                viewportWidthPx = width
+                viewportHeightPx = height
+                viewportDensity = density
+                if (_uiState.value.isAutoFitPage) {
+                    fitPageToWindow()
+                } else {
+                    presentViewportOrFallback()
+                }
             }
         }
+        viewportWidthPx = width
+        viewportHeightPx = height
+        viewportDensity = density
         _uiState.update {
             it.copy(
                 statusBanner = "Canvas ${width}×${height} @ ${"%.2f".format(Locale.US, density)}x Active"
@@ -2221,9 +2267,16 @@ class VexioSessionViewModel(
         if (width <= 0 || height <= 0) return
         viewportWidthPx = width
         viewportHeightPx = height
+        viewportDensity = density
         if (NativeBridge.isNativeAvailable && viewportPtr != 0L) {
             NativeBridge.nativeResizeViewport(viewportPtr, width, height, density)
-            presentViewportOrFallback()
+            if (_uiState.value.isAutoFitPage) {
+                fitPageToWindow()
+            } else {
+                presentViewportOrFallback()
+            }
+        } else if (_uiState.value.isAutoFitPage) {
+            _uiState.update { it.copy(zoomPercent = computeFitZoomPercent()) }
         }
     }
 
@@ -2579,7 +2632,7 @@ class VexioSessionViewModel(
         _uiState.update { state ->
             val clamped = (state.zoomPercent + deltaPercent).coerceIn(10, 1600)
             nextPct = clamped
-            state.copy(zoomPercent = clamped)
+            state.copy(zoomPercent = clamped, isAutoFitPage = false)
         }
         if (NativeBridge.isNativeAvailable && viewportPtr != 0L && docPtr != 0L) {
             NativeBridge.nativeSetViewportZoom(viewportPtr, docPtr, nextPct / 100.0, 0.0, 0.0)
@@ -2590,10 +2643,9 @@ class VexioSessionViewModel(
     @Synchronized
     fun setZoomPercent(targetPercent: Int) {
         val clamped = targetPercent.coerceIn(10, 1600)
-        _uiState.update { it.copy(zoomPercent = clamped) }
+        _uiState.update { it.copy(zoomPercent = clamped, isAutoFitPage = false) }
         if (NativeBridge.isNativeAvailable && viewportPtr != 0L && docPtr != 0L) {
-            val scale = if (clamped == 100) 0.0 else clamped / 100.0
-            NativeBridge.nativeSetViewportZoom(viewportPtr, docPtr, scale, 0.0, 0.0)
+            NativeBridge.nativeSetViewportZoom(viewportPtr, docPtr, clamped / 100.0, 0.0, 0.0)
             presentViewportOrFallback()
         }
     }
@@ -2603,13 +2655,13 @@ class VexioSessionViewModel(
         val targetId = pageId.coerceAtLeast(0)
         _uiState.update { state ->
             if (state.pages.none { it.pageId == targetId }) state
-            else state.copy(activePageId = targetId)
+            else state.copy(activePageId = targetId, isAutoFitPage = true)
         }
         if (NativeBridge.isNativeAvailable && viewportPtr != 0L && docPtr != 0L) {
             NativeBridge.nativeSetViewportPage(viewportPtr, docPtr, targetId)
-            presentViewportOrFallback()
         }
         refreshSelectedShapeFormulas()
+        fitPageToWindow()
     }
 
     @Synchronized
@@ -3602,10 +3654,11 @@ class VexioSessionViewModel(
         if (NativeBridge.isNativeAvailable && docPtr != 0L) {
             val undone = NativeBridge.nativeUndo(docPtr)
             if (undone) {
+                val dirtyNow = readNativeStateRevision() != savedStateRevision
                 refreshSelectedShapeFormulas()
                 presentViewportOrFallback()
                 _uiState.update {
-                    it.copy(canRedo = true, statusBanner = "Undo applied")
+                    it.copy(isDirty = dirtyNow, canRedo = true, statusBanner = "Undo applied")
                 }
                 return
             }
@@ -3642,10 +3695,11 @@ class VexioSessionViewModel(
         if (NativeBridge.isNativeAvailable && docPtr != 0L) {
             val redone = NativeBridge.nativeRedo(docPtr)
             if (redone) {
+                val dirtyNow = readNativeStateRevision() != savedStateRevision
                 refreshSelectedShapeFormulas()
                 presentViewportOrFallback()
                 _uiState.update {
-                    it.copy(canUndo = true, statusBanner = "Redo applied")
+                    it.copy(isDirty = dirtyNow, canUndo = true, statusBanner = "Redo applied")
                 }
                 return
             }
@@ -4682,6 +4736,7 @@ class VexioSessionViewModel(
                     )
                 }
                 refreshSelectedShapeFormulas()
+                savedStateRevision = readNativeStateRevision()
                 fitPageToWindow()
                 captureBaselineSnapshot()
                 presentViewportOrFallback()
@@ -4848,6 +4903,8 @@ class VexioSessionViewModel(
                 statusBanner = "Applied Page Preset: ${preset.label}"
             )
         }
+        syncPagesAndActivePageFromNative(preferFirstForeground = false)
+        fitPageToWindow()
     }
 
     @Synchronized
@@ -5296,7 +5353,7 @@ class VexioSessionViewModel(
                     instanceFollowRedirects = true
                     connectTimeout = 20_000
                     readTimeout = 45_000
-                    setRequestProperty("User-Agent", "Vexio-Android-Workstation/0.4.2-alpha")
+                    setRequestProperty("User-Agent", "Vexio-Android-Workstation/0.4.3-alpha")
                 }
                 try {
                     val code = conn.responseCode
@@ -5799,12 +5856,17 @@ class VexioSessionViewModel(
 
     @Synchronized
     fun fitPageToWindow() {
+        val fittedPct = computeFitZoomPercent()
         if (NativeBridge.isNativeAvailable && viewportPtr != 0L && docPtr != 0L) {
             NativeBridge.nativeSetViewportZoom(viewportPtr, docPtr, 0.0, 0.0, 0.0)
             presentViewportOrFallback()
         }
         _uiState.update {
-            it.copy(statusBanner = "Fitted diagram to screen")
+            it.copy(
+                zoomPercent = fittedPct,
+                isAutoFitPage = true,
+                statusBanner = "Fitted diagram to screen"
+            )
         }
     }
 
@@ -6253,7 +6315,7 @@ class VexioSessionViewModel(
             }
         }
         viewModelScope.launch(ioDispatcher) {
-            val currentVersion = "0.4.2-alpha"
+            val currentVersion = "0.4.3-alpha"
             var latestTag: String? = null
             var downloadUrl = "https://github.com/petrosvassiliou/vexio/releases"
             var ok = false
@@ -6264,7 +6326,7 @@ class VexioSessionViewModel(
                     requestMethod = "GET"
                     connectTimeout = 4500
                     readTimeout = 4500
-                    setRequestProperty("User-Agent", "Vexio-Android-Googlebook/0.4.2-alpha")
+                    setRequestProperty("User-Agent", "Vexio-Android-Googlebook/0.4.3-alpha")
                     setRequestProperty("Accept", "application/vnd.github+json")
                 }
                 if (conn.responseCode in 200..299) {
@@ -6365,6 +6427,7 @@ class VexioSessionViewModel(
     }
 
     fun markSaved(uri: Uri?, displayName: String, ext: String) {
+        savedStateRevision = readNativeStateRevision()
         _uiState.update {
             it.copy(
                 documentUri = uri ?: it.documentUri,

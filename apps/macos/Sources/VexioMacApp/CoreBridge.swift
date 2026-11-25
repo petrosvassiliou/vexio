@@ -2596,6 +2596,13 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
     private var isSuppressingCameraSync: Bool = false
     private var lastViewportLogicalSize: CGSize = .zero
     private var needsFitOnViewportReady: Bool = true
+    @Published public var isAutoFitPageMode: Bool = true
+
+    private var didCaptureInitialBaselineRevision: Bool = false
+    private var savedStateRevision: UInt64 = 0
+    private var currentStateRevision: UInt64 = 0
+    private var hasMetadataUnsavedEdit: Bool = false
+    @Published public private(set) var hasUnsavedChanges: Bool = false
 
     @Published public var zoomScale: CGFloat = 1.0 {
         didSet {
@@ -2855,11 +2862,65 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
         core.hasViewport()
     }
 
+    public func disengageAutoFitForManualCamera() {
+        if isAutoFitPageMode {
+            isAutoFitPageMode = false
+        }
+    }
+
+    public func setManualZoomScale(_ newZoom: CGFloat) {
+        disengageAutoFitForManualCamera()
+        zoomScale = min(max(newZoom, 0.10), 16.0)
+    }
+
+    private func recomputeHasUnsavedChanges() {
+        let dirty = (currentStateRevision != savedStateRevision) || hasMetadataUnsavedEdit
+        if hasUnsavedChanges != dirty {
+            hasUnsavedChanges = dirty
+        }
+    }
+
+    private func readLatestCoreStateRevision() -> UInt64 {
+        let jsonStr = core.getStateJSON(activePageId: activePageId)
+        guard let data = jsonStr.data(using: .utf8),
+              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else {
+            return currentStateRevision
+        }
+        if let rev = root["stateRevision"] as? UInt64 {
+            return rev
+        }
+        if let revInt = root["stateRevision"] as? Int {
+            return UInt64(max(0, revInt))
+        }
+        if let revNum = root["stateRevision"] as? NSNumber {
+            return revNum.uint64Value
+        }
+        return currentStateRevision
+    }
+
+    public func refreshStateRevisionFromCore() {
+        currentStateRevision = readLatestCoreStateRevision()
+        if !didCaptureInitialBaselineRevision {
+            didCaptureInitialBaselineRevision = true
+            savedStateRevision = currentStateRevision
+        }
+        recomputeHasUnsavedChanges()
+    }
+
+    public func markCurrentStateAsClean() {
+        currentStateRevision = readLatestCoreStateRevision()
+        didCaptureInitialBaselineRevision = true
+        savedStateRevision = currentStateRevision
+        hasMetadataUnsavedEdit = false
+        hasUnsavedChanges = false
+    }
+
     public func resizeMetalViewport(widthPx: UInt32, heightPx: UInt32, dpiScale: Float) {
         let safeDpi = CGFloat(max(dpiScale, 0.5))
         lastViewportLogicalSize = CGSize(width: CGFloat(widthPx) / safeDpi, height: CGFloat(heightPx) / safeDpi)
         core.resizeViewport(widthPx: widthPx, heightPx: heightPx, dpiScale: dpiScale)
-        if needsFitOnViewportReady && lastViewportLogicalSize.width >= 64 && lastViewportLogicalSize.height >= 64 {
+        if (needsFitOnViewportReady || isAutoFitPageMode) && lastViewportLogicalSize.width >= 64 && lastViewportLogicalSize.height >= 64 {
             needsFitOnViewportReady = false
             fitViewportToActivePage()
         } else {
@@ -2913,6 +2974,9 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
         cursorCanvasInches = CGPoint(x: canvasXInches, y: canvasYInches)
 
         do {
+            if activeTool == .pan && pointerEvent.kind == 0 && (pointerEvent.buttons & 1) != 0 {
+                disengageAutoFitForManualCamera()
+            }
             let cursorCode = try core.dispatchPointer(pointerEvent)
             activeCursorKind = cursorCode
             if pointerEvent.kind == 1 || pointerEvent.kind == 2 || (pointerEvent.kind == 0 && pointerEvent.buttons != 0) {
@@ -2932,6 +2996,8 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
                     selectedShapeId = 0
                     selectedShapeIsGroup = false
                     syncSelectedShapeMetadataFromCore()
+                } else if pointerEvent.kind == 2 {
+                    refreshStateRevisionFromCore()
                 }
             }
             return resolveNSCursor(for: cursorCode)
@@ -3173,6 +3239,7 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
     // MARK: - Deterministic Command Journal Undo / Redo
 
     private func registerJournalUndoStep(actionName: String, undoManager: UndoManager?) {
+        refreshStateRevisionFromCore()
         guard let undoManager else { return }
         undoManager.setActionName(actionName)
         undoManager.registerUndo(withTarget: self) { target in
@@ -3193,6 +3260,7 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
                 }
             }
             reloadSelectedShapeSheetCells()
+            syncSelectedShapeMetadataFromCore()
             core.renderViewportFrame()
         } catch let bridgeErr as VexioBridgeError {
             lastBannerError = bridgeErr
@@ -3213,6 +3281,7 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
                 }
             }
             reloadSelectedShapeSheetCells()
+            syncSelectedShapeMetadataFromCore()
             core.renderViewportFrame()
         } catch let bridgeErr as VexioBridgeError {
             lastBannerError = bridgeErr
@@ -4091,6 +4160,16 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
         if let ph = root["pageHeightIn"] as? Double, ph > 0 {
             pageHeightInches = ph
         }
+        if let revNum = root["stateRevision"] as? NSNumber {
+            currentStateRevision = revNum.uint64Value
+        } else if let revInt = root["stateRevision"] as? Int {
+            currentStateRevision = UInt64(max(0, revInt))
+        }
+        if !didCaptureInitialBaselineRevision {
+            didCaptureInitialBaselineRevision = true
+            savedStateRevision = currentStateRevision
+        }
+        recomputeHasUnsavedChanges()
         if let rawPages = root["pages"] as? [[String: Any]], !rawPages.isEmpty {
             pages = rawPages.compactMap { p in
                 guard let pid = p["id"] as? Int, pid >= 0 else { return nil }
@@ -4349,15 +4428,16 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
     }
 
     public func fitViewportToActivePage() {
+        isAutoFitPageMode = true
         let lw = lastViewportLogicalSize.width
         let lh = lastViewportLogicalSize.height
         if lw < 64 || lh < 64 {
             needsFitOnViewportReady = true
         } else {
-            let leftPad: CGFloat = lw > 420 ? 96 : lw * 0.06
-            let rightPad: CGFloat = lw * 0.05
-            let topPad: CGFloat = lh * 0.05
-            let botPad: CGFloat = lh > 320 ? 54 : lh * 0.06
+            let leftPad: CGFloat = lw > 420 ? 88 : lw * 0.05
+            let rightPad: CGFloat = min(max(lw * 0.025, 22), min(40, lw * 0.08))
+            let topPad: CGFloat = min(max(lh * 0.03, 18), min(34, lh * 0.08))
+            let botPad: CGFloat = lh > 320 ? 50 : lh * 0.05
             let availW = max(lw - leftPad - rightPad, lw * 0.55)
             let availH = max(lh - topPad - botPad, lh * 0.55)
             let pw = max(CGFloat(pageWidthInches), 0.5)
@@ -4365,7 +4445,7 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
             let ppi = min(availW / pw, availH / ph)
             isSuppressingCameraSync = true
             zoomScale = min(max(ppi / 96.0, 0.10), 8.0)
-            panOffset = .zero
+            panOffset = CGSize(width: (leftPad - rightPad) * 0.5, height: (topPad - botPad) * 0.5)
             isSuppressingCameraSync = false
         }
         core.setViewportZoom(zoomScale: 0.0, panXIn: 0.0, panYIn: 0.0)
@@ -5015,7 +5095,7 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
             core.setViewportPage(pageId: activePageId)
             registerJournalUndoStep(actionName: "Page Size \(preset.shortCode)", undoManager: undoManager)
             syncSelectedShapeMetadataFromCore()
-            core.renderViewportFrame()
+            fitViewportToActivePage()
             statusMessage = "Page set to \(preset.displayLabel) (\(landscape ? "Landscape" : "Portrait"))"
         } catch {
             statusMessage = error.localizedDescription
@@ -5033,7 +5113,7 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
             core.setViewportPage(pageId: activePageId)
             registerJournalUndoStep(actionName: "Page Orientation", undoManager: undoManager)
             syncSelectedShapeMetadataFromCore()
-            core.renderViewportFrame()
+            fitViewportToActivePage()
             statusMessage = landscape ? "Switched page to Landscape" : "Switched page to Portrait"
         } catch {
             statusMessage = error.localizedDescription
@@ -5069,6 +5149,7 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
             activeInlineTextEdit = nil
             activeTool = .pointer
             syncSelectedShapeMetadataFromCore()
+            markCurrentStateAsClean()
             core.setViewportPage(pageId: 1)
             fitViewportToActivePage()
             core.renderViewportFrame()
@@ -5119,8 +5200,10 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
             syncSelectedShapeMetadataFromCore()
             if pageId == activePageId {
                 core.setViewportPage(pageId: activePageId)
+                fitViewportToActivePage()
+            } else {
+                core.renderViewportFrame()
             }
-            core.renderViewportFrame()
             statusMessage = "Updated page setup"
         } catch {
             statusMessage = error.localizedDescription
@@ -5192,6 +5275,7 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
             core.setViewportPage(pageId: initialFgPageId)
             reloadSelectedShapeSheetCells()
             syncSelectedShapeMetadataFromCore()
+            markCurrentStateAsClean()
             fitViewportToActivePage()
             DispatchQueue.main.async { [weak self] in
                 self?.fitViewportToActivePage()
@@ -5213,6 +5297,7 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
         sourceFormatExtension = ext
         documentTitle = url.deletingPathExtension().lastPathComponent
         core.setDocumentTitle(documentTitle)
+        markCurrentStateAsClean()
         NSDocumentController.shared.noteNewRecentDocumentURL(url)
         statusMessage = "Saved \(url.lastPathComponent)"
     }
@@ -5229,6 +5314,7 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
             stem = trimmed
         }
         guard !stem.isEmpty else { return }
+        let changedTitle = (documentTitle != stem)
         documentTitle = stem
         core.setDocumentTitle(stem)
 
@@ -5242,6 +5328,9 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
                     NSDocumentController.shared.noteNewRecentDocumentURL(newURL)
                 }
             }
+        } else if changedTitle {
+            hasMetadataUnsavedEdit = true
+            recomputeHasUnsavedChanges()
         }
         statusMessage = "Renamed diagram to '\(stem)'"
     }

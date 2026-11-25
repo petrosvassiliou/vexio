@@ -53,12 +53,16 @@ class MainActivity : ComponentActivity() {
     /**
      * SAF CreateDocument contract for Save As persistence to local disk or mounted Google Drive / SMB shares.
      */
+    private var finishAfterNextSave: Boolean = false
+
     private val createDocumentLauncher = registerForActivityResult(
         ActivityResultContracts.CreateDocument("application/vnd.ms-visio.drawing.main+xml")
     ) { targetUri: Uri? ->
         if (targetUri != null) {
             takePersistableReadWritePermissionsIfPossible(targetUri)
             writeDiagramToSafUri(targetUri)
+        } else {
+            finishAfterNextSave = false
         }
     }
 
@@ -182,6 +186,14 @@ class MainActivity : ComponentActivity() {
                     onExportJpgRequested = ::triggerExportJpgSafPicker,
                     onExportFormatRequested = ::triggerExportFormatSafPicker,
                     onExternalUriDropped = ::loadDiagramFromSafUri,
+                    onSaveAndExitRequested = {
+                        finishAfterNextSave = true
+                        triggerSaveInPlaceOrPicker()
+                    },
+                    onDiscardAndExitRequested = {
+                        finishAfterNextSave = false
+                        finish()
+                    },
                     onPrintRequested = {
                         launchVexioVectorPrintJob(this@MainActivity, sessionViewModel)
                     }
@@ -524,7 +536,13 @@ class MainActivity : ComponentActivity() {
                         displayName = resolvedName,
                         ext = ext
                     )
+                    if (finishAfterNextSave) {
+                        finishAfterNextSave = false
+                        finish()
+                    }
                 }
+            } else {
+                finishAfterNextSave = false
             }
         }
     }

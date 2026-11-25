@@ -620,6 +620,7 @@ public final class VexioMetalNSView: NSView {
     override public func otherMouseDragged(with event: NSEvent) {
         guard let session else { return }
         // Middle-button pan convenience on desktop mice
+        session.disengageAutoFitForManualCamera()
         session.panOffset.width += event.deltaX
         session.panOffset.height += event.deltaY
         activeCursor = .closedHand
@@ -644,6 +645,7 @@ public final class VexioMetalNSView: NSView {
 
     private func applyZoomDelta(magnification: CGFloat, anchorInView: CGPoint) {
         guard let session else { return }
+        session.disengageAutoFitForManualCamera()
         let previousZoom = session.zoomScale
         let clampedZoom = min(max(previousZoom * (1.0 + magnification), 0.10), 16.0)
         let ratio = clampedZoom / max(previousZoom, 0.001)
@@ -671,6 +673,9 @@ public final class VexioMetalNSView: NSView {
             applyZoomDelta(magnification: zoomFactor, anchorInView: anchor)
         } else {
             // Two-finger Trackpad inertial pan (includes momentumPhase automatically)
+            if abs(event.scrollingDeltaX) > 0.01 || abs(event.scrollingDeltaY) > 0.01 {
+                session.disengageAutoFitForManualCamera()
+            }
             let multiplier: CGFloat = event.hasPreciseScrollingDeltas ? 1.0 : 12.0
             session.panOffset.width += event.scrollingDeltaX * multiplier
             session.panOffset.height += event.scrollingDeltaY * multiplier

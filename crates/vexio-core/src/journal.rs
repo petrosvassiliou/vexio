@@ -244,6 +244,10 @@ impl DocCommand {
 pub struct CommandJournal {
     undo_stack: Vec<DocCommand>,
     redo_stack: Vec<DocCommand>,
+    undo_revisions: Vec<u64>,
+    redo_revisions: Vec<u64>,
+    current_revision: u64,
+    next_revision: u64,
 }
 
 impl CommandJournal {
@@ -251,11 +255,22 @@ impl CommandJournal {
         Self::default()
     }
 
+    fn advance_revision(&mut self) {
+        self.next_revision = self.next_revision.wrapping_add(1);
+        if self.next_revision == 0 {
+            self.next_revision = 1;
+        }
+        self.undo_revisions.push(self.current_revision);
+        self.redo_revisions.clear();
+        self.current_revision = self.next_revision;
+    }
+
     pub fn execute(&mut self, doc: &mut VisioDocument, cmd: DocCommand) -> Result<(), JournalError> {
         cmd.apply(doc)?;
         ReactiveEngine::recalculate_document(doc);
         self.undo_stack.push(cmd);
         self.redo_stack.clear();
+        self.advance_revision();
         Ok(())
     }
 
@@ -275,6 +290,7 @@ impl CommandJournal {
                 after: Box::new(doc.clone()),
             });
             self.redo_stack.clear();
+            self.advance_revision();
         }
         result
     }
@@ -286,6 +302,10 @@ impl CommandJournal {
         cmd.revert(doc)?;
         ReactiveEngine::recalculate_document(doc);
         self.redo_stack.push(cmd);
+        if let Some(prev_rev) = self.undo_revisions.pop() {
+            self.redo_revisions.push(self.current_revision);
+            self.current_revision = prev_rev;
+        }
         Ok(true)
     }
 
@@ -296,6 +316,10 @@ impl CommandJournal {
         cmd.apply(doc)?;
         ReactiveEngine::recalculate_document(doc);
         self.undo_stack.push(cmd);
+        if let Some(next_rev) = self.redo_revisions.pop() {
+            self.undo_revisions.push(self.current_revision);
+            self.current_revision = next_rev;
+        }
         Ok(true)
     }
 
@@ -309,6 +333,11 @@ impl CommandJournal {
 
     pub fn undo_len(&self) -> usize {
         self.undo_stack.len()
+    }
+
+    /// Monotonic state revision token that changes on every mutation and restores exact saved revision on undo/redo.
+    pub fn state_revision(&self) -> u64 {
+        self.current_revision
     }
 
     /// Encode the entire command journal into a CRC32-framed binary WAL stream suitable for OPFS `SyncAccessHandle`.
@@ -352,8 +381,71 @@ impl CommandJournal {
             let cmd: DocCommand = serde_json::from_slice(payload)?;
             cmd.apply(doc)?;
             journal.undo_stack.push(cmd);
+            journal.advance_revision();
         }
         ReactiveEngine::recalculate_document(doc);
         Ok(journal)
+    }
+}
+
+#[cfg(test)]
+mod state_revision_tests {
+    use super::*;
+
+    #[test]
+    fn state_revision_tracks_edits_undo_redo_and_diverging_branches() {
+        let mut doc = VisioDocument::new_blank("Dirty Tracking Test");
+        let mut journal = CommandJournal::new();
+        assert_eq!(journal.state_revision(), 0);
+
+        journal
+            .execute(
+                &mut doc,
+                DocCommand::AddShape {
+                    page_id: 1,
+                    shape: VisioShape::new_rect(10, "Box.10", 2.0, 2.0, 1.5, 1.0),
+                },
+            )
+            .unwrap();
+        let rev1 = journal.state_revision();
+        assert_ne!(rev1, 0);
+
+        journal
+            .execute(
+                &mut doc,
+                DocCommand::SetShapeText {
+                    page_id: 1,
+                    shape_id: 10,
+                    old_text: String::new(),
+                    new_text: "Saved State".into(),
+                },
+            )
+            .unwrap();
+        let saved_rev = journal.state_revision();
+        assert_ne!(saved_rev, rev1);
+
+        // Undo back to rev1, then back to 0, then redo to saved_rev
+        assert!(journal.undo(&mut doc).unwrap());
+        assert_eq!(journal.state_revision(), rev1);
+        assert!(journal.undo(&mut doc).unwrap());
+        assert_eq!(journal.state_revision(), 0);
+        assert!(journal.redo(&mut doc).unwrap());
+        assert!(journal.redo(&mut doc).unwrap());
+        assert_eq!(journal.state_revision(), saved_rev);
+
+        // Undo one step and make a DIFFERENT edit: revision must NOT collide with saved_rev!
+        assert!(journal.undo(&mut doc).unwrap());
+        journal
+            .execute(
+                &mut doc,
+                DocCommand::SetShapeText {
+                    page_id: 1,
+                    shape_id: 10,
+                    old_text: String::new(),
+                    new_text: "Diverged State".into(),
+                },
+            )
+            .unwrap();
+        assert_ne!(journal.state_revision(), saved_rev);
     }
 }

@@ -177,7 +177,7 @@ object VexioI18n {
             }
         }
         if ("Automatic update check enabled" in raw) {
-            val ver = raw.substringAfter("Vexio ", "").substringBefore(" •").ifBlank { "v0.4.2-alpha" }
+            val ver = raw.substringAfter("Vexio ", "").substringBefore(" •").ifBlank { "v0.4.3-alpha" }
             return when (lang) {
                 EN -> "Vexio $ver • Automatic update check enabled"
                 DE -> "Vexio $ver • Automatische Update-Prüfung aktiviert"
@@ -291,6 +291,28 @@ object VexioI18n {
 
     fun cancelButton(lang: VexioAppLanguage): String = when (lang) {
         EN -> "Cancel"; DE -> "Abbrechen"; IT -> "Annulla"; FR -> "Annuler"; ES -> "Cancelar"; GR -> "Ακύρωση"
+    }
+
+    fun dontSaveButton(lang: VexioAppLanguage): String = when (lang) {
+        EN -> "Don’t Save"; DE -> "Nicht speichern"; IT -> "Non salvare"; FR -> "Ne pas enregistrer"; ES -> "No guardar"; GR -> "Μη αποθήκευση"
+    }
+
+    fun unsavedPromptTitle(docTitle: String, lang: VexioAppLanguage): String = when (lang) {
+        EN -> "Save changes to “$docTitle”?"
+        DE -> "Änderungen an „$docTitle“ speichern?"
+        IT -> "Salvare le modifiche apportate a “$docTitle”?"
+        FR -> "Enregistrer les modifications apportées à « $docTitle » ?"
+        ES -> "¿Guardar los cambios en “$docTitle”?"
+        GR -> "Θέλετε να αποθηκεύσετε τις αλλαγές στο «$docTitle»;"
+    }
+
+    fun unsavedPromptMessage(lang: VexioAppLanguage): String = when (lang) {
+        EN -> "Your changes will be lost if you close without saving."
+        DE -> "Nicht gespeicherte Änderungen gehen beim Schließen verloren."
+        IT -> "Le modifiche andranno perse se chiudi senza salvare."
+        FR -> "Vos modifications seront perdues si vous fermez sans enregistrer."
+        ES -> "Los cambios se perderán si cierras sin guardar."
+        GR -> "Οι αλλαγές σας θα χαθούν αν κλείσετε χωρίς αποθήκευση."
     }
 
     fun applyButton(lang: VexioAppLanguage): String = when (lang) {

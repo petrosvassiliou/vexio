@@ -54,9 +54,60 @@ public extension FocusedValues {
     }
 }
 
-// MARK: - AppKit Unified Full-Size Content Titlebar Configurator (Eliminates Excess Top Gap)
+// MARK: - AppKit Unified Titlebar & Unsaved-Changes Window Close Delegate
 
 private struct MacWindowUnifiedTitlebarAccessor: NSViewRepresentable {
+    @ObservedObject var session: VexioDocumentSession
+
+    @MainActor
+    final class WindowCloseCoordinator: NSObject, NSWindowDelegate {
+        weak var session: VexioDocumentSession?
+        weak var attachedWindow: NSWindow?
+        private var isApprovedToClose: Bool = false
+
+        func bind(window: NSWindow, session: VexioDocumentSession) {
+            self.session = session
+            if attachedWindow !== window {
+                attachedWindow = window
+                window.delegate = self
+            }
+            if window.isDocumentEdited != session.hasUnsavedChanges {
+                window.isDocumentEdited = session.hasUnsavedChanges
+            }
+            if let appDel = NSApp.delegate as? VexioAppDelegate {
+                appDel.registerSession(session, window: window)
+            }
+        }
+
+        func windowShouldClose(_ sender: NSWindow) -> Bool {
+            if isApprovedToClose {
+                return true
+            }
+            if let appDel = NSApp.delegate as? VexioAppDelegate, appDel.isConfirmedForceTerminating {
+                return true
+            }
+            guard let session, session.hasUnsavedChanges else {
+                return true
+            }
+            VexioUnsavedChangesCoordinator.promptSaveChanges(for: session, attachedTo: sender) { [weak self, weak sender] shouldClose in
+                guard let self, let sender, shouldClose else { return }
+                self.isApprovedToClose = true
+                sender.close()
+            }
+            return false
+        }
+
+        func windowWillClose(_ notification: Notification) {
+            if let session, let appDel = NSApp.delegate as? VexioAppDelegate {
+                appDel.unregisterSession(session)
+            }
+        }
+    }
+
+    func makeCoordinator() -> WindowCloseCoordinator {
+        WindowCloseCoordinator()
+    }
+
     private static func configure(_ window: NSWindow) {
         UserDefaults.standard.register(defaults: ["NSInitialToolTipDelay": 350])
         if !window.styleMask.contains(.fullSizeContentView) {
@@ -66,7 +117,6 @@ private struct MacWindowUnifiedTitlebarAccessor: NSViewRepresentable {
         window.titlebarAppearsTransparent = true
         if window.toolbar == nil {
             let tb = NSToolbar(identifier: "app.vexio.unifiedHeaderToolbar")
-            tb.showsBaselineSeparator = false
             window.toolbar = tb
         }
         window.toolbarStyle = .unifiedCompact
@@ -75,9 +125,12 @@ private struct MacWindowUnifiedTitlebarAccessor: NSViewRepresentable {
     func makeNSView(context: Context) -> NSView {
         UserDefaults.standard.register(defaults: ["NSInitialToolTipDelay": 350])
         let view = NSView(frame: .zero)
+        let coord = context.coordinator
+        let currentSession = session
         DispatchQueue.main.async {
             if let window = view.window {
                 Self.configure(window)
+                coord.bind(window: window, session: currentSession)
             }
         }
         return view
@@ -86,6 +139,7 @@ private struct MacWindowUnifiedTitlebarAccessor: NSViewRepresentable {
     func updateNSView(_ nsView: NSView, context: Context) {
         if let window = nsView.window {
             Self.configure(window)
+            context.coordinator.bind(window: window, session: session)
         }
     }
 }
@@ -137,7 +191,7 @@ public struct VexioWorkspaceView: View {
             let isCompactStageManagerWidth = windowGeo.size.width < 1160
 
             ZStack {
-                MacWindowUnifiedTitlebarAccessor()
+                MacWindowUnifiedTitlebarAccessor(session: session)
                     .frame(width: 0, height: 0)
 
                 VStack(spacing: 0) {
@@ -257,6 +311,13 @@ public struct VexioWorkspaceView: View {
         .onChange(of: session.activeInlineTextEdit) { _, newValue in
             if let edit = newValue {
                 inlineLabelDraft = edit.initialText
+            }
+        }
+        .onChange(of: isBackstagePresented) { _, presented in
+            if !presented && session.isAutoFitPageMode {
+                DispatchQueue.main.async {
+                    session.fitViewportToActivePage()
+                }
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .vexioShowFileBackstage)) { _ in
@@ -641,12 +702,18 @@ public struct VexioWorkspaceView: View {
                 // Zoom & Viewport Fit Pill
                 LiquidGlassPillCluster(cornerRadius: 14) {
                     LiquidGlassIconButton(systemImage: "minus.magnifyingglass", title: "Zoom Out") {
-                        session.zoomScale = max(session.zoomScale / 1.25, 0.10)
+                        session.setManualZoomScale(session.zoomScale / 1.25)
                     }
 
-                    Slider(value: $session.zoomScale, in: 0.10...8.0)
-                        .frame(width: 88)
-                        .controlSize(.small)
+                    Slider(
+                        value: Binding(
+                            get: { session.zoomScale },
+                            set: { session.setManualZoomScale($0) }
+                        ),
+                        in: 0.10...8.0
+                    )
+                    .frame(width: 88)
+                    .controlSize(.small)
 
                     Text("\(Int((session.zoomScale * 100.0).rounded()))%")
                         .font(.system(size: 11.5, weight: .medium, design: .monospaced))
@@ -654,14 +721,15 @@ public struct VexioWorkspaceView: View {
                         .frame(width: 46, alignment: .trailing)
 
                     LiquidGlassIconButton(systemImage: "plus.magnifyingglass", title: "Zoom In") {
-                        session.zoomScale = min(session.zoomScale * 1.25, 16.0)
+                        session.setManualZoomScale(session.zoomScale * 1.25)
                     }
 
                     Divider().frame(height: 14)
 
                     LiquidGlassIconButton(
                         systemImage: "arrow.up.left.and.down.right.magnifyingglass",
-                        title: "Fit Page to Window (⌘0)"
+                        title: "Fit Page to Window (⌘0)",
+                        isActive: session.isAutoFitPageMode
                     ) {
                         session.fitViewportToActivePage()
                     }
