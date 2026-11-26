@@ -30,9 +30,9 @@ FileExtensions:
 Installers:
   - Architecture: x64
     InstallerUrl: https://github.com/petrosvassiliou/vexio/releases/download/v0.5.0-beta/Vexio-Windows-v0.5.0-beta-x64.msix
-    InstallerSha256: 0000000000000000000000000000000000000000000000000000000000000000
+    InstallerSha256: 827743D254DE51F86DFE99C405E22D8E3CF2EBFCA17027ECB9943AAB55E2D232
   - Architecture: arm64
     InstallerUrl: https://github.com/petrosvassiliou/vexio/releases/download/v0.5.0-beta/Vexio-Windows-v0.5.0-beta-arm64.msix
-    InstallerSha256: 0000000000000000000000000000000000000000000000000000000000000000
+    InstallerSha256: 391D3E8535A85FEC14D10F1480C1DB0B22605FE3A4D093A3A2C413818F9EA6CC
 ManifestType: installer
 ManifestVersion: 1.6.0
