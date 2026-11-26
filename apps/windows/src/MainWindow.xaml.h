@@ -324,6 +324,10 @@ struct MainWindow : MainWindowT<MainWindow> {
     void OnHeadingPresetMenuClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
     void OnInsertHeadingMenuClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
     void OnBorderTitleMenuClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
+    void OnOpenMarkupStudioClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
+    void OnOpenSlideSnippetsClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
+    void OnResetConnectorRoutingClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
+    void OnEnsureControlHandleClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
     void OnShapeFillColorPickerChanged(winrt::Microsoft::UI::Xaml::Controls::ColorPicker const& sender, winrt::Microsoft::UI::Xaml::Controls::ColorChangedEventArgs const& args);
     void OnShapeLineColorPickerChanged(winrt::Microsoft::UI::Xaml::Controls::ColorPicker const& sender, winrt::Microsoft::UI::Xaml::Controls::ColorChangedEventArgs const& args);
 
@@ -427,6 +431,8 @@ private:
     winrt::fire_and_forget ExportBomReportPickerAsync();
     winrt::fire_and_forget ShowPageSetupDialogAsync();
     winrt::fire_and_forget ShowTiledPrintDialogAsync();
+    winrt::fire_and_forget ShowMarkupStudioDialogAsync();
+    winrt::fire_and_forget ShowSlideSnippetsDialogAsync();
     winrt::fire_and_forget RunAutomatedScreenshotIfRequestedAsync();
 
 private:

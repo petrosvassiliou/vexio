@@ -66,7 +66,10 @@
         "image/vnd.dxf": [".dxf"],
         "image/x-emf": [".emf"],
         "image/x-wmf": [".wmf"],
-        "text/x-ldif": [".ldif"]
+        "text/x-ldif": [".ldif"],
+        "text/vnd.mermaid": [".mmd", ".mermaid"],
+        "text/x-plantuml": [".puml", ".plantuml"],
+        "text/vnd.graphviz": [".dot", ".gv"]
       },
       "launch_type": "multiple-clients"
     }

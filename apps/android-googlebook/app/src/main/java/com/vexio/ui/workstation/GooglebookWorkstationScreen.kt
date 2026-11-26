@@ -1017,6 +1017,159 @@ fun GooglebookWorkstationScreen(
             )
         }
 
+        // Diagram-as-Code Studio Dialog (Mermaid / PlantUML / Graphviz DOT)
+        if (uiState.showMarkupStudioDialog) {
+            AlertDialog(
+                onDismissRequest = { viewModel.setMarkupStudioDialogVisible(false) },
+                title = { Text("Diagram-as-Code — Mermaid · PlantUML · DOT") },
+                text = {
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            listOf("mermaid" to "Mermaid (.mmd)", "plantuml" to "PlantUML (.puml)", "dot" to "DOT (.dot)").forEach { (slug, label) ->
+                                FilterChip(
+                                    selected = uiState.markupStudioFormat == slug,
+                                    onClick = { viewModel.setMarkupStudioFormat(slug) },
+                                    label = { Text(label) }
+                                )
+                            }
+                        }
+                        OutlinedTextField(
+                            value = uiState.markupStudioDraft,
+                            onValueChange = viewModel::setMarkupStudioDraft,
+                            minLines = 7,
+                            maxLines = 12,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                },
+                confirmButton = {
+                    FilledTonalButton(onClick = { viewModel.importDiagramMarkup() }) {
+                        Text("Build Visio Shapes")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { viewModel.setMarkupStudioDialogVisible(false) }) {
+                        Text("Close")
+                    }
+                }
+            )
+        }
+
+        // Presentation Mode Slide Snippets Dialog
+        if (uiState.showSlideSnippetsDialog) {
+            AlertDialog(
+                onDismissRequest = { viewModel.setSlideSnippetsDialogVisible(false) },
+                title = { Text("Presentation Mode — Slide Snippets") },
+                text = {
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 360.dp)
+                            .verticalScroll(rememberScrollState())
+                    ) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            FilledTonalButton(onClick = { viewModel.autoGenerateSlideSnippets() }) {
+                                Text("Auto-Generate Slides")
+                            }
+                            if (uiState.slideSnippets.isNotEmpty()) {
+                                OutlinedButton(onClick = { viewModel.deleteSlideSnippet(0) }) {
+                                    Text("Clear All")
+                                }
+                            }
+                        }
+                        if (uiState.slideSnippets.isEmpty()) {
+                            Text(
+                                text = "Tap Auto-Generate Slides to create presenter frames from Containers or diagram stages.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        } else {
+                            uiState.slideSnippets.forEachIndexed { idx, s ->
+                                Surface(
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = MaterialTheme.colorScheme.surfaceContainerLow,
+                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text("#${idx + 1} · ${s.title}", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+                                            if (s.notes.isNotBlank()) {
+                                                Text(s.notes, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            }
+                                        }
+                                        TextButton(onClick = { viewModel.focusSlideSnippet(idx, enterPresenter = true) }) {
+                                            Text("Present")
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    if (uiState.slideSnippets.isNotEmpty()) {
+                        FilledTonalButton(onClick = { viewModel.focusSlideSnippet(0, enterPresenter = true) }) {
+                            Text("Start Presentation ▶")
+                        }
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { viewModel.setSlideSnippetsDialogVisible(false) }) {
+                        Text("Close")
+                    }
+                }
+            )
+        }
+
+        // Floating Presentation Mode Stepper Bar
+        if (uiState.isPresentationModeActive && uiState.slideSnippets.isNotEmpty()) {
+            val safeIdx = uiState.activeSlideIndex.coerceIn(0, uiState.slideSnippets.lastIndex)
+            val curSlide = uiState.slideSnippets[safeIdx]
+            Box(
+                contentAlignment = Alignment.BottomCenter,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(bottom = 52.dp)
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(999.dp),
+                    color = MaterialTheme.colorScheme.inverseSurface,
+                    contentColor = MaterialTheme.colorScheme.inverseOnSurface,
+                    tonalElevation = 8.dp
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
+                    ) {
+                        TextButton(onClick = { viewModel.focusSlideSnippet(safeIdx - 1, enterPresenter = true) }) {
+                            Text("◀ Prev", color = MaterialTheme.colorScheme.inverseOnSurface)
+                        }
+                        Text(
+                            text = "Slide ${safeIdx + 1}/${uiState.slideSnippets.size}: ${curSlide.title}",
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        TextButton(onClick = { viewModel.focusSlideSnippet(safeIdx + 1, enterPresenter = true) }) {
+                            Text("Next ▶", color = MaterialTheme.colorScheme.inverseOnSurface)
+                        }
+                        TextButton(onClick = { viewModel.setPresentationModeActive(false) }) {
+                            Text("Exit ✕", color = MaterialTheme.colorScheme.inversePrimary)
+                        }
+                    }
+                }
+            }
+        }
+
         // Official & Enterprise Stencil Catalog Dialog (.vssx, .vss, .zip SVG)
         if (uiState.showOfficialStencilCatalogDialog) {
             val lang = uiState.language
@@ -2240,6 +2393,16 @@ private fun ClassicVisioM3Ribbon(
                                 selected = uiState.zoomPercent == 100,
                                 onClick = { viewModel.setZoomPercent(100) }
                             )
+                            ExpressivePlan2ActionPill(
+                                label = "Slide Snippets (${uiState.slideSnippets.size})",
+                                selected = uiState.showSlideSnippetsDialog,
+                                onClick = { viewModel.setSlideSnippetsDialogVisible(true) }
+                            )
+                            ExpressivePlan2ActionPill(
+                                label = if (uiState.isPresentationModeActive) "Exit Present ✕" else "Present ▶",
+                                selected = uiState.isPresentationModeActive,
+                                onClick = { viewModel.setPresentationModeActive(!uiState.isPresentationModeActive) }
+                            )
                         }
 
                         "Developer" -> {
@@ -2247,6 +2410,21 @@ private fun ClassicVisioM3Ribbon(
                                 label = "ShapeSheet Studio",
                                 selected = uiState.isShapeSheetDrawerExpanded,
                                 onClick = viewModel::toggleShapeSheetDrawer
+                            )
+                            ExpressivePlan2ActionPill(
+                                label = "Mermaid / PlantUML / DOT…",
+                                selected = uiState.showMarkupStudioDialog,
+                                onClick = { viewModel.setMarkupStudioDialogVisible(true) }
+                            )
+                            ExpressivePlan2ActionPill(
+                                label = "+ Control Handle",
+                                selected = false,
+                                onClick = { viewModel.ensureSelectedControlHandle() }
+                            )
+                            ExpressivePlan2ActionPill(
+                                label = "Reset Route",
+                                selected = false,
+                                onClick = { viewModel.resetSelectedConnectorRouting() }
                             )
                             ExpressivePlan2ActionPill(
                                 label = VexioI18n.plan2StripPill(lang),

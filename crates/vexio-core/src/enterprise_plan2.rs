@@ -910,6 +910,290 @@ pub struct SlideSnippetFrame {
     pub height_in: f64,
 }
 
+fn encode_hex_ascii(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for &b in bytes {
+        out.push(HEX[(b >> 4) as usize] as char);
+        out.push(HEX[(b & 0x0f) as usize] as char);
+    }
+    out
+}
+
+fn decode_hex_ascii(hex: &str) -> Option<Vec<u8>> {
+    let clean = hex.trim();
+    if clean.len() % 2 != 0 {
+        return None;
+    }
+    let mut out = Vec::with_capacity(clean.len() / 2);
+    let bytes = clean.as_bytes();
+    for pair in bytes.chunks_exact(2) {
+        let hi = (pair[0] as char).to_digit(16)? as u8;
+        let lo = (pair[1] as char).to_digit(16)? as u8;
+        out.push((hi << 4) | lo);
+    }
+    Some(out)
+}
+
+/// Read persisted `SlideSnippetFrame`s from `page.page_sheet` (`User.VexioSlideSnippetsJson`).
+pub fn read_page_slide_snippets(page: &vexio_shapesheet::VisioPage) -> Vec<SlideSnippetFrame> {
+    let raw_opt = page
+        .page_sheet
+        .get_cell("User.VexioSlideSnippetsJson")
+        .and_then(|c| c.value.as_str_coerced().ok())
+        .or_else(|| {
+            page.page_sheet
+                .user_cells
+                .get("vexioslidesnippetsjson")
+                .map(|u| u.value.clone())
+        });
+    let Some(raw) = raw_opt else {
+        return Vec::new();
+    };
+    let trimmed = raw.trim().trim_matches('"').trim();
+    if trimmed.is_empty() {
+        return Vec::new();
+    }
+    if let Some(hex_body) = trimmed.strip_prefix("HEX:") {
+        if let Some(bytes) = decode_hex_ascii(hex_body) {
+            if let Ok(mut list) = serde_json::from_slice::<Vec<SlideSnippetFrame>>(&bytes) {
+                for item in &mut list {
+                    item.page_id = page.id;
+                }
+                return list;
+            }
+        }
+    }
+    serde_json::from_str::<Vec<SlideSnippetFrame>>(trimmed)
+        .map(|mut list| {
+            for item in &mut list {
+                item.page_id = page.id;
+            }
+            list
+        })
+        .unwrap_or_default()
+}
+
+/// Persist `SlideSnippetFrame`s onto `page.page_sheet` (`User.VexioSlideSnippetsJson`) so they
+/// round-trip losslessly through `.vsdx`, `.vdx`, and `.vsd` save/load cycles!
+pub fn write_page_slide_snippets(
+    page: &mut vexio_shapesheet::VisioPage,
+    snippets: &[SlideSnippetFrame],
+) {
+    if snippets.is_empty() {
+        page.page_sheet.user_cells.remove("vexioslidesnippetsjson");
+        page.page_sheet.set_formula(
+            "User.VexioSlideSnippetsJson",
+            "\"\"",
+            Some(Unit::String),
+        );
+        return;
+    }
+    let json = serde_json::to_vec(snippets).unwrap_or_default();
+    let formula_val = format!("\"HEX:{}\"", encode_hex_ascii(&json));
+    page.page_sheet.set_user_cell(
+        "VexioSlideSnippetsJson",
+        formula_val,
+        "Persisted Vexio Presentation Mode Slide Snippets",
+    );
+}
+
+/// Collect all persisted `SlideSnippetFrame`s across all foreground pages of `doc`.
+pub fn collect_document_slide_snippets(doc: &VisioDocument) -> Vec<SlideSnippetFrame> {
+    let mut all = Vec::new();
+    for page in doc.pages.iter().filter(|p| !p.is_background) {
+        all.extend(read_page_slide_snippets(page));
+    }
+    all
+}
+
+/// Automatically synthesize ordered Presentation Mode `SlideSnippetFrame`s for `(doc, page_id)`
+/// from Containers/Swimlanes or spatial diagram clusters!
+pub fn auto_generate_page_slide_snippets(
+    doc: &VisioDocument,
+    page_id: u32,
+) -> Vec<SlideSnippetFrame> {
+    let Some(page) = doc.page(page_id) else {
+        return Vec::new();
+    };
+    let visuals = ReactiveEngine::evaluate_page_visuals(doc, page_id);
+    let pw = page.width_in().max(4.0);
+    let ph = page.height_in().max(3.0);
+
+    let fg_visuals: Vec<&vexio_shapesheet::EvaluatedShapeVisual> = visuals
+        .iter()
+        .filter(|v| v.kind != ShapeKind::Connector1D && v.kind != ShapeKind::Guide)
+        .collect();
+
+    if fg_visuals.is_empty() {
+        return vec![SlideSnippetFrame {
+            id: 1,
+            page_id,
+            title: format!("{} — Overview", page.name),
+            notes: format!("Full-page overview of '{}'.", page.name),
+            x_in: 0.0,
+            y_in: 0.0,
+            width_in: pw,
+            height_in: ph,
+        }];
+    }
+
+    let mut union_min = [f64::INFINITY, f64::INFINITY];
+    let mut union_max = [f64::NEG_INFINITY, f64::NEG_INFINITY];
+    for v in &fg_visuals {
+        union_min[0] = union_min[0].min(v.aabb_min[0]);
+        union_min[1] = union_min[1].min(v.aabb_min[1]);
+        union_max[0] = union_max[0].max(v.aabb_max[0]);
+        union_max[1] = union_max[1].max(v.aabb_max[1]);
+    }
+    let pad = 0.45;
+    let ov_x = (union_min[0] - pad).max(0.0);
+    let ov_y = (union_min[1] - pad).max(0.0);
+    let ov_w = ((union_max[0] + pad) - ov_x).clamp(2.0, pw);
+    let ov_h = ((union_max[1] + pad) - ov_y).clamp(1.5, ph);
+
+    let mut frames = Vec::new();
+    let mut next_id = 1u32;
+    frames.push(SlideSnippetFrame {
+        id: next_id,
+        page_id,
+        title: format!("{} — Full Diagram Overview", page.name),
+        notes: format!(
+            "High-level overview of '{}' ({} shapes, {} connectors).",
+            page.name,
+            fg_visuals.len(),
+            page.connects.len() / 2
+        ),
+        x_in: ov_x,
+        y_in: ov_y,
+        width_in: ov_w,
+        height_in: ov_h,
+    });
+    next_id += 1;
+
+    // 1. Prefer Containers / Swimlanes if present
+    let containers: Vec<&vexio_shapesheet::VisioShape> = page
+        .shapes
+        .iter()
+        .filter(|sh| {
+            crate::containers::is_container_shape(sh) || crate::containers::is_swimlane_shape(sh)
+        })
+        .collect();
+
+    if !containers.is_empty() {
+        for csh in containers {
+            if let Some(vis) = visuals.iter().find(|v| v.shape_id == csh.id) {
+                let cx = (vis.aabb_min[0] - 0.30).max(0.0);
+                let cy = (vis.aabb_min[1] - 0.30).max(0.0);
+                let cw = ((vis.aabb_max[0] + 0.30) - cx).max(1.8);
+                let ch = ((vis.aabb_max[1] + 0.30) - cy).max(1.4);
+                let heading = if csh.text.trim().is_empty() {
+                    csh.name.clone()
+                } else {
+                    csh.text.lines().next().unwrap_or(&csh.name).trim().to_string()
+                };
+                let member_ids = crate::containers::parse_container_members(csh);
+                let member_labels: Vec<String> = member_ids
+                    .iter()
+                    .filter_map(|&mid| page.find_shape(mid))
+                    .map(|m| {
+                        if m.text.trim().is_empty() {
+                            m.name.clone()
+                        } else {
+                            m.text.lines().next().unwrap_or(&m.name).trim().to_string()
+                        }
+                    })
+                    .collect();
+                let notes = if member_labels.is_empty() {
+                    format!("Focused section: {heading}.")
+                } else {
+                    format!("Includes: {}.", member_labels.join(", "))
+                };
+                frames.push(SlideSnippetFrame {
+                    id: next_id,
+                    page_id,
+                    title: heading,
+                    notes,
+                    x_in: cx,
+                    y_in: cy,
+                    width_in: cw,
+                    height_in: ch,
+                });
+                next_id += 1;
+            }
+        }
+        return frames;
+    }
+
+    // 2. Otherwise partition non-container shapes into 2-3 logical spatial stages along the primary axis!
+    if fg_visuals.len() >= 2 {
+        let span_x = union_max[0] - union_min[0];
+        let span_y = union_max[1] - union_min[1];
+        let mut sorted = fg_visuals.clone();
+        if span_x >= span_y {
+            sorted.sort_by(|a, b| {
+                a.transform
+                    .pin_x
+                    .partial_cmp(&b.transform.pin_x)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
+        } else {
+            // Top-to-bottom in Visio Y-up coordinates means descending `pin_y`!
+            sorted.sort_by(|a, b| {
+                b.transform
+                    .pin_y
+                    .partial_cmp(&a.transform.pin_y)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
+        }
+        let bucket_count = if sorted.len() >= 6 { 3 } else { 2 };
+        let chunk_size = sorted.len().div_ceil(bucket_count);
+        for (stage_idx, chunk) in sorted.chunks(chunk_size).enumerate() {
+            if chunk.is_empty() {
+                continue;
+            }
+            let mut bmin = [f64::INFINITY, f64::INFINITY];
+            let mut bmax = [f64::NEG_INFINITY, f64::NEG_INFINITY];
+            let mut labels = Vec::new();
+            for v in chunk {
+                bmin[0] = bmin[0].min(v.aabb_min[0]);
+                bmin[1] = bmin[1].min(v.aabb_min[1]);
+                bmax[0] = bmax[0].max(v.aabb_max[0]);
+                bmax[1] = bmax[1].max(v.aabb_max[1]);
+                if let Some(sh) = page.find_shape(v.shape_id) {
+                    let lbl = if sh.text.trim().is_empty() {
+                        sh.name.clone()
+                    } else {
+                        sh.text.lines().next().unwrap_or(&sh.name).trim().to_string()
+                    };
+                    labels.push(lbl);
+                }
+            }
+            let sx = (bmin[0] - 0.35).max(0.0);
+            let sy = (bmin[1] - 0.35).max(0.0);
+            let sw = ((bmax[0] + 0.35) - sx).max(2.0);
+            let sh = ((bmax[1] + 0.35) - sy).max(1.5);
+            let lead = labels
+                .first()
+                .cloned()
+                .unwrap_or_else(|| format!("Stage {}", stage_idx + 1));
+            frames.push(SlideSnippetFrame {
+                id: next_id,
+                page_id,
+                title: format!("Stage {} — {}", stage_idx + 1, lead),
+                notes: format!("Walkthrough steps: {}.", labels.join(" → ")),
+                x_in: sx,
+                y_in: sy,
+                width_in: sw,
+                height_in: sh,
+            });
+            next_id += 1;
+        }
+    }
+
+    frames
+}
+
 /// Export `snippets` (or one slide per foreground `VisioPage` when `snippets` is empty) into a
 /// standards-compliant OpenXML PresentationML `.pptx` package containing high-DPI rendered
 /// diagram PNG media, title text boxes, caption callouts, and speaker notes slides.

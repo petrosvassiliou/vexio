@@ -1,0 +1,28 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.6.0.schema.json
+PackageIdentifier: PetrosVassiliou.Vexio
+PackageVersion: 0.5.0-beta
+PackageLocale: en-US
+Publisher: Petros Vassiliou
+PublisherUrl: https://github.com/petrosvassiliou
+PackageName: Vexio
+PackageUrl: https://github.com/petrosvassiliou/vexio
+License: Proprietary / Source-Available
+ShortDescription: 1:1 Microsoft Visio Professional & Plan 2 native diagramming, CAD & ShapeSheet workstation.
+Description: >-
+  Vexio is a native WinUI 3 + DirectX 12 diagramming, CAD (.dwg/.dxf), Mermaid/PlantUML/DOT,
+  and reactive ShapeSheet suite powered by a deterministic Rust engine with lossless .vsdx,
+  .vsd, .vssx, and multi-slide .pptx round-trip support.
+Moniker: vexio
+Tags:
+  - visio
+  - diagram
+  - flowchart
+  - bpmn
+  - uml
+  - cad
+  - dwg
+  - dxf
+  - mermaid
+  - plantuml
+ManifestType: defaultLocale
+ManifestVersion: 1.6.0

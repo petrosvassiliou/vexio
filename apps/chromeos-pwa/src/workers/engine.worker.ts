@@ -165,6 +165,17 @@ export interface SmartGuidesResult {
   guides: SmartGuideLine[];
 }
 
+export interface SlideSnippetFrameDto {
+  id: number;
+  page_id: number;
+  title: string;
+  notes: string;
+  x_in: number;
+  y_in: number;
+  width_in: number;
+  height_in: number;
+}
+
 export interface EngineSnapshot {
   title: string;
   activePageId: number;
@@ -184,6 +195,7 @@ export interface EngineSnapshot {
   comments: EngineCommentInfo[];
   shapes: EngineShapeSummary[];
   dataLinkState?: PageDataLinkStateDto;
+  slideSnippets?: SlideSnippetFrameDto[];
   svgPreview: string;
   canUndo: boolean;
   canRedo: boolean;
@@ -427,6 +439,21 @@ interface WasmSessionInstance {
     target_port_cell: string
   ): boolean;
   drag_connector_segment(page_id: number, shape_id: number, seg_index: number, coord_in: number): boolean;
+  reset_connector_routing?(page_id: number, shape_id: number): boolean;
+  import_diagram_markup?(page_id: number, markup: string, format_slug: string): string;
+  export_diagram_markup?(page_id: number, format_slug: string): string;
+  list_slide_snippets_json?(): string;
+  add_slide_snippet?(
+    page_id: number,
+    title: string,
+    notes: string,
+    x_in: number,
+    y_in: number,
+    width_in: number,
+    height_in: number
+  ): number;
+  delete_slide_snippet?(page_id: number, snippet_id: number): boolean;
+  auto_generate_slide_snippets?(page_id: number): number;
   rename_shape(page_id: number, shape_id: number, new_name: string): boolean;
   upsert_shape_data(
     page_id: number,
@@ -1721,6 +1748,72 @@ self.onmessage = async (ev: MessageEvent) => {
             ? session.export_bom_report_bytes(fmt)
             : session.export_bom_xlsx();
         self.postMessage({ id, ok: true, bytes }, [bytes.buffer]);
+        break;
+      }
+      case 'importMarkup': {
+        const statsJson =
+          typeof session.import_diagram_markup === 'function'
+            ? session.import_diagram_markup(
+                activePageId,
+                String(payload.markup ?? ''),
+                String(payload.formatSlug ?? 'auto')
+              )
+            : '{"format":"mermaid","nodes_created":0,"containers_created":0,"connectors_created":0}';
+        const stats = JSON.parse(statsJson);
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, stats, wal, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'exportMarkup': {
+        const markup =
+          typeof session.export_diagram_markup === 'function'
+            ? session.export_diagram_markup(activePageId, String(payload.formatSlug ?? 'mermaid'))
+            : '';
+        self.postMessage({ id, ok: true, markup });
+        break;
+      }
+      case 'addSlideSnippet': {
+        const snippetId =
+          typeof session.add_slide_snippet === 'function'
+            ? session.add_slide_snippet(
+                activePageId,
+                String(payload.title ?? ''),
+                String(payload.notes ?? ''),
+                Number(payload.xIn ?? 0),
+                Number(payload.yIn ?? 0),
+                Number(payload.widthIn ?? 0),
+                Number(payload.heightIn ?? 0)
+              )
+            : 0;
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, snippetId, wal, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'deleteSlideSnippet': {
+        const deleted =
+          typeof session.delete_slide_snippet === 'function'
+            ? session.delete_slide_snippet(activePageId, Number(payload.snippetId ?? 0))
+            : false;
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, deleted, wal, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'autoSlideSnippets': {
+        const count =
+          typeof session.auto_generate_slide_snippets === 'function'
+            ? session.auto_generate_slide_snippets(activePageId)
+            : 0;
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, count, wal, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'resetConnectorRouting': {
+        const okReset =
+          typeof session.reset_connector_routing === 'function'
+            ? session.reset_connector_routing(activePageId, Number(payload.shapeId ?? 0))
+            : false;
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, okReset, wal, snapshot: buildSnapshot(session) });
         break;
       }
     }

@@ -259,6 +259,14 @@ class NativeBridgePacketTest {
         verifyNative("nativeGetSmartGuides", boolT, longT)
         verifyNative("nativeGetSelectionIds", LongArray::class.java, longT)
         verifyNative("nativeSetSelectionIds", boolT, longT, longT, LongArray::class.java)
+        verifyNative("nativeImportMarkup", intT, longT, intT, String::class.java, String::class.java)
+        verifyNative("nativeExportMarkup", String::class.java, longT, intT, String::class.java)
+        verifyNative("nativeListSlideSnippetsJson", String::class.java, longT)
+        verifyNative("nativeAddSlideSnippet", intT, longT, intT, String::class.java, String::class.java, doubleT, doubleT, doubleT, doubleT)
+        verifyNative("nativeDeleteSlideSnippet", boolT, longT, intT, intT)
+        verifyNative("nativeAutoSlideSnippets", intT, longT, intT)
+        verifyNative("nativeResetConnectorRouting", boolT, longT, intT, longT)
+        verifyNative("nativeEnsureControlHandle", boolT, longT, intT, longT)
     }
 
     @Test
@@ -673,8 +681,8 @@ class NativeBridgePacketTest {
         assertEquals(33, vm.uiState.value.stencilCategories.size)
         assertTrue(vm.uiState.value.stencilMasters.isNotEmpty())
         assertTrue(
-            "Expected 0.4.4-alpha in updateStatusMessage, got: ${vm.uiState.value.updateStatusMessage}",
-            vm.uiState.value.updateStatusMessage.contains("0.4.4-alpha")
+            "Expected 0.5.0-beta in updateStatusMessage, got: ${vm.uiState.value.updateStatusMessage}",
+            vm.uiState.value.updateStatusMessage.contains("0.5.0-beta")
         )
 
         val sampleNativeJson = """

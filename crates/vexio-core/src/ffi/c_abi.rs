@@ -317,31 +317,25 @@ fn hit_test_connector_1d_grips(
         return Some(Connector1DGripHit::EndEndpoint(p_end));
     }
     if poly.len() >= 3 {
-        let min_seg_in = (16.0 / eff_ppi.max(12.0)).max(0.12);
-        for seg_idx in 1..(poly.len() - 1) {
-            let a = poly[seg_idx];
-            let b = poly[seg_idx + 1];
-            // Wait: interior segments in an N-point polyline are `0..(poly.len() - 1)` excluding first (`0`) and last (`poly.len() - 2`) when `poly.len() >= 4`, or `seg_idx = 1` when `poly.len() == 4`
-            let _ = (a, b);
-        }
         let seg_count = poly.len() - 1;
         for seg_idx in 0..seg_count {
-            if seg_count >= 3 && (seg_idx == 0 || seg_idx + 1 == seg_count) {
-                continue;
-            }
-            if seg_count < 3 {
-                break;
-            }
+            let is_outer = seg_idx == 0 || seg_idx + 1 == seg_count;
+            let min_seg_in = if is_outer {
+                (28.0 / eff_ppi.max(12.0)).max(0.28)
+            } else {
+                (8.0 / eff_ppi.max(12.0)).max(0.08)
+            };
             let a = poly[seg_idx];
             let b = poly[seg_idx + 1];
             let dx = (b[0] - a[0]).abs();
             let dy = (b[1] - a[1]).abs();
-            if dx.hypot(dy) < min_seg_in {
+            let is_horiz = dy < 1e-3 && dx >= min_seg_in;
+            let is_vert = dx < 1e-3 && dy >= min_seg_in;
+            if !is_horiz && !is_vert {
                 continue;
             }
             let mx = (a[0] + b[0]) * 0.5;
             let my = (a[1] + b[1]) * 0.5;
-            let is_vert = dx <= dy;
             if (page_pt[0] - mx).hypot(page_pt[1] - my) <= tol_in {
                 return Some(Connector1DGripHit::InteriorSegment {
                     seg_index: seg_idx,
@@ -477,6 +471,24 @@ fn translate_preview_shapes_in_doc(
                         false,
                     );
                 }
+                if let Some(raw_pts) = sh
+                    .sheet
+                    .get_cell("User.ManualOrthoPoints")
+                    .and_then(|c| c.value.as_str_coerced().ok())
+                {
+                    let mut mpts = crate::routing::parse_manual_ortho_points(&raw_pts);
+                    if mpts.len() >= 2 {
+                        for p in &mut mpts {
+                            p[0] += eff_dx;
+                            p[1] += eff_dy;
+                        }
+                        sh.sheet.set_user_cell(
+                            "ManualOrthoPoints",
+                            crate::routing::format_manual_ortho_points(&mpts),
+                            "User-adjusted multi-bend orthogonal waypoints",
+                        );
+                    }
+                }
             } else {
                 let px = sh.sheet.get_f64("PinX").unwrap_or(0.0) + eff_dx;
                 let py = sh.sheet.get_f64("PinY").unwrap_or(0.0) + eff_dy;
@@ -547,6 +559,8 @@ pub enum NativeDragState {
         seg_index: usize,
         is_vertical: bool,
         cur_coord_in: f64,
+        base_poly: Vec<[f64; 2]>,
+        orig_manual_pts: Option<String>,
     },
     DrawBoxOrLine {
         tool: NativeCanvasTool,
@@ -837,12 +851,29 @@ impl VexioViewport {
                                         is_vertical,
                                         coord_in,
                                     } => {
+                                        let base_poly = visuals
+                                            .iter()
+                                            .find(|v| v.shape_id == sel_id)
+                                            .map(vexio_render::tessellate::extract_connector_polyline_in)
+                                            .unwrap_or_default();
+                                        let orig_manual_pts = session
+                                            .doc
+                                            .page(pid)
+                                            .and_then(|p| p.find_shape(sel_id))
+                                            .and_then(|sh| {
+                                                sh.sheet
+                                                    .user_cells
+                                                    .get("manualorthopoints")
+                                                    .map(|u| u.value.clone())
+                                            });
                                         self.drag_state =
                                             Some(NativeDragState::DragConnectorSegment {
                                                 shape_id: sel_id,
                                                 seg_index,
                                                 is_vertical,
                                                 cur_coord_in: coord_in,
+                                                base_poly,
+                                                orig_manual_pts,
                                             });
                                         return if is_vertical { 6 } else { 5 };
                                     }
@@ -1411,12 +1442,50 @@ impl VexioViewport {
                             return 2;
                         }
                         NativeDragState::DragConnectorSegment {
+                            shape_id,
+                            seg_index,
                             is_vertical,
                             cur_coord_in,
+                            base_poly,
                             ..
                         } => {
-                            *cur_coord_in = if *is_vertical { page_pt[0] } else { page_pt[1] };
-                            return if *is_vertical { 6 } else { 5 };
+                            let new_coord = if *is_vertical { page_pt[0] } else { page_pt[1] };
+                            *cur_coord_in = new_coord;
+                            let sid = *shape_id;
+                            let sidx = *seg_index;
+                            let vert = *is_vertical;
+                            if base_poly.len() >= 2 {
+                                let preview_poly =
+                                    crate::routing::slide_orthogonal_segment(base_poly, sidx, new_coord);
+                                let serialized = crate::routing::format_manual_ortho_points(&preview_poly);
+                                if let Some(sh) =
+                                    session.doc.page_mut(pid).and_then(|p| p.find_shape_mut(sid))
+                                {
+                                    sh.sheet.set_formula(
+                                        "ShapeRouteStyle",
+                                        "16",
+                                        Some(vexio_shapesheet::Unit::Number),
+                                    );
+                                    sh.sheet.set_formula(
+                                        "User.Preserve1DGeometry",
+                                        "FALSE",
+                                        Some(vexio_shapesheet::Unit::Boolean),
+                                    );
+                                    sh.sheet.set_formula(
+                                        "User.MidAxis",
+                                        "0",
+                                        Some(vexio_shapesheet::Unit::Number),
+                                    );
+                                    sh.sheet.set_user_cell(
+                                        "ManualOrthoPoints",
+                                        serialized,
+                                        "User-adjusted multi-bend orthogonal waypoints",
+                                    );
+                                }
+                                route_page_connectors(&mut session.doc, pid);
+                                self.present_if_attached(&session.doc);
+                            }
+                            return if vert { 6 } else { 5 };
                         }
                         NativeDragState::DrawPath { points, .. } => {
                             let should_push = points
@@ -1746,8 +1815,29 @@ impl VexioViewport {
                             shape_id,
                             seg_index,
                             is_vertical,
+                            orig_manual_pts,
                             ..
                         } => {
+                            // Restore pre-drag state first so `drag_connector_segment` records a clean Undo/Redo step!
+                            if let Some(sh) =
+                                session.doc.page_mut(pid).and_then(|p| p.find_shape_mut(shape_id))
+                            {
+                                if let Some(orig) = orig_manual_pts {
+                                    sh.sheet.set_user_cell(
+                                        "ManualOrthoPoints",
+                                        orig,
+                                        "User-adjusted multi-bend orthogonal waypoints",
+                                    );
+                                } else {
+                                    sh.sheet.user_cells.remove("manualorthopoints");
+                                    sh.sheet.set_formula(
+                                        "User.ManualOrthoPoints",
+                                        "\"\"",
+                                        Some(vexio_shapesheet::Unit::String),
+                                    );
+                                }
+                            }
+                            route_page_connectors(&mut session.doc, pid);
                             let final_coord = if is_vertical { page_pt[0] } else { page_pt[1] };
                             let _ = session.drag_connector_segment(
                                 pid,
@@ -2275,6 +2365,7 @@ struct NativeStateDto {
     layers: Vec<NativeLayerDto>,
     shapes: Vec<NativeShapeDto>,
     data_link_state: crate::workspace::PageDataLinkStateDto,
+    slide_snippets: Vec<crate::enterprise_plan2::SlideSnippetFrame>,
     svg_preview: String,
     can_undo: bool,
     can_redo: bool,
@@ -2460,6 +2551,7 @@ pub(crate) fn build_native_state_json(session: &DocumentSession, active_page_id:
         layers,
         shapes,
         data_link_state: session.get_page_data_link_state(pid),
+        slide_snippets: session.list_slide_snippets(),
         svg_preview: export_page_svg(&session.doc, pid),
         can_undo: session.journal.can_undo(),
         can_redo: session.journal.can_redo(),
@@ -4424,6 +4516,223 @@ pub unsafe extern "C" fn vexio_doc_apply_border_and_title(
                 }
                 VexioStatus::Ok
             }
+            Err(e) => map_core_err(e),
+        }
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_doc_import_markup(
+    doc: *mut VexioDoc,
+    page_id: u32,
+    markup_utf8: *const c_char,
+    format_slug_utf8: *const c_char,
+    out_nodes_created: *mut u32,
+) -> VexioStatus {
+    catch_ffi_status(|| {
+        if doc.is_null() || markup_utf8.is_null() {
+            return VexioStatus::ErrInvalidArg;
+        }
+        // SAFETY: `markup_utf8` verified non-null.
+        let Ok(markup_s) = unsafe { CStr::from_ptr(markup_utf8) }.to_str() else {
+            return VexioStatus::ErrInvalidArg;
+        };
+        let fmt_s = if format_slug_utf8.is_null() {
+            "auto"
+        } else {
+            // SAFETY: `format_slug_utf8` verified non-null.
+            unsafe { CStr::from_ptr(format_slug_utf8) }
+                .to_str()
+                .unwrap_or("auto")
+        };
+        // SAFETY: `doc` verified non-null.
+        let d = unsafe { &mut *doc };
+        match d.session.import_diagram_markup(page_id, markup_s, fmt_s) {
+            Ok(stats) => {
+                if !out_nodes_created.is_null() {
+                    // SAFETY: `out_nodes_created` verified non-null.
+                    unsafe { *out_nodes_created = stats.nodes_created as u32 };
+                }
+                VexioStatus::Ok
+            }
+            Err(e) => map_core_err(e),
+        }
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_doc_export_markup(
+    doc: *const VexioDoc,
+    page_id: u32,
+    format_slug_utf8: *const c_char,
+    out_markup_utf8: *mut VexioOwnedBuffer,
+) -> VexioStatus {
+    catch_ffi_status(|| {
+        if doc.is_null() || out_markup_utf8.is_null() {
+            return VexioStatus::ErrInvalidArg;
+        }
+        let fmt_s = if format_slug_utf8.is_null() {
+            "mermaid"
+        } else {
+            // SAFETY: `format_slug_utf8` verified non-null.
+            unsafe { CStr::from_ptr(format_slug_utf8) }
+                .to_str()
+                .unwrap_or("mermaid")
+        };
+        // SAFETY: `doc` verified non-null.
+        let d = unsafe { &*doc };
+        match d.session.export_diagram_markup(page_id, fmt_s) {
+            Ok(text) => {
+                // SAFETY: `out_markup_utf8` verified non-null.
+                unsafe { *out_markup_utf8 = VexioOwnedBuffer::from_vec(text.into_bytes()) };
+                VexioStatus::Ok
+            }
+            Err(e) => map_core_err(e),
+        }
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_doc_list_slide_snippets_json(
+    doc: *const VexioDoc,
+    out_json: *mut VexioOwnedBuffer,
+) -> VexioStatus {
+    catch_ffi_status(|| {
+        if doc.is_null() || out_json.is_null() {
+            return VexioStatus::ErrInvalidArg;
+        }
+        // SAFETY: `doc` and `out_json` verified non-null.
+        let d = unsafe { &*doc };
+        let json = d.session.list_slide_snippets_json();
+        unsafe { *out_json = VexioOwnedBuffer::from_vec(json.into_bytes()) };
+        VexioStatus::Ok
+    })
+}
+
+#[no_mangle]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn vexio_doc_add_slide_snippet(
+    doc: *mut VexioDoc,
+    page_id: u32,
+    title_utf8: *const c_char,
+    notes_utf8: *const c_char,
+    x_in: f64,
+    y_in: f64,
+    width_in: f64,
+    height_in: f64,
+    out_snippet_id: *mut u32,
+) -> VexioStatus {
+    catch_ffi_status(|| {
+        if doc.is_null() {
+            return VexioStatus::ErrInvalidArg;
+        }
+        let title_s = if title_utf8.is_null() {
+            ""
+        } else {
+            // SAFETY: `title_utf8` verified non-null.
+            unsafe { CStr::from_ptr(title_utf8) }.to_str().unwrap_or("")
+        };
+        let notes_s = if notes_utf8.is_null() {
+            ""
+        } else {
+            // SAFETY: `notes_utf8` verified non-null.
+            unsafe { CStr::from_ptr(notes_utf8) }.to_str().unwrap_or("")
+        };
+        // SAFETY: `doc` verified non-null.
+        let d = unsafe { &mut *doc };
+        match d
+            .session
+            .add_slide_snippet(page_id, title_s, notes_s, x_in, y_in, width_in, height_in)
+        {
+            Ok(id) => {
+                if !out_snippet_id.is_null() {
+                    // SAFETY: `out_snippet_id` verified non-null.
+                    unsafe { *out_snippet_id = id };
+                }
+                VexioStatus::Ok
+            }
+            Err(e) => map_core_err(e),
+        }
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_doc_delete_slide_snippet(
+    doc: *mut VexioDoc,
+    page_id: u32,
+    snippet_id: u32,
+) -> VexioStatus {
+    catch_ffi_status(|| {
+        if doc.is_null() {
+            return VexioStatus::ErrInvalidArg;
+        }
+        // SAFETY: `doc` verified non-null.
+        let d = unsafe { &mut *doc };
+        match d.session.delete_slide_snippet(page_id, snippet_id) {
+            Ok(_) => VexioStatus::Ok,
+            Err(e) => map_core_err(e),
+        }
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_doc_auto_slide_snippets(
+    doc: *mut VexioDoc,
+    page_id: u32,
+    out_count: *mut u32,
+) -> VexioStatus {
+    catch_ffi_status(|| {
+        if doc.is_null() {
+            return VexioStatus::ErrInvalidArg;
+        }
+        // SAFETY: `doc` verified non-null.
+        let d = unsafe { &mut *doc };
+        match d.session.auto_generate_slide_snippets(page_id) {
+            Ok(frames) => {
+                if !out_count.is_null() {
+                    // SAFETY: `out_count` verified non-null.
+                    unsafe { *out_count = frames.len() as u32 };
+                }
+                VexioStatus::Ok
+            }
+            Err(e) => map_core_err(e),
+        }
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_doc_reset_connector_routing(
+    doc: *mut VexioDoc,
+    page_id: u32,
+    shape_id: u64,
+) -> VexioStatus {
+    catch_ffi_status(|| {
+        if doc.is_null() || shape_id == 0 {
+            return VexioStatus::ErrInvalidArg;
+        }
+        // SAFETY: `doc` verified non-null.
+        let d = unsafe { &mut *doc };
+        match d.session.reset_connector_routing(page_id, shape_id) {
+            Ok(_) => VexioStatus::Ok,
+            Err(e) => map_core_err(e),
+        }
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_doc_ensure_control_handle(
+    doc: *mut VexioDoc,
+    page_id: u32,
+    shape_id: u64,
+) -> VexioStatus {
+    catch_ffi_status(|| {
+        if doc.is_null() || shape_id == 0 {
+            return VexioStatus::ErrInvalidArg;
+        }
+        // SAFETY: `doc` verified non-null.
+        let d = unsafe { &mut *doc };
+        match d.session.ensure_control_handle(page_id, shape_id) {
+            Ok(_) => VexioStatus::Ok,
             Err(e) => map_core_err(e),
         }
     })

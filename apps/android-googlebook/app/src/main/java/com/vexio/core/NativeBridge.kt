@@ -711,6 +711,65 @@ object NativeBridge {
         author: String,
         dateOrRev: String
     ): Int
+
+    @JvmStatic
+    external fun nativeImportMarkup(
+        docPtr: Long,
+        pageId: Int,
+        markup: String,
+        formatSlug: String
+    ): Int
+
+    @JvmStatic
+    external fun nativeExportMarkup(
+        docPtr: Long,
+        pageId: Int,
+        formatSlug: String
+    ): String?
+
+    @JvmStatic
+    external fun nativeListSlideSnippetsJson(
+        docPtr: Long
+    ): String?
+
+    @JvmStatic
+    external fun nativeAddSlideSnippet(
+        docPtr: Long,
+        pageId: Int,
+        title: String,
+        notes: String,
+        xIn: Double,
+        yIn: Double,
+        widthIn: Double,
+        heightIn: Double
+    ): Int
+
+    @JvmStatic
+    external fun nativeDeleteSlideSnippet(
+        docPtr: Long,
+        pageId: Int,
+        snippetId: Int
+    ): Boolean
+
+    @JvmStatic
+    external fun nativeAutoSlideSnippets(
+        docPtr: Long,
+        pageId: Int
+    ): Int
+
+    @JvmStatic
+    external fun nativeResetConnectorRouting(
+        docPtr: Long,
+        pageId: Int,
+        shapeId: Long
+    ): Boolean
+
+    @JvmStatic
+    external fun nativeEnsureControlHandle(
+        docPtr: Long,
+        pageId: Int,
+        shapeId: Long
+    ): Boolean
 }
 
 /**
@@ -1521,6 +1580,17 @@ data class DiagramLayerUiItem(
     val memberCount: Int = 0
 )
 
+data class SlideSnippetUiItem(
+    val id: Int,
+    val pageId: Int,
+    val title: String,
+    val notes: String = "",
+    val xIn: Double = 0.0,
+    val yIn: Double = 0.0,
+    val widthIn: Double = 11.0,
+    val heightIn: Double = 8.5
+)
+
 data class DataGraphicUiState(
     val enabled: Boolean = false,
     val iconSetField: String = "Status",
@@ -1702,7 +1772,7 @@ data class WorkstationUiState(
     val inlineTextEditor: InlineCanvasEditorModel? = null,
     val smartGuidesEnabled: Boolean = true,
     val autoCheckUpdates: Boolean = true,
-    val updateStatusMessage: String = "Vexio v0.4.4-alpha • Automatic update check enabled",
+    val updateStatusMessage: String = "Vexio v0.5.0-beta • Automatic update check enabled",
     val availableUpdateTag: String? = null,
     val availableUpdateUrl: String? = null,
     val showUpdateDialog: Boolean = false,
@@ -1742,6 +1812,13 @@ data class WorkstationUiState(
         DiagramLayerUiItem(2, "Annotations")
     ),
     val shapeSheetCells: List<ShapeSheetCellEntry> = defaultShapeSheetCells(),
+    val showMarkupStudioDialog: Boolean = false,
+    val markupStudioFormat: String = "mermaid",
+    val markupStudioDraft: String = "flowchart TD\n    A([\"Start\"]) --> B{\"Approved?\"}\n    B -->|Yes| C[(\"Database\")]\n    B -.->|No| D[\"Review\"]",
+    val showSlideSnippetsDialog: Boolean = false,
+    val slideSnippets: List<SlideSnippetUiItem> = emptyList(),
+    val isPresentationModeActive: Boolean = false,
+    val activeSlideIndex: Int = 0,
     val validationSummary: ValidationBadgeSummary = ValidationBadgeSummary(
         standard = "BPMN 2.0",
         errorCount = 0,
@@ -5160,6 +5237,227 @@ class VexioSessionViewModel(
     }
 
     @Synchronized
+    fun setMarkupStudioDialogVisible(visible: Boolean) {
+        if (visible && NativeBridge.isNativeAvailable && docPtr != 0L) {
+            val cur = _uiState.value
+            val exported = NativeBridge.nativeExportMarkup(
+                docPtr,
+                resolveNativePageId(cur.activePageId),
+                cur.markupStudioFormat
+            )
+            if (!exported.isNullOrBlank()) {
+                _uiState.update { it.copy(showMarkupStudioDialog = true, markupStudioDraft = exported) }
+                return
+            }
+        }
+        _uiState.update { it.copy(showMarkupStudioDialog = visible) }
+    }
+
+    @Synchronized
+    fun setMarkupStudioFormat(formatSlug: String) {
+        val clean = formatSlug.lowercase(Locale.US)
+        var nextDraft = _uiState.value.markupStudioDraft
+        if (NativeBridge.isNativeAvailable && docPtr != 0L) {
+            val exported = NativeBridge.nativeExportMarkup(
+                docPtr,
+                resolveNativePageId(_uiState.value.activePageId),
+                clean
+            )
+            if (!exported.isNullOrBlank()) {
+                nextDraft = exported
+            }
+        }
+        _uiState.update { it.copy(markupStudioFormat = clean, markupStudioDraft = nextDraft) }
+    }
+
+    @Synchronized
+    fun setMarkupStudioDraft(draft: String) {
+        _uiState.update { it.copy(markupStudioDraft = draft) }
+    }
+
+    @Synchronized
+    fun importDiagramMarkup(markup: String = _uiState.value.markupStudioDraft, formatSlug: String = _uiState.value.markupStudioFormat): Int {
+        if (markup.isBlank()) return 0
+        val pid = resolveNativePageId(_uiState.value.activePageId)
+        var created = 3
+        if (NativeBridge.isNativeAvailable && docPtr != 0L) {
+            created = NativeBridge.nativeImportMarkup(docPtr, pid, markup, formatSlug).coerceAtLeast(0)
+            presentViewportOrFallback()
+        }
+        _uiState.update {
+            it.copy(
+                showMarkupStudioDialog = false,
+                isDirty = true,
+                canUndo = true,
+                pageShapeCount = (it.pageShapeCount + created).coerceAtLeast(created),
+                statusBanner = "Imported $created shapes from ${formatSlug.uppercase(Locale.US)} markup"
+            )
+        }
+        return created
+    }
+
+    private fun parseSlideSnippetsJson(json: String?): List<SlideSnippetUiItem> {
+        if (json.isNullOrBlank()) return emptyList()
+        return runCatching {
+            val arr = org.json.JSONArray(json)
+            buildList {
+                for (i in 0 until arr.length()) {
+                    val o = arr.optJSONObject(i) ?: continue
+                    add(
+                        SlideSnippetUiItem(
+                            id = o.optInt("id", i + 1),
+                            pageId = o.optInt("page_id", 1),
+                            title = o.optString("title", "Slide ${i + 1}"),
+                            notes = o.optString("notes", ""),
+                            xIn = o.optDouble("x_in", 0.0),
+                            yIn = o.optDouble("y_in", 0.0),
+                            widthIn = o.optDouble("width_in", 11.0),
+                            heightIn = o.optDouble("height_in", 8.5)
+                        )
+                    )
+                }
+            }
+        }.getOrDefault(emptyList())
+    }
+
+    @Synchronized
+    fun setSlideSnippetsDialogVisible(visible: Boolean) {
+        if (visible && NativeBridge.isNativeAvailable && docPtr != 0L) {
+            val loaded = parseSlideSnippetsJson(NativeBridge.nativeListSlideSnippetsJson(docPtr))
+            _uiState.update { it.copy(showSlideSnippetsDialog = true, slideSnippets = loaded) }
+        } else {
+            _uiState.update { it.copy(showSlideSnippetsDialog = visible) }
+        }
+    }
+
+    @Synchronized
+    fun autoGenerateSlideSnippets(): Int {
+        val pid = resolveNativePageId(_uiState.value.activePageId)
+        val slides = if (NativeBridge.isNativeAvailable && docPtr != 0L) {
+            NativeBridge.nativeAutoSlideSnippets(docPtr, pid)
+            parseSlideSnippetsJson(NativeBridge.nativeListSlideSnippetsJson(docPtr))
+        } else {
+            listOf(
+                SlideSnippetUiItem(1, pid, "Full Diagram Overview", "Overview slide", 0.0, 0.0, _uiState.value.pageWidthInches, _uiState.value.pageHeightInches),
+                SlideSnippetUiItem(2, pid, "Stage 1 — Focus", "Focused section", 0.5, 0.5, _uiState.value.pageWidthInches * 0.6, _uiState.value.pageHeightInches * 0.6)
+            )
+        }
+        _uiState.update {
+            it.copy(
+                slideSnippets = slides,
+                activeSlideIndex = 0,
+                isDirty = true,
+                canUndo = true,
+                statusBanner = "Generated ${slides.size} Presentation Slide Snippets"
+            )
+        }
+        return slides.size
+    }
+
+    @Synchronized
+    fun deleteSlideSnippet(snippetId: Int) {
+        val pid = resolveNativePageId(_uiState.value.activePageId)
+        val nextSlides = if (NativeBridge.isNativeAvailable && docPtr != 0L) {
+            NativeBridge.nativeDeleteSlideSnippet(docPtr, pid, snippetId)
+            parseSlideSnippetsJson(NativeBridge.nativeListSlideSnippetsJson(docPtr))
+        } else if (snippetId == 0) {
+            emptyList()
+        } else {
+            _uiState.value.slideSnippets.filterNot { it.id == snippetId }
+        }
+        _uiState.update {
+            it.copy(
+                slideSnippets = nextSlides,
+                activeSlideIndex = 0,
+                isPresentationModeActive = it.isPresentationModeActive && nextSlides.isNotEmpty(),
+                isDirty = true
+            )
+        }
+    }
+
+    @Synchronized
+    fun focusSlideSnippet(index: Int, enterPresenter: Boolean = true) {
+        var slides = _uiState.value.slideSnippets
+        if (slides.isEmpty()) {
+            autoGenerateSlideSnippets()
+            slides = _uiState.value.slideSnippets
+        }
+        if (slides.isEmpty()) return
+        val wrapped = ((index % slides.size) + slides.size) % slides.size
+        val target = slides[wrapped]
+        if (NativeBridge.isNativeAvailable && viewportPtr != 0L && docPtr != 0L) {
+            val scale = (8.5 / target.heightIn.coerceAtLeast(1.0)).coerceIn(0.35, 3.5)
+            NativeBridge.nativeSetViewportZoom(
+                viewportPtr,
+                docPtr,
+                scale,
+                target.xIn + target.widthIn * 0.5,
+                target.yIn + target.heightIn * 0.5
+            )
+            presentViewportOrFallback()
+        }
+        _uiState.update {
+            it.copy(
+                activeSlideIndex = wrapped,
+                isPresentationModeActive = enterPresenter,
+                showSlideSnippetsDialog = false,
+                statusBanner = "Slide ${wrapped + 1}/${slides.size}: ${target.title}"
+            )
+        }
+    }
+
+    @Synchronized
+    fun setPresentationModeActive(active: Boolean) {
+        if (active) {
+            focusSlideSnippet(_uiState.value.activeSlideIndex, enterPresenter = true)
+        } else {
+            _uiState.update { it.copy(isPresentationModeActive = false) }
+        }
+    }
+
+    @Synchronized
+    fun resetSelectedConnectorRouting(): Boolean {
+        val sid = _uiState.value.selectedShapeId
+        if (sid <= 0L) return false
+        var ok = true
+        if (NativeBridge.isNativeAvailable && docPtr != 0L) {
+            ok = NativeBridge.nativeResetConnectorRouting(
+                docPtr,
+                resolveNativePageId(_uiState.value.activePageId),
+                sid
+            )
+            presentViewportOrFallback()
+        }
+        if (ok) {
+            _uiState.update {
+                it.copy(isDirty = true, canUndo = true, statusBanner = "Restored automatic A* orthogonal connector routing")
+            }
+        }
+        return ok
+    }
+
+    @Synchronized
+    fun ensureSelectedControlHandle(): Boolean {
+        val sid = _uiState.value.selectedShapeId
+        if (sid <= 0L) return false
+        var ok = true
+        if (NativeBridge.isNativeAvailable && docPtr != 0L) {
+            ok = NativeBridge.nativeEnsureControlHandle(
+                docPtr,
+                resolveNativePageId(_uiState.value.activePageId),
+                sid
+            )
+            presentViewportOrFallback()
+        }
+        if (ok) {
+            _uiState.update {
+                it.copy(isDirty = true, canUndo = true, statusBanner = "Attached parametric yellow Controls.Row_1 handle")
+            }
+        }
+        return ok
+    }
+
+    @Synchronized
     fun onCanvasDoubleTap(xPx: Float, yPx: Float) {
         var hitShapeId = 0L
         if (NativeBridge.isNativeAvailable && viewportPtr != 0L && docPtr != 0L) {
@@ -5353,7 +5651,7 @@ class VexioSessionViewModel(
                     instanceFollowRedirects = true
                     connectTimeout = 20_000
                     readTimeout = 45_000
-                    setRequestProperty("User-Agent", "Vexio-Android-Workstation/0.4.4-alpha")
+                    setRequestProperty("User-Agent", "Vexio-Android-Workstation/0.5.0-beta")
                 }
                 try {
                     val code = conn.responseCode
@@ -6315,7 +6613,7 @@ class VexioSessionViewModel(
             }
         }
         viewModelScope.launch(ioDispatcher) {
-            val currentVersion = "0.4.4-alpha"
+            val currentVersion = "0.5.0-beta"
             var latestTag: String? = null
             var downloadUrl = "https://github.com/petrosvassiliou/vexio/releases"
             var ok = false
@@ -6326,7 +6624,7 @@ class VexioSessionViewModel(
                     requestMethod = "GET"
                     connectTimeout = 4500
                     readTimeout = 4500
-                    setRequestProperty("User-Agent", "Vexio-Android-Googlebook/0.4.4-alpha")
+                    setRequestProperty("User-Agent", "Vexio-Android-Googlebook/0.5.0-beta")
                     setRequestProperty("Accept", "application/vnd.github+json")
                 }
                 if (conn.responseCode in 200..299) {

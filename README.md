@@ -6,7 +6,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/petrosvassiliou/vexio/releases/tag/v0.4.4-alpha"><img src="https://img.shields.io/badge/release-v0.4.3--alpha-2563eb?style=for-the-badge" alt="Release v0.4.4-alpha" /></a>
+  <a href="https://github.com/petrosvassiliou/vexio/releases/tag/v0.5.0-beta"><img src="https://img.shields.io/badge/release-v0.5.0--beta-2563eb?style=for-the-badge" alt="Release v0.5.0-beta" /></a>
   <a href="https://github.com/petrosvassiliou/vexio/actions"><img src="https://img.shields.io/badge/Rust_Engine-Zero_Stubs_%E2%80%A2_120_FPS-0f766e?style=for-the-badge" alt="Rust Core" /></a>
   <a href="https://vexio-chromeos-suite.web.app"><img src="https://img.shields.io/badge/Live_PWA-Offline--First_WASM_SIMD-4f46e5?style=for-the-badge" alt="Live ChromeOS PWA" /></a>
   <img src="https://img.shields.io/badge/Stencils-33_Packs_%E2%80%A2_756%2B_Masters-b45309?style=for-the-badge" alt="33 Built-In Stencil Packs" />
@@ -24,18 +24,28 @@ Every file codec, reactive ShapeSheet formula, A\* connector router, AutoCAD `.d
 
 ---
 
-## Download Installers (`v0.4.4-alpha`)
+## Download Installers (`v0.5.0-beta`)
 
-All compiled native installers and offline bundles are published on the [**`v0.4.4-alpha` Releases Page**](https://github.com/petrosvassiliou/vexio/releases/tag/v0.4.4-alpha):
+All compiled native installers and offline bundles are published on the [**`v0.5.0-beta` Releases Page**](https://github.com/petrosvassiliou/vexio/releases/tag/v0.5.0-beta):
 
 | Platform | Architecture & Graphics Stack | Direct Installer Download |
 | :--- | :--- | :--- |
-| **Windows 11 Native** | `x64` (`WinUI 3` + `DirectX 12`) | [**`Vexio-Windows-v0.4.4-alpha-x64.msix`**](https://github.com/petrosvassiliou/vexio/releases/download/v0.4.4-alpha/Vexio-Windows-v0.4.4-alpha-x64.msix) |
-| **Windows 11 Native** | `ARM64` (`WinUI 3` + `DirectX 12`) | [**`Vexio-Windows-v0.4.4-alpha-arm64.msix`**](https://github.com/petrosvassiliou/vexio/releases/download/v0.4.4-alpha/Vexio-Windows-v0.4.4-alpha-arm64.msix) |
-| **macOS 15+ Native** | `Universal2` Apple Silicon + Intel (`Swift 6 Liquid Glass` + `Metal` + `Quick Look`) | [**`Vexio-v0.4.4-alpha-Universal2.dmg`**](https://github.com/petrosvassiliou/vexio/releases/download/v0.4.4-alpha/Vexio-v0.4.4-alpha-Universal2.dmg) |
-| **Android & Googlebook OS** | `arm64-v8a` + `x86_64` APK (`Jetpack Compose M3E` + `Vulkan`) | [**`Vexio-Android-Googlebook-v0.4.4-alpha.apk`**](https://github.com/petrosvassiliou/vexio/releases/download/v0.4.4-alpha/Vexio-Android-Googlebook-v0.4.4-alpha.apk) |
-| **Android & Googlebook OS** | `arm64-v8a` + `x86_64` Play App Bundle (`AAB`) | [**`Vexio-Android-Googlebook-v0.4.4-alpha.aab`**](https://github.com/petrosvassiliou/vexio/releases/download/v0.4.4-alpha/Vexio-Android-Googlebook-v0.4.4-alpha.aab) |
-| **ChromeOS Offline-First PWA** | Live Hosted App + Offline Bundle (`WASM SIMD` + `WebGPU` + `OPFS WAL`) | [**Launch Live App**](https://vexio-chromeos-suite.web.app) · [**`Vexio-ChromeOS-PWA-v0.4.4-alpha.zip`**](https://github.com/petrosvassiliou/vexio/releases/download/v0.4.4-alpha/Vexio-ChromeOS-PWA-v0.4.4-alpha.zip) |
+| **Windows 11 Native** | `x64` (`WinUI 3` + `DirectX 12`) | [**`Vexio-Windows-v0.5.0-beta-x64.msix`**](https://github.com/petrosvassiliou/vexio/releases/download/v0.5.0-beta/Vexio-Windows-v0.5.0-beta-x64.msix) |
+| **Windows 11 Native** | `ARM64` (`WinUI 3` + `DirectX 12`) | [**`Vexio-Windows-v0.5.0-beta-arm64.msix`**](https://github.com/petrosvassiliou/vexio/releases/download/v0.5.0-beta/Vexio-Windows-v0.5.0-beta-arm64.msix) |
+| **macOS 15+ Native** | `Universal2` Apple Silicon + Intel (`Swift 6 Liquid Glass` + `Metal` + `Quick Look`) | [**`Vexio-v0.5.0-beta-Universal2.dmg`**](https://github.com/petrosvassiliou/vexio/releases/download/v0.5.0-beta/Vexio-v0.5.0-beta-Universal2.dmg) |
+| **Android & Googlebook OS** | `arm64-v8a` + `x86_64` APK (`Jetpack Compose M3E` + `Vulkan`) | [**`Vexio-Android-Googlebook-v0.5.0-beta.apk`**](https://github.com/petrosvassiliou/vexio/releases/download/v0.5.0-beta/Vexio-Android-Googlebook-v0.5.0-beta.apk) |
+| **Android & Googlebook OS** | `arm64-v8a` + `x86_64` Play App Bundle (`AAB`) | [**`Vexio-Android-Googlebook-v0.5.0-beta.aab`**](https://github.com/petrosvassiliou/vexio/releases/download/v0.5.0-beta/Vexio-Android-Googlebook-v0.5.0-beta.aab) |
+| **ChromeOS Offline-First PWA** | Live Hosted App + Offline Bundle (`WASM SIMD` + `WebGPU` + `OPFS WAL`) | [**Launch Live App**](https://vexio-chromeos-suite.web.app) · [**`Vexio-ChromeOS-PWA-v0.5.0-beta.zip`**](https://github.com/petrosvassiliou/vexio/releases/download/v0.5.0-beta/Vexio-ChromeOS-PWA-v0.5.0-beta.zip) |
+
+### Package Manager Manifests (`Homebrew` & `WinGet`)
+- **macOS (`Homebrew Cask` — [`packaging/homebrew/Casks/vexio.rb`](packaging/homebrew/Casks/vexio.rb)):**
+  ```bash
+  brew install --cask ./packaging/homebrew/Casks/vexio.rb
+  ```
+- **Windows 11 (`WinGet` — [`packaging/winget/`](packaging/winget)):**
+  ```powershell
+  winget install --manifest .\packaging\winget
+  ```
 
 ---
 
@@ -84,12 +94,13 @@ Deployed via **Firebase Hosting** with `COOP: same-origin` / `COEP: require-corp
 
 ---
 
-## Complete Feature Matrix (`v0.4.4-alpha`)
+## Complete Feature Matrix (`v0.5.0-beta`)
 
-### 1. Lossless Visio, Legacy Binary & Offline AutoCAD Interop
+### 1. Lossless Visio, Legacy Binary, Diagram-as-Code & Offline AutoCAD Interop
 - **OpenXML Visio Packages (`vexio-vsdx`):** Lossless read/write for `.vsdx`, `.vssx`, `.vstx`, `.vsdm`, `.vssm`, and `.vstm`. Preserves unrecognized XML elements, custom OPC relationships, embedded raster/vector media, document metadata, themes/variants, master stencils, background pages, headers/footers, and `vbaProject.bin` streams across load → edit → save cycles.
 - **Legacy Visio Binary & XML Formats (`vexio-vsd-legacy`):** Native OLE2 Compound File Binary reader/writer for legacy `.vsd`, `.vss`, and `.vst` (`Visio v5`–`v11`) plus DatadiagramML XML (`.vdx`), Visio Web Drawing (`.vdw`), and `.emf` / `.wmf` vector metafile import.
 - **100% Offline AutoCAD `.dwg` & `.dxf` Engine (`vexio-cad`):** Native offline parser for `.dwg` (`AC1015` through `AC1032` R2018/R2024 Reed-Solomon + LZ77 decompression) and `.dxf`, plus vector-accurate `.dxf` export with CAD layer visibility/lock/color mapping, architectural scale locking, and lossless CAD-to-ShapeSheet geometry conversion.
+- **Bidirectional Mermaid, PlantUML & Graphviz DOT Interop (`v0.5.0-beta`):** Native zero-stub parsers, hierarchical Sugiyama rank layout, `subgraph` / `package` / `cluster_*` Container materialization, and clean round-trip exporters for **Mermaid** (`.mmd`, `.mermaid` — `flowchart`/`graph`, `sequenceDiagram`, `classDiagram`, `erDiagram`, `stateDiagram-v2`), **PlantUML** (`.puml`, `.plantuml`), and **Graphviz DOT** (`.dot`, `.gv`) across all 4 platforms.
 
 ### 2. 1:1 Reactive ShapeSheet Formula Engine (`vexio-shapesheet`)
 - **220+ Built-In ShapeSheet Functions:** Geometry, trigonometry, logical branching, string manipulation, lookup, coordinate transforms (`PAR`, `PNT`, `LOCTOPAR`, `PARTOLOC`, `INTERSECTX`, `INTERSECTY`, `GRAVITY`), cell indirection (`EVALCELL`, `SETF`, `SETATREF`, `SETATREFEXPR`, `DEPENDSON`), and date/time arithmetic.
@@ -105,7 +116,9 @@ Deployed via **Firebase Hosting** with `COOP: same-origin` / `COEP: require-corp
 - **Advanced Geometry, Grouping & Viewport Ergonomics:**
   - **2D Boolean Shape Operations:** `Union`, `Combine`, `Fragment`, `Intersect`, `Subtract`, `Trim`, `Join`, and `Offset` plus interactive vertex/control-point editing.
   - **Visio Group / Ungroup & Containers:** Parent-relative formula baking (`Ctrl+G` / `Ctrl+Shift+G`), click-through container hit-testing, collapsible Cross-Functional Swimlanes, Lists, and live Smart Alignment & Equal-Spacing Guides.
-  - **Continuous Auto-Fit Page Mode & Unsaved-Changes Protection (`v0.4.4-alpha`):** Canvas automatically scales and centers the page dynamically across window/pane resizes until manual zoom, and tracks document `stateRevision` across edits/opens/saves to present native localized **Save / Don't Save / Cancel** confirmation dialogs before quitting or closing modified diagrams on every platform.
+  - **Parametric Yellow Diamond Control Handles (`Controls.*`) & Multi-Bend Orthogonal Segment Dragging (`v0.5.0-beta`):** Pre-wired reactive `Controls.Row_1` yellow diamond handles deform Rounded Rectangles, Start/End Pills, Cylinders/Databases, Parallelograms, Block Arrows, Chevrons, Callouts, and Folded Notes live at 120 FPS; dragging any orthogonal connector segment preserves arbitrary multi-bend polylines (`User.ManualOrthoPoints`), inserts clean dogleg stubs on outer legs, re-anchors dynamically when glued shapes move, and resets cleanly to A\* routing on demand.
+  - **Visio Presentation Mode (`Slide Snippets`) & Multi-Slide `.pptx` Deck Export (`v0.5.0-beta`):** Auto-generates or captures custom `SlideSnippetFrame` camera regions (from Containers, Swimlanes, or spatial diagram stages) persisted losslessly inside `.vsdx` (`User.VexioSlideSnippetsJson`), with interactive Presenter stepping (`Prev / Next` smooth camera zoom) and multi-slide OpenXML PowerPoint `.pptx` export with speaker notes.
+  - **Continuous Auto-Fit Page Mode & Unsaved-Changes Protection:** Canvas automatically scales and centers the page dynamically across window/pane resizes until manual zoom, and tracks document `stateRevision` across edits/opens/saves to present native localized **Save / Don't Save / Cancel** confirmation dialogs before quitting or closing modified diagrams on every platform.
 
 ### 4. 33 Built-In Vector Stencil Libraries (756+ Masters) & Official Catalog
 Every installation ships **100% offline** with **33 deterministic OpenXML `.vssx` domain stencil libraries (756+ multi-color vector masters)** inspired by standard enterprise Visio libraries and community collections (`awesome-visio`), plus an in-app **Official Stencil Catalog** and custom `.vssx` / `.vss` / `.zip` multi-pack importer:
@@ -262,7 +275,15 @@ Link a live Firebase project and configure GitHub Actions repository variables (
 ./firebase/scripts/provision-firebase-ci.sh <your-firebase-project-id> petrosvassiliou/vexio
 ```
 
-### 7. Native Workstation Builds (`v0.4.4-alpha`)
+### 7. Native Workstation Builds & Parser Fuzzing (`v0.5.0-beta`)
+- **Adversarial Parser Fuzzing (`fuzz/` — `cargo-fuzz` / `libFuzzer` + `adversarial_fuzz_regression`):**
+  ```bash
+  cargo +nightly fuzz run fuzz_shapesheet_formula -- -max_total_time=60
+  cargo +nightly fuzz run fuzz_vsdx_reader -- -max_total_time=60
+  cargo +nightly fuzz run fuzz_vsd_legacy_reader -- -max_total_time=60
+  cargo +nightly fuzz run fuzz_cad_dwg_dxf -- -max_total_time=60
+  cargo +nightly fuzz run fuzz_diagram_markup -- -max_total_time=60
+  ```
 - **Windows (`apps/windows` — WinUI 3 + DirectX 12 + MSIX):**
   ```powershell
   cargo build --release -p vexio-core --target x86_64-pc-windows-msvc
@@ -296,8 +317,8 @@ Link a live Firebase project and configure GitHub Actions repository variables (
 | Workflow | Trigger | Runner | Pipeline Scope |
 | :--- | :--- | :--- | :--- |
 | [`ci-rust-wasm.yml`](.github/workflows/ci-rust-wasm.yml) | `push`, `pull_request` | `ubuntu-latest` | `RUSTFLAGS="-D warnings" cargo test --workspace` + 50k 120 FPS benchmark, 33 `.vssx` stencil export, `wasm32` `+simd128` build, and code-split ChromeOS PWA bundle |
-| [`release-windows-msix.yml`](.github/workflows/release-windows-msix.yml) | `v*` tags (`v0.4.4-alpha`), `workflow_dispatch` | `windows-latest` | `x86_64` & `aarch64` MSVC `vexio-core`, Windows App SDK 1.6 + DirectX 12 CMake build, and signed MSIX GitHub Release packaging |
-| [`release-macos-dmg.yml`](.github/workflows/release-macos-dmg.yml) | `v*` tags (`v0.4.4-alpha`), `workflow_dispatch` | `macos-15` | Universal2 `lipo` `libvexio_core.a`, Swift 6 `VexioMacApp` + `VexioQuickLookExtension`, and `.dmg` GitHub Release packaging |
-| [`release-android-googlebook.yml`](.github/workflows/release-android-googlebook.yml) | `v*` tags (`v0.4.4-alpha`), `workflow_dispatch` | `ubuntu-latest` | Android NDK + `cargo-ndk` (`arm64-v8a`, `x86_64`) `libvexio_core.so` / `libvexio_jni.so`, unit tests, and Gradle `assembleRelease` & `bundleRelease` APK/AAB |
+| [`release-windows-msix.yml`](.github/workflows/release-windows-msix.yml) | `v*` tags (`v0.5.0-beta`), `workflow_dispatch` | `windows-latest` | `x86_64` & `aarch64` MSVC `vexio-core`, Windows App SDK 1.6 + DirectX 12 CMake build, and signed MSIX GitHub Release packaging |
+| [`release-macos-dmg.yml`](.github/workflows/release-macos-dmg.yml) | `v*` tags (`v0.5.0-beta`), `workflow_dispatch` | `macos-15` | Universal2 `lipo` `libvexio_core.a`, Swift 6 `VexioMacApp` + `VexioQuickLookExtension`, and `.dmg` GitHub Release packaging |
+| [`release-android-googlebook.yml`](.github/workflows/release-android-googlebook.yml) | `v*` tags (`v0.5.0-beta`), `workflow_dispatch` | `ubuntu-latest` | Android NDK + `cargo-ndk` (`arm64-v8a`, `x86_64`) `libvexio_core.so` / `libvexio_jni.so`, unit tests, and Gradle `assembleRelease` & `bundleRelease` APK/AAB |
 | [`deploy-firebase-chromeos-pwa.yml`](.github/workflows/deploy-firebase-chromeos-pwa.yml) | `main` push, `v*` tags, `workflow_dispatch` | `ubuntu-latest` | WASM SIMD + 33 `.vssx` stencils + 6-stage Firebase Emulator verification + Release `.zip` + live Firebase Hosting (`COOP`/`COEP`) & Rules deployment |
 | [`capture-platform-screenshots.yml`](.github/workflows/capture-platform-screenshots.yml) | `workflow_dispatch` | `macos-15`, `windows-2022`, `ubuntu-latest` | Automated high-DPI screenshot generation across native macOS Liquid Glass, Windows WinUI 3, and Android/Googlebook Compose M3E |

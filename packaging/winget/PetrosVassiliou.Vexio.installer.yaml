@@ -1,0 +1,38 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.6.0.schema.json
+PackageIdentifier: PetrosVassiliou.Vexio
+PackageVersion: 0.5.0-beta
+Platform:
+  - Windows.Desktop
+MinimumOSVersion: 10.0.19041.0
+InstallerType: msix
+Scope: user
+InstallModes:
+  - interactive
+  - silent
+UpgradeBehavior: install
+FileExtensions:
+  - vsdx
+  - vsdm
+  - vssx
+  - vssm
+  - vstx
+  - vstm
+  - vsd
+  - vss
+  - vst
+  - vdx
+  - vdw
+  - dwg
+  - dxf
+  - mmd
+  - puml
+  - dot
+Installers:
+  - Architecture: x64
+    InstallerUrl: https://github.com/petrosvassiliou/vexio/releases/download/v0.5.0-beta/Vexio-Windows-v0.5.0-beta-x64.msix
+    InstallerSha256: 0000000000000000000000000000000000000000000000000000000000000000
+  - Architecture: arm64
+    InstallerUrl: https://github.com/petrosvassiliou/vexio/releases/download/v0.5.0-beta/Vexio-Windows-v0.5.0-beta-arm64.msix
+    InstallerSha256: 0000000000000000000000000000000000000000000000000000000000000000
+ManifestType: installer
+ManifestVersion: 1.6.0

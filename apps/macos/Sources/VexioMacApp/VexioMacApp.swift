@@ -395,6 +395,15 @@ public struct VexioGlobalMenuCommands: Commands {
                 Button("Borders & Titles…") {
                     NotificationCenter.default.post(name: .vexioOpenBordersAndTitlesSheet, object: nil)
                 }
+                Divider()
+                Button("Mermaid / PlantUML / DOT Studio…") {
+                    NotificationCenter.default.post(name: .vexioOpenMarkupStudioSheet, object: nil)
+                }
+                .keyboardShortcut("m", modifiers: [.command, .option])
+                Button("Presentation Mode & Slide Snippets…") {
+                    NotificationCenter.default.post(name: .vexioOpenSlideSnippetsSheet, object: nil)
+                }
+                .keyboardShortcut("p", modifiers: [.command, .option])
             }
             .disabled(session == nil)
 

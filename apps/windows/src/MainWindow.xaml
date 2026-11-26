@@ -760,17 +760,22 @@
                                 <StackPanel Orientation="Horizontal" Spacing="4" Height="56">
                                     <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnZoom100Click" Content="100%" />
                                     <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnFitToWindowClick" Content="Fit to Window" />
+                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnOpenSlideSnippetsClick" FontWeight="SemiBold"
+                                            Content="Presentation Slides…"
+                                            ToolTipService.ToolTip="Manage Presentation Mode Slide Snippets, Step Through Frames &amp; Export Multi-Slide .pptx" />
                                 </StackPanel>
-                                <TextBlock Text="Zoom" Style="{StaticResource VexioRibbonGroupLabelStyle}" />
+                                <TextBlock Text="Zoom &amp; Presentation" Style="{StaticResource VexioRibbonGroupLabelStyle}" />
                             </StackPanel>
                         </StackPanel>
 
-                        <!-- 8. DEVELOPER RIBBON PANEL (ShapeSheet, 8 Boolean Ops & Sandboxed Macro Editor) -->
+                        <!-- 8. DEVELOPER RIBBON PANEL (ShapeSheet, 8 Boolean Ops, Diagram-as-Code & Sandboxed Macro Editor) -->
                         <StackPanel x:Name="RibbonPanelDeveloper" Orientation="Horizontal" Spacing="12" Visibility="Collapsed">
                             <StackPanel>
                                 <StackPanel Orientation="Horizontal" Spacing="4" Height="56">
                                     <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnToggleShapeSheetClick" FontWeight="SemiBold" Content="Show ShapeSheet (Shift+F5)" />
                                     <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnGuardSelectedCellClick" Content="Wrap in GUARD()" />
+                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnEnsureControlHandleClick" Content="+ Control Handle" ToolTipService.ToolTip="Attach Yellow Parametric Controls.Row_1 Diamond Handle" />
+                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnResetConnectorRoutingClick" Content="Reset Route" ToolTipService.ToolTip="Restore Automatic A* Orthogonal Routing on Selected Connector" />
                                 </StackPanel>
                                 <TextBlock Text="Shape Design" Style="{StaticResource VexioRibbonGroupLabelStyle}" />
                             </StackPanel>
@@ -791,10 +796,13 @@
                             <AppBarSeparator />
                             <StackPanel>
                                 <StackPanel Orientation="Horizontal" Spacing="4" Height="56">
+                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnOpenMarkupStudioClick" FontWeight="SemiBold"
+                                            Content="Mermaid / PlantUML / DOT…"
+                                            ToolTipService.ToolTip="Bidirectional Mermaid (.mmd), PlantUML (.puml) &amp; Graphviz DOT (.dot) Studio" />
                                     <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnOpenMacroEditorClick" FontWeight="SemiBold"
                                             Content="Sandboxed Macro Editor (Alt+F9)" />
                                 </StackPanel>
-                                <TextBlock Text="Deterministic Automation" Style="{StaticResource VexioRibbonGroupLabelStyle}" />
+                                <TextBlock Text="Diagram-as-Code &amp; Automation" Style="{StaticResource VexioRibbonGroupLabelStyle}" />
                             </StackPanel>
                         </StackPanel>
                     </Grid>
@@ -1511,7 +1519,7 @@
                                 </StackPanel>
                                 <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
                                     <Button Click="OnCheckUpdatesClick" Content="Check for Updates Now" />
-                                    <TextBlock x:Name="BackstageUpdateStatusText" Text="Vexio v0.4.4-alpha • Automatic background update check enabled."
+                                    <TextBlock x:Name="BackstageUpdateStatusText" Text="Vexio v0.5.0-beta • Automatic background update check enabled."
                                                FontSize="12" Opacity="0.8" VerticalAlignment="Center" />
                                 </StackPanel>
                             </StackPanel>

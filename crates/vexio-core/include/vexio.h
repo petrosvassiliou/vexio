@@ -174,6 +174,16 @@ VexioStatus vexio_doc_apply_heading_preset(VexioDoc* doc, uint32_t page_id, cons
 VexioStatus vexio_doc_insert_heading(VexioDoc* doc, uint32_t page_id, const char* preset_slug_utf8, const char* custom_text_utf8, double x_in, double y_in, uint64_t* out_shape_id);
 VexioStatus vexio_doc_apply_border_and_title(VexioDoc* doc, uint32_t page_id, const char* style_slug_utf8, const char* title_utf8, const char* subtitle_utf8, const char* author_utf8, const char* date_or_rev_utf8, uint32_t* out_bg_page_id);
 
+/* v0.5.0-beta: Diagram-as-Code (Mermaid / PlantUML / Graphviz DOT), Presentation Slide Snippets & Multi-Bend Routing */
+VexioStatus vexio_doc_import_markup(VexioDoc* doc, uint32_t page_id, const char* markup_utf8, const char* format_slug_utf8, uint32_t* out_nodes_created);
+VexioStatus vexio_doc_export_markup(const VexioDoc* doc, uint32_t page_id, const char* format_slug_utf8, VexioOwnedBuffer* out_markup_utf8);
+VexioStatus vexio_doc_list_slide_snippets_json(const VexioDoc* doc, VexioOwnedBuffer* out_json);
+VexioStatus vexio_doc_add_slide_snippet(VexioDoc* doc, uint32_t page_id, const char* title_utf8, const char* notes_utf8, double x_in, double y_in, double width_in, double height_in, uint32_t* out_snippet_id);
+VexioStatus vexio_doc_delete_slide_snippet(VexioDoc* doc, uint32_t page_id, uint32_t snippet_id);
+VexioStatus vexio_doc_auto_slide_snippets(VexioDoc* doc, uint32_t page_id, uint32_t* out_count);
+VexioStatus vexio_doc_reset_connector_routing(VexioDoc* doc, uint32_t page_id, uint64_t shape_id);
+VexioStatus vexio_doc_ensure_control_handle(VexioDoc* doc, uint32_t page_id, uint64_t shape_id);
+
 #ifdef __cplusplus
 }
 #endif

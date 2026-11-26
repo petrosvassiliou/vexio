@@ -53,6 +53,8 @@ type ActiveModal =
   | 'cloud'
   | 'compare'
   | 'link'
+  | 'markup'
+  | 'slides'
   | 'stencilCatalog'
   | 'unsavedConfirm';
 type ResizeHandleDir = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w';
@@ -780,7 +782,7 @@ class VexioChromeOsApp {
       return true;
     }
   })();
-  private updateStatusText = 'Vexio v0.4.4-alpha • Automatic updates enabled';
+  private updateStatusText = 'Vexio v0.5.0-beta • Automatic updates enabled';
   private latestReleaseTag: string | null = null;
   private latestReleaseUrl = 'https://github.com/petrosvassiliou/vexio/releases';
 
@@ -797,6 +799,18 @@ class VexioChromeOsApp {
   private orgCsvDraft = DEFAULT_ORG_CSV;
   private dataVizDraft = DEFAULT_DATAVIZ_CSV;
   private cloudJsonDraft = DEFAULT_CLOUD_JSON;
+  private markupFormat: 'mermaid' | 'plantuml' | 'dot' = 'mermaid';
+  private markupDraft = `flowchart TD
+    subgraph Ingress ["API Gateway & Auth"]
+        A(["Client Request"]) --> B{"JWT Valid?"}
+    end
+    B -->|Yes| C[["Order Service"]]
+    B -.->|No| D(["401 Unauthorized"])
+    C --> E[("Orders PostgreSQL")]`;
+  private isPresentationModeActive = false;
+  private activeSlideIndex = 0;
+  private slideTitleDraft = '';
+  private slideNotesDraft = '';
   private versionLabelDraft = 'Milestone Checkpoint';
   private selectedThemeSlug = 'modern';
   private selectedVariantIx = 0;
@@ -1276,7 +1290,7 @@ class VexioChromeOsApp {
       return;
     }
 
-    const currentVersion = '0.4.4-alpha';
+    const currentVersion = '0.5.0-beta';
     try {
       const resp = await fetch('https://api.github.com/repos/petrosvassiliou/vexio/releases', {
         headers: { Accept: 'application/vnd.github+json' },
@@ -3005,6 +3019,8 @@ class VexioChromeOsApp {
           <button class="m3-btn" id="btn-open-layers">Layers (${snap.layers.length})</button>
           <button class="m3-btn" id="btn-fit-window">Fit Sheet</button>
           <button class="m3-btn" id="btn-zoom-100">100%</button>
+          <button class="m3-btn tonal" id="btn-open-slides-modal" title="Manage Presentation Mode Slide Snippets &amp; Export Multi-Slide .pptx">Slide Snippets (${snap.slideSnippets?.length ?? 0})...</button>
+          <button class="m3-btn ${this.isPresentationModeActive ? 'active' : ''}" id="btn-toggle-presentation" title="Launch Interactive Presentation Mode">Present ▶</button>
           <button class="m3-btn" id="btn-recover-opfs">Recover Journal</button>
         `;
       case 'Developer':
@@ -3013,6 +3029,7 @@ class VexioChromeOsApp {
           <span class="ribbon-group-label">ShapeSheet &amp; Formula</span>
           <button class="m3-btn ${this.showFormulaBar ? 'active' : ''}" id="btn-dev-fx-bar">Formula Bar (fx)</button>
           <button class="m3-btn ${this.showShapeSheet ? 'active' : ''}" id="btn-dev-ss">ShapeSheet</button>
+          <button class="m3-btn" id="btn-reset-conn-route" ${this.primarySelectedId ? '' : 'disabled'} title="Reset manual orthogonal connector bends back to automatic A* routing">Reset Route</button>
           <div class="ribbon-divider"></div>
           <span class="ribbon-group-label">Boolean Shape Operations</span>
           <button class="m3-btn" data-bool-op="union" ${multiDisabled}>Union</button>
@@ -3024,6 +3041,7 @@ class VexioChromeOsApp {
           <button class="m3-btn ${this.showVertexGrips ? 'active' : ''}" id="btn-toggle-vertices" ${this.primarySelectedId ? '' : 'disabled'}>Edit Vertices</button>
           <div class="ribbon-divider"></div>
           <span class="ribbon-group-label">Studios</span>
+          <button class="m3-btn active" id="btn-open-markup-modal" title="Bidirectional Mermaid (.mmd), PlantUML (.puml) &amp; Graphviz DOT (.dot) Interop">Mermaid / PlantUML / DOT...</button>
           <button class="m3-btn tonal" id="btn-open-vba-modal">VBA Macros...</button>
           <button class="m3-btn tonal" id="btn-open-sql-modal">SQL ⇄ ERD...</button>
         `;
@@ -3234,18 +3252,20 @@ class VexioChromeOsApp {
 
         const segDiamonds: string[] = [];
         const isOrtho = (sh.routeStyle ?? 16) !== 1 && (sh.routeStyle ?? 16) !== 2;
-        if (isOrtho && pts.length >= 4) {
-          for (let seg = 1; seg <= pts.length - 3; seg++) {
+        if (isOrtho && pts.length >= 3) {
+          const segCount = pts.length - 1;
+          for (let seg = 0; seg < segCount; seg++) {
+            const isOuter = seg === 0 || seg + 1 === segCount;
             const p0 = pts[seg];
             const p1 = pts[seg + 1];
             const segLen = Math.hypot(p1[0] - p0[0], p1[1] - p0[1]);
-            if (segLen < 0.12) continue;
+            if (segLen < (isOuter ? 0.28 : 0.08)) continue;
             const mx = (p0[0] + p1[0]) * 0.5 * ppi;
             const my = (snap.pageHeightIn - (p0[1] + p1[1]) * 0.5) * ppi;
             const isVerticalSeg = Math.abs(p1[0] - p0[0]) <= Math.abs(p1[1] - p0[1]);
             const axis = isVerticalSeg ? 'x' : 'y';
             segDiamonds.push(
-              `<div class="connector-segment-grip" data-seg-shape="${sh.id}" data-seg-index="${seg}" data-seg-axis="${axis}" style="left:${mx.toFixed(1)}px;top:${my.toFixed(1)}px" title="Drag Orthogonal Segment"></div>`
+              `<div class="connector-segment-grip" data-seg-shape="${sh.id}" data-seg-index="${seg}" data-seg-axis="${axis}" style="left:${mx.toFixed(1)}px;top:${my.toFixed(1)}px" title="Drag Orthogonal Segment (Multi-Bend Preserved)"></div>`
             );
           }
         }
@@ -3787,6 +3807,23 @@ class VexioChromeOsApp {
               <button class="m3-btn" id="btn-zoom-100-pill" title="Actual Size (100%)" style="height:24px;padding:0 6px;font-size:11px">100%</button>
               <button class="m3-btn ${this.showMinimap ? 'active' : ''}" id="btn-zoom-map-pill" title="Toggle Overview Minimap" style="height:24px;padding:0 6px;font-size:11px">Map</button>
             </div>
+
+            ${
+              this.isPresentationModeActive && (snap.slideSnippets?.length ?? 0) > 0
+                ? (() => {
+                    const slides = snap.slideSnippets ?? [];
+                    const idx = Math.max(0, Math.min(slides.length - 1, this.activeSlideIndex));
+                    const curSlide = slides[idx];
+                    return `<div style="position:absolute;bottom:14px;left:50%;transform:translateX(-50%);z-index:35;display:flex;align-items:center;gap:8px;padding:6px 12px;border-radius:999px;background:var(--m3-surface-elevated,rgba(15,23,42,0.92));color:#f8fafc;box-shadow:0 8px 24px rgba(15,23,42,0.28);font-size:12px">
+                      <button class="m3-btn tonal" id="btn-pres-prev" style="height:24px;padding:0 8px;font-size:11px">◀ Prev</button>
+                      <span style="font-weight:600;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${curSlide.notes.replace(/"/g, '&quot;')}">Slide ${idx + 1}/${slides.length}: ${curSlide.title}</span>
+                      <button class="m3-btn tonal" id="btn-pres-next" style="height:24px;padding:0 8px;font-size:11px">Next ▶</button>
+                      <button class="m3-btn" id="btn-pres-pptx" style="height:24px;padding:0 8px;font-size:11px">Export .pptx</button>
+                      <button class="m3-btn active" id="btn-pres-exit" style="height:24px;padding:0 8px;font-size:11px">Exit ✕</button>
+                    </div>`;
+                  })()
+                : ''
+            }
 
             ${
               this.showMinimap
@@ -4603,7 +4640,7 @@ class VexioChromeOsApp {
             </div>
             <div class="list-row-card" style="flex-direction:column;align-items:flex-start;gap:6px">
               <strong>${this.updateStatusText}</strong>
-              <span style="font-size:11.5px;color:var(--m3-text-muted)">Installed build: Vexio v0.4.4-alpha • Offline-First Workbox PWA + GitHub Releases channel</span>
+              <span style="font-size:11.5px;color:var(--m3-text-muted)">Installed build: Vexio v0.5.0-beta • Offline-First Workbox PWA + GitHub Releases channel</span>
             </div>
             <label style="display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer">
               <input type="checkbox" id="chk-auto-updates" ${this.autoCheckUpdates ? 'checked' : ''} />
@@ -4771,6 +4808,83 @@ class VexioChromeOsApp {
             </div>
 
             ${this.modalOutputMessage ? `<div style="color:var(--m3-secondary);font-size:12px">${this.modalOutputMessage}</div>` : ''}
+          </div>
+        </div>
+      `;
+    }
+
+    if (this.activeModal === 'markup') {
+      return `
+        <div class="modal-backdrop">
+          <div class="modal-card wide">
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <strong>Diagram-as-Code Studio — Mermaid (.mmd) · PlantUML (.puml) · Graphviz DOT (.dot)</strong>
+              <button class="m3-btn" id="btn-close-modal">Close</button>
+            </div>
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
+              <div style="display:flex;gap:6px;flex-wrap:wrap">
+                <button class="m3-btn ${this.markupFormat === 'mermaid' ? 'active' : 'tonal'}" data-markup-fmt="mermaid">Mermaid (.mmd)</button>
+                <button class="m3-btn ${this.markupFormat === 'plantuml' ? 'active' : 'tonal'}" data-markup-fmt="plantuml">PlantUML (.puml)</button>
+                <button class="m3-btn ${this.markupFormat === 'dot' ? 'active' : 'tonal'}" data-markup-fmt="dot">Graphviz DOT (.dot)</button>
+              </div>
+              <div style="display:flex;gap:6px;flex-wrap:wrap">
+                <button class="m3-btn" id="btn-markup-from-canvas" title="Generate clean Diagram-as-Code from the active Visio page">← Read from Active Page</button>
+                <button class="m3-btn" id="btn-markup-open-file">Open File...</button>
+                <button class="m3-btn" id="btn-markup-save-file">Save Code...</button>
+              </div>
+            </div>
+            <textarea class="studio-textarea" id="markup-studio-editor" style="min-height:240px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace">${this.markupDraft.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</textarea>
+            ${this.modalOutputMessage ? `<div style="color:var(--m3-secondary);font-size:12px">${this.modalOutputMessage}</div>` : ''}
+            <div style="display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap">
+              <button class="m3-btn active" id="btn-markup-apply-canvas">Build Visio Shapes &amp; Containers on Page →</button>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    if (this.activeModal === 'slides') {
+      const slides = this.snapshot?.slideSnippets ?? [];
+      return `
+        <div class="modal-backdrop">
+          <div class="modal-card wide">
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <strong>Visio Presentation Mode — Slide Snippets &amp; PowerPoint (.pptx) Deck</strong>
+              <button class="m3-btn" id="btn-close-modal">Close</button>
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+              <button class="m3-btn active" id="btn-slides-auto">Auto-Generate Slide Snippets</button>
+              <input class="cell-input" id="slide-title-input" value="${this.slideTitleDraft.replace(/"/g, '&quot;')}" placeholder="Slide title (optional)..." style="flex:1;min-width:160px" />
+              <input class="cell-input" id="slide-notes-input" value="${this.slideNotesDraft.replace(/"/g, '&quot;')}" placeholder="Speaker notes..." style="flex:1;min-width:180px" />
+              <button class="m3-btn tonal" id="btn-slides-add-view">+ Add Current View</button>
+              <button class="m3-btn" id="btn-slides-clear-all" ${slides.length ? '' : 'disabled'}>Clear All</button>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:6px;max-height:240px;overflow-y:auto">
+              ${
+                slides.length === 0
+                  ? '<div style="font-size:12px;color:var(--m3-text-muted);padding:12px 4px">No Slide Snippets yet — click <strong>Auto-Generate Slide Snippets</strong> to partition Containers/Swimlanes or stages automatically, or add your current viewport region.</div>'
+                  : slides
+                      .map(
+                        (s, idx) => `
+                        <div class="list-row-card">
+                          <div>
+                            <strong>#${idx + 1} · ${s.title}</strong>
+                            <div style="font-size:11px;color:var(--m3-text-muted)">${s.notes || 'No speaker notes'} · (${s.x_in.toFixed(1)}", ${s.y_in.toFixed(1)}") ${s.width_in.toFixed(1)}" × ${s.height_in.toFixed(1)}"</div>
+                          </div>
+                          <div style="display:flex;gap:6px">
+                            <button class="m3-btn tonal" data-focus-slide="${idx}">Zoom</button>
+                            <button class="m3-btn" data-del-slide="${s.id}">✕</button>
+                          </div>
+                        </div>`
+                      )
+                      .join('')
+              }
+            </div>
+            ${this.modalOutputMessage ? `<div style="color:var(--m3-secondary);font-size:12px">${this.modalOutputMessage}</div>` : ''}
+            <div style="display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap">
+              <button class="m3-btn tonal" id="btn-slides-export-pptx">Export Multi-Slide PowerPoint (.pptx)</button>
+              <button class="m3-btn active" id="btn-slides-start-present" ${slides.length ? '' : 'disabled'}>Start Presentation Mode ▶</button>
+            </div>
           </div>
         </div>
       `;
@@ -6216,6 +6330,232 @@ class VexioChromeOsApp {
     document.getElementById('btn-export-bom')?.addEventListener('click', async () => {
       const { bytes } = await this.callEngine('exportBomReport', { formatExt: 'xlsx' });
       await saveLocalDiagramInPlace(null, 'Vexio-BOM-Inventory-Report.xlsx', bytes);
+    });
+
+    const zoomToSlideSnippet = (idx: number) => {
+      const slides = this.snapshot?.slideSnippets ?? [];
+      if (!slides.length || !this.snapshot) return;
+      const clamped = ((idx % slides.length) + slides.length) % slides.length;
+      this.activeSlideIndex = clamped;
+      const s = slides[clamped];
+      if (s.page_id && s.page_id !== this.snapshot.activePageId) {
+        void this.callEngine('setActivePage', { pageId: s.page_id }).then((res) => {
+          this.snapshot = res.snapshot;
+          this.render();
+        });
+      }
+      const vp = document.getElementById('canvas-viewport');
+      const vw = Math.max(320, (vp?.clientWidth ?? 900) - 64);
+      const vh = Math.max(240, (vp?.clientHeight ?? 620) - 64);
+      const fitScale = Math.min(vw / (Math.max(1, s.width_in) * 96), vh / (Math.max(1, s.height_in) * 96));
+      this.isAutoFitPageMode = false;
+      this.zoomPct = Math.max(35, Math.min(350, Math.round(fitScale * 100)));
+      this.render();
+      requestAnimationFrame(() => {
+        const nextVp = document.getElementById('canvas-viewport');
+        if (!nextVp || !this.snapshot) return;
+        const ppi = (96 * this.zoomPct) / 100;
+        const cxPx = (s.x_in + s.width_in * 0.5) * ppi;
+        const cyPx = (this.snapshot.pageHeightIn - (s.y_in + s.height_in * 0.5)) * ppi;
+        nextVp.scrollLeft = Math.max(0, cxPx - nextVp.clientWidth * 0.5);
+        nextVp.scrollTop = Math.max(0, cyPx - nextVp.clientHeight * 0.5);
+        this.syncViewportRulersAndMinimap();
+      });
+    };
+
+    document.getElementById('btn-reset-conn-route')?.addEventListener('click', async () => {
+      if (!this.primarySelectedId) return;
+      const res = await this.callEngine('resetConnectorRouting', { shapeId: this.primarySelectedId });
+      this.snapshot = res.snapshot;
+      this.persistMutationSideEffects(res.wal);
+      this.showToast('Connector restored to automatic obstacle-avoiding A* route', 'info');
+      this.render();
+    });
+
+    document.getElementById('btn-open-markup-modal')?.addEventListener('click', () => {
+      this.activeModal = 'markup';
+      this.modalOutputMessage = '';
+      this.render();
+    });
+
+    document.querySelectorAll('[data-markup-fmt]').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const fmt = ((btn as HTMLElement).dataset.markupFmt ?? 'mermaid') as 'mermaid' | 'plantuml' | 'dot';
+        const ed = document.getElementById('markup-studio-editor') as HTMLTextAreaElement | null;
+        if (ed) this.markupDraft = ed.value;
+        this.markupFormat = fmt;
+        if ((this.snapshot?.shapes.length ?? 0) > 0) {
+          const res = await this.callEngine('exportMarkup', { formatSlug: fmt });
+          if (res.markup) this.markupDraft = res.markup;
+        }
+        this.render();
+      });
+    });
+
+    document.getElementById('btn-markup-from-canvas')?.addEventListener('click', async () => {
+      const res = await this.callEngine('exportMarkup', { formatSlug: this.markupFormat });
+      this.markupDraft = res.markup || '';
+      this.modalOutputMessage = `Exported active page into ${this.markupFormat.toUpperCase()} markup.`;
+      this.render();
+    });
+
+    document.getElementById('btn-markup-open-file')?.addEventListener('click', async () => {
+      const picked = await pickLocalBinaryFile('.mmd,.mermaid,.puml,.plantuml,.dot,.gv,.txt');
+      if (!picked) return;
+      this.markupDraft = new TextDecoder().decode(picked.bytes);
+      if (picked.ext === 'puml' || picked.ext === 'plantuml') this.markupFormat = 'plantuml';
+      else if (picked.ext === 'dot' || picked.ext === 'gv') this.markupFormat = 'dot';
+      else this.markupFormat = 'mermaid';
+      this.modalOutputMessage = `Loaded "${picked.name}".`;
+      this.render();
+    });
+
+    document.getElementById('btn-markup-save-file')?.addEventListener('click', async () => {
+      const ed = document.getElementById('markup-studio-editor') as HTMLTextAreaElement | null;
+      if (ed) this.markupDraft = ed.value;
+      const ext = this.markupFormat === 'plantuml' ? 'puml' : this.markupFormat === 'dot' ? 'dot' : 'mmd';
+      const bytes = new TextEncoder().encode(this.markupDraft);
+      await saveLocalDiagramInPlace(null, `diagram.${ext}`, bytes);
+      this.modalOutputMessage = `Saved diagram.${ext}.`;
+      this.render();
+    });
+
+    document.getElementById('btn-markup-apply-canvas')?.addEventListener('click', async () => {
+      const ed = document.getElementById('markup-studio-editor') as HTMLTextAreaElement | null;
+      if (ed) this.markupDraft = ed.value;
+      const res = await this.callEngine('importMarkup', {
+        markup: this.markupDraft,
+        formatSlug: this.markupFormat,
+      });
+      this.snapshot = res.snapshot;
+      this.persistMutationSideEffects(res.wal);
+      this.activeModal = null;
+      this.showToast(
+        `Built ${res.stats?.nodes_created ?? 0} nodes, ${res.stats?.containers_created ?? 0} containers & ${res.stats?.connectors_created ?? 0} connectors`,
+        'info'
+      );
+      this.render();
+    });
+
+    document.getElementById('btn-open-slides-modal')?.addEventListener('click', () => {
+      this.activeModal = 'slides';
+      this.modalOutputMessage = '';
+      this.render();
+    });
+
+    document.getElementById('btn-toggle-presentation')?.addEventListener('click', async () => {
+      if (this.isPresentationModeActive) {
+        this.isPresentationModeActive = false;
+        this.render();
+        return;
+      }
+      if ((this.snapshot?.slideSnippets?.length ?? 0) === 0) {
+        const res = await this.callEngine('autoSlideSnippets');
+        this.snapshot = res.snapshot;
+        this.persistMutationSideEffects(res.wal);
+      }
+      this.isPresentationModeActive = true;
+      zoomToSlideSnippet(0);
+    });
+
+    document.getElementById('btn-slides-auto')?.addEventListener('click', async () => {
+      const res = await this.callEngine('autoSlideSnippets');
+      this.snapshot = res.snapshot;
+      this.persistMutationSideEffects(res.wal);
+      this.modalOutputMessage = `Generated ${res.count} Presentation Slide Snippets.`;
+      this.render();
+    });
+
+    document.getElementById('btn-slides-add-view')?.addEventListener('click', async () => {
+      const tInp = document.getElementById('slide-title-input') as HTMLInputElement | null;
+      const nInp = document.getElementById('slide-notes-input') as HTMLInputElement | null;
+      const title = tInp?.value.trim() || '';
+      const notes = nInp?.value.trim() || '';
+      const pw = this.snapshot?.pageWidthIn ?? 11;
+      const ph = this.snapshot?.pageHeightIn ?? 8.5;
+      const vp = document.getElementById('canvas-viewport');
+      const ppi = (96 * this.zoomPct) / 100;
+      let xIn = 0;
+      let yIn = 0;
+      let wIn = pw;
+      let hIn = ph;
+      if (vp && ppi > 0) {
+        wIn = Math.min(pw, Math.max(2, vp.clientWidth / ppi));
+        hIn = Math.min(ph, Math.max(1.5, vp.clientHeight / ppi));
+        xIn = Math.max(0, Math.min(pw - wIn, vp.scrollLeft / ppi));
+        const topInFromTop = vp.scrollTop / ppi;
+        yIn = Math.max(0, Math.min(ph - hIn, ph - topInFromTop - hIn));
+      }
+      const res = await this.callEngine('addSlideSnippet', {
+        title,
+        notes,
+        xIn,
+        yIn,
+        widthIn: wIn,
+        heightIn: hIn,
+      });
+      this.snapshot = res.snapshot;
+      this.slideTitleDraft = '';
+      this.slideNotesDraft = '';
+      this.persistMutationSideEffects(res.wal);
+      this.render();
+    });
+
+    document.getElementById('btn-slides-clear-all')?.addEventListener('click', async () => {
+      const res = await this.callEngine('deleteSlideSnippet', { snippetId: 0 });
+      this.snapshot = res.snapshot;
+      this.isPresentationModeActive = false;
+      this.persistMutationSideEffects(res.wal);
+      this.render();
+    });
+
+    document.querySelectorAll('[data-del-slide]').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const sid = Number((btn as HTMLElement).dataset.delSlide ?? 0);
+        const res = await this.callEngine('deleteSlideSnippet', { snippetId: sid });
+        this.snapshot = res.snapshot;
+        this.persistMutationSideEffects(res.wal);
+        this.render();
+      });
+    });
+
+    document.querySelectorAll('[data-focus-slide]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const idx = Number((btn as HTMLElement).dataset.focusSlide ?? 0);
+        this.activeModal = null;
+        this.isPresentationModeActive = true;
+        zoomToSlideSnippet(idx);
+      });
+    });
+
+    document.getElementById('btn-slides-start-present')?.addEventListener('click', () => {
+      this.activeModal = null;
+      this.isPresentationModeActive = true;
+      zoomToSlideSnippet(0);
+    });
+
+    const exportMultiSlidePptx = async () => {
+      const { bytes, wal } = await this.callEngine('saveFormat', { ext: 'pptx' });
+      this.persistMutationSideEffects(wal);
+      await saveLocalDiagramInPlace(null, 'Vexio-Presentation-Deck.pptx', bytes);
+      this.showToast('Exported Multi-Slide PowerPoint Deck (.pptx)', 'info');
+    };
+
+    document.getElementById('btn-slides-export-pptx')?.addEventListener('click', () => {
+      void exportMultiSlidePptx();
+    });
+    document.getElementById('btn-pres-pptx')?.addEventListener('click', () => {
+      void exportMultiSlidePptx();
+    });
+    document.getElementById('btn-pres-prev')?.addEventListener('click', () => {
+      zoomToSlideSnippet(this.activeSlideIndex - 1);
+    });
+    document.getElementById('btn-pres-next')?.addEventListener('click', () => {
+      zoomToSlideSnippet(this.activeSlideIndex + 1);
+    });
+    document.getElementById('btn-pres-exit')?.addEventListener('click', () => {
+      this.isPresentationModeActive = false;
+      this.render();
     });
 
     const linkExternalDataFromDisk = async () => {

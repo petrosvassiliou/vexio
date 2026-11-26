@@ -282,6 +282,7 @@ struct WasmStateJson {
     comments: Vec<WasmCommentInfo>,
     shapes: Vec<WasmShapeInfo>,
     data_link_state: crate::workspace::PageDataLinkStateDto,
+    slide_snippets: Vec<crate::enterprise_plan2::SlideSnippetFrame>,
     svg_preview: String,
     can_undo: bool,
     can_redo: bool,
@@ -1832,6 +1833,7 @@ impl WasmVexioSession {
             comments,
             shapes,
             data_link_state: self.inner.get_page_data_link_state(pid),
+            slide_snippets: self.inner.list_slide_snippets(),
             svg_preview: export_page_svg(&self.inner.doc, pid),
             can_undo: self.inner.journal.can_undo(),
             can_redo: self.inner.journal.can_redo(),
@@ -2620,5 +2622,67 @@ impl WasmVexioSession {
         self.inner
             .apply_border_and_title(page_id, style_slug, title, subtitle, author, date_or_rev)
             .unwrap_or(0)
+    }
+
+    pub fn import_diagram_markup(
+        &mut self,
+        page_id: u32,
+        markup: &str,
+        format_slug: &str,
+    ) -> Result<String, JsValue> {
+        let stats = self
+            .inner
+            .import_diagram_markup(page_id, markup, format_slug)
+            .map_err(|e| JsValue::from_str(&e.to_string()))?;
+        serde_json::to_string(&stats).map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
+    pub fn export_diagram_markup(
+        &self,
+        page_id: u32,
+        format_slug: &str,
+    ) -> Result<String, JsValue> {
+        self.inner
+            .export_diagram_markup(page_id, format_slug)
+            .map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
+    pub fn list_slide_snippets_json(&self) -> String {
+        self.inner.list_slide_snippets_json()
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn add_slide_snippet(
+        &mut self,
+        page_id: u32,
+        title: &str,
+        notes: &str,
+        x_in: f64,
+        y_in: f64,
+        width_in: f64,
+        height_in: f64,
+    ) -> Result<u32, JsValue> {
+        self.inner
+            .add_slide_snippet(page_id, title, notes, x_in, y_in, width_in, height_in)
+            .map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
+    pub fn delete_slide_snippet(&mut self, page_id: u32, snippet_id: u32) -> bool {
+        self.inner
+            .delete_slide_snippet(page_id, snippet_id)
+            .unwrap_or(false)
+    }
+
+    pub fn auto_generate_slide_snippets(&mut self, page_id: u32) -> Result<u32, JsValue> {
+        self.inner
+            .auto_generate_slide_snippets(page_id)
+            .map(|v| v.len() as u32)
+            .map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
+    pub fn reset_connector_routing(&mut self, page_id: u32, shape_id: u32) -> bool {
+        self.inner
+            .reset_connector_routing(page_id, shape_id as u64)
+            .unwrap_or(false)
     }
 }

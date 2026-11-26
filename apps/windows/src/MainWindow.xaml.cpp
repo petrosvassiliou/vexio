@@ -5316,7 +5316,7 @@ fire_and_forget MainWindow::ShowOfficialStencilCatalogDialogAsync() {
     }
 
     Windows::Web::Http::HttpClient client{};
-    client.DefaultRequestHeaders().UserAgent().TryParseAdd(L"Vexio-Windows/0.4.4-alpha");
+    client.DefaultRequestHeaders().UserAgent().TryParseAdd(L"Vexio-Windows/0.5.0-beta");
     uint32_t installedCount = 0;
 
     for (auto const& target : targets) {
@@ -5578,7 +5578,7 @@ void MainWindow::OnCheckUpdatesClick(IInspectable const&, RoutedEventArgs const&
 }
 
 fire_and_forget MainWindow::CheckForUpdatesAsync(bool userInitiated) {
-    constexpr std::wstring_view kCurrentVersion = L"0.4.4-alpha";
+    constexpr std::wstring_view kCurrentVersion = L"0.5.0-beta";
     const auto weakSelf = get_weak();
 
     if (userInitiated) {
@@ -5592,7 +5592,7 @@ fire_and_forget MainWindow::CheckForUpdatesAsync(bool userInitiated) {
 
     try {
         Windows::Web::Http::HttpClient client{};
-        client.DefaultRequestHeaders().UserAgent().TryParseAdd(L"Vexio-Windows/0.4.4-alpha");
+        client.DefaultRequestHeaders().UserAgent().TryParseAdd(L"Vexio-Windows/0.5.0-beta");
         client.DefaultRequestHeaders().Accept().TryParseAdd(L"application/vnd.github+json");
 
         const Uri apiUri{L"https://api.github.com/repos/petrosvassiliou/vexio/releases"};
@@ -5601,7 +5601,7 @@ fire_and_forget MainWindow::CheckForUpdatesAsync(bool userInitiated) {
         Windows::Data::Json::JsonArray releasesArr{nullptr};
         if (Windows::Data::Json::JsonArray::TryParse(body, releasesArr) && releasesArr.Size() > 0) {
             const auto relObj = releasesArr.GetObjectAt(0);
-            latestTag = relObj.GetNamedString(L"tag_name", L"v0.4.4-alpha").c_str();
+            latestTag = relObj.GetNamedString(L"tag_name", L"v0.5.0-beta").c_str();
             releaseUrl = relObj.GetNamedString(L"html_url", releaseUrl).c_str();
             if (relObj.HasKey(L"assets")) {
                 const auto assets = relObj.GetNamedArray(L"assets");
@@ -5663,7 +5663,7 @@ fire_and_forget MainWindow::CheckForUpdatesAsync(bool userInitiated) {
         }
     } else {
         self->BackstageUpdateStatusText().Text(hstring{
-            std::format(L"Vexio is up to date ({}).", latestTag.empty() ? L"v0.4.4-alpha" : latestTag)
+            std::format(L"Vexio is up to date ({}).", latestTag.empty() ? L"v0.5.0-beta" : latestTag)
         });
         if (userInitiated) {
             ContentDialog dlg{};
@@ -5671,13 +5671,229 @@ fire_and_forget MainWindow::CheckForUpdatesAsync(bool userInitiated) {
             dlg.Title(box_value(L"Vexio is Up to Date"));
             dlg.Content(box_value(hstring{std::format(
                 L"You are running the latest version of Vexio Professional ({}).",
-                latestTag.empty() ? L"v0.4.4-alpha" : latestTag)}));
+                latestTag.empty() ? L"v0.5.0-beta" : latestTag)}));
             dlg.PrimaryButtonText(L"View Release Notes");
             dlg.CloseButtonText(L"OK");
             dlg.DefaultButton(ContentDialogButton::Close);
             if (co_await dlg.ShowAsync() == ContentDialogResult::Primary) {
                 (void)co_await Launcher::LaunchUriAsync(Uri{hstring{releaseUrl}});
             }
+        }
+    }
+}
+
+void MainWindow::OnOpenMarkupStudioClick(IInspectable const&, RoutedEventArgs const&) {
+    ShowMarkupStudioDialogAsync();
+}
+
+void MainWindow::OnOpenSlideSnippetsClick(IInspectable const&, RoutedEventArgs const&) {
+    ShowSlideSnippetsDialogAsync();
+}
+
+void MainWindow::OnResetConnectorRoutingClick(IInspectable const&, RoutedEventArgs const&) {
+    if (!m_doc || m_selectedShapeId == 0) return;
+    if (m_doc.ResetConnectorRouting(m_activePageId, m_selectedShapeId) == VEXIO_OK) {
+        MarkDocumentDirty(true);
+        PresentViewportFrame();
+        ShowBanner(InfoBarSeverity::Informational, L"Connector Routing Reset",
+                   L"Restored automatic obstacle-avoiding A* orthogonal routing.");
+    }
+}
+
+void MainWindow::OnEnsureControlHandleClick(IInspectable const&, RoutedEventArgs const&) {
+    if (!m_doc || m_selectedShapeId == 0) return;
+    if (m_doc.EnsureControlHandle(m_activePageId, m_selectedShapeId) == VEXIO_OK) {
+        MarkDocumentDirty(true);
+        PresentViewportFrame();
+        ShowBanner(InfoBarSeverity::Informational, L"Control Handle Added",
+                   L"Attached parametric yellow diamond Controls.Row_1 handle.");
+    }
+}
+
+winrt::fire_and_forget MainWindow::ShowMarkupStudioDialogAsync() {
+    auto weakSelf = get_weak();
+    if (!m_doc || !RootWorkstationGrid().XamlRoot()) co_return;
+
+    StackPanel panel{};
+    panel.Spacing(8.0);
+
+    ComboBox fmtCombo{};
+    fmtCombo.Header(box_value(L"Diagram-as-Code Format"));
+    fmtCombo.HorizontalAlignment(HorizontalAlignment::Stretch);
+    fmtCombo.Items().Append(box_value(L"Mermaid (.mmd)"));
+    fmtCombo.Items().Append(box_value(L"PlantUML (.puml)"));
+    fmtCombo.Items().Append(box_value(L"Graphviz DOT (.dot)"));
+    fmtCombo.SelectedIndex(0);
+
+    TextBox editor{};
+    editor.AcceptsReturn(true);
+    editor.TextWrapping(TextWrapping::Wrap);
+    editor.Height(240.0);
+    editor.MinWidth(480.0);
+    if (const auto exported = m_doc.ExportMarkup(m_activePageId, "mermaid"); exported.ok() && !exported.value->empty()) {
+        editor.Text(*exported.value);
+    } else {
+        editor.Text(L"flowchart TD\n    A([\"Start\"]) --> B{\"Approved?\"}\n    B -->|Yes| C[(\"Database\")]\n    B -.->|No| D[\"Review\"]");
+    }
+
+    Button readBtn{};
+    readBtn.Content(box_value(L"← Read Markup from Active Canvas Page"));
+    readBtn.Click([this, fmtCombo, editor](IInspectable const&, RoutedEventArgs const&) {
+        const int32_t ix = fmtCombo.SelectedIndex();
+        const char* slug = (ix == 1) ? "plantuml" : (ix == 2) ? "dot" : "mermaid";
+        if (const auto exp = m_doc.ExportMarkup(m_activePageId, slug); exp.ok()) {
+            editor.Text(*exp.value);
+        }
+    });
+
+    panel.Children().Append(fmtCombo);
+    panel.Children().Append(readBtn);
+    panel.Children().Append(editor);
+
+    ContentDialog dlg{};
+    dlg.XamlRoot(RootWorkstationGrid().XamlRoot());
+    dlg.Title(box_value(L"Mermaid / PlantUML / Graphviz DOT Studio"));
+    dlg.Content(panel);
+    dlg.PrimaryButtonText(L"Build Visio Shapes on Page");
+    dlg.CloseButtonText(L"Close");
+    dlg.DefaultButton(ContentDialogButton::Primary);
+
+    const auto result = co_await dlg.ShowAsync();
+    auto self = weakSelf.get();
+    if (!self || result != ContentDialogResult::Primary) co_return;
+
+    const int32_t ix = fmtCombo.SelectedIndex();
+    const char* slug = (ix == 1) ? "plantuml" : (ix == 2) ? "dot" : "mermaid";
+    const std::string code = vexio::win::ToUtf8(editor.Text());
+    const auto imp = self->m_doc.ImportMarkup(self->m_activePageId, code, slug);
+    if (imp.ok()) {
+        self->MarkDocumentDirty(true);
+        self->FitPageToWindow();
+        self->PresentViewportFrame();
+        self->ShowBanner(
+            InfoBarSeverity::Success,
+            L"Diagram-as-Code Materialized",
+            std::format(L"Created {} Visio shapes & routed connectors on page.", *imp.value));
+    }
+}
+
+winrt::fire_and_forget MainWindow::ShowSlideSnippetsDialogAsync() {
+    auto weakSelf = get_weak();
+    if (!m_doc || !RootWorkstationGrid().XamlRoot()) co_return;
+
+    // Auto-seed snippets if none exist yet so Presenter deck is immediately ready!
+    if (const auto cur = m_doc.ListSlideSnippetsJson(); cur.ok() && (*cur.value == L"[]" || cur.value->empty())) {
+        (void)m_doc.AutoSlideSnippets(m_activePageId);
+    }
+
+    StackPanel panel{};
+    panel.Spacing(8.0);
+
+    ListView slidesList{};
+    slidesList.Height(180.0);
+    slidesList.MinWidth(460.0);
+
+    struct ParsedSnippet {
+        uint32_t id{0};
+        uint32_t pageId{1};
+        std::wstring title;
+        double xIn{0.0};
+        double yIn{0.0};
+        double wIn{11.0};
+        double hIn{8.5};
+    };
+    auto snippetsVec = std::make_shared<std::vector<ParsedSnippet>>();
+
+    auto populateSlides = [this, slidesList, snippetsVec]() {
+        slidesList.Items().Clear();
+        snippetsVec->clear();
+        const auto js = m_doc.ListSlideSnippetsJson();
+        if (!js.ok()) return;
+        Windows::Data::Json::JsonArray arr{nullptr};
+        if (!Windows::Data::Json::JsonArray::TryParse(*js.value, arr)) return;
+        uint32_t idx = 1;
+        for (const auto& item : arr) {
+            if (item.ValueType() != Windows::Data::Json::JsonValueType::Object) continue;
+            const auto obj = item.GetObject();
+            ParsedSnippet ps{};
+            ps.id = static_cast<uint32_t>(obj.GetNamedNumber(L"id", 1.0));
+            ps.pageId = static_cast<uint32_t>(obj.GetNamedNumber(L"page_id", 1.0));
+            ps.title = std::wstring{obj.GetNamedString(L"title", L"Slide")};
+            ps.xIn = obj.GetNamedNumber(L"x_in", 0.0);
+            ps.yIn = obj.GetNamedNumber(L"y_in", 0.0);
+            ps.wIn = obj.GetNamedNumber(L"width_in", 11.0);
+            ps.hIn = obj.GetNamedNumber(L"height_in", 8.5);
+            snippetsVec->push_back(ps);
+            slidesList.Items().Append(box_value(hstring{
+                std::format(L"#{} · {}  ({:.1f}\" × {:.1f}\")", idx++, ps.title, ps.wIn, ps.hIn)
+            }));
+        }
+        if (slidesList.Items().Size() > 0) {
+            slidesList.SelectedIndex(0);
+        }
+    };
+    populateSlides();
+
+    StackPanel actionRow{};
+    actionRow.Orientation(Orientation::Horizontal);
+    actionRow.Spacing(6.0);
+
+    Button autoBtn{};
+    autoBtn.Content(box_value(L"Auto-Generate Slides"));
+    autoBtn.Click([this, populateSlides](IInspectable const&, RoutedEventArgs const&) {
+        (void)m_doc.AutoSlideSnippets(m_activePageId);
+        MarkDocumentDirty(true);
+        populateSlides();
+    });
+
+    Button clearBtn{};
+    clearBtn.Content(box_value(L"Clear Slides"));
+    clearBtn.Click([this, populateSlides](IInspectable const&, RoutedEventArgs const&) {
+        (void)m_doc.DeleteSlideSnippet(m_activePageId, 0);
+        MarkDocumentDirty(true);
+        populateSlides();
+    });
+
+    actionRow.Children().Append(autoBtn);
+    actionRow.Children().Append(clearBtn);
+    panel.Children().Append(actionRow);
+    panel.Children().Append(slidesList);
+
+    ContentDialog dlg{};
+    dlg.XamlRoot(RootWorkstationGrid().XamlRoot());
+    dlg.Title(box_value(L"Presentation Mode — Slide Snippets & .pptx Deck"));
+    dlg.Content(panel);
+    dlg.PrimaryButtonText(L"Zoom to Selected Slide");
+    dlg.SecondaryButtonText(L"Export .pptx Deck");
+    dlg.CloseButtonText(L"Close");
+    dlg.DefaultButton(ContentDialogButton::Primary);
+
+    const auto res = co_await dlg.ShowAsync();
+    auto self = weakSelf.get();
+    if (!self) co_return;
+
+    if (res == ContentDialogResult::Secondary) {
+        self->SaveDocumentAsync(true, "pptx");
+    } else if (res == ContentDialogResult::Primary) {
+        const int32_t sel = slidesList.SelectedIndex();
+        if (sel >= 0 && static_cast<size_t>(sel) < snippetsVec->size()) {
+            const auto& target = (*snippetsVec)[static_cast<size_t>(sel)];
+            if (target.pageId != self->m_activePageId) {
+                self->m_activePageId = target.pageId;
+                (void)self->m_viewport.SetPage(self->m_doc, self->m_activePageId);
+                self->RebuildPageTabsStrip();
+            }
+            const double vw = std::max(320.0, self->CanvasSwapChainPanel().ActualWidth());
+            const double vh = std::max(240.0, self->CanvasSwapChainPanel().ActualHeight());
+            const double scale = std::clamp(
+                std::min(vw / (std::max(1.0, target.wIn) * 96.0), vh / (std::max(1.0, target.hIn) * 96.0)),
+                0.25, 4.0);
+            (void)self->m_viewport.SetZoom(
+                self->m_doc,
+                scale,
+                target.xIn + target.wIn * 0.5,
+                target.yIn + target.hIn * 0.5);
+            self->PresentViewportFrame();
         }
     }
 }

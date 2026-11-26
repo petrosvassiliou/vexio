@@ -1,0 +1,54 @@
+[package]
+name = "vexio-fuzz"
+version = "0.5.0-beta"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+# Standalone workspace so stable `cargo test --workspace` at repo root never requires nightly `libfuzzer-sys`.
+[workspace]
+
+[dependencies]
+libfuzzer-sys = "0.4"
+vexio-shapesheet = { path = "../crates/vexio-shapesheet" }
+vexio-vsdx = { path = "../crates/vexio-vsdx" }
+vexio-vsd-legacy = { path = "../crates/vexio-vsd-legacy" }
+vexio-cad = { path = "../crates/vexio-cad" }
+vexio-core = { path = "../crates/vexio-core" }
+
+[[bin]]
+name = "fuzz_shapesheet_formula"
+path = "fuzz_targets/fuzz_shapesheet_formula.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_vsdx_reader"
+path = "fuzz_targets/fuzz_vsdx_reader.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_vsd_legacy_reader"
+path = "fuzz_targets/fuzz_vsd_legacy_reader.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_cad_dwg_dxf"
+path = "fuzz_targets/fuzz_cad_dwg_dxf.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_diagram_markup"
+path = "fuzz_targets/fuzz_diagram_markup.rs"
+test = false
+doc = false
+bench = false

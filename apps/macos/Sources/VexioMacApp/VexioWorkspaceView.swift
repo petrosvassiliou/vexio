@@ -166,6 +166,8 @@ public struct VexioWorkspaceView: View {
     @State private var isStencilCatalogPresented: Bool = false
     @State private var pageSetupSheetPageId: UInt32? = nil
     @State private var isBordersAndTitlesSheetPresented: Bool = false
+    @State private var isMarkupStudioSheetPresented: Bool = false
+    @State private var isSlideSnippetsSheetPresented: Bool = false
 
     // ShapeSheet Editor State
     @State private var selectedShapeSheetSection: ShapeSheetSectionCategory?
@@ -226,6 +228,19 @@ public struct VexioWorkspaceView: View {
             .sheet(isPresented: $isBordersAndTitlesSheetPresented) {
                 VexioBordersAndTitlesSheet(session: session) {
                     isBordersAndTitlesSheetPresented = false
+                }
+            }
+            .sheet(isPresented: $isMarkupStudioSheetPresented) {
+                VexioMarkupStudioSheet(session: session) {
+                    isMarkupStudioSheetPresented = false
+                }
+            }
+            .sheet(isPresented: $isSlideSnippetsSheetPresented) {
+                VexioSlideSnippetsSheet(session: session, onExportPptx: {
+                    isSlideSnippetsSheetPresented = false
+                    NotificationCenter.default.post(name: .vexioExportFormatRequested, object: "pptx")
+                }) {
+                    isSlideSnippetsSheetPresented = false
                 }
             }
             .sheet(
@@ -300,6 +315,13 @@ public struct VexioWorkspaceView: View {
             }
             .onReceive(NotificationCenter.default.publisher(for: .vexioOpenBordersAndTitlesSheet)) { _ in
                 isBordersAndTitlesSheetPresented = true
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .vexioOpenMarkupStudioSheet)) { _ in
+                isMarkupStudioSheetPresented = true
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .vexioOpenSlideSnippetsSheet)) { _ in
+                session.refreshSlideSnippets()
+                isSlideSnippetsSheetPresented = true
             }
             .onReceive(NotificationCenter.default.publisher(for: .vexioOpenPageSetupSheet)) { note in
                 if let pid = note.object as? UInt32 {
@@ -1139,6 +1161,8 @@ public extension Notification.Name {
     static let vexioOpenStencilCatalogSheet = Notification.Name("app.vexio.openStencilCatalogSheet")
     static let vexioOpenPageSetupSheet = Notification.Name("app.vexio.openPageSetupSheet")
     static let vexioOpenBordersAndTitlesSheet = Notification.Name("app.vexio.openBordersAndTitlesSheet")
+    static let vexioOpenMarkupStudioSheet = Notification.Name("app.vexio.openMarkupStudioSheet")
+    static let vexioOpenSlideSnippetsSheet = Notification.Name("app.vexio.openSlideSnippetsSheet")
     static let vexioExportFormatRequested = Notification.Name("app.vexio.exportFormatRequested")
     static let vexioOpenExternalURL = Notification.Name("app.vexio.openExternalURL")
 }
@@ -4250,5 +4274,154 @@ private struct VexioBordersAndTitlesSheet: View {
             undoManager: undoManager
         )
         onClose()
+    }
+}
+
+// MARK: - v0.5.0-beta Diagram-as-Code Studio (Mermaid / PlantUML / Graphviz DOT) & Slide Snippets Sheets
+
+private struct VexioMarkupStudioSheet: View {
+    @ObservedObject var session: VexioDocumentSession
+    let onClose: () -> Void
+    @Environment(\.undoManager) private var undoManager
+
+    @State private var selectedFormat: String = "mermaid"
+    @State private var markupText: String = """
+    flowchart TD
+        subgraph Ingress ["API Gateway"]
+            A(["Client Request"]) --> B{"Authenticated?"}
+        end
+        B -->|Yes| C[["Order Service"]]
+        B -.->|No| D(["401 Unauthorized"])
+        C --> E[("Orders PostgreSQL")]
+    """
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Diagram-as-Code Studio — Mermaid · PlantUML · Graphviz DOT")
+                    .font(.system(size: 14, weight: .semibold))
+                Spacer()
+                Button("Close", action: onClose)
+            }
+
+            HStack(spacing: 10) {
+                Picker("Format", selection: $selectedFormat) {
+                    Text("Mermaid (.mmd)").tag("mermaid")
+                    Text("PlantUML (.puml)").tag("plantuml")
+                    Text("Graphviz DOT (.dot)").tag("dot")
+                }
+                .pickerStyle(.segmented)
+                .onChange(of: selectedFormat) { _, nextFmt in
+                    let exported = session.exportDiagramMarkup(formatSlug: nextFmt)
+                    if !exported.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        markupText = exported
+                    }
+                }
+
+                Button("← Read Active Page") {
+                    let exported = session.exportDiagramMarkup(formatSlug: selectedFormat)
+                    if !exported.isEmpty {
+                        markupText = exported
+                    }
+                }
+            }
+
+            TextEditor(text: $markupText)
+                .font(.system(size: 12, design: .monospaced))
+                .frame(minHeight: 240)
+                .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.primary.opacity(0.14), lineWidth: 1))
+
+            HStack {
+                Spacer()
+                Button("Cancel", action: onClose)
+                Button("Build Visio Shapes on Page") {
+                    session.importDiagramMarkup(markup: markupText, formatSlug: selectedFormat, undoManager: undoManager)
+                    onClose()
+                }
+                .buttonStyle(.borderedProminent)
+            }
+        }
+        .padding(18)
+        .frame(width: 620, height: 420)
+        .onAppear {
+            if session.activePageShapeCount > 0 {
+                let exported = session.exportDiagramMarkup(formatSlug: selectedFormat)
+                if !exported.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    markupText = exported
+                }
+            }
+        }
+    }
+}
+
+private struct VexioSlideSnippetsSheet: View {
+    @ObservedObject var session: VexioDocumentSession
+    let onExportPptx: () -> Void
+    let onClose: () -> Void
+    @Environment(\.undoManager) private var undoManager
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Presentation Mode — Slide Snippets & Multi-Slide .pptx")
+                    .font(.system(size: 14, weight: .semibold))
+                Spacer()
+                Button("Close", action: onClose)
+            }
+
+            HStack(spacing: 8) {
+                Button("Auto-Generate Slide Snippets") {
+                    session.autoGenerateSlideSnippets(undoManager: undoManager)
+                }
+                .buttonStyle(.borderedProminent)
+
+                if !session.slideSnippets.isEmpty {
+                    Button("Clear All") {
+                        session.clearSlideSnippets(undoManager: undoManager)
+                    }
+                }
+                Spacer()
+                Button("Export Multi-Slide .pptx…", action: onExportPptx)
+            }
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 6) {
+                    if session.slideSnippets.isEmpty {
+                        Text("Click 'Auto-Generate Slide Snippets' to create presenter frames from Containers, Swimlanes, or diagram stages.")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                            .padding(.vertical, 16)
+                    } else {
+                        ForEach(Array(session.slideSnippets.enumerated()), id: \.element.id) { idx, snippet in
+                            HStack {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("#\(idx + 1) · \(snippet.title)")
+                                        .font(.system(size: 12.5, weight: .semibold))
+                                    if !snippet.notes.isEmpty {
+                                        Text(snippet.notes)
+                                            .font(.system(size: 11))
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                                Spacer()
+                                Button("Present Frame ▶") {
+                                    session.focusSlideSnippet(snippet)
+                                    onClose()
+                                }
+                                .controlSize(.small)
+                            }
+                            .padding(8)
+                            .background(RoundedRectangle(cornerRadius: 8).fill(Color.primary.opacity(0.045)))
+                        }
+                    }
+                }
+            }
+            .frame(minHeight: 200)
+        }
+        .padding(18)
+        .frame(width: 560, height: 380)
+        .onAppear {
+            session.refreshSlideSnippets()
+        }
     }
 }

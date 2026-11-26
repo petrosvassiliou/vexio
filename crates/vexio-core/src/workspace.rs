@@ -420,6 +420,19 @@ impl DocumentSession {
                 ReactiveEngine::recalculate_document(&mut doc);
                 self.doc = doc;
             }
+            "mmd" | "mermaid" | "puml" | "plantuml" | "uml" | "dot" | "gv" => {
+                let title = match clean_ext.as_str() {
+                    "puml" | "plantuml" | "uml" => "PlantUML Diagram",
+                    "dot" | "gv" => "Graphviz DOT Diagram",
+                    _ => "Mermaid Diagram",
+                };
+                let mut doc = VisioDocument::new_blank(title);
+                let text = String::from_utf8_lossy(bytes);
+                let fmt = crate::diagram_text_interop::DiagramMarkupFormat::from_slug(&clean_ext);
+                crate::diagram_text_interop::import_diagram_markup(&mut doc, 1, &text, fmt)
+                    .map_err(CoreError::UnsupportedExtension)?;
+                self.doc = doc;
+            }
             _ => return Err(CoreError::UnsupportedExtension(clean_ext)),
         }
         self.journal = CommandJournal::new();
@@ -458,8 +471,17 @@ impl DocumentSession {
             "svg" => Ok(export_page_svg(&self.doc, pid).into_bytes()),
             "eps" => Ok(export_page_eps(&self.doc, pid).into_bytes()),
             "html" => Ok(export_document_html_report(&self.doc).into_bytes()),
-            "pptx" => crate::enterprise_plan2::export_presentation_pptx(&self.doc, &[])
-                .map_err(|e| CoreError::UnsupportedExtension(e.to_string())),
+            "pptx" => {
+                let snippets = crate::enterprise_plan2::collect_document_slide_snippets(&self.doc);
+                crate::enterprise_plan2::export_presentation_pptx(&self.doc, &snippets)
+                    .map_err(|e| CoreError::UnsupportedExtension(e.to_string()))
+            }
+            "mmd" | "mermaid" | "puml" | "plantuml" | "uml" | "dot" | "gv" => {
+                let fmt = crate::diagram_text_interop::DiagramMarkupFormat::from_slug(&clean_ext);
+                crate::diagram_text_interop::export_diagram_markup(&self.doc, pid, fmt)
+                    .map(String::into_bytes)
+                    .map_err(CoreError::UnsupportedExtension)
+            }
             "docx" => crate::enterprise_plan2::export_word_process_spec_docx(&self.doc)
                 .map_err(|e| CoreError::UnsupportedExtension(e.to_string())),
             "powerautomate" | "flow.json" => crate::plan2_connectors::export_power_automate_flow_json(
@@ -1531,8 +1553,10 @@ impl DocumentSession {
         Ok(ok)
     }
 
-    /// Slide an interior orthogonal segment (`seg_index`, 0-based along routed polyline) of a 1D connector
-    /// to `coord_in` (X in inches for a vertical segment, Y in inches for a horizontal segment).
+    /// Slide an orthogonal segment (`seg_index`, 0-based along routed polyline) of a 1D connector
+    /// to `coord_in` (X in inches for a vertical segment, Y in inches for a horizontal segment),
+    /// preserving all user-authored multi-bend orthogonal waypoints in `User.ManualOrthoPoints`
+    /// and inserting orthogonal dogleg stubs when dragging an endpoint-adjacent segment!
     pub fn drag_connector_segment(
         &mut self,
         page_id: u32,
@@ -1551,23 +1575,19 @@ impl DocumentSession {
             return Ok(false);
         }
         let poly = vexio_render::tessellate::extract_connector_polyline_in(vis);
-        let axis = if poly.len() >= 2 {
-            let idx = if seg_index + 1 < poly.len() {
-                seg_index
-            } else {
-                poly.len() / 2
-            };
-            let idx = idx.min(poly.len() - 2);
-            let p0 = poly[idx];
-            let p1 = poly[idx + 1];
-            if (p0[0] - p1[0]).abs() <= (p0[1] - p1[1]).abs() {
-                1 // Vertical segment -> slide X coordinate
-            } else {
-                2 // Horizontal segment -> slide Y coordinate
-            }
-        } else {
+        if poly.len() < 2 {
+            return Ok(false);
+        }
+        let idx = seg_index.min(poly.len() - 2);
+        let axis = if (poly[idx][0] - poly[idx + 1][0]).abs()
+            <= (poly[idx][1] - poly[idx + 1][1]).abs()
+        {
             1
+        } else {
+            2
         };
+        let new_poly = crate::routing::slide_orthogonal_segment(&poly, seg_index, coord_in);
+        let serialized_pts = crate::routing::format_manual_ortho_points(&new_poly);
 
         let mut ok = false;
         self.journal
@@ -1592,6 +1612,11 @@ impl DocumentSession {
                                 format!("{} in", format_clean_f64(coord_in)),
                                 Some(Unit::Inch),
                             );
+                            sh.sheet.set_user_cell(
+                                "ManualOrthoPoints",
+                                serialized_pts.clone(),
+                                "User-adjusted multi-bend orthogonal waypoints",
+                            );
                             ok = true;
                         }
                     }
@@ -1599,6 +1624,58 @@ impl DocumentSession {
                 if ok {
                     route_page_connectors(doc, page_id);
                 }
+            });
+        Ok(ok)
+    }
+
+    /// Clear any manual orthogonal segment overrides on `shape_id` and restore automatic obstacle-avoiding A* routing.
+    pub fn reset_connector_routing(
+        &mut self,
+        page_id: u32,
+        shape_id: u64,
+    ) -> Result<bool, CoreError> {
+        let mut ok = false;
+        self.journal
+            .record_mutation(&mut self.doc, "Reset Connector Routing", |doc| {
+                if let Some(page) = doc.page_mut(page_id) {
+                    if let Some(sh) = page.find_shape_mut(shape_id) {
+                        if sh.kind == ShapeKind::Connector1D {
+                            sh.sheet
+                                .set_formula("ShapeRouteStyle", "16", Some(Unit::Number));
+                            sh.sheet.set_formula(
+                                "User.Preserve1DGeometry",
+                                "FALSE",
+                                Some(Unit::Boolean),
+                            );
+                            sh.sheet
+                                .set_formula("User.MidAxis", "0", Some(Unit::Number));
+                            sh.sheet.user_cells.remove("manualorthopoints");
+                            sh.sheet.set_formula(
+                                "User.ManualOrthoPoints",
+                                "\"\"",
+                                Some(Unit::String),
+                            );
+                            ok = true;
+                        }
+                    }
+                }
+                if ok {
+                    route_page_connectors(doc, page_id);
+                }
+            });
+        Ok(ok)
+    }
+
+    /// Ensure `(page_id, shape_id)` has a draggable yellow diamond `Controls.Row_1` handle (undoable).
+    pub fn ensure_control_handle(
+        &mut self,
+        page_id: u32,
+        shape_id: u64,
+    ) -> Result<bool, CoreError> {
+        let mut ok = false;
+        self.journal
+            .record_mutation(&mut self.doc, "Add Control Handle", |doc| {
+                ok = crate::boolean_ops::ensure_default_control_handle(doc, page_id, shape_id);
             });
         Ok(ok)
     }
@@ -1678,6 +1755,24 @@ impl DocumentSession {
                                     format!("{} in", format_clean_f64(ey)),
                                     false,
                                 );
+                            }
+                            if let Some(raw_pts) = sh
+                                .sheet
+                                .get_cell("User.ManualOrthoPoints")
+                                .and_then(|c| c.value.as_str_coerced().ok())
+                            {
+                                let mut mpts = crate::routing::parse_manual_ortho_points(&raw_pts);
+                                if mpts.len() >= 2 {
+                                    for p in &mut mpts {
+                                        p[0] += eff_dx;
+                                        p[1] += eff_dy;
+                                    }
+                                    sh.sheet.set_user_cell(
+                                        "ManualOrthoPoints",
+                                        crate::routing::format_manual_ortho_points(&mpts),
+                                        "User-adjusted multi-bend orthogonal waypoints",
+                                    );
+                                }
                             }
                             if let Some(mc) = sh.sheet.get_f64("User.MidCoord") {
                                 let axis = sh
@@ -3739,6 +3834,182 @@ impl DocumentSession {
                 .unwrap_or(0);
             });
         Ok(bg_pid)
+    }
+
+    // =========================================================================
+    // v0.5.0-beta: Diagram-as-Code (Mermaid / PlantUML / Graphviz DOT) & Slide Snippets
+    // =========================================================================
+
+    /// Parse Mermaid (`.mmd`), PlantUML (`.puml`), or Graphviz DOT (`.dot`) markup and materialize
+    /// real Visio shapes, containers, and routed connectors onto `page_id` in an undoable transaction.
+    pub fn import_diagram_markup(
+        &mut self,
+        page_id: u32,
+        markup: &str,
+        format_slug: &str,
+    ) -> Result<crate::diagram_text_interop::MarkupImportStats, CoreError> {
+        if self.doc.page(page_id).is_none() {
+            return Err(CoreError::Journal(JournalError::PageNotFound(page_id)));
+        }
+        let fmt = crate::diagram_text_interop::DiagramMarkupFormat::from_slug(format_slug);
+        let mut res: Result<crate::diagram_text_interop::MarkupImportStats, String> =
+            Err("not executed".into());
+        self.journal
+            .record_mutation(&mut self.doc, "Import Diagram Markup", |doc| {
+                res = crate::diagram_text_interop::import_diagram_markup(doc, page_id, markup, fmt);
+            });
+        res.map_err(CoreError::UnsupportedExtension)
+    }
+
+    /// Export `page_id` into clean, round-trippable Mermaid, PlantUML, or Graphviz DOT markup.
+    pub fn export_diagram_markup(
+        &self,
+        page_id: u32,
+        format_slug: &str,
+    ) -> Result<String, CoreError> {
+        let fmt = crate::diagram_text_interop::DiagramMarkupFormat::from_slug(format_slug);
+        crate::diagram_text_interop::export_diagram_markup(&self.doc, page_id, fmt)
+            .map_err(CoreError::UnsupportedExtension)
+    }
+
+    /// Return all persisted Presentation Mode `SlideSnippetFrame`s across all foreground pages.
+    pub fn list_slide_snippets(&self) -> Vec<crate::enterprise_plan2::SlideSnippetFrame> {
+        crate::enterprise_plan2::collect_document_slide_snippets(&self.doc)
+    }
+
+    /// Return all persisted Presentation Mode `SlideSnippetFrame`s serialized as JSON.
+    pub fn list_slide_snippets_json(&self) -> String {
+        serde_json::to_string(&self.list_slide_snippets()).unwrap_or_else(|_| "[]".into())
+    }
+
+    /// Add a Presentation Mode `SlideSnippetFrame` on `page_id` in an undoable transaction.
+    #[allow(clippy::too_many_arguments)]
+    pub fn add_slide_snippet(
+        &mut self,
+        page_id: u32,
+        title: &str,
+        notes: &str,
+        x_in: f64,
+        y_in: f64,
+        width_in: f64,
+        height_in: f64,
+    ) -> Result<u32, CoreError> {
+        if self.doc.page(page_id).is_none() {
+            return Err(CoreError::Journal(JournalError::PageNotFound(page_id)));
+        }
+        let clean_title = if title.trim().is_empty() {
+            format!("Slide {}", self.list_slide_snippets().len() + 1)
+        } else {
+            title.trim().to_string()
+        };
+        let clean_notes = notes.trim().to_string();
+        let mut created_id = 0u32;
+        self.journal
+            .record_mutation(&mut self.doc, "Add Slide Snippet", |doc| {
+                let next_id = crate::enterprise_plan2::collect_document_slide_snippets(doc)
+                    .iter()
+                    .map(|s| s.id)
+                    .max()
+                    .unwrap_or(0)
+                    + 1;
+                if let Some(page) = doc.page_mut(page_id) {
+                    let pw = page.width_in().max(1.0);
+                    let ph = page.height_in().max(1.0);
+                    let mut list = crate::enterprise_plan2::read_page_slide_snippets(page);
+                    let w = if width_in.is_finite() && width_in > 0.25 {
+                        width_in
+                    } else {
+                        pw
+                    };
+                    let h = if height_in.is_finite() && height_in > 0.25 {
+                        height_in
+                    } else {
+                        ph
+                    };
+                    let x = if x_in.is_finite() { x_in.max(0.0) } else { 0.0 };
+                    let y = if y_in.is_finite() { y_in.max(0.0) } else { 0.0 };
+                    list.push(crate::enterprise_plan2::SlideSnippetFrame {
+                        id: next_id,
+                        page_id,
+                        title: clean_title.clone(),
+                        notes: clean_notes.clone(),
+                        x_in: x,
+                        y_in: y,
+                        width_in: w,
+                        height_in: h,
+                    });
+                    crate::enterprise_plan2::write_page_slide_snippets(page, &list);
+                    created_id = next_id;
+                }
+            });
+        Ok(created_id)
+    }
+
+    /// Delete a Presentation Mode `SlideSnippetFrame` by `snippet_id` (or `0` to clear all on `page_id`).
+    pub fn delete_slide_snippet(
+        &mut self,
+        page_id: u32,
+        snippet_id: u32,
+    ) -> Result<bool, CoreError> {
+        let mut removed = false;
+        self.journal
+            .record_mutation(&mut self.doc, "Delete Slide Snippet", |doc| {
+                if snippet_id == 0 {
+                    if let Some(page) = doc.page_mut(page_id) {
+                        let had = !crate::enterprise_plan2::read_page_slide_snippets(page).is_empty();
+                        crate::enterprise_plan2::write_page_slide_snippets(page, &[]);
+                        removed = had;
+                    }
+                } else {
+                    for page in &mut doc.pages {
+                        if page_id != 0 && page.id != page_id {
+                            continue;
+                        }
+                        let mut list = crate::enterprise_plan2::read_page_slide_snippets(page);
+                        let before = list.len();
+                        list.retain(|s| s.id != snippet_id);
+                        if list.len() != before {
+                            crate::enterprise_plan2::write_page_slide_snippets(page, &list);
+                            removed = true;
+                        }
+                    }
+                }
+            });
+        Ok(removed)
+    }
+
+    /// Auto-generate ordered Presentation Mode `SlideSnippetFrame`s on `page_id` from Containers or spatial clusters!
+    pub fn auto_generate_slide_snippets(
+        &mut self,
+        page_id: u32,
+    ) -> Result<Vec<crate::enterprise_plan2::SlideSnippetFrame>, CoreError> {
+        if self.doc.page(page_id).is_none() {
+            return Err(CoreError::Journal(JournalError::PageNotFound(page_id)));
+        }
+        let mut generated = Vec::new();
+        self.journal
+            .record_mutation(&mut self.doc, "Auto-Generate Slide Snippets", |doc| {
+                let mut base_id = doc
+                    .pages
+                    .iter()
+                    .filter(|p| !p.is_background && p.id != page_id)
+                    .flat_map(crate::enterprise_plan2::read_page_slide_snippets)
+                    .map(|s| s.id)
+                    .max()
+                    .unwrap_or(0)
+                    + 1;
+                let mut frames =
+                    crate::enterprise_plan2::auto_generate_page_slide_snippets(doc, page_id);
+                for f in &mut frames {
+                    f.id = base_id;
+                    base_id += 1;
+                }
+                if let Some(page) = doc.page_mut(page_id) {
+                    crate::enterprise_plan2::write_page_slide_snippets(page, &frames);
+                }
+                generated = frames;
+            });
+        Ok(generated)
     }
 
     /// Rotate (`delta_angle_deg`, e.g. `+90` left / `-90` right in Visio's CCW angle convention)

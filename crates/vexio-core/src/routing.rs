@@ -293,6 +293,13 @@ pub fn route_page_connectors(doc: &mut VisioDocument, page_id: u32) {
             .map(|o| o.padded(margin))
             .collect();
 
+        let manual_pts = s
+            .sheet
+            .get_cell("User.ManualOrthoPoints")
+            .and_then(|c| c.value.as_str_coerced().ok())
+            .map(|raw| parse_manual_ortho_points(&raw))
+            .unwrap_or_default();
+
         let mid_axis = s
             .sheet
             .get_f64("User.MidAxis")
@@ -304,7 +311,9 @@ pub fn route_page_connectors(doc: &mut VisioDocument, page_id: u32) {
             ConnectorRouteMode::Straight => vec![[bx, by], [ex, ey]],
             ConnectorRouteMode::Curved => vec![[bx, by], [ex, ey]],
             ConnectorRouteMode::Orthogonal => {
-                if let Some(mc) = mid_coord {
+                if manual_pts.len() >= 2 {
+                    reanchor_manual_ortho_polyline(&manual_pts, [bx, by], [ex, ey])
+                } else if let Some(mc) = mid_coord {
                     if mid_axis == 1 {
                         // User-dragged vertical middle segment at `x = mc`
                         compact_orthogonal_polyline(&[[bx, by], [mc, by], [mc, ey], [ex, ey]])
@@ -522,7 +531,7 @@ pub fn route_page_connectors(doc: &mut VisioDocument, page_id: u32) {
     ReactiveEngine::recalculate_document(doc);
 }
 
-fn compact_orthogonal_polyline(pts: &[[f64; 2]]) -> Vec<[f64; 2]> {
+pub fn compact_orthogonal_polyline(pts: &[[f64; 2]]) -> Vec<[f64; 2]> {
     let mut out: Vec<[f64; 2]> = Vec::with_capacity(pts.len());
     for &p in pts {
         if let Some(&last) = out.last() {
@@ -546,6 +555,144 @@ fn compact_orthogonal_polyline(pts: &[[f64; 2]]) -> Vec<[f64; 2]> {
     } else {
         out
     }
+}
+
+/// Parse serialized `User.ManualOrthoPoints` (`"x0,y0;x1,y1;..."`) into page-space `[x, y]` vertices.
+pub fn parse_manual_ortho_points(raw: &str) -> Vec<[f64; 2]> {
+    let trimmed = raw.trim().trim_matches('"').trim();
+    if trimmed.is_empty() {
+        return Vec::new();
+    }
+    let mut pts = Vec::new();
+    for pair in trimmed.split(';').map(str::trim).filter(|s| !s.is_empty()) {
+        if let Some((xs, ys)) = pair.split_once(',') {
+            if let (Ok(x), Ok(y)) = (xs.trim().parse::<f64>(), ys.trim().parse::<f64>()) {
+                if x.is_finite() && y.is_finite() {
+                    pts.push([x, y]);
+                }
+            }
+        }
+    }
+    pts
+}
+
+/// Format page-space `[x, y]` vertices as a quoted ShapeSheet string literal `"\"x0,y0;x1,y1;...\""`.
+pub fn format_manual_ortho_points(pts: &[[f64; 2]]) -> String {
+    let joined: Vec<String> = pts
+        .iter()
+        .map(|p| format!("{},{}", format_clean_f64(p[0]), format_clean_f64(p[1])))
+        .collect();
+    format!("\"{}\"", joined.join(";"))
+}
+
+/// Re-anchor a user-customized multi-bend orthogonal polyline to updated `(new_b, new_e)` endpoints
+/// while keeping every segment strictly horizontal/vertical and preserving all interior bends.
+pub fn reanchor_manual_ortho_polyline(
+    pts: &[[f64; 2]],
+    new_b: [f64; 2],
+    new_e: [f64; 2],
+) -> Vec<[f64; 2]> {
+    let m = pts.len();
+    if m >= 4 {
+        let mut out = pts.to_vec();
+        let start_horiz = (pts[0][1] - pts[1][1]).abs() <= (pts[0][0] - pts[1][0]).abs();
+        out[0] = new_b;
+        if start_horiz {
+            out[1][1] = new_b[1];
+        } else {
+            out[1][0] = new_b[0];
+        }
+        let end_horiz =
+            (pts[m - 2][1] - pts[m - 1][1]).abs() <= (pts[m - 2][0] - pts[m - 1][0]).abs();
+        out[m - 1] = new_e;
+        if end_horiz {
+            out[m - 2][1] = new_e[1];
+        } else {
+            out[m - 2][0] = new_e[0];
+        }
+        compact_orthogonal_polyline(&out)
+    } else if m == 3 {
+        let start_horiz = (pts[0][1] - pts[1][1]).abs() <= (pts[0][0] - pts[1][0]).abs();
+        if start_horiz {
+            compact_orthogonal_polyline(&[new_b, [new_e[0], new_b[1]], new_e])
+        } else {
+            compact_orthogonal_polyline(&[new_b, [new_b[0], new_e[1]], new_e])
+        }
+    } else if (new_b[0] - new_e[0]).abs() < 1e-5 || (new_b[1] - new_e[1]).abs() < 1e-5 {
+        vec![new_b, new_e]
+    } else {
+        let mid_x = (new_b[0] + new_e[0]) * 0.5;
+        compact_orthogonal_polyline(&[new_b, [mid_x, new_b[1]], [mid_x, new_e[1]], new_e])
+    }
+}
+
+/// Slide segment `seg_index` (`0 .. poly.len() - 1`) of an orthogonal polyline perpendicular to its
+/// axis to `coord_in` (`X` for vertical segments, `Y` for horizontal segments), inserting clean
+/// orthogonal dogleg stubs automatically when `seg_index` touches the `Begin` or `End` anchor!
+pub fn slide_orthogonal_segment(
+    poly: &[[f64; 2]],
+    seg_index: usize,
+    coord_in: f64,
+) -> Vec<[f64; 2]> {
+    if poly.len() < 2 || !coord_in.is_finite() {
+        return poly.to_vec();
+    }
+    let n = poly.len();
+    let s = seg_index.min(n - 2);
+    let a = poly[s];
+    let b = poly[s + 1];
+    let is_vert = (a[0] - b[0]).abs() <= (a[1] - b[1]).abs();
+
+    if n == 2 {
+        let bx = poly[0][0];
+        let by = poly[0][1];
+        let ex = poly[1][0];
+        let ey = poly[1][1];
+        return if is_vert {
+            compact_orthogonal_polyline(&[[bx, by], [coord_in, by], [coord_in, ey], [ex, ey]])
+        } else {
+            compact_orthogonal_polyline(&[[bx, by], [bx, coord_in], [ex, coord_in], [ex, ey]])
+        };
+    }
+
+    if s == 0 {
+        let mut out = Vec::with_capacity(n + 1);
+        out.push(poly[0]);
+        if is_vert {
+            out.push([coord_in, poly[0][1]]);
+            out.push([coord_in, poly[1][1]]);
+        } else {
+            out.push([poly[0][0], coord_in]);
+            out.push([poly[1][0], coord_in]);
+        }
+        out.extend_from_slice(&poly[2..]);
+        return compact_orthogonal_polyline(&out);
+    }
+
+    if s + 2 == n {
+        let mut out = Vec::with_capacity(n + 1);
+        out.extend_from_slice(&poly[..n - 2]);
+        let end_pt = poly[n - 1];
+        if is_vert {
+            out.push([coord_in, poly[n - 2][1]]);
+            out.push([coord_in, end_pt[1]]);
+        } else {
+            out.push([poly[n - 2][0], coord_in]);
+            out.push([end_pt[0], coord_in]);
+        }
+        out.push(end_pt);
+        return compact_orthogonal_polyline(&out);
+    }
+
+    let mut out = poly.to_vec();
+    if is_vert {
+        out[s][0] = coord_in;
+        out[s + 1][0] = coord_in;
+    } else {
+        out[s][1] = coord_in;
+        out[s + 1][1] = coord_in;
+    }
+    compact_orthogonal_polyline(&out)
 }
 
 fn resolve_glue_point(

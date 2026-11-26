@@ -1465,6 +1465,104 @@ public:
         return VexioResult<OwnedBufferGuard>{VEXIO_OK, std::move(outBuf)};
     }
 
+    // v0.5.0-beta: Diagram-as-Code (Mermaid / PlantUML / DOT), Slide Snippets & Multi-Bend Routing
+    [[nodiscard]] VexioResult<uint32_t> ImportMarkup(
+        uint32_t pageId,
+        std::string_view markupUtf8,
+        std::string_view formatSlugUtf8 = "auto")
+    {
+        if (m_ptr == nullptr || markupUtf8.empty()) {
+            return VexioResult<uint32_t>{VEXIO_ERR_INVALID_ARG, std::nullopt};
+        }
+        const std::string markup{markupUtf8};
+        const std::string fmt{formatSlugUtf8.empty() ? "auto" : formatSlugUtf8};
+        uint32_t nodesCreated = 0;
+        const VexioStatus status = vexio_doc_import_markup(
+            m_ptr, pageId, markup.c_str(), fmt.c_str(), &nodesCreated);
+        if (status != VEXIO_OK) {
+            return VexioResult<uint32_t>{status, std::nullopt};
+        }
+        return VexioResult<uint32_t>{VEXIO_OK, nodesCreated};
+    }
+
+    [[nodiscard]] VexioResult<winrt::hstring> ExportMarkup(
+        uint32_t pageId,
+        std::string_view formatSlugUtf8 = "mermaid") const
+    {
+        if (m_ptr == nullptr) {
+            return VexioResult<winrt::hstring>{VEXIO_ERR_INVALID_ARG, std::nullopt};
+        }
+        const std::string fmt{formatSlugUtf8.empty() ? "mermaid" : formatSlugUtf8};
+        OwnedBufferGuard buf;
+        const VexioStatus status = vexio_doc_export_markup(m_ptr, pageId, fmt.c_str(), buf.OutPtr());
+        if (status != VEXIO_OK) {
+            return VexioResult<winrt::hstring>{status, std::nullopt};
+        }
+        return VexioResult<winrt::hstring>{VEXIO_OK, buf.ToWinRtString()};
+    }
+
+    [[nodiscard]] VexioResult<winrt::hstring> ListSlideSnippetsJson() const {
+        if (m_ptr == nullptr) {
+            return VexioResult<winrt::hstring>{VEXIO_ERR_INVALID_ARG, std::nullopt};
+        }
+        OwnedBufferGuard buf;
+        const VexioStatus status = vexio_doc_list_slide_snippets_json(m_ptr, buf.OutPtr());
+        if (status != VEXIO_OK) {
+            return VexioResult<winrt::hstring>{status, std::nullopt};
+        }
+        return VexioResult<winrt::hstring>{VEXIO_OK, buf.ToWinRtString()};
+    }
+
+    [[nodiscard]] VexioResult<uint32_t> AddSlideSnippet(
+        uint32_t pageId,
+        std::string_view titleUtf8,
+        std::string_view notesUtf8,
+        double xIn,
+        double yIn,
+        double widthIn,
+        double heightIn)
+    {
+        if (m_ptr == nullptr) {
+            return VexioResult<uint32_t>{VEXIO_ERR_INVALID_ARG, std::nullopt};
+        }
+        const std::string title{titleUtf8};
+        const std::string notes{notesUtf8};
+        uint32_t outId = 0;
+        const VexioStatus status = vexio_doc_add_slide_snippet(
+            m_ptr, pageId, title.c_str(), notes.c_str(), xIn, yIn, widthIn, heightIn, &outId);
+        if (status != VEXIO_OK) {
+            return VexioResult<uint32_t>{status, std::nullopt};
+        }
+        return VexioResult<uint32_t>{VEXIO_OK, outId};
+    }
+
+    [[nodiscard]] VexioStatus DeleteSlideSnippet(uint32_t pageId, uint32_t snippetId) {
+        if (m_ptr == nullptr) return VEXIO_ERR_INVALID_ARG;
+        return vexio_doc_delete_slide_snippet(m_ptr, pageId, snippetId);
+    }
+
+    [[nodiscard]] VexioResult<uint32_t> AutoSlideSnippets(uint32_t pageId) {
+        if (m_ptr == nullptr) {
+            return VexioResult<uint32_t>{VEXIO_ERR_INVALID_ARG, std::nullopt};
+        }
+        uint32_t outCount = 0;
+        const VexioStatus status = vexio_doc_auto_slide_snippets(m_ptr, pageId, &outCount);
+        if (status != VEXIO_OK) {
+            return VexioResult<uint32_t>{status, std::nullopt};
+        }
+        return VexioResult<uint32_t>{VEXIO_OK, outCount};
+    }
+
+    [[nodiscard]] VexioStatus ResetConnectorRouting(uint32_t pageId, uint64_t shapeId) {
+        if (m_ptr == nullptr || shapeId == 0) return VEXIO_ERR_INVALID_ARG;
+        return vexio_doc_reset_connector_routing(m_ptr, pageId, shapeId);
+    }
+
+    [[nodiscard]] VexioStatus EnsureControlHandle(uint32_t pageId, uint64_t shapeId) {
+        if (m_ptr == nullptr || shapeId == 0) return VEXIO_ERR_INVALID_ARG;
+        return vexio_doc_ensure_control_handle(m_ptr, pageId, shapeId);
+    }
+
 private:
     VexioDoc* m_ptr{nullptr};
 };

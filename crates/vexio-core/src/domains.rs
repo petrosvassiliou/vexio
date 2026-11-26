@@ -1053,7 +1053,7 @@ pub fn build_all_builtin_stencils() -> Vec<StencilPack> {
             "Basic Shapes",
             &[
                 ("Rectangle", "Rectangle", 1.6, 1.0, "basic_rect"),
-                ("Rounded Rectangle", "Rectangle", 1.6, 1.0, "basic_round_rect"),
+                ("Rounded Rectangle", "RoundedRect", 1.6, 1.0, "basic_round_rect"),
                 ("Snip-Corner Rectangle", "Rectangle", 1.6, 1.0, "basic_snip_rect"),
                 ("Beveled Frame", "Rectangle", 1.6, 1.05, "basic_bevel_frame"),
                 ("Square", "Rectangle", 1.1, 1.1, "basic_square"),
@@ -1077,7 +1077,7 @@ pub fn build_all_builtin_stencils() -> Vec<StencilPack> {
                 ("Star (6-Point)", "Hexagon", 1.2, 1.2, "basic_star6"),
                 ("Star (8-Point)", "Octagon", 1.2, 1.2, "basic_star8"),
                 ("Cross / Plus", "Cross", 1.1, 1.1, "basic_cross"),
-                ("Cylinder / Can", "Rectangle", 1.15, 1.35, "db_cluster"),
+                ("Cylinder / Can", "Cylinder", 1.15, 1.35, "db_cluster"),
                 ("3D Isometric Cube", "Cube3D", 1.25, 1.25, "basic_cube"),
                 ("Ring / Frame", "RingFrame", 1.2, 1.2, "basic_ring"),
             ],
@@ -1093,7 +1093,7 @@ pub fn build_all_builtin_stencils() -> Vec<StencilPack> {
                 ("Subprocess", "Rectangle", 1.6, 0.95, "Subprocess"),
                 ("Document", "DocumentWave", 1.5, 1.0, "flow_document"),
                 ("Multi-Document", "DocumentWave", 1.6, 1.05, "flow_multidoc"),
-                ("Database", "Rectangle", 1.15, 1.30, "db_cluster"),
+                ("Database", "Cylinder", 1.15, 1.30, "db_cluster"),
                 ("Manual Input", "ManualInput", 1.5, 0.9, "flow_manual_input"),
                 ("Manual Operation", "Trapezoid", 1.55, 0.85, "flow_manual_op"),
                 ("Preparation", "Hexagon", 1.6, 0.85, "flow_prep"),
@@ -2066,18 +2066,114 @@ fn make_stencil_pack(
                 }];
                 sh.sheet.add_geometry(g);
             }
-            "Pill" => {
+            "RoundedRect" => {
+                sh.sheet.add_control(vexio_shapesheet::ControlRow {
+                    name: "Row_1".into(),
+                    x: "=Width*0.16".into(),
+                    y: "=Height".into(),
+                    x_dyn: "=Controls.Row_1.X".into(),
+                    y_dyn: "=Controls.Row_1.Y".into(),
+                    x_con: "0".into(),
+                    y_con: "0".into(),
+                    can_glue: false,
+                    prompt: "Adjust Corner Rounding".into(),
+                });
+                let r_expr = "BOUND(Controls.Row_1.X, 0, FALSE, 0 in, MIN(Width,Height)*0.48)";
+                let bow_expr = format!("=-0.41421356 * ({r_expr})");
                 sh.sheet
-                    .set_formula("Rounding", "=MIN(Width,Height)*0.5", Some(Unit::Inch));
-            }
-            "Parallelogram" => {
+                    .set_formula("Rounding", format!("={r_expr}"), Some(Unit::Inch));
                 let mut g = GeometrySection::new(1);
                 g.rows = vec![
-                    GeometryRow::move_to(1, "=Width*0.16", "0 in"),
+                    GeometryRow::move_to(1, format!("={r_expr}"), "0 in"),
+                    GeometryRow::line_to(2, format!("=Width - ({r_expr})"), "0 in"),
+                    GeometryRow::arc_to(3, "=Width", format!("={r_expr}"), &bow_expr),
+                    GeometryRow::line_to(4, "=Width", format!("=Height - ({r_expr})")),
+                    GeometryRow::arc_to(5, format!("=Width - ({r_expr})"), "=Height", &bow_expr),
+                    GeometryRow::line_to(6, format!("={r_expr}"), "=Height"),
+                    GeometryRow::arc_to(7, "0 in", format!("=Height - ({r_expr})"), &bow_expr),
+                    GeometryRow::line_to(8, "0 in", format!("={r_expr}")),
+                    GeometryRow::arc_to(9, format!("={r_expr}"), "0 in", &bow_expr),
+                ];
+                sh.sheet.add_geometry(g);
+            }
+            "Pill" => {
+                sh.sheet.add_control(vexio_shapesheet::ControlRow {
+                    name: "Row_1".into(),
+                    x: "=MIN(Width,Height)*0.5".into(),
+                    y: "=Height".into(),
+                    x_dyn: "=Controls.Row_1.X".into(),
+                    y_dyn: "=Controls.Row_1.Y".into(),
+                    x_con: "0".into(),
+                    y_con: "0".into(),
+                    can_glue: false,
+                    prompt: "Adjust Pill Rounding".into(),
+                });
+                sh.sheet.set_formula(
+                    "Rounding",
+                    "=BOUND(Controls.Row_1.X, 0, FALSE, 0 in, MIN(Width,Height)*0.5)",
+                    Some(Unit::Inch),
+                );
+            }
+            "Cylinder" => {
+                sh.sheet.add_control(vexio_shapesheet::ControlRow {
+                    name: "Row_1".into(),
+                    x: "=Width*0.5".into(),
+                    y: "=Height*0.84".into(),
+                    x_dyn: "=Controls.Row_1.X".into(),
+                    y_dyn: "=Controls.Row_1.Y".into(),
+                    x_con: "0".into(),
+                    y_con: "0".into(),
+                    can_glue: false,
+                    prompt: "Adjust Cylinder Cap Depth".into(),
+                });
+                let cap_h = "BOUND(Height - Controls.Row_1.Y, 0, FALSE, Height*0.06, Height*0.42)";
+                let mut g1 = GeometrySection::new(1);
+                g1.rows = vec![
+                    GeometryRow::move_to(1, "0 in", format!("={cap_h}")),
+                    GeometryRow::arc_to(2, "=Width", format!("={cap_h}"), format!("=-({cap_h})")),
+                    GeometryRow::line_to(3, "=Width", format!("=Height - ({cap_h})")),
+                    GeometryRow::arc_to(
+                        4,
+                        "0 in",
+                        format!("=Height - ({cap_h})"),
+                        format!("=-({cap_h})"),
+                    ),
+                    GeometryRow::line_to(5, "0 in", format!("={cap_h}")),
+                ];
+                sh.sheet.add_geometry(g1);
+                let mut cap_seam = GeometrySection::new(2);
+                cap_seam.no_fill = "TRUE".into();
+                cap_seam.rows = vec![
+                    GeometryRow::move_to(1, "0 in", format!("=Height - ({cap_h})")),
+                    GeometryRow::arc_to(
+                        2,
+                        "=Width",
+                        format!("=Height - ({cap_h})"),
+                        format!("=-({cap_h})"),
+                    ),
+                ];
+                sh.sheet.add_geometry(cap_seam);
+            }
+            "Parallelogram" => {
+                sh.sheet.add_control(vexio_shapesheet::ControlRow {
+                    name: "Row_1".into(),
+                    x: "=Width*0.16".into(),
+                    y: "0 in".into(),
+                    x_dyn: "=Controls.Row_1.X".into(),
+                    y_dyn: "=Controls.Row_1.Y".into(),
+                    x_con: "0".into(),
+                    y_con: "0".into(),
+                    can_glue: false,
+                    prompt: "Adjust Parallelogram Skew".into(),
+                });
+                let sk = "BOUND(Controls.Row_1.X, 0, FALSE, 0 in, Width*0.45)";
+                let mut g = GeometrySection::new(1);
+                g.rows = vec![
+                    GeometryRow::move_to(1, format!("={sk}"), "0 in"),
                     GeometryRow::line_to(2, "=Width", "0 in"),
-                    GeometryRow::line_to(3, "=Width*0.84", "=Height"),
+                    GeometryRow::line_to(3, format!("=Width - ({sk})"), "=Height"),
                     GeometryRow::line_to(4, "0 in", "=Height"),
-                    GeometryRow::line_to(5, "=Width*0.16", "0 in"),
+                    GeometryRow::line_to(5, format!("={sk}"), "0 in"),
                 ];
                 sh.sheet.add_geometry(g);
             }
@@ -2178,16 +2274,29 @@ fn make_stencil_pack(
                 sh.sheet.add_geometry(g);
             }
             "RightArrow" => {
+                sh.sheet.add_control(vexio_shapesheet::ControlRow {
+                    name: "Row_1".into(),
+                    x: "=Width*0.62".into(),
+                    y: "=Height*0.26".into(),
+                    x_dyn: "=Controls.Row_1.X".into(),
+                    y_dyn: "=Controls.Row_1.Y".into(),
+                    x_con: "0".into(),
+                    y_con: "0".into(),
+                    can_glue: false,
+                    prompt: "Adjust Arrowhead & Shaft".into(),
+                });
+                let hx = "BOUND(Controls.Row_1.X, 0, FALSE, Width*0.15, Width*0.92)";
+                let sy = "BOUND(Controls.Row_1.Y, 0, FALSE, Height*0.06, Height*0.46)";
                 let mut g = GeometrySection::new(1);
                 g.rows = vec![
-                    GeometryRow::move_to(1, "0 in", "=Height*0.26"),
-                    GeometryRow::line_to(2, "=Width*0.62", "=Height*0.26"),
-                    GeometryRow::line_to(3, "=Width*0.62", "0 in"),
+                    GeometryRow::move_to(1, "0 in", format!("={sy}")),
+                    GeometryRow::line_to(2, format!("={hx}"), format!("={sy}")),
+                    GeometryRow::line_to(3, format!("={hx}"), "0 in"),
                     GeometryRow::line_to(4, "=Width", "=Height*0.5"),
-                    GeometryRow::line_to(5, "=Width*0.62", "=Height"),
-                    GeometryRow::line_to(6, "=Width*0.62", "=Height*0.74"),
-                    GeometryRow::line_to(7, "0 in", "=Height*0.74"),
-                    GeometryRow::line_to(8, "0 in", "=Height*0.26"),
+                    GeometryRow::line_to(5, format!("={hx}"), "=Height"),
+                    GeometryRow::line_to(6, format!("={hx}"), format!("=Height - ({sy})")),
+                    GeometryRow::line_to(7, "0 in", format!("=Height - ({sy})")),
+                    GeometryRow::line_to(8, "0 in", format!("={sy}")),
                 ];
                 sh.sheet.add_geometry(g);
             }
@@ -2223,14 +2332,26 @@ fn make_stencil_pack(
                 sh.sheet.add_geometry(g);
             }
             "Chevron" => {
+                sh.sheet.add_control(vexio_shapesheet::ControlRow {
+                    name: "Row_1".into(),
+                    x: "=Width*0.76".into(),
+                    y: "=Height".into(),
+                    x_dyn: "=Controls.Row_1.X".into(),
+                    y_dyn: "=Controls.Row_1.Y".into(),
+                    x_con: "0".into(),
+                    y_con: "0".into(),
+                    can_glue: false,
+                    prompt: "Adjust Chevron Tip Depth".into(),
+                });
+                let tip = "BOUND(Width - Controls.Row_1.X, 0, FALSE, Width*0.06, Width*0.46)";
                 let mut g = GeometrySection::new(1);
                 g.rows = vec![
                     GeometryRow::move_to(1, "0 in", "0 in"),
-                    GeometryRow::line_to(2, "=Width*0.76", "0 in"),
+                    GeometryRow::line_to(2, format!("=Width - ({tip})"), "0 in"),
                     GeometryRow::line_to(3, "=Width", "=Height*0.5"),
-                    GeometryRow::line_to(4, "=Width*0.76", "=Height"),
+                    GeometryRow::line_to(4, format!("=Width - ({tip})"), "=Height"),
                     GeometryRow::line_to(5, "0 in", "=Height"),
-                    GeometryRow::line_to(6, "=Width*0.24", "=Height*0.5"),
+                    GeometryRow::line_to(6, format!("={tip}"), "=Height*0.5"),
                     GeometryRow::line_to(7, "0 in", "0 in"),
                 ];
                 sh.sheet.add_geometry(g);
@@ -2270,12 +2391,25 @@ fn make_stencil_pack(
                 sh.sheet.add_geometry(g);
             }
             "FoldedNote" => {
+                sh.sheet.add_control(vexio_shapesheet::ControlRow {
+                    name: "Row_1".into(),
+                    x: "=Width*0.78".into(),
+                    y: "=Height".into(),
+                    x_dyn: "=Controls.Row_1.X".into(),
+                    y_dyn: "=Controls.Row_1.Y".into(),
+                    x_con: "0".into(),
+                    y_con: "0".into(),
+                    can_glue: false,
+                    prompt: "Adjust Folded Corner Size".into(),
+                });
+                let fold_d =
+                    "BOUND(Width - Controls.Row_1.X, 0, FALSE, MIN(Width,Height)*0.06, MIN(Width,Height)*0.46)";
                 let mut g = GeometrySection::new(1);
                 g.rows = vec![
                     GeometryRow::move_to(1, "0 in", "0 in"),
                     GeometryRow::line_to(2, "=Width", "0 in"),
-                    GeometryRow::line_to(3, "=Width", "=Height*0.78"),
-                    GeometryRow::line_to(4, "=Width*0.78", "=Height"),
+                    GeometryRow::line_to(3, "=Width", format!("=Height - ({fold_d})")),
+                    GeometryRow::line_to(4, format!("=Width - ({fold_d})"), "=Height"),
                     GeometryRow::line_to(5, "0 in", "=Height"),
                     GeometryRow::line_to(6, "0 in", "0 in"),
                 ];
@@ -2283,9 +2417,13 @@ fn make_stencil_pack(
                 let mut fold = GeometrySection::new(2);
                 fold.no_fill = "TRUE".into();
                 fold.rows = vec![
-                    GeometryRow::move_to(1, "=Width*0.78", "=Height"),
-                    GeometryRow::line_to(2, "=Width*0.78", "=Height*0.78"),
-                    GeometryRow::line_to(3, "=Width", "=Height*0.78"),
+                    GeometryRow::move_to(1, format!("=Width - ({fold_d})"), "=Height"),
+                    GeometryRow::line_to(
+                        2,
+                        format!("=Width - ({fold_d})"),
+                        format!("=Height - ({fold_d})"),
+                    ),
+                    GeometryRow::line_to(3, "=Width", format!("=Height - ({fold_d})")),
                 ];
                 sh.sheet.add_geometry(fold);
             }

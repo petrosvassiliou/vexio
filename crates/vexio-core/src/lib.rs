@@ -6,6 +6,7 @@ pub mod boolean_ops;
 pub mod containers;
 pub mod crdt;
 pub mod data_link;
+pub mod diagram_text_interop;
 pub mod domains;
 pub mod enterprise_plan2;
 pub mod export_print;

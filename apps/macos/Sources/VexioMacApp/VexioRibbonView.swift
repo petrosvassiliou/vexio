@@ -1354,12 +1354,15 @@ public struct VexioHeaderAndRibbonBar: View {
                     ribbonCompactButton("eye", "Preview", tip: "High-DPI Print / Render Preview") {
                         onRequestOffscreenPreview()
                     }
+                    ribbonCompactButton("play.rectangle", "Slides…", tip: "Presentation Mode Slide Snippets & Multi-Slide .pptx Deck") {
+                        NotificationCenter.default.post(name: .vexioOpenSlideSnippetsSheet, object: nil)
+                    }
                 }
             }
         }
     }
 
-    // 8. DEVELOPER RIBBON (Relocated Boolean Shape Ops + ShapeSheet from Screenshot 4)
+    // 8. DEVELOPER RIBBON (Relocated Boolean Shape Ops + ShapeSheet + Diagram-as-Code)
     private var developerRibbonGroups: some View {
         HStack(spacing: 12) {
             ribbonGroup(title: i18n.t("shapeOps")) {
@@ -1373,10 +1376,24 @@ public struct VexioHeaderAndRibbonBar: View {
             }
             Divider().frame(height: 44)
             ribbonGroup(title: i18n.t("shapeSheet")) {
-                ribbonCompactButton("function", "Formula Editor") {
-                    withAnimation(LiquidGlassPhysics.panelExpansionSpring) {
-                        session.showShapeSheetDrawer.toggle()
+                HStack(spacing: 5) {
+                    ribbonCompactButton("function", "Formula Editor") {
+                        withAnimation(LiquidGlassPhysics.panelExpansionSpring) {
+                            session.showShapeSheetDrawer.toggle()
+                        }
                     }
+                    ribbonCompactButton("diamond", "+ Control Handle", tip: "Attach Parametric Yellow Controls.Row_1 Diamond") {
+                        session.ensureSelectedControlHandle(undoManager: undoManager)
+                    }
+                    ribbonCompactButton("point.topleft.down.curvedto.point.bottomright.up", "Reset Route", tip: "Restore Automatic A* Orthogonal Routing") {
+                        session.resetSelectedConnectorRouting(undoManager: undoManager)
+                    }
+                }
+            }
+            Divider().frame(height: 44)
+            ribbonGroup(title: "Diagram-as-Code") {
+                ribbonCompactButton("chevron.left.forwardslash.chevron.right", "Mermaid / PlantUML / DOT…", tip: "Bidirectional Mermaid (.mmd), PlantUML (.puml) & Graphviz DOT (.dot) Studio") {
+                    NotificationCenter.default.post(name: .vexioOpenMarkupStudioSheet, object: nil)
                 }
             }
         }

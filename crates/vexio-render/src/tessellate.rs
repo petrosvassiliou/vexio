@@ -2318,13 +2318,23 @@ pub fn tessellate_connector_1d_handles(
         indices: lyon_buf.indices,
     };
 
-    // Interior orthogonal segment midpoint diamond grips (`1 .. pts.len() - 2`)
-    if pts.len() >= 4 {
-        for seg_idx in 1..(pts.len() - 2) {
+    // Orthogonal segment midpoint diamond grips:
+    // - All interior segments `1 .. pts.len() - 2` longer than `8 dp`
+    // - Endpoint-adjacent segments (`0` and `pts.len() - 2`) on multi-segment polylines (`pts.len() >= 3`)
+    //   longer than `28 dp` so dragging an L-bend or outer leg inserts a clean orthogonal dogleg!
+    if pts.len() >= 3 {
+        let seg_count = pts.len() - 1;
+        for seg_idx in 0..seg_count {
+            let is_outer = seg_idx == 0 || seg_idx + 1 == seg_count;
+            let min_len = if is_outer {
+                (28.0 * inv_ppi).max(0.28)
+            } else {
+                8.0 * inv_ppi
+            };
             let a = pts[seg_idx];
             let b = pts[seg_idx + 1];
-            let is_horiz = (a[1] - b[1]).abs() < 1e-3 && (a[0] - b[0]).abs() > 8.0 * inv_ppi;
-            let is_vert = (a[0] - b[0]).abs() < 1e-3 && (a[1] - b[1]).abs() > 8.0 * inv_ppi;
+            let is_horiz = (a[1] - b[1]).abs() < 1e-3 && (a[0] - b[0]).abs() > min_len;
+            let is_vert = (a[0] - b[0]).abs() < 1e-3 && (a[1] - b[1]).abs() > min_len;
             if is_horiz || is_vert {
                 let mx = ((a[0] + b[0]) * 0.5) as f32;
                 let my = ((a[1] + b[1]) * 0.5) as f32;

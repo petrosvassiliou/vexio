@@ -955,6 +955,17 @@ public struct OfficialStencilCatalogEntry: Identifiable, Decodable, Equatable, S
     public let approxSizeKb: Int
 }
 
+public struct SlideSnippetPayload: Identifiable, Codable, Equatable, Sendable {
+    public let id: UInt32
+    public let page_id: UInt32
+    public var title: String
+    public var notes: String
+    public var x_in: Double
+    public var y_in: Double
+    public var width_in: Double
+    public var height_in: Double
+}
+
 // MARK: - Thread-Safe C-ABI Lifecycle Handle (VexioEngine*, VexioDoc*, VexioViewport*)
 
 private final class NativeDocumentCore: @unchecked Sendable {
@@ -2516,6 +2527,85 @@ private final class NativeDocumentCore: @unchecked Sendable {
         }
         return Self.consumeOwnedBufferAsData(outBuf)
     }
+
+    func importMarkup(pageId: UInt32, markup: String, formatSlug: String) throws -> UInt32 {
+        lock.lock()
+        defer { lock.unlock() }
+        var outNodes: UInt32 = 0
+        let status = markup.withCString { mCStr in
+            formatSlug.withCString { fCStr in
+                vexio_doc_import_markup(doc, pageId, mCStr, fCStr, &outNodes)
+            }
+        }
+        if let err = VexioBridgeError.from(status: status, context: "import_markup(\(formatSlug))") {
+            throw err
+        }
+        return outNodes
+    }
+
+    func exportMarkup(pageId: UInt32, formatSlug: String) throws -> String {
+        lock.lock()
+        defer { lock.unlock() }
+        var outBuf = VexioOwnedBuffer(ptr: nil, len: 0, cap: 0)
+        let status = formatSlug.withCString { fCStr in
+            vexio_doc_export_markup(doc, pageId, fCStr, &outBuf)
+        }
+        if let err = VexioBridgeError.from(status: status, context: "export_markup(\(formatSlug))") {
+            vexio_buffer_free(outBuf)
+            throw err
+        }
+        return Self.consumeOwnedBufferAsUTF8(outBuf)
+    }
+
+    func listSlideSnippetsJson() throws -> String {
+        lock.lock()
+        defer { lock.unlock() }
+        var outBuf = VexioOwnedBuffer(ptr: nil, len: 0, cap: 0)
+        let status = vexio_doc_list_slide_snippets_json(doc, &outBuf)
+        if let err = VexioBridgeError.from(status: status, context: "list_slide_snippets") {
+            vexio_buffer_free(outBuf)
+            throw err
+        }
+        return Self.consumeOwnedBufferAsUTF8(outBuf)
+    }
+
+    func autoSlideSnippets(pageId: UInt32) throws -> UInt32 {
+        lock.lock()
+        defer { lock.unlock() }
+        var outCount: UInt32 = 0
+        let status = vexio_doc_auto_slide_snippets(doc, pageId, &outCount)
+        if let err = VexioBridgeError.from(status: status, context: "auto_slide_snippets") {
+            throw err
+        }
+        return outCount
+    }
+
+    func deleteSlideSnippet(pageId: UInt32, snippetId: UInt32) throws {
+        lock.lock()
+        defer { lock.unlock() }
+        let status = vexio_doc_delete_slide_snippet(doc, pageId, snippetId)
+        if let err = VexioBridgeError.from(status: status, context: "delete_slide_snippet") {
+            throw err
+        }
+    }
+
+    func resetConnectorRouting(pageId: UInt32, shapeId: UInt64) throws {
+        lock.lock()
+        defer { lock.unlock() }
+        let status = vexio_doc_reset_connector_routing(doc, pageId, shapeId)
+        if let err = VexioBridgeError.from(status: status, context: "reset_connector_routing") {
+            throw err
+        }
+    }
+
+    func ensureControlHandle(pageId: UInt32, shapeId: UInt64) throws {
+        lock.lock()
+        defer { lock.unlock() }
+        let status = vexio_doc_ensure_control_handle(doc, pageId, shapeId)
+        if let err = VexioBridgeError.from(status: status, context: "ensure_control_handle") {
+            throw err
+        }
+    }
 }
 
 // MARK: - SwiftUI Color <-> Hex RGB Helpers for Native OS ColorPicker
@@ -2705,6 +2795,7 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
     @Published public var dataGraphicConfig = DataGraphicRuleConfig()
     @Published public var externalRecordsets: [ExternalDataRecordsetSummary] = []
     @Published public var availablePropFields: [String] = []
+    @Published public var slideSnippets: [SlideSnippetPayload] = []
     private var linkedRecordsetURLs: [UInt32: URL] = [:]
     @Published public var validationDiagnostics: [DiagramValidationDiagnostic] = []
     @Published public var forceTouchQuickInspect: ForceTouchQuickInspectContext?
@@ -4949,6 +5040,110 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
             statusMessage = style == .none
                 ? "Removed page border & title"
                 : "Applied \(style.displayName)"
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    public func exportDiagramMarkup(formatSlug: String = "mermaid") -> String {
+        (try? core.exportMarkup(pageId: activePageId, formatSlug: formatSlug)) ?? ""
+    }
+
+    public func importDiagramMarkup(
+        markup: String,
+        formatSlug: String = "mermaid",
+        undoManager: UndoManager?
+    ) {
+        do {
+            let created = try core.importMarkup(pageId: activePageId, markup: markup, formatSlug: formatSlug)
+            registerJournalUndoStep(actionName: "Import Diagram Markup", undoManager: undoManager)
+            syncSelectedShapeMetadataFromCore()
+            fitViewportToActivePage()
+            core.renderViewportFrame()
+            statusMessage = "Materialized \(created) shapes from \(formatSlug.uppercased()) markup"
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    public func refreshSlideSnippets() {
+        guard let json = try? core.listSlideSnippetsJson(),
+              let data = json.data(using: .utf8),
+              let decoded = try? JSONDecoder().decode([SlideSnippetPayload].self, from: data)
+        else {
+            slideSnippets = []
+            return
+        }
+        slideSnippets = decoded
+    }
+
+    public func autoGenerateSlideSnippets(undoManager: UndoManager?) {
+        do {
+            let count = try core.autoSlideSnippets(pageId: activePageId)
+            registerJournalUndoStep(actionName: "Auto-Generate Slide Snippets", undoManager: undoManager)
+            refreshSlideSnippets()
+            syncSelectedShapeMetadataFromCore()
+            statusMessage = "Generated \(count) Presentation Slide Snippets"
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    public func clearSlideSnippets(undoManager: UndoManager?) {
+        do {
+            try core.deleteSlideSnippet(pageId: activePageId, snippetId: 0)
+            registerJournalUndoStep(actionName: "Clear Slide Snippets", undoManager: undoManager)
+            refreshSlideSnippets()
+            syncSelectedShapeMetadataFromCore()
+            statusMessage = "Cleared Presentation Slide Snippets"
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    public func focusSlideSnippet(_ snippet: SlideSnippetPayload) {
+        if snippet.page_id != activePageId {
+            activePageId = snippet.page_id
+        }
+        let vw = max(360.0, Double(lastViewportLogicalSize.width) - 48.0)
+        let vh = max(260.0, Double(lastViewportLogicalSize.height) - 48.0)
+        let scale = min(vw / (max(1.0, snippet.width_in) * 96.0), vh / (max(1.0, snippet.height_in) * 96.0))
+        let clampedScale = min(max(scale, 0.25), 4.0)
+        let cx = snippet.x_in + snippet.width_in * 0.5
+        let cy = snippet.y_in + snippet.height_in * 0.5
+        disengageAutoFitForManualCamera()
+        isSuppressingCameraSync = true
+        zoomScale = CGFloat(clampedScale)
+        panOffset = CGSize(
+            width: (pageWidthInches * 0.5 - cx) * 96.0 * clampedScale,
+            height: (cy - pageHeightInches * 0.5) * 96.0 * clampedScale
+        )
+        isSuppressingCameraSync = false
+        syncViewportCamera()
+        statusMessage = "Presenting: \(snippet.title)"
+    }
+
+    public func resetSelectedConnectorRouting(undoManager: UndoManager?) {
+        guard selectedShapeId != 0 else { return }
+        do {
+            try core.resetConnectorRouting(pageId: activePageId, shapeId: selectedShapeId)
+            registerJournalUndoStep(actionName: "Reset Connector Routing", undoManager: undoManager)
+            syncSelectedShapeMetadataFromCore()
+            core.renderViewportFrame()
+            statusMessage = "Restored automatic A* orthogonal routing"
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    public func ensureSelectedControlHandle(undoManager: UndoManager?) {
+        guard selectedShapeId != 0 else { return }
+        do {
+            try core.ensureControlHandle(pageId: activePageId, shapeId: selectedShapeId)
+            registerJournalUndoStep(actionName: "Add Control Handle", undoManager: undoManager)
+            syncSelectedShapeMetadataFromCore()
+            core.renderViewportFrame()
+            statusMessage = "Attached parametric yellow Controls.Row_1 handle"
         } catch {
             statusMessage = error.localizedDescription
         }
