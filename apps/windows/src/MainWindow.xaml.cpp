@@ -5883,8 +5883,8 @@ winrt::fire_and_forget MainWindow::ShowSlideSnippetsDialogAsync() {
                 (void)self->m_viewport.SetPage(self->m_doc, self->m_activePageId);
                 self->RebuildPageTabsStrip();
             }
-            const double vw = std::max(320.0, self->CanvasSwapChainPanel().ActualWidth());
-            const double vh = std::max(240.0, self->CanvasSwapChainPanel().ActualHeight());
+            const double vw = std::max(320.0, static_cast<double>(self->DiagramSwapChainPanel().ActualWidth()));
+            const double vh = std::max(240.0, static_cast<double>(self->DiagramSwapChainPanel().ActualHeight()));
             const double scale = std::clamp(
                 std::min(vw / (std::max(1.0, target.wIn) * 96.0), vh / (std::max(1.0, target.hIn) * 96.0)),
                 0.25, 4.0);
