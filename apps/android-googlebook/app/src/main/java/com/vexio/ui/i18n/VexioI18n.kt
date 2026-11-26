@@ -177,7 +177,7 @@ object VexioI18n {
             }
         }
         if ("Automatic update check enabled" in raw) {
-            val ver = raw.substringAfter("Vexio ", "").substringBefore(" •").ifBlank { "v0.4.3-alpha" }
+            val ver = raw.substringAfter("Vexio ", "").substringBefore(" •").ifBlank { "v0.4.4-alpha" }
             return when (lang) {
                 EN -> "Vexio $ver • Automatic update check enabled"
                 DE -> "Vexio $ver • Automatische Update-Prüfung aktiviert"

@@ -4554,12 +4554,20 @@ private fun ShapeSheetSectionTablePane(
                 Text(
                     text = "ShapeSheet — ${uiState.selectedShapeName}",
                     style = MaterialTheme.typography.titleSmall,
+                    maxLines = 1,
+                    softWrap = false,
+                    overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f)
                 )
+                Spacer(Modifier.width(12.dp))
                 Text(
                     text = VexioI18n.shapeSheetSubtitle(uiState.language),
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    softWrap = false,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false)
                 )
             }
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)

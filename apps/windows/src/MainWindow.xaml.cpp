@@ -437,9 +437,8 @@ fire_and_forget MainWindow::RunAutomatedScreenshotIfRequestedAsync() {
     }
     if (const DWORD len = ::GetEnvironmentVariableW(L"VEXIO_CAPTURE_DARK", envBuf, 512); len > 0 && envBuf[0] == L'1') {
         m_lightThemeActive = false;
-        if (auto fe = Content().try_as<FrameworkElement>()) {
-            fe.RequestedTheme(ElementTheme::Dark);
-        }
+        RootWorkstationGrid().RequestedTheme(ElementTheme::Dark);
+        ThemeModeLabel().Text(L"Dark UI");
     }
     if (const DWORD len = ::GetEnvironmentVariableW(L"VEXIO_CAPTURE_SHAPESHEET", envBuf, 512); len > 0 && envBuf[0] == L'1') {
         if (!m_shapeSheetOpen) {
@@ -887,7 +886,11 @@ void MainWindow::RebuildRulerTicks() {
         vChildren.RemoveAtEnd();
     }
 
-    const SolidColorBrush tickBrush{Windows::UI::ColorHelper::FromArgb(0xFF, 0x64, 0x74, 0x8B)};
+    const SolidColorBrush tickBrush{
+        m_lightThemeActive
+            ? Windows::UI::ColorHelper::FromArgb(0xFF, 0x64, 0x74, 0x8B)
+            : Windows::UI::ColorHelper::FromArgb(0xFF, 0x94, 0xA3, 0xB8)
+    };
     const double majorStepPx = (m_metricUnits ? (96.0 / 2.54) : 96.0) * (m_zoomPercent / 100.0);
     const double clampedMajorPx = std::max(28.0, majorStepPx);
     const double minorStepPx = clampedMajorPx / 4.0;
@@ -950,7 +953,7 @@ void MainWindow::InitializeStencilCatalog() {
     m_allMasters.clear();
     m_stencilPackNames.clear();
 
-    constexpr std::array<std::string_view, 32> kCanonicalPackOrder{
+    constexpr std::array<std::string_view, 33> kCanonicalPackOrder{
         "Basic Shapes",
         "Basic Flowchart",
         "Microsoft 365 & Office",
@@ -962,6 +965,7 @@ void MainWindow::InitializeStencilCatalog() {
         "Cloud Architecture (AWS / GCP / Azure)",
         "Arrows & Block Arrows",
         "Callouts, Notes & Containers",
+        "Titles, Headings & Banners",
         "Cross-Functional Swimlanes",
         "BPMN 2.0",
         "UML 2.5",
@@ -983,6 +987,25 @@ void MainWindow::InitializeStencilCatalog() {
         "Data Vault 2.0 & ADAPT OLAP BI",
         "Systems Engineering & Ontology (SysML & IDEF0 / IDEF3 / IDEF5)",
         "Smart Home IoT, Digital Logic & GDS / IA UX"
+    };
+
+    auto normalizePackSlug = [](std::string_view raw) -> std::string {
+        std::string slug{};
+        slug.reserve(raw.size());
+        bool prevUnderscore = false;
+        for (unsigned char ch : raw) {
+            if (std::isalnum(ch)) {
+                slug.push_back(static_cast<char>(std::tolower(ch)));
+                prevUnderscore = false;
+            } else if (!slug.empty() && !prevUnderscore) {
+                slug.push_back('_');
+                prevUnderscore = true;
+            }
+        }
+        while (!slug.empty() && slug.back() == '_') {
+            slug.pop_back();
+        }
+        return slug;
     };
 
     if (m_doc) {
@@ -1028,12 +1051,13 @@ void MainWindow::InitializeStencilCatalog() {
                 for (const auto cat : kCanonicalPackOrder) {
                     appendCategory(cat);
                 }
-                // Also include any custom imported Visio stencil packs (.vssx / .vss / .vsdx)
+                // Also include any custom imported Visio stencil packs (.vssx / .vss / .vsdx), deduplicating built-in stems
                 for (auto const& kv : rootObj) {
                     const std::string keyUtf8 = vexio::win::ToUtf8(kv.Key());
+                    const std::string keySlug = normalizePackSlug(keyUtf8);
                     bool alreadyAdded = false;
                     for (const auto canonical : kCanonicalPackOrder) {
-                        if (canonical == keyUtf8) {
+                        if (canonical == keyUtf8 || normalizePackSlug(canonical) == keySlug) {
                             alreadyAdded = true;
                             break;
                         }
@@ -1098,7 +1122,7 @@ void MainWindow::RefreshStencilList() {
         Grid card{};
         card.Padding(Thickness{6, 6, 6, 6});
         card.ColumnSpacing(10.0);
-        ColumnDefinition c0{}; c0.Width(GridLength{46.0});
+        ColumnDefinition c0{}; c0.Width(GridLength{46.0, GridUnitType::Pixel});
         ColumnDefinition c1{}; c1.Width(GridLength{1.0, GridUnitType::Star});
         card.ColumnDefinitions().Append(c0);
         card.ColumnDefinitions().Append(c1);
@@ -1448,11 +1472,13 @@ void MainWindow::RefreshShapeSheetSectionRows() {
         }
 
         Grid rowGrid{};
+        rowGrid.HorizontalAlignment(HorizontalAlignment::Stretch);
+        rowGrid.ColumnSpacing(8.0);
         rowGrid.Padding(Thickness{6, 3, 6, 3});
-        ColumnDefinition c0{}; c0.Width(GridLength{184.0});
+        ColumnDefinition c0{}; c0.Width(GridLength{190.0, GridUnitType::Pixel});
         ColumnDefinition c1{}; c1.Width(GridLength{1.0, GridUnitType::Star});
-        ColumnDefinition c2{}; c2.Width(GridLength{184.0});
-        ColumnDefinition c3{}; c3.Width(GridLength{114.0});
+        ColumnDefinition c2{}; c2.Width(GridLength{190.0, GridUnitType::Pixel});
+        ColumnDefinition c3{}; c3.Width(GridLength{120.0, GridUnitType::Pixel});
         rowGrid.ColumnDefinitions().Append(c0);
         rowGrid.ColumnDefinitions().Append(c1);
         rowGrid.ColumnDefinitions().Append(c2);
@@ -1484,8 +1510,12 @@ void MainWindow::RefreshShapeSheetSectionRows() {
         guardText.FontSize(11.0);
         guardText.Foreground(SolidColorBrush{
             guarded
-                ? Windows::UI::ColorHelper::FromArgb(0xFF, 0xB4, 0x53, 0x09)
-                : Windows::UI::ColorHelper::FromArgb(0xFF, 0x15, 0x80, 0x3D)
+                ? (m_lightThemeActive
+                    ? Windows::UI::ColorHelper::FromArgb(0xFF, 0xB4, 0x53, 0x09)
+                    : Windows::UI::ColorHelper::FromArgb(0xFF, 0xFB, 0xBF, 0x24))
+                : (m_lightThemeActive
+                    ? Windows::UI::ColorHelper::FromArgb(0xFF, 0x15, 0x80, 0x3D)
+                    : Windows::UI::ColorHelper::FromArgb(0xFF, 0x4A, 0xDE, 0x80))
         });
         Grid::SetColumn(guardText, 3);
 
@@ -1619,7 +1649,7 @@ void MainWindow::OnShapeSheetSplitterPointerMoved(IInspectable const&, PointerRo
     const double currentY = e.GetCurrentPoint(RootWorkstationGrid()).Position().Y;
     const double deltaY = m_splitterStartPointerY - currentY;
     m_shapeSheetHeightPx = std::clamp(m_splitterStartHeight + deltaY, 140.0, 520.0);
-    ShapeSheetPaneRow().Height(GridLength{m_shapeSheetHeightPx});
+    ShapeSheetPaneRow().Height(GridLength{m_shapeSheetHeightPx, GridUnitType::Pixel});
     e.Handled(true);
 }
 
@@ -2353,18 +2383,20 @@ void MainWindow::OnInkHighlighterToggleClick(IInspectable const&, RoutedEventArg
 void MainWindow::OnTouchMouseModeToggle(IInspectable const&, RoutedEventArgs const&) {
     m_touchMode = QatTouchMouseToggle().IsChecked().GetBoolean();
     TouchModeLabel().Text(m_touchMode ? L"Touch" : L"Mouse");
-    RibbonBodyRow().Height(GridLength{m_touchMode ? 104.0 : 88.0});
+    RibbonBodyRow().Height(GridLength{m_touchMode ? 104.0 : 88.0, GridUnitType::Pixel});
 }
 
 void MainWindow::OnThemeModeToggleClick(IInspectable const&, RoutedEventArgs const&) {
     m_lightThemeActive = !m_lightThemeActive;
     RootWorkstationGrid().RequestedTheme(m_lightThemeActive ? ElementTheme::Light : ElementTheme::Dark);
     ThemeModeLabel().Text(m_lightThemeActive ? L"Light UI" : L"Dark UI");
+    RebuildRulerTicks();
+    RefreshShapeSheetSectionRows();
 }
 
 void MainWindow::OnToggleLeftStencilDockClick(IInspectable const&, RoutedEventArgs const&) {
     m_leftStencilOpen = !m_leftStencilOpen;
-    LeftStencilColumn().Width(GridLength{m_leftStencilOpen ? 268.0 : 0.0});
+    LeftStencilColumn().Width(GridLength{m_leftStencilOpen ? 268.0 : 0.0, GridUnitType::Pixel});
     LeftStencilDockBorder().Visibility(m_leftStencilOpen ? Visibility::Visible : Visibility::Collapsed);
     RestoreStencilsPillButton().Visibility(m_leftStencilOpen ? Visibility::Collapsed : Visibility::Visible);
     ViewStencilsDockToggle().IsChecked(m_leftStencilOpen);
@@ -2373,7 +2405,7 @@ void MainWindow::OnToggleLeftStencilDockClick(IInspectable const&, RoutedEventAr
 
 void MainWindow::OnToggleRightTaskPanesClick(IInspectable const&, RoutedEventArgs const&) {
     m_rightTaskPaneOpen = !m_rightTaskPaneOpen;
-    RightTaskPaneColumn().Width(GridLength{m_rightTaskPaneOpen ? 328.0 : 0.0});
+    RightTaskPaneColumn().Width(GridLength{m_rightTaskPaneOpen ? 328.0 : 0.0, GridUnitType::Pixel});
     RightTaskPaneBorder().Visibility(m_rightTaskPaneOpen ? Visibility::Visible : Visibility::Collapsed);
     ViewTaskPanesToggle().IsChecked(m_rightTaskPaneOpen);
     AttachOrResizeDx12SwapChain();
@@ -2381,8 +2413,8 @@ void MainWindow::OnToggleRightTaskPanesClick(IInspectable const&, RoutedEventArg
 
 void MainWindow::OnToggleShapeSheetClick(IInspectable const&, RoutedEventArgs const&) {
     m_shapeSheetOpen = !m_shapeSheetOpen;
-    ShapeSheetSplitterRow().Height(GridLength{m_shapeSheetOpen ? 8.0 : 0.0});
-    ShapeSheetPaneRow().Height(GridLength{m_shapeSheetOpen ? m_shapeSheetHeightPx : 0.0});
+    ShapeSheetSplitterRow().Height(GridLength{m_shapeSheetOpen ? 8.0 : 0.0, GridUnitType::Pixel});
+    ShapeSheetPaneRow().Height(GridLength{m_shapeSheetOpen ? m_shapeSheetHeightPx : 0.0, GridUnitType::Pixel});
     ShapeSheetGridSplitter().Visibility(m_shapeSheetOpen ? Visibility::Visible : Visibility::Collapsed);
     ShapeSheetSplitPane().Visibility(m_shapeSheetOpen ? Visibility::Visible : Visibility::Collapsed);
     FloatingFormulaBar().Visibility(m_shapeSheetOpen ? Visibility::Visible : Visibility::Collapsed);
@@ -2398,8 +2430,8 @@ void MainWindow::OnToggleShapeSheetClick(IInspectable const&, RoutedEventArgs co
 void MainWindow::OnViewRulersChanged(IInspectable const&, RoutedEventArgs const&) {
     if (!m_isInitialized) return;
     const bool show = ViewRulersCheck().IsChecked().GetBoolean();
-    TopRulerRow().Height(GridLength{show ? 24.0 : 0.0});
-    LeftRulerColumn().Width(GridLength{show ? 24.0 : 0.0});
+    TopRulerRow().Height(GridLength{show ? 24.0 : 0.0, GridUnitType::Pixel});
+    LeftRulerColumn().Width(GridLength{show ? 24.0 : 0.0, GridUnitType::Pixel});
     HorizontalRulerBorder().Visibility(show ? Visibility::Visible : Visibility::Collapsed);
     VerticalRulerBorder().Visibility(show ? Visibility::Visible : Visibility::Collapsed);
     RulerUnitOriginButton().Visibility(show ? Visibility::Visible : Visibility::Collapsed);
@@ -4689,37 +4721,37 @@ void MainWindow::ApplyLanguageStrings() {
     static constexpr UiLangPack kEn{
         L"File", L"Home", L"Insert", L"Design", L"Data", L"Process", L"Review", L"View", L"Developer",
         L"Export ▾", L"Help & Updates ▾", L"Updates", L"+ Import Visio Stencil (.vssx / .vss)",
-        L"← Continue to Canvas", L"Start or Open a Diagram Inside Vexio", L"Search 730+ shapes in 32 packs...",
+        L"← Continue to Canvas", L"Start or Open a Diagram Inside Vexio", L"Search 756+ shapes in 33 packs...",
         L"Save (Ctrl+S)", L"Save As… (Ctrl+Shift+S)", L"Save As…", L"Rename"
     };
     static constexpr UiLangPack kDe{
         L"Datei", L"Start", L"Einfügen", L"Entwurf", L"Daten", L"Prozess", L"Überprüfen", L"Ansicht", L"Entwickler",
         L"Exportieren ▾", L"Hilfe & Updates ▾", L"Updates", L"+ Visio-Schablone importieren (.vssx)",
-        L"← Weiter zur Zeichenfläche", L"Diagramm in Vexio erstellen oder öffnen", L"520+ Formen durchsuchen...",
+        L"← Weiter zur Zeichenfläche", L"Diagramm in Vexio erstellen oder öffnen", L"756+ Formen in 33 Paketen suchen...",
         L"Speichern (Ctrl+S)", L"Speichern unter… (Ctrl+Shift+S)", L"Speichern unter…", L"Umbenennen"
     };
     static constexpr UiLangPack kIt{
         L"File", L"Home", L"Inserisci", L"Progettazione", L"Dati", L"Processo", L"Revisione", L"Visualizza", L"Sviluppo",
         L"Esporta ▾", L"Aiuto e Aggiornamenti ▾", L"Aggiorna", L"+ Importa Stencil Visio (.vssx)",
-        L"← Vai al foglio di disegno", L"Crea o apri un diagramma in Vexio", L"Cerca oltre 520 forme...",
+        L"← Vai al foglio di disegno", L"Crea o apri un diagramma in Vexio", L"Cerca oltre 756 forme in 33 pacchetti...",
         L"Salva (Ctrl+S)", L"Salva con nome… (Ctrl+Shift+S)", L"Salva con nome…", L"Rinomina"
     };
     static constexpr UiLangPack kFr{
         L"Fichier", L"Accueil", L"Insertion", L"Création", L"Données", L"Processus", L"Révision", L"Affichage", L"Développeur",
         L"Exporter ▾", L"Aide & Mises à jour ▾", L"Mises à jour", L"+ Importer gabarit Visio (.vssx)",
-        L"← Continuer vers le dessin", L"Créer ou ouvrir un diagramme dans Vexio", L"Rechercher 520+ formes...",
+        L"← Continuer vers le dessin", L"Créer ou ouvrir un diagramme dans Vexio", L"Rechercher 756+ formes dans 33 gabarits...",
         L"Enregistrer (Ctrl+S)", L"Enregistrer sous… (Ctrl+Shift+S)", L"Enregistrer sous…", L"Renommer"
     };
     static constexpr UiLangPack kEs{
         L"Archivo", L"Inicio", L"Insertar", L"Diseño", L"Datos", L"Proceso", L"Revisar", L"Vista", L"Programador",
         L"Exportar ▾", L"Ayuda y Actualizaciones ▾", L"Actualizar", L"+ Importar galería Visio (.vssx)",
-        L"← Continuar al lienzo", L"Crear o abrir un diagrama en Vexio", L"Buscar más de 520 formas...",
+        L"← Continuar al lienzo", L"Crear o abrir un diagrama en Vexio", L"Buscar más de 756 formas en 33 paquetes...",
         L"Guardar (Ctrl+S)", L"Guardar como… (Ctrl+Shift+S)", L"Guardar como…", L"Renombrar"
     };
     static constexpr UiLangPack kEl{
         L"Αρχείο", L"Κεντρική", L"Εισαγωγή", L"Σχεδίαση", L"Δεδομένα", L"Διαδικασία", L"Αναθεώρηση", L"Προβολή", L"Προγραμματιστής",
         L"Εξαγωγή ▾", L"Βοήθεια & Ενημερώσεις ▾", L"Ενημερώσεις", L"+ Εισαγωγή Stencil Visio (.vssx)",
-        L"← Συνέχεια στον καμβά", L"Δημιουργία ή άνοιγμα διαγράμματος στο Vexio", L"Αναζήτηση 520+ σχημάτων...",
+        L"← Συνέχεια στον καμβά", L"Δημιουργία ή άνοιγμα διαγράμματος στο Vexio", L"Αναζήτηση 756+ σχημάτων σε 33 συλλογές...",
         L"Αποθήκευση (Ctrl+S)", L"Αποθήκευση ως… (Ctrl+Shift+S)", L"Αποθήκευση ως…", L"Μετονομασία"
     };
 
@@ -4964,7 +4996,7 @@ void MainWindow::OnTopMenuPointerEntered(IInspectable const& sender, PointerRout
 
 void MainWindow::OnToggleRibbonCollapseClick(IInspectable const&, RoutedEventArgs const&) {
     m_ribbonCollapsed = !m_ribbonCollapsed;
-    RibbonBodyRow().Height(GridLength{m_ribbonCollapsed ? 0.0 : (m_touchMode ? 104.0 : 88.0)});
+    RibbonBodyRow().Height(GridLength{m_ribbonCollapsed ? 0.0 : (m_touchMode ? 104.0 : 88.0), GridUnitType::Pixel});
     RibbonBodyScrollViewer().Visibility(m_ribbonCollapsed ? Visibility::Collapsed : Visibility::Visible);
     RibbonCollapseGlyphText().Text(m_ribbonCollapsed ? L"⌄" : L"⌃");
     AttachOrResizeDx12SwapChain();
@@ -5284,7 +5316,7 @@ fire_and_forget MainWindow::ShowOfficialStencilCatalogDialogAsync() {
     }
 
     Windows::Web::Http::HttpClient client{};
-    client.DefaultRequestHeaders().UserAgent().TryParseAdd(L"Vexio-Windows/0.4.3-alpha");
+    client.DefaultRequestHeaders().UserAgent().TryParseAdd(L"Vexio-Windows/0.4.4-alpha");
     uint32_t installedCount = 0;
 
     for (auto const& target : targets) {
@@ -5546,7 +5578,7 @@ void MainWindow::OnCheckUpdatesClick(IInspectable const&, RoutedEventArgs const&
 }
 
 fire_and_forget MainWindow::CheckForUpdatesAsync(bool userInitiated) {
-    constexpr std::wstring_view kCurrentVersion = L"0.4.3-alpha";
+    constexpr std::wstring_view kCurrentVersion = L"0.4.4-alpha";
     const auto weakSelf = get_weak();
 
     if (userInitiated) {
@@ -5560,7 +5592,7 @@ fire_and_forget MainWindow::CheckForUpdatesAsync(bool userInitiated) {
 
     try {
         Windows::Web::Http::HttpClient client{};
-        client.DefaultRequestHeaders().UserAgent().TryParseAdd(L"Vexio-Windows/0.4.3-alpha");
+        client.DefaultRequestHeaders().UserAgent().TryParseAdd(L"Vexio-Windows/0.4.4-alpha");
         client.DefaultRequestHeaders().Accept().TryParseAdd(L"application/vnd.github+json");
 
         const Uri apiUri{L"https://api.github.com/repos/petrosvassiliou/vexio/releases"};
@@ -5569,7 +5601,7 @@ fire_and_forget MainWindow::CheckForUpdatesAsync(bool userInitiated) {
         Windows::Data::Json::JsonArray releasesArr{nullptr};
         if (Windows::Data::Json::JsonArray::TryParse(body, releasesArr) && releasesArr.Size() > 0) {
             const auto relObj = releasesArr.GetObjectAt(0);
-            latestTag = relObj.GetNamedString(L"tag_name", L"v0.4.3-alpha").c_str();
+            latestTag = relObj.GetNamedString(L"tag_name", L"v0.4.4-alpha").c_str();
             releaseUrl = relObj.GetNamedString(L"html_url", releaseUrl).c_str();
             if (relObj.HasKey(L"assets")) {
                 const auto assets = relObj.GetNamedArray(L"assets");
@@ -5631,7 +5663,7 @@ fire_and_forget MainWindow::CheckForUpdatesAsync(bool userInitiated) {
         }
     } else {
         self->BackstageUpdateStatusText().Text(hstring{
-            std::format(L"Vexio is up to date ({}).", latestTag.empty() ? L"v0.4.3-alpha" : latestTag)
+            std::format(L"Vexio is up to date ({}).", latestTag.empty() ? L"v0.4.4-alpha" : latestTag)
         });
         if (userInitiated) {
             ContentDialog dlg{};
@@ -5639,7 +5671,7 @@ fire_and_forget MainWindow::CheckForUpdatesAsync(bool userInitiated) {
             dlg.Title(box_value(L"Vexio is Up to Date"));
             dlg.Content(box_value(hstring{std::format(
                 L"You are running the latest version of Vexio Professional ({}).",
-                latestTag.empty() ? L"v0.4.3-alpha" : latestTag)}));
+                latestTag.empty() ? L"v0.4.4-alpha" : latestTag)}));
             dlg.PrimaryButtonText(L"View Release Notes");
             dlg.CloseButtonText(L"OK");
             dlg.DefaultButton(ContentDialogButton::Close);

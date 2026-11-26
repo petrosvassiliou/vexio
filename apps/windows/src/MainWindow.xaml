@@ -146,7 +146,7 @@
         <!-- =================================================================== -->
         <!-- ROW 1: MULTI-TABBED VISIO PROFESSIONAL RIBBON                       -->
         <!-- =================================================================== -->
-        <Border Grid.Row="1" Background="{StaticResource VexioRibbonSurfaceBrush}" BorderBrush="{StaticResource VexioRibbonGroupBorderBrush}" BorderThickness="0,0,0,1">
+        <Border Grid.Row="1" Background="{ThemeResource VexioRibbonSurfaceBrush}" BorderBrush="{ThemeResource VexioRibbonGroupBorderBrush}" BorderThickness="0,0,0,1">
             <Grid>
                 <Grid.RowDefinitions>
                     <RowDefinition Height="34" />
@@ -341,15 +341,15 @@
                                         <ToggleButton x:Name="ItalicTextToggle" Padding="7,1" FontStyle="Italic" Content="I" Click="OnTextStyleToggleClick" ToolTipService.ToolTip="Italic" />
                                         <ToggleButton x:Name="UnderlineTextToggle" Padding="7,1" Content="U̲" Click="OnTextStyleToggleClick" ToolTipService.ToolTip="Underline" />
                                         <ToggleButton x:Name="StrikeTextToggle" Padding="7,1" Content="S̶" Click="OnTextStyleToggleClick" ToolTipService.ToolTip="Strikethrough" />
-                                        <Border Width="1" Background="{StaticResource VexioRibbonGroupBorderBrush}" Margin="3,2" />
+                                        <Border Width="1" Background="{ThemeResource VexioRibbonGroupBorderBrush}" Margin="3,2" />
                                         <Button Padding="6,1" Click="OnTextAlignLeftClick" Content="⇤" FontSize="11" ToolTipService.ToolTip="Align Text Left" />
                                         <Button Padding="6,1" Click="OnTextAlignCenterClick" Content="⇔" FontSize="11" ToolTipService.ToolTip="Center Text" />
                                         <Button Padding="6,1" Click="OnTextAlignRightClick" Content="⇥" FontSize="11" ToolTipService.ToolTip="Align Text Right" />
-                                        <Border Width="1" Background="{StaticResource VexioRibbonGroupBorderBrush}" Margin="3,2" />
+                                        <Border Width="1" Background="{ThemeResource VexioRibbonGroupBorderBrush}" Margin="3,2" />
                                         <Button Padding="6,1" Click="OnTextVAlignTopClick" Content="⤒" FontSize="11" ToolTipService.ToolTip="Top Vertical Align" />
                                         <Button Padding="6,1" Click="OnTextVAlignMiddleClick" Content="↕" FontSize="11" ToolTipService.ToolTip="Middle Vertical Align" />
                                         <Button Padding="6,1" Click="OnTextVAlignBottomClick" Content="⤓" FontSize="11" ToolTipService.ToolTip="Bottom Vertical Align" />
-                                        <Border Width="1" Background="{StaticResource VexioRibbonGroupBorderBrush}" Margin="3,2" />
+                                        <Border Width="1" Background="{ThemeResource VexioRibbonGroupBorderBrush}" Margin="3,2" />
                                         <ToggleButton x:Name="BulletListToggle" Padding="7,1" Content="• List" FontSize="11" Click="OnBulletListToggleClick" ToolTipService.ToolTip="Bulleted List" />
                                     </StackPanel>
                                 </StackPanel>
@@ -826,7 +826,7 @@
             <!-- COL 0: COLLAPSIBLE LEFT SHAPES / STENCILS DOCK                  -->
             <!-- =============================================================== -->
             <Border x:Name="LeftStencilDockBorder" Grid.Column="0" Background="{ThemeResource LayerFillColorDefaultBrush}"
-                    BorderBrush="{StaticResource VexioRibbonGroupBorderBrush}" BorderThickness="0,0,1,0" Padding="8"
+                    BorderBrush="{ThemeResource VexioRibbonGroupBorderBrush}" BorderThickness="0,0,1,0" Padding="8"
                     AllowDrop="True" DragOver="OnStencilDockDragOver" Drop="OnStencilDockDrop">
                 <Grid RowSpacing="8">
                     <Grid.RowDefinitions>
@@ -840,7 +840,7 @@
 
                     <!-- Header + Collapse Button -->
                     <Grid Grid.Row="0">
-                        <TextBlock x:Name="StencilHeaderCountText" Text="Shapes (32 Categories)" FontWeight="SemiBold" FontSize="13" VerticalAlignment="Center" />
+                        <TextBlock x:Name="StencilHeaderCountText" Text="Shapes (33 Categories)" FontWeight="SemiBold" FontSize="13" VerticalAlignment="Center" />
                         <Button HorizontalAlignment="Right" Padding="6,2" Background="Transparent" BorderBrush="Transparent"
                                 Click="OnToggleLeftStencilDockClick" ToolTipService.ToolTip="Collapse Shapes Dock">
                             <PathIcon Width="12" Height="12" Data="M 10,2 L 4,8 L 10,14" />
@@ -848,7 +848,7 @@
                     </Grid>
 
                     <!-- Instant Stencil Search -->
-                    <TextBox x:Name="StencilSearchBox" Grid.Row="1" PlaceholderText="Search 730+ shapes in 32 packs..."
+                    <TextBox x:Name="StencilSearchBox" Grid.Row="1" PlaceholderText="Search 756+ shapes in 33 packs..."
                              TextChanged="OnStencilSearchTextChanged" />
 
                     <!-- Stencil Pack Switcher (Populated Dynamically with All 22 Visio, Microsoft, Server & Network Categories) -->
@@ -890,8 +890,8 @@
             <!-- =============================================================== -->
             <!-- COL 1: PERSISTENT VERTICAL DRAWING TOOL RAIL (16 BASIC TOOLS)   -->
             <!-- =============================================================== -->
-            <Border Grid.Column="1" Background="{StaticResource VexioRibbonSurfaceBrush}"
-                    BorderBrush="{StaticResource VexioRibbonGroupBorderBrush}" BorderThickness="0,0,1,0">
+            <Border Grid.Column="1" Background="{ThemeResource VexioRibbonSurfaceBrush}"
+                    BorderBrush="{ThemeResource VexioRibbonGroupBorderBrush}" BorderThickness="0,0,1,0">
                 <ScrollViewer VerticalScrollBarVisibility="Hidden" HorizontalScrollBarVisibility="Disabled" Padding="4,6">
                     <StackPanel x:Name="DrawingToolRailPanel" Spacing="3">
                         <ToggleButton Tag="0" Click="OnRailToolClick" IsChecked="True" HorizontalAlignment="Stretch" Padding="2,4" ToolTipService.ToolTip="Select / Pointer (Ctrl+1)">
@@ -952,7 +952,7 @@
             <!-- =============================================================== -->
             <!-- COL 2: CENTER RULERS + DX12 SWAPCHAINPANEL + FORMULA BAR        -->
             <!-- =============================================================== -->
-            <Grid Grid.Column="2" Background="{StaticResource VexioCanvasBackdropBrush}">
+            <Grid Grid.Column="2" Background="{ThemeResource VexioCanvasBackdropBrush}">
                 <Grid.RowDefinitions>
                     <!-- Floating Formula Bar (when ShapeSheet is active) -->
                     <RowDefinition Height="Auto" />
@@ -971,7 +971,7 @@
                 <!-- Floating Formula Bar (Active in ShapeSheet Mode) -->
                 <Border x:Name="FloatingFormulaBar" Grid.Row="0" Grid.ColumnSpan="2" Visibility="Collapsed"
                         Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                        BorderBrush="{StaticResource VexioRibbonGroupBorderBrush}" BorderThickness="0,0,0,1" Padding="8,4">
+                        BorderBrush="{ThemeResource VexioRibbonGroupBorderBrush}" BorderThickness="0,0,0,1" Padding="8,4">
                     <Grid ColumnSpacing="6">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto" />
@@ -1008,22 +1008,22 @@
 
                 <!-- Ruler Origin Unit Switcher (in / mm) -->
                 <Button x:Name="RulerUnitOriginButton" Grid.Row="1" Grid.Column="0" Padding="0" CornerRadius="0"
-                        Background="{StaticResource VexioRulerSurfaceBrush}" BorderBrush="{StaticResource VexioRibbonGroupBorderBrush}" BorderThickness="0,0,1,1"
+                        Background="{ThemeResource VexioRulerSurfaceBrush}" BorderBrush="{ThemeResource VexioRibbonGroupBorderBrush}" BorderThickness="0,0,1,1"
                         Click="OnToggleRulerUnitClick" ToolTipService.ToolTip="Switch Ruler Display Units (in / mm)">
                     <TextBlock x:Name="RulerUnitOriginText" Text="mm" FontSize="9.5" FontWeight="SemiBold" Foreground="#FF334155" />
                 </Button>
 
                 <!-- Horizontal Ruler Overlay -->
-                <Border x:Name="HorizontalRulerBorder" Grid.Row="1" Grid.Column="1" Background="{StaticResource VexioRulerSurfaceBrush}"
-                        BorderBrush="{StaticResource VexioRibbonGroupBorderBrush}" BorderThickness="0,0,0,1">
+                <Border x:Name="HorizontalRulerBorder" Grid.Row="1" Grid.Column="1" Background="{ThemeResource VexioRulerSurfaceBrush}"
+                        BorderBrush="{ThemeResource VexioRibbonGroupBorderBrush}" BorderThickness="0,0,0,1">
                     <Canvas x:Name="HorizontalRulerCanvas" SizeChanged="OnRulerCanvasSizeChanged">
                         <Line x:Name="HorizontalCursorHairline" X1="0" Y1="0" X2="0" Y2="24" Stroke="#FF2563EB" StrokeThickness="1.5" />
                     </Canvas>
                 </Border>
 
                 <!-- Vertical Ruler Overlay -->
-                <Border x:Name="VerticalRulerBorder" Grid.Row="2" Grid.Column="0" Background="{StaticResource VexioRulerSurfaceBrush}"
-                        BorderBrush="{StaticResource VexioRibbonGroupBorderBrush}" BorderThickness="0,0,1,0">
+                <Border x:Name="VerticalRulerBorder" Grid.Row="2" Grid.Column="0" Background="{ThemeResource VexioRulerSurfaceBrush}"
+                        BorderBrush="{ThemeResource VexioRibbonGroupBorderBrush}" BorderThickness="0,0,1,0">
                     <Canvas x:Name="VerticalRulerCanvas" SizeChanged="OnRulerCanvasSizeChanged">
                         <Line x:Name="VerticalCursorHairline" X1="0" Y1="0" X2="24" Y2="0" Stroke="#FF2563EB" StrokeThickness="1.5" />
                     </Canvas>
@@ -1076,7 +1076,7 @@
             <!-- COL 3: DOCKABLE RIGHT TASK PANES (6 COMPLETE TABS)              -->
             <!-- =============================================================== -->
             <Border x:Name="RightTaskPaneBorder" Grid.Column="3" Background="{ThemeResource LayerFillColorDefaultBrush}"
-                    BorderBrush="{StaticResource VexioRibbonGroupBorderBrush}" BorderThickness="1,0,0,0">
+                    BorderBrush="{ThemeResource VexioRibbonGroupBorderBrush}" BorderThickness="1,0,0,0">
                 <Pivot x:Name="RightTaskPanesPivot" Title="Inspector &amp; Task Panes" FontSize="12">
                     <!-- PANE 1: SHAPE DATA (Prop.*) -->
                     <PivotItem Header="Shape Data">
@@ -1234,7 +1234,7 @@
         <!-- ROW 4: SHAPESHEET SPLIT-VIEW GRIDSPLITTER                           -->
         <!-- =================================================================== -->
         <Border x:Name="ShapeSheetGridSplitter" Grid.Row="4" Visibility="Collapsed"
-                Background="{StaticResource VexioRibbonGroupBorderBrush}"
+                Background="{ThemeResource VexioRibbonGroupBorderBrush}"
                 PointerPressed="OnShapeSheetSplitterPointerPressed"
                 PointerMoved="OnShapeSheetSplitterPointerMoved"
                 PointerReleased="OnShapeSheetSplitterPointerReleased"
@@ -1248,7 +1248,7 @@
         <!-- =================================================================== -->
         <Border x:Name="ShapeSheetSplitPane" Grid.Row="5" Visibility="Collapsed"
                 Background="{ThemeResource LayerFillColorDefaultBrush}"
-                BorderBrush="{StaticResource VexioRibbonGroupBorderBrush}" BorderThickness="0,1,0,0" Padding="10,6">
+                BorderBrush="{ThemeResource VexioRibbonGroupBorderBrush}" BorderThickness="0,1,0,0" Padding="10,6">
             <Grid RowSpacing="6">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
@@ -1297,7 +1297,7 @@
                 </Grid>
 
                 <!-- Column Headers -->
-                <Grid Grid.Row="1" Padding="8,2" Background="{StaticResource VexioRibbonSurfaceBrush}" CornerRadius="3">
+                <Grid Grid.Row="1" Padding="8,2" Background="{ThemeResource VexioRibbonSurfaceBrush}" CornerRadius="3">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="190" />
                         <ColumnDefinition Width="*" />
@@ -1312,15 +1312,23 @@
 
                 <!-- Live Cell Rows -->
                 <ListView x:Name="ShapeSheetCellsListView" Grid.Row="2" SelectionMode="Single"
-                          SelectionChanged="OnShapeSheetCellSelectionChanged" />
+                          SelectionChanged="OnShapeSheetCellSelectionChanged">
+                    <ListView.ItemContainerStyle>
+                        <Style TargetType="ListViewItem">
+                            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                            <Setter Property="MinHeight" Value="28" />
+                            <Setter Property="Padding" Value="2,0" />
+                        </Style>
+                    </ListView.ItemContainerStyle>
+                </ListView>
             </Grid>
         </Border>
 
         <!-- =================================================================== -->
         <!-- ROW 6: BOTTOM PAGE TABS STRIP                                       -->
         <!-- =================================================================== -->
-        <Border Grid.Row="6" Background="{StaticResource VexioRibbonSurfaceBrush}"
-                BorderBrush="{StaticResource VexioRibbonGroupBorderBrush}" BorderThickness="0,1,0,0" Padding="8,0">
+        <Border Grid.Row="6" Background="{ThemeResource VexioRibbonSurfaceBrush}"
+                BorderBrush="{ThemeResource VexioRibbonGroupBorderBrush}" BorderThickness="0,1,0,0" Padding="8,0">
             <Grid ColumnSpacing="6">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto" />
@@ -1491,8 +1499,8 @@
                         </StackPanel>
 
                         <!-- Startup & Update Preferences -->
-                        <Border Padding="16,14" CornerRadius="8" Background="{StaticResource VexioRibbonSurfaceBrush}"
-                                BorderBrush="{StaticResource VexioRibbonGroupBorderBrush}" BorderThickness="1">
+                        <Border Padding="16,14" CornerRadius="8" Background="{ThemeResource VexioRibbonSurfaceBrush}"
+                                BorderBrush="{ThemeResource VexioRibbonGroupBorderBrush}" BorderThickness="1">
                             <StackPanel Spacing="12">
                                 <TextBlock Text="Startup &amp; Software Updates" FontSize="13.5" FontWeight="SemiBold" />
                                 <StackPanel Orientation="Horizontal" Spacing="18">
@@ -1503,7 +1511,7 @@
                                 </StackPanel>
                                 <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
                                     <Button Click="OnCheckUpdatesClick" Content="Check for Updates Now" />
-                                    <TextBlock x:Name="BackstageUpdateStatusText" Text="Vexio v0.4.3-alpha • Automatic background update check enabled."
+                                    <TextBlock x:Name="BackstageUpdateStatusText" Text="Vexio v0.4.4-alpha • Automatic background update check enabled."
                                                FontSize="12" Opacity="0.8" VerticalAlignment="Center" />
                                 </StackPanel>
                             </StackPanel>

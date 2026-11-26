@@ -10,15 +10,29 @@
                 <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
             </ResourceDictionary.MergedDictionaries>
 
-            <!-- Vexio Indigo / Slate Enterprise Palette -->
+            <ResourceDictionary.ThemeDictionaries>
+                <ResourceDictionary x:Key="Light">
+                    <SolidColorBrush x:Key="VexioRibbonSurfaceBrush" Color="#FFF7F9FC" />
+                    <SolidColorBrush x:Key="VexioRibbonGroupBorderBrush" Color="#FFDCE2EC" />
+                    <SolidColorBrush x:Key="VexioRibbonGroupLabelBrush" Color="#FF64748B" />
+                    <SolidColorBrush x:Key="VexioRulerSurfaceBrush" Color="#FFEEF2F7" />
+                    <SolidColorBrush x:Key="VexioRulerTickBrush" Color="#FF64748B" />
+                    <SolidColorBrush x:Key="VexioCanvasBackdropBrush" Color="#FFDDE3EC" />
+                </ResourceDictionary>
+                <ResourceDictionary x:Key="Dark">
+                    <SolidColorBrush x:Key="VexioRibbonSurfaceBrush" Color="#FF18202C" />
+                    <SolidColorBrush x:Key="VexioRibbonGroupBorderBrush" Color="#FF2D3A4E" />
+                    <SolidColorBrush x:Key="VexioRibbonGroupLabelBrush" Color="#FF94A3B8" />
+                    <SolidColorBrush x:Key="VexioRulerSurfaceBrush" Color="#FF141B26" />
+                    <SolidColorBrush x:Key="VexioRulerTickBrush" Color="#FF94A3B8" />
+                    <SolidColorBrush x:Key="VexioCanvasBackdropBrush" Color="#FF0F1622" />
+                </ResourceDictionary>
+            </ResourceDictionary.ThemeDictionaries>
+
+            <!-- Vexio Indigo / Slate Enterprise Brand Palette -->
             <SolidColorBrush x:Key="VexioBrandPrimaryBrush" Color="#FF2B579A" />
             <SolidColorBrush x:Key="VexioBrandAccentBrush" Color="#FF3955A3" />
             <SolidColorBrush x:Key="VexioBrandDarkHeaderBrush" Color="#FF1E3A6D" />
-            <SolidColorBrush x:Key="VexioRibbonSurfaceBrush" Color="#FFF7F9FC" />
-            <SolidColorBrush x:Key="VexioRibbonGroupBorderBrush" Color="#FFDCE2EC" />
-            <SolidColorBrush x:Key="VexioRulerSurfaceBrush" Color="#FFEEF2F7" />
-            <SolidColorBrush x:Key="VexioRulerTickBrush" Color="#FF64748B" />
-            <SolidColorBrush x:Key="VexioCanvasBackdropBrush" Color="#FFDDE3EC" />
             <SolidColorBrush x:Key="VexioGuardBadgeBrush" Color="#FFB45309" />
             <SolidColorBrush x:Key="VexioValidBadgeBrush" Color="#FF15803D" />
             <SolidColorBrush x:Key="VexioStatusBarBrush" Color="#FF1E3A6D" />
@@ -47,7 +61,7 @@
 
             <Style x:Key="VexioRibbonGroupLabelStyle" TargetType="TextBlock">
                 <Setter Property="FontSize" Value="10.5" />
-                <Setter Property="Foreground" Value="#FF64748B" />
+                <Setter Property="Foreground" Value="{ThemeResource VexioRibbonGroupLabelBrush}" />
                 <Setter Property="HorizontalAlignment" Value="Center" />
                 <Setter Property="Margin" Value="0,4,0,0" />
             </Style>
