@@ -2215,7 +2215,7 @@ data class WorkstationUiState(
     val inlineTextEditor: InlineCanvasEditorModel? = null,
     val smartGuidesEnabled: Boolean = true,
     val autoCheckUpdates: Boolean = true,
-    val updateStatusMessage: String = "Vexio v0.9.0-beta • Automatic update check enabled",
+    val updateStatusMessage: String = "Vexio v0.9.1-beta • Automatic update check enabled",
     val availableUpdateTag: String? = null,
     val availableUpdateUrl: String? = null,
     val showUpdateDialog: Boolean = false,
@@ -6103,13 +6103,13 @@ class VexioSessionViewModel(
             "org_chart" -> "1,,Alex Rivera,Chief Executive Officer,Executive\n2,1,Priya Patel,VP Engineering,Engineering\n3,1,Marcus Chen,VP Product,Product\n4,2,Elena Rostova,Principal Architect,Core"
             "rack_42u" -> "41,2,Core Spine Switch,Switch,320,12\n37,4,GPU Compute Node A,Compute,1400,48\n33,4,NVMe Storage Array,Storage,850,38\n1,2,Dual Redundant UPS,UPS,1800,62"
             "arch_room" -> "Conference Suite A,2.0,3.0,5.0,3.5"
-            "calendar" -> "2026-11,monday\n2026-11-03|Architecture Freeze\n2026-11-12|Security Audit\n2026-11-27|v0.9.0-beta Release"
+            "calendar" -> "2026-11,monday\n2026-11-03|Architecture Freeze\n2026-11-12|Security Audit\n2026-11-27|v0.9.1-beta Release"
             "pivot_diagram" -> "GROUP=Region>Service;METRIC=Cost;AGG=SUM\nRegion,Service,Cost\nEMEA,Compute,42000\nEMEA,Storage,18000\nAmericas,Compute,64000\nAmericas,AI_GPU,51000\nAPAC,Compute,29000"
             "mind_map" -> "# Vexio 1.0 Launch\n## Core Engine\n### Associative Dimensions\n### Wall Auto-Healing\n## Native Apps\n### Windows WinUI 3\n### macOS Liquid Glass\n### Android Vulkan\n### ChromeOS Offline PWA"
             "mind_map_radial" -> "# Product Strategy\n## Enterprise CAD\n### DWG R2024\n### Scale Locking\n## Process Intelligence\n### Lean VSM\n### Fault Tree MOCUS"
             "mind_map_export" -> "# Vexio Mind Map"
             "vsm" -> "CUSTOMER=Enterprise Accounts;SUPPLIER=Cloud Foundry\nStep,CycleSec,WaitMin,UptimePct,Operators,WIP\nOrder Intake,45,15,99.5,1,12\nCredit & Compliance,120,90,98.0,2,34\nProvision Tenant,60,25,99.9,1,8\nQA & Handover,90,40,97.5,2,15"
-            "fta" -> "TOP,Service Outage,OR,,\nG1,Primary Region Down,AND,TOP,\nG2,Failover Blocked,OR,TOP,\nE1,Power Feed A Lost,BASIC,G1,0.01\nE2,UPS Transfer Failure,BASIC,G1,0.02\nE3,DNS Stale TTL,BASIC,G2,0.005\nE4,Replica Lag > RPO,BASIC,G2,0.008"
+            "fta" -> "TOP,Data Center Outage,OR,0,G1;G2\nG1,Dual Utility Loss,AND,0,E1;E2\nG2,Cooling Failure,2/3,0,E3;E4;E5\nE1,Grid Feed A Fault,BASIC,0.02,\nE2,Backup Generator Fail,BASIC,0.015,\nE3,Chiller A Trip,BASIC,0.03,\nE4,Chiller B Trip,BASIC,0.03,\nE5,Standby Chiller C Trip,BASIC,0.04,"
             else -> ""
         }
         _uiState.update { it.copy(domainWizardSlug = slug, domainWizardSpec = sample, lastDomainWizardOutput = null) }
@@ -6844,7 +6844,7 @@ class VexioSessionViewModel(
     }
 
     // -------------------------------------------------------------------------
-    // Milestone 4 (`v0.9.0-beta`): Associative Architectural Dimensions,
+    // Milestone 4 (`v0.9.1-beta`): Associative Architectural Dimensions,
     // Wall Miter/T-Join Auto-Healing, Door/Window Openings, Mind Map Topics & VSM/FTA
     // -------------------------------------------------------------------------
     @Synchronized
@@ -7339,7 +7339,7 @@ class VexioSessionViewModel(
                     instanceFollowRedirects = true
                     connectTimeout = 20_000
                     readTimeout = 45_000
-                    setRequestProperty("User-Agent", "Vexio-Android-Workstation/0.9.0-beta")
+                    setRequestProperty("User-Agent", "Vexio-Android-Workstation/0.9.1-beta")
                 }
                 try {
                     val code = conn.responseCode
@@ -8301,7 +8301,7 @@ class VexioSessionViewModel(
             }
         }
         viewModelScope.launch(ioDispatcher) {
-            val currentVersion = "0.9.0-beta"
+            val currentVersion = "0.9.1-beta"
             var latestTag: String? = null
             var downloadUrl = "https://github.com/petrosvassiliou/vexio/releases"
             var ok = false
@@ -8312,7 +8312,7 @@ class VexioSessionViewModel(
                     requestMethod = "GET"
                     connectTimeout = 4500
                     readTimeout = 4500
-                    setRequestProperty("User-Agent", "Vexio-Android-Googlebook/0.9.0-beta")
+                    setRequestProperty("User-Agent", "Vexio-Android-Googlebook/0.9.1-beta")
                     setRequestProperty("Accept", "application/vnd.github+json")
                 }
                 if (conn.responseCode in 200..299) {

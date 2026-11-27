@@ -5738,7 +5738,7 @@ fire_and_forget MainWindow::ShowOfficialStencilCatalogDialogAsync() {
     }
 
     Windows::Web::Http::HttpClient client{};
-    client.DefaultRequestHeaders().UserAgent().TryParseAdd(L"Vexio-Windows/0.9.0-beta");
+    client.DefaultRequestHeaders().UserAgent().TryParseAdd(L"Vexio-Windows/0.9.1-beta");
     uint32_t installedCount = 0;
 
     for (auto const& target : targets) {
@@ -6000,7 +6000,7 @@ void MainWindow::OnCheckUpdatesClick(IInspectable const&, RoutedEventArgs const&
 }
 
 fire_and_forget MainWindow::CheckForUpdatesAsync(bool userInitiated) {
-    constexpr std::wstring_view kCurrentVersion = L"0.9.0-beta";
+    constexpr std::wstring_view kCurrentVersion = L"0.9.1-beta";
     const auto weakSelf = get_weak();
 
     if (userInitiated) {
@@ -6014,7 +6014,7 @@ fire_and_forget MainWindow::CheckForUpdatesAsync(bool userInitiated) {
 
     try {
         Windows::Web::Http::HttpClient client{};
-        client.DefaultRequestHeaders().UserAgent().TryParseAdd(L"Vexio-Windows/0.9.0-beta");
+        client.DefaultRequestHeaders().UserAgent().TryParseAdd(L"Vexio-Windows/0.9.1-beta");
         client.DefaultRequestHeaders().Accept().TryParseAdd(L"application/vnd.github+json");
 
         const Uri apiUri{L"https://api.github.com/repos/petrosvassiliou/vexio/releases"};
@@ -6023,7 +6023,7 @@ fire_and_forget MainWindow::CheckForUpdatesAsync(bool userInitiated) {
         Windows::Data::Json::JsonArray releasesArr{nullptr};
         if (Windows::Data::Json::JsonArray::TryParse(body, releasesArr) && releasesArr.Size() > 0) {
             const auto relObj = releasesArr.GetObjectAt(0);
-            latestTag = relObj.GetNamedString(L"tag_name", L"v0.9.0-beta").c_str();
+            latestTag = relObj.GetNamedString(L"tag_name", L"v0.9.1-beta").c_str();
             releaseUrl = relObj.GetNamedString(L"html_url", releaseUrl).c_str();
             if (relObj.HasKey(L"assets")) {
                 const auto assets = relObj.GetNamedArray(L"assets");
@@ -6085,7 +6085,7 @@ fire_and_forget MainWindow::CheckForUpdatesAsync(bool userInitiated) {
         }
     } else {
         self->BackstageUpdateStatusText().Text(hstring{
-            std::format(L"Vexio is up to date ({}).", latestTag.empty() ? L"v0.9.0-beta" : latestTag)
+            std::format(L"Vexio is up to date ({}).", latestTag.empty() ? L"v0.9.1-beta" : latestTag)
         });
         if (userInitiated) {
             ContentDialog dlg{};
@@ -6093,7 +6093,7 @@ fire_and_forget MainWindow::CheckForUpdatesAsync(bool userInitiated) {
             dlg.Title(box_value(L"Vexio is Up to Date"));
             dlg.Content(box_value(hstring{std::format(
                 L"You are running the latest version of Vexio Professional ({}).",
-                latestTag.empty() ? L"v0.9.0-beta" : latestTag)}));
+                latestTag.empty() ? L"v0.9.1-beta" : latestTag)}));
             dlg.PrimaryButtonText(L"View Release Notes");
             dlg.CloseButtonText(L"OK");
             dlg.DefaultButton(ContentDialogButton::Close);
@@ -6552,13 +6552,13 @@ winrt::fire_and_forget MainWindow::ShowDomainWizardsDialogAsync() {
         {"org_chart", L"Organization Chart Hierarchy", L"1,,Alex Rivera,Chief Executive Officer,Executive\n2,1,Priya Patel,VP Engineering,Engineering\n3,1,Marcus Chen,VP Product,Product\n4,2, Elena Rostova,Principal Systems Architect,Core"},
         {"rack_42u", L"42U Data Center Rack Elevation", L"41,2,Core Spine Switch,Switch,320,12\n37,4,GPU Compute Node A,Compute,1400,48\n33,4,NVMe Storage Array,Storage,850,38\n1,2,Dual Redundant UPS,UPS,1800,62"},
         {"arch_room", L"Architectural Room Space (Live Area SqFt)", L"Conference Suite A,2.0,3.0,5.0,3.5"},
-        {"calendar", L"Monthly Calendar Grid (Gregorian + Events)", L"2026-11,monday\n2026-11-03|Architecture Freeze\n2026-11-12|Security Audit\n2026-11-27|v0.9.0-beta Release"},
+        {"calendar", L"Monthly Calendar Grid (Gregorian + Events)", L"2026-11,monday\n2026-11-03|Architecture Freeze\n2026-11-12|Security Audit\n2026-11-27|v0.9.1-beta Release"},
         {"pivot_diagram", L"PivotDiagram Multi-Level Rollup (SUM/AVG/Share%)", L"GROUP=Region>Service;METRIC=Cost;AGG=SUM\nRegion,Service,Cost\nEMEA,Compute,42000\nEMEA,Storage,18000\nAmericas,Compute,64000\nAmericas,AI_GPU,51000\nAPAC,Compute,29000"},
         {"mind_map", L"Brainstorming / Mind Map (Hierarchical)", L"# Vexio 1.0 Launch\n## Core Engine\n### Associative Dimensions\n### Wall Auto-Healing\n## Native Apps\n### Windows WinUI 3\n### macOS Liquid Glass\n### Android Vulkan\n### ChromeOS Offline PWA"},
         {"mind_map_radial", L"Brainstorming / Mind Map (Radial Starburst)", L"# Product Strategy\n## Enterprise CAD\n### DWG R2024\n### Scale Locking\n## Process Intelligence\n### Lean VSM\n### Fault Tree MOCUS"},
         {"mind_map_export", L"Active Mind Map Page → Export Markdown Outline", L""},
         {"vsm", L"Lean Value Stream Map (VSM + Sawtooth Ladder & PCE%)", L"CUSTOMER=Enterprise Accounts;SUPPLIER=Cloud Foundry\nStep,CycleSec,WaitMin,UptimePct,Operators,WIP\nOrder Intake,45,15,99.5,1,12\nCredit & Compliance,120,90,98.0,2,34\nProvision Tenant,60,25,99.9,1,8\nQA & Handover,90,40,97.5,2,15"},
-        {"fta", L"Fault Tree Analysis (FTA Gates + MOCUS Cut Sets)", L"TOP,Service Outage,OR,,\nG1,Primary Region Down,AND,TOP,\nG2,Failover Blocked,OR,TOP,\nE1,Power Feed A Lost,BASIC,G1,0.01\nE2,UPS Transfer Failure,BASIC,G1,0.02\nE3,DNS Stale TTL,BASIC,G2,0.005\nE4,Replica Lag > RPO,BASIC,G2,0.008"}
+        {"fta", L"Fault Tree Analysis (FTA Gates + MOCUS Cut Sets)", L"TOP,Data Center Outage,OR,0,G1;G2\nG1,Dual Utility Loss,AND,0,E1;E2\nG2,Cooling Failure,2/3,0,E3;E4;E5\nE1,Grid Feed A Fault,BASIC,0.02,\nE2,Backup Generator Fail,BASIC,0.015,\nE3,Chiller A Trip,BASIC,0.03,\nE4,Chiller B Trip,BASIC,0.03,\nE5,Standby Chiller C Trip,BASIC,0.04,"}
     };
 
     StackPanel panel{};

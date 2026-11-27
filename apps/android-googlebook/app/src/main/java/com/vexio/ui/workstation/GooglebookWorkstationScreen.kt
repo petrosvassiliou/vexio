@@ -41,6 +41,9 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -54,6 +57,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -62,50 +66,144 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.FormatAlignLeft
+import androidx.compose.material.icons.automirrored.filled.FormatAlignRight
+import androidx.compose.material.icons.automirrored.filled.FormatListBulleted
 import androidx.compose.material.icons.automirrored.filled.Redo
+import androidx.compose.material.icons.automirrored.filled.TrendingFlat
 import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.AccountTree
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Adjust
+import androidx.compose.material.icons.filled.AlignHorizontalCenter
+import androidx.compose.material.icons.filled.AlignHorizontalLeft
+import androidx.compose.material.icons.filled.AlignHorizontalRight
+import androidx.compose.material.icons.filled.AlignVerticalBottom
+import androidx.compose.material.icons.filled.AlignVerticalCenter
+import androidx.compose.material.icons.filled.AlignVerticalTop
+import androidx.compose.material.icons.filled.AltRoute
+import androidx.compose.material.icons.filled.Analytics
 import androidx.compose.material.icons.filled.Architecture
+import androidx.compose.material.icons.filled.AspectRatio
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.AutoFixHigh
+import androidx.compose.material.icons.filled.AutoFixNormal
+import androidx.compose.material.icons.filled.Badge
+import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.BorderColor
+import androidx.compose.material.icons.filled.BorderOuter
 import androidx.compose.material.icons.filled.Brush
+import androidx.compose.material.icons.filled.Calculate
+import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.CallSplit
+import androidx.compose.material.icons.filled.CenterFocusStrong
 import androidx.compose.material.icons.filled.ChangeHistory
+import androidx.compose.material.icons.filled.ChatBubbleOutline
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CheckBoxOutlineBlank
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.CloudSync
+import androidx.compose.material.icons.filled.Code
+import androidx.compose.material.icons.filled.Comment
+import androidx.compose.material.icons.filled.CompareArrows
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.ContentCut
+import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.CropSquare
 import androidx.compose.material.icons.filled.DarkMode
+import androidx.compose.material.icons.filled.DashboardCustomize
 import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Diamond
+import androidx.compose.material.icons.filled.Domain
+import androidx.compose.material.icons.filled.Draw
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.Extension
+import androidx.compose.material.icons.filled.FactCheck
+import androidx.compose.material.icons.filled.FilterFrames
+import androidx.compose.material.icons.filled.Flip
 import androidx.compose.material.icons.filled.FlipToBack
 import androidx.compose.material.icons.filled.FlipToFront
 import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.FormatAlignCenter
+import androidx.compose.material.icons.filled.FormatBold
+import androidx.compose.material.icons.filled.FormatColorFill
+import androidx.compose.material.icons.filled.FormatColorText
+import androidx.compose.material.icons.filled.FormatItalic
+import androidx.compose.material.icons.filled.FormatListNumbered
+import androidx.compose.material.icons.filled.FormatPaint
+import androidx.compose.material.icons.filled.FormatUnderlined
 import androidx.compose.material.icons.filled.Functions
 import androidx.compose.material.icons.filled.Gesture
+import androidx.compose.material.icons.filled.Grid4x4
 import androidx.compose.material.icons.filled.GridOn
 import androidx.compose.material.icons.filled.Hexagon
+import androidx.compose.material.icons.filled.Highlight
 import androidx.compose.material.icons.filled.HorizontalRule
+import androidx.compose.material.icons.filled.Hub
+import androidx.compose.material.icons.filled.IosShare
+import androidx.compose.material.icons.filled.JoinFull
+import androidx.compose.material.icons.filled.Layers
+import androidx.compose.material.icons.filled.LayersClear
+import androidx.compose.material.icons.filled.Leaderboard
+import androidx.compose.material.icons.filled.LegendToggle
+import androidx.compose.material.icons.filled.LibraryAdd
 import androidx.compose.material.icons.filled.LightMode
+import androidx.compose.material.icons.filled.LineWeight
+import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.NearMe
+import androidx.compose.material.icons.filled.NoteAdd
 import androidx.compose.material.icons.filled.OpenInNew
+import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.PanTool
+import androidx.compose.material.icons.filled.PictureAsPdf
+import androidx.compose.material.icons.filled.PivotTableChart
+import androidx.compose.material.icons.filled.Polyline
 import androidx.compose.material.icons.filled.Print
+import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.RadioButtonUnchecked
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Rotate90DegreesCcw
+import androidx.compose.material.icons.filled.Rotate90DegreesCw
 import androidx.compose.material.icons.filled.RoundedCorner
+import androidx.compose.material.icons.filled.Rule
 import androidx.compose.material.icons.filled.Save
+import androidx.compose.material.icons.filled.SaveAs
 import androidx.compose.material.icons.filled.Schema
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.SensorDoor
+import androidx.compose.material.icons.filled.Slideshow
 import androidx.compose.material.icons.filled.StarBorder
+import androidx.compose.material.icons.filled.Straighten
+import androidx.compose.material.icons.filled.StrikethroughS
+import androidx.compose.material.icons.filled.SwapVert
+import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material.icons.filled.SystemUpdateAlt
 import androidx.compose.material.icons.filled.TableChart
+import androidx.compose.material.icons.filled.TableView
+import androidx.compose.material.icons.filled.Terminal
+import androidx.compose.material.icons.filled.TextDecrease
 import androidx.compose.material.icons.filled.TextFields
+import androidx.compose.material.icons.filled.TextIncrease
+import androidx.compose.material.icons.filled.TextRotationNone
 import androidx.compose.material.icons.filled.Timeline
+import androidx.compose.material.icons.filled.Title
+import androidx.compose.material.icons.filled.TouchApp
+import androidx.compose.material.icons.filled.Transform
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Verified
+import androidx.compose.material.icons.filled.VerticalAlignBottom
+import androidx.compose.material.icons.filled.VerticalAlignCenter
+import androidx.compose.material.icons.filled.VerticalAlignTop
+import androidx.compose.material.icons.filled.VerticalSplit
+import androidx.compose.material.icons.filled.ViewColumn
 import androidx.compose.material.icons.filled.ViewSidebar
+import androidx.compose.material.icons.filled.ViewStream
+import androidx.compose.material.icons.filled.Workspaces
 import androidx.compose.material.icons.filled.ZoomIn
 import androidx.compose.material.icons.filled.ZoomOut
 import androidx.compose.material3.AlertDialog
@@ -651,12 +749,35 @@ fun GooglebookWorkstationScreen(
                 onToggleInspector = viewModel::toggleInspectorPane
             )
 
-            // 1b. Classic Collapsible Multi-Tab Visio Ribbon (Home OS Fonts + Full Color Picker + Rotate/Flip, Insert, Design ISO A4/A3, Data, Process, Review, View, Developer)
+            // 1b. Classic Collapsible Multi-Tab Visio Ribbon with Standard File Menu, Underline Tabs & Iconized Command Groups
             ClassicVisioM3Ribbon(
                 uiState = uiState,
                 viewModel = viewModel,
+                onNewBlankClick = {
+                    viewModel.createBlankWithPagePreset(
+                        "Untitled_Diagram.vsdx",
+                        if (uiState.metricUnits) VexioPagePresetSpec.A4_LANDSCAPE else VexioPagePresetSpec.LETTER_LANDSCAPE
+                    )
+                },
                 onOpenBackstage = { viewModel.setStartBackstageVisible(true) },
+                onNewWindowClick = { launchNewDocumentWindow(context, template = "blank") },
+                onOpenFileClick = onOpenDocumentRequested,
+                onSaveClick = onSaveDocumentRequested,
+                onSaveAsClick = onSaveAsDocumentRequested,
+                onExportJpgClick = onExportJpgRequested,
+                onExportFormat = onExportFormatRequested,
+                onOpenPageSetupClick = { pageSetupTargetPageId = uiState.activePageId },
+                onPrintClick = onPrintRequested,
+                onCheckUpdatesClick = { viewModel.checkForUpdatesAsync(userInitiated = true) },
+                onCloseDocumentClick = {
+                    if (uiState.isDirty) {
+                        showUnsavedExitDialog = true
+                    } else {
+                        onDiscardAndExitRequested()
+                    }
+                },
                 onImportStencilClick = onImportStencilRequested,
+                onOpenCatalogClick = { viewModel.setOfficialStencilCatalogDialogVisible(true) },
                 onLinkExternalDataClick = onLinkExternalDataRequested,
                 onRefreshExternalDataClick = onRefreshExternalDataRequested,
                 onTwoWayWritebackClick = { onTwoWayWritebackRequested(0) },
@@ -2274,7 +2395,7 @@ private fun WorkstationHeaderBar(
                 }
             }
 
-            // Compact Quick-Access Icon Strip (28dp uniform desktop buttons + discreet tooltips)
+            // Compact Quick-Access Icon Strip (Undo, Redo, Save — full File/Print/Export commands live cleanly in the File Menu)
             CompactHeaderIconButton(
                 icon = Icons.AutoMirrored.Filled.Undo,
                 tooltip = VexioI18n.undoTooltip(lang),
@@ -2288,19 +2409,9 @@ private fun WorkstationHeaderBar(
                 onClick = onRedoClick
             )
             CompactHeaderIconButton(
-                icon = Icons.Default.FolderOpen,
-                tooltip = lang.openFileLabel,
-                onClick = onOpenClick
-            )
-            CompactHeaderIconButton(
                 icon = Icons.Default.Save,
                 tooltip = lang.saveLabel,
                 onClick = onSaveClick
-            )
-            CompactHeaderIconButton(
-                icon = Icons.Default.Print,
-                tooltip = VexioI18n.printPdfLabel(lang),
-                onClick = onPrintClick
             )
 
             VerticalDivider(
@@ -2309,47 +2420,6 @@ private fun WorkstationHeaderBar(
                     .padding(horizontal = 3.dp),
                 color = MaterialTheme.colorScheme.outlineVariant
             )
-
-            // Compact Export & Save As Menu (26dp height — zero bloat!)
-            Box(modifier = Modifier.hoverSwitchSiblingMenu("export")) {
-                CompactHeaderChipButton(
-                    label = VexioI18n.exportMenuButton(lang),
-                    onClick = {
-                        openSiblingMenuId = if (openSiblingMenuId == "export") null else "export"
-                    }
-                )
-                DropdownMenu(
-                    expanded = openSiblingMenuId == "export",
-                    onDismissRequest = { if (openSiblingMenuId == "export") openSiblingMenuId = null }
-                ) {
-                    DropdownMenuItem(
-                        text = { Text(lang.saveAsLabel) },
-                        leadingIcon = { Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(16.dp)) },
-                        onClick = { openSiblingMenuId = null; onSaveAsClick() }
-                    )
-                    HorizontalDivider()
-                    DropdownMenuItem(
-                        text = { Text(VexioI18n.exportJpgItem(lang)) },
-                        onClick = { openSiblingMenuId = null; onExportJpgClick() }
-                    )
-                    DropdownMenuItem(
-                        text = { Text(VexioI18n.exportPdfItem(lang)) },
-                        onClick = { openSiblingMenuId = null; onExportFormat("pdf") }
-                    )
-                    DropdownMenuItem(
-                        text = { Text(VexioI18n.exportSvgItem(lang)) },
-                        onClick = { openSiblingMenuId = null; onExportFormat("svg") }
-                    )
-                    DropdownMenuItem(
-                        text = { Text(VexioI18n.exportDxfItem(lang)) },
-                        onClick = { openSiblingMenuId = null; onExportFormat("dxf") }
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Export AutoCAD DWG (.dwg)") },
-                        onClick = { openSiblingMenuId = null; onExportFormat("dwg") }
-                    )
-                }
-            }
 
             // Compact Language Selector (26dp height)
             Box(modifier = Modifier.hoverSwitchSiblingMenu("lang")) {
@@ -2395,41 +2465,6 @@ private fun WorkstationHeaderBar(
                 onClick = onToggleTheme
             )
 
-            // Compact More / Updates / Stencil Import Menu (28dp icon button)
-            Box(modifier = Modifier.hoverSwitchSiblingMenu("help")) {
-                CompactHeaderIconButton(
-                    icon = Icons.Default.MoreVert,
-                    tooltip = lang.checkUpdatesLabel,
-                    onClick = {
-                        openSiblingMenuId = if (openSiblingMenuId == "help") null else "help"
-                    }
-                )
-                DropdownMenu(
-                    expanded = openSiblingMenuId == "help",
-                    onDismissRequest = { if (openSiblingMenuId == "help") openSiblingMenuId = null }
-                ) {
-                    DropdownMenuItem(
-                        text = { Text(VexioI18n.blankIsoA4Short(lang)) },
-                        leadingIcon = { Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp)) },
-                        onClick = { openSiblingMenuId = null; onCreateBlankA4() }
-                    )
-                    DropdownMenuItem(
-                        text = { Text(uiState.language.importStencilLabel) },
-                        leadingIcon = { Icon(Icons.Default.FolderOpen, contentDescription = null, modifier = Modifier.size(16.dp)) },
-                        onClick = { openSiblingMenuId = null; onImportStencilClick() }
-                    )
-                    DropdownMenuItem(
-                        text = { Text(uiState.language.checkUpdatesLabel) },
-                        onClick = { openSiblingMenuId = null; onCheckUpdates() }
-                    )
-                    HorizontalDivider()
-                    DropdownMenuItem(
-                        text = { Text(VexioI18n.startHubMenu(lang)) },
-                        onClick = { openSiblingMenuId = null; onToggleBackstage() }
-                    )
-                }
-            }
-
             VerticalDivider(
                 modifier = Modifier
                     .height(18.dp)
@@ -2462,16 +2497,314 @@ private fun WorkstationHeaderBar(
     }
 }
 
+@Composable
+private fun MenuShortcutBadge(shortcut: String) {
+    Text(
+        text = shortcut,
+        fontSize = 10.5.sp,
+        fontWeight = FontWeight.Medium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant
+    )
+}
+
+@Composable
+private fun RibbonCommandGroup(
+    title: String,
+    showDividerAfter: Boolean = true,
+    content: @Composable () -> Unit
+) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(3.dp),
+            modifier = Modifier.padding(horizontal = 2.dp, vertical = 2.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                content()
+            }
+            Text(
+                text = title,
+                fontSize = 9.5.sp,
+                fontWeight = FontWeight.Medium,
+                letterSpacing = 0.2.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.82f),
+                maxLines = 1,
+                softWrap = false
+            )
+        }
+        if (showDividerAfter) {
+            VerticalDivider(
+                modifier = Modifier
+                    .height(34.dp)
+                    .padding(start = 6.dp, end = 2.dp),
+                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.7f)
+            )
+        }
+    }
+}
+
+@Composable
+private fun RibbonSegmentedCluster(content: @Composable () -> Unit) {
+    Surface(
+        shape = RoundedCornerShape(7.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        border = BorderStroke(0.75.dp, MaterialTheme.colorScheme.outlineVariant)
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(1.dp),
+            modifier = Modifier.padding(1.5.dp)
+        ) {
+            content()
+        }
+    }
+}
+
+@Composable
+private fun RibbonIconBtn(
+    icon: ImageVector,
+    tooltip: String,
+    selected: Boolean = false,
+    enabled: Boolean = true,
+    onClick: () -> Unit
+) {
+    val bgColor = when {
+        !enabled -> Color.Transparent
+        selected -> MaterialTheme.colorScheme.primaryContainer
+        else -> Color.Transparent
+    }
+    val fgColor = when {
+        !enabled -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.36f)
+        selected -> MaterialTheme.colorScheme.onPrimaryContainer
+        else -> MaterialTheme.colorScheme.onSurface
+    }
+    VexioTooltip(text = tooltip) {
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier
+                .size(27.dp)
+                .clip(RoundedCornerShape(6.dp))
+                .background(bgColor)
+                .then(
+                    if (selected) {
+                        Modifier.border(0.75.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.65f), RoundedCornerShape(6.dp))
+                    } else {
+                        Modifier
+                    }
+                )
+                .then(if (enabled) Modifier.clickable(onClick = onClick) else Modifier)
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = tooltip,
+                tint = fgColor,
+                modifier = Modifier.size(16.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun RibbonColorIconBtn(
+    icon: ImageVector,
+    tooltip: String,
+    swatchColor: Color,
+    isTransparent: Boolean = false,
+    onClick: () -> Unit
+) {
+    VexioTooltip(text = tooltip) {
+        Surface(
+            shape = RoundedCornerShape(6.dp),
+            color = MaterialTheme.colorScheme.surfaceContainerLow,
+            border = BorderStroke(0.75.dp, MaterialTheme.colorScheme.outlineVariant),
+            modifier = Modifier
+                .size(width = 29.dp, height = 27.dp)
+                .clip(RoundedCornerShape(6.dp))
+                .clickable(onClick = onClick)
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = tooltip,
+                    tint = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.size(14.5.dp)
+                )
+                Spacer(Modifier.height(1.5.dp))
+                Box(
+                    modifier = Modifier
+                        .size(width = 17.dp, height = 3.5.dp)
+                        .clip(RoundedCornerShape(1.5.dp))
+                        .background(if (isTransparent) Color.Transparent else swatchColor)
+                        .border(
+                            width = 0.6.dp,
+                            color = if (isTransparent) MaterialTheme.colorScheme.outline else Color.Black.copy(alpha = 0.22f),
+                            shape = RoundedCornerShape(1.5.dp)
+                        )
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun RibbonCommandBtn(
+    icon: ImageVector,
+    label: String,
+    tooltip: String = "",
+    selected: Boolean = false,
+    enabled: Boolean = true,
+    hasDropdown: Boolean = false,
+    onClick: () -> Unit
+) {
+    val bgColor = when {
+        !enabled -> MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.45f)
+        selected -> MaterialTheme.colorScheme.primaryContainer
+        else -> MaterialTheme.colorScheme.surfaceContainerLow
+    }
+    val borderColor = when {
+        !enabled -> MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)
+        selected -> MaterialTheme.colorScheme.primary
+        else -> MaterialTheme.colorScheme.outlineVariant
+    }
+    val fgColor = when {
+        !enabled -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+        selected -> MaterialTheme.colorScheme.onPrimaryContainer
+        else -> MaterialTheme.colorScheme.onSurface
+    }
+    val btnContent: @Composable () -> Unit = {
+        Surface(
+            shape = RoundedCornerShape(6.dp),
+            color = bgColor,
+            border = BorderStroke(0.75.dp, borderColor),
+            modifier = Modifier
+                .height(27.dp)
+                .clip(RoundedCornerShape(6.dp))
+                .then(if (enabled) Modifier.clickable(onClick = onClick) else Modifier)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.5.dp),
+                modifier = Modifier.padding(horizontal = 7.5.dp)
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = if (selected) MaterialTheme.colorScheme.primary else fgColor,
+                    modifier = Modifier.size(15.dp)
+                )
+                Text(
+                    text = label,
+                    fontSize = 11.5.sp,
+                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+                    color = fgColor,
+                    maxLines = 1,
+                    softWrap = false
+                )
+                if (hasDropdown) {
+                    Icon(
+                        imageVector = Icons.Default.ExpandMore,
+                        contentDescription = null,
+                        tint = fgColor.copy(alpha = 0.75f),
+                        modifier = Modifier.size(13.dp)
+                    )
+                }
+            }
+        }
+    }
+    if (tooltip.isNotBlank()) {
+        VexioTooltip(text = tooltip) { btnContent() }
+    } else {
+        btnContent()
+    }
+}
+
+@Composable
+private fun RibbonSelectBox(
+    label: String,
+    tooltip: String = "",
+    leadingIcon: ImageVector? = null,
+    maxWidthDp: Int = 128,
+    onClick: () -> Unit
+) {
+    val boxContent: @Composable () -> Unit = {
+        Surface(
+            shape = RoundedCornerShape(6.dp),
+            color = MaterialTheme.colorScheme.surfaceContainerLowest,
+            border = BorderStroke(0.85.dp, MaterialTheme.colorScheme.outlineVariant),
+            modifier = Modifier
+                .height(27.dp)
+                .widthIn(max = maxWidthDp.dp)
+                .clip(RoundedCornerShape(6.dp))
+                .clickable(onClick = onClick)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                modifier = Modifier.padding(horizontal = 7.dp)
+            ) {
+                if (leadingIcon != null) {
+                    Icon(
+                        imageVector = leadingIcon,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(14.dp)
+                    )
+                }
+                Text(
+                    text = label,
+                    fontSize = 11.5.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    softWrap = false,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false)
+                )
+                Icon(
+                    imageVector = Icons.Default.ExpandMore,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(14.dp)
+                )
+            }
+        }
+    }
+    if (tooltip.isNotBlank()) {
+        VexioTooltip(text = tooltip) { boxContent() }
+    } else {
+        boxContent()
+    }
+}
+
 /**
- * Classic Collapsible Multi-Tab Visio Ribbon adapted to Material 3 Expressive:
- * File | Home | Insert | Design | Data | Process | Review | View | Developer
+ * Workstation Ribbon with Standard Desktop `File` Menu, Underline Menu Tabs, and
+ * Distinct Elevated Zero-Scroll Command Deck with Labeled Visio Command Groups & Vector Icons.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ClassicVisioM3Ribbon(
     uiState: WorkstationUiState,
     viewModel: VexioSessionViewModel,
+    onNewBlankClick: () -> Unit = {},
     onOpenBackstage: () -> Unit,
+    onNewWindowClick: () -> Unit = {},
+    onOpenFileClick: () -> Unit = {},
+    onSaveClick: () -> Unit = {},
+    onSaveAsClick: () -> Unit = {},
+    onExportJpgClick: () -> Unit = {},
+    onExportFormat: (String) -> Unit = {},
+    onOpenPageSetupClick: () -> Unit = {},
+    onPrintClick: () -> Unit = {},
+    onCheckUpdatesClick: () -> Unit = {},
+    onCloseDocumentClick: () -> Unit = {},
     onImportStencilClick: () -> Unit,
+    onOpenCatalogClick: () -> Unit = {},
     onLinkExternalDataClick: () -> Unit = {},
     onRefreshExternalDataClick: () -> Unit = {},
     onTwoWayWritebackClick: () -> Unit = {},
@@ -2480,10 +2813,15 @@ private fun ClassicVisioM3Ribbon(
     onTogglePlan2Strip: () -> Unit
 ) {
     val lang = uiState.language
+    var fileMenuOpen by remember { mutableStateOf(false) }
+    var fileExportExpanded by remember { mutableStateOf(false) }
     var fontMenuOpen by remember { mutableStateOf(false) }
     var fontSizeMenuOpen by remember { mutableStateOf(false) }
     var fontSearchQuery by remember { mutableStateOf("") }
     var pageSizeMenuOpen by remember { mutableStateOf(false) }
+
+    val hasSelection = uiState.selectedShapeId > 0L || uiState.selectedShapeIds.isNotEmpty()
+    val hasMultiSelection = uiState.selectedShapeIds.size >= 2
 
     val tabs = listOf(
         "Home" to lang.homeLabel,
@@ -2496,833 +2834,1519 @@ private fun ClassicVisioM3Ribbon(
         "Developer" to lang.developerLabel
     )
 
-    Surface(
-        color = MaterialTheme.colorScheme.surfaceContainer,
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Column(modifier = Modifier.fillMaxWidth()) {
-            // Ribbon Tab Header Row (Zero Truncation across all 6 languages)
+    Column(modifier = Modifier.fillMaxWidth()) {
+        // UPPER MENU & TAB NAVIGATION BAR (Distinct Chrome Surface + Underline Active Indicator)
+        Surface(
+            color = MaterialTheme.colorScheme.surfaceContainer,
+            modifier = Modifier.fillMaxWidth()
+        ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState())
-                    .padding(horizontal = 10.dp, vertical = 3.dp)
+                    .height(34.dp)
+                    .padding(horizontal = 10.dp)
             ) {
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(8.dp))
-                        .clickable(onClick = onOpenBackstage)
-                ) {
-                    Text(
-                        text = lang.fileLabel,
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.onPrimary,
-                        maxLines = 1,
-                        softWrap = false,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
-                    )
-                }
-
-                tabs.forEach { (tabId, label) ->
-                    val selected = uiState.activeRibbonTab == tabId && !uiState.isRibbonCollapsed
+                // Standard Desktop File Menu Trigger + Full Iconic Dropdown Menu
+                Box {
                     Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = if (selected) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent,
+                        shape = RoundedCornerShape(6.dp),
+                        color = MaterialTheme.colorScheme.primary,
                         modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
-                            .clickable { viewModel.selectRibbonTab(tabId) }
+                            .height(25.dp)
+                            .clip(RoundedCornerShape(6.dp))
+                            .clickable {
+                                fileExportExpanded = false
+                                fileMenuOpen = !fileMenuOpen
+                            }
                     ) {
-                        Text(
-                            text = label,
-                            style = MaterialTheme.typography.labelLarge,
-                            maxLines = 1,
-                            softWrap = false,
-                            color = if (selected) {
-                                MaterialTheme.colorScheme.onSecondaryContainer
-                            } else {
-                                MaterialTheme.colorScheme.onSurfaceVariant
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            modifier = Modifier.padding(horizontal = 9.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Description,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onPrimary,
+                                modifier = Modifier.size(13.5.dp)
+                            )
+                            Text(
+                                text = lang.fileLabel,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onPrimary,
+                                maxLines = 1,
+                                softWrap = false
+                            )
+                            Icon(
+                                imageVector = Icons.Default.ExpandMore,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.85f),
+                                modifier = Modifier.size(13.dp)
+                            )
+                        }
+                    }
+
+                    DropdownMenu(
+                        expanded = fileMenuOpen,
+                        onDismissRequest = {
+                            fileMenuOpen = false
+                            fileExportExpanded = false
+                        },
+                        modifier = Modifier.width(284.dp)
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text(VexioI18n.newBlankDiagramMenu(lang)) },
+                            leadingIcon = { Icon(Icons.Default.NoteAdd, contentDescription = null, modifier = Modifier.size(17.dp)) },
+                            trailingIcon = { MenuShortcutBadge("Ctrl+N") },
+                            onClick = { fileMenuOpen = false; onNewBlankClick() }
+                        )
+                        DropdownMenuItem(
+                            text = { Text(VexioI18n.startHubMenu(lang)) },
+                            leadingIcon = { Icon(Icons.Default.DashboardCustomize, contentDescription = null, modifier = Modifier.size(17.dp)) },
+                            onClick = { fileMenuOpen = false; onOpenBackstage() }
+                        )
+                        DropdownMenuItem(
+                            text = { Text(VexioI18n.newWindowButton(lang)) },
+                            leadingIcon = { Icon(Icons.Default.OpenInNew, contentDescription = null, modifier = Modifier.size(17.dp)) },
+                            onClick = { fileMenuOpen = false; onNewWindowClick() }
+                        )
+                        HorizontalDivider()
+                        DropdownMenuItem(
+                            text = { Text(lang.openFileLabel) },
+                            leadingIcon = { Icon(Icons.Default.FolderOpen, contentDescription = null, modifier = Modifier.size(17.dp)) },
+                            trailingIcon = { MenuShortcutBadge("Ctrl+O") },
+                            onClick = { fileMenuOpen = false; onOpenFileClick() }
+                        )
+                        DropdownMenuItem(
+                            text = { Text(lang.importStencilLabel) },
+                            leadingIcon = { Icon(Icons.Default.Extension, contentDescription = null, modifier = Modifier.size(17.dp)) },
+                            onClick = { fileMenuOpen = false; onImportStencilClick() }
+                        )
+                        HorizontalDivider()
+                        DropdownMenuItem(
+                            text = { Text(lang.saveLabel) },
+                            leadingIcon = { Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(17.dp)) },
+                            trailingIcon = { MenuShortcutBadge("Ctrl+S") },
+                            onClick = { fileMenuOpen = false; onSaveClick() }
+                        )
+                        DropdownMenuItem(
+                            text = { Text(lang.saveAsLabel) },
+                            leadingIcon = { Icon(Icons.Default.SaveAs, contentDescription = null, modifier = Modifier.size(17.dp)) },
+                            trailingIcon = { MenuShortcutBadge("Ctrl+Shift+S") },
+                            onClick = { fileMenuOpen = false; onSaveAsClick() }
+                        )
+                        DropdownMenuItem(
+                            text = { Text(VexioI18n.exportSubmenuLabel(lang)) },
+                            leadingIcon = { Icon(Icons.Default.IosShare, contentDescription = null, modifier = Modifier.size(17.dp)) },
+                            trailingIcon = {
+                                Icon(
+                                    imageVector = if (fileExportExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp)
+                                )
                             },
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                            onClick = { fileExportExpanded = !fileExportExpanded }
+                        )
+                        if (fileExportExpanded) {
+                            Surface(
+                                color = MaterialTheme.colorScheme.surfaceContainerLow,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column {
+                                    DropdownMenuItem(
+                                        text = { Text(VexioI18n.exportPdfItem(lang), fontSize = 12.sp) },
+                                        leadingIcon = { Icon(Icons.Default.PictureAsPdf, contentDescription = null, modifier = Modifier.size(16.dp)) },
+                                        onClick = { fileMenuOpen = false; onExportFormat("pdf") }
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text(VexioI18n.exportSvgItem(lang), fontSize = 12.sp) },
+                                        leadingIcon = { Icon(Icons.Default.Polyline, contentDescription = null, modifier = Modifier.size(16.dp)) },
+                                        onClick = { fileMenuOpen = false; onExportFormat("svg") }
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text(VexioI18n.exportJpgItem(lang), fontSize = 12.sp) },
+                                        leadingIcon = { Icon(Icons.Default.AspectRatio, contentDescription = null, modifier = Modifier.size(16.dp)) },
+                                        onClick = { fileMenuOpen = false; onExportJpgClick() }
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("PNG (.png)", fontSize = 12.sp) },
+                                        leadingIcon = { Icon(Icons.Default.AspectRatio, contentDescription = null, modifier = Modifier.size(16.dp)) },
+                                        onClick = { fileMenuOpen = false; onExportFormat("png") }
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("AutoCAD DWG (.dwg)", fontSize = 12.sp) },
+                                        leadingIcon = { Icon(Icons.Default.Architecture, contentDescription = null, modifier = Modifier.size(16.dp)) },
+                                        onClick = { fileMenuOpen = false; onExportFormat("dwg") }
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text(VexioI18n.exportDxfItem(lang), fontSize = 12.sp) },
+                                        leadingIcon = { Icon(Icons.Default.Layers, contentDescription = null, modifier = Modifier.size(16.dp)) },
+                                        onClick = { fileMenuOpen = false; onExportFormat("dxf") }
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("PowerPoint (.pptx)", fontSize = 12.sp) },
+                                        leadingIcon = { Icon(Icons.Default.Slideshow, contentDescription = null, modifier = Modifier.size(16.dp)) },
+                                        onClick = { fileMenuOpen = false; onExportFormat("pptx") }
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Word Spec (.docx)", fontSize = 12.sp) },
+                                        leadingIcon = { Icon(Icons.Default.Description, contentDescription = null, modifier = Modifier.size(16.dp)) },
+                                        onClick = { fileMenuOpen = false; onExportFormat("docx") }
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Legacy Visio (.vsd)", fontSize = 12.sp) },
+                                        leadingIcon = { Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(16.dp)) },
+                                        onClick = { fileMenuOpen = false; onExportFormat("vsd") }
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("BOM Excel (.xlsx)", fontSize = 12.sp) },
+                                        leadingIcon = { Icon(Icons.Default.TableView, contentDescription = null, modifier = Modifier.size(16.dp)) },
+                                        onClick = { fileMenuOpen = false; onExportBomReportClick() }
+                                    )
+                                }
+                            }
+                        }
+                        HorizontalDivider()
+                        DropdownMenuItem(
+                            text = { Text(VexioI18n.pageSetupMenuLabel(lang)) },
+                            leadingIcon = { Icon(Icons.Default.Tune, contentDescription = null, modifier = Modifier.size(17.dp)) },
+                            onClick = { fileMenuOpen = false; onOpenPageSetupClick() }
+                        )
+                        DropdownMenuItem(
+                            text = { Text(VexioI18n.printMenuLabel(lang)) },
+                            leadingIcon = { Icon(Icons.Default.Print, contentDescription = null, modifier = Modifier.size(17.dp)) },
+                            trailingIcon = { MenuShortcutBadge("Ctrl+P") },
+                            onClick = { fileMenuOpen = false; onPrintClick() }
+                        )
+                        HorizontalDivider()
+                        DropdownMenuItem(
+                            text = { Text(lang.checkUpdatesLabel) },
+                            leadingIcon = { Icon(Icons.Default.SystemUpdateAlt, contentDescription = null, modifier = Modifier.size(17.dp)) },
+                            onClick = { fileMenuOpen = false; onCheckUpdatesClick() }
+                        )
+                        DropdownMenuItem(
+                            text = { Text(VexioI18n.closeDocumentMenuLabel(lang)) },
+                            leadingIcon = { Icon(Icons.Default.Close, contentDescription = null, modifier = Modifier.size(17.dp)) },
+                            trailingIcon = { MenuShortcutBadge("Ctrl+W") },
+                            onClick = { fileMenuOpen = false; onCloseDocumentClick() }
                         )
                     }
                 }
 
-                Spacer(Modifier.width(8.dp))
+                VerticalDivider(
+                    modifier = Modifier
+                        .height(18.dp)
+                        .padding(horizontal = 6.dp),
+                    color = MaterialTheme.colorScheme.outlineVariant
+                )
+
+                // Crisp Underline Ribbon Navigation Tabs (Visually distinct from command buttons below!)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(2.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                        .horizontalScroll(rememberScrollState())
+                ) {
+                    tabs.forEach { (tabId, label) ->
+                        val selected = uiState.activeRibbonTab == tabId && !uiState.isRibbonCollapsed
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier
+                                .fillMaxHeight()
+                                .width(IntrinsicSize.Max)
+                                .clip(RoundedCornerShape(topStart = 6.dp, topEnd = 6.dp))
+                                .clickable {
+                                    if (uiState.activeRibbonTab == tabId && !uiState.isRibbonCollapsed) {
+                                        viewModel.toggleRibbonCollapsed()
+                                    } else {
+                                        viewModel.selectRibbonTab(tabId)
+                                    }
+                                }
+                                .padding(horizontal = 11.dp)
+                        ) {
+                            Text(
+                                text = label,
+                                fontSize = 12.5.sp,
+                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                                maxLines = 1,
+                                softWrap = false,
+                                color = if (selected) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                }
+                            )
+                            if (selected) {
+                                Box(
+                                    modifier = Modifier
+                                        .align(Alignment.BottomCenter)
+                                        .fillMaxWidth()
+                                        .height(3.dp)
+                                        .clip(RoundedCornerShape(topStart = 3.dp, topEnd = 3.dp))
+                                        .background(MaterialTheme.colorScheme.primary)
+                                )
+                            }
+                        }
+                    }
+                }
+
                 IconButton(
                     onClick = viewModel::toggleRibbonCollapsed,
                     modifier = Modifier.size(26.dp)
                 ) {
                     Icon(
                         imageVector = if (uiState.isRibbonCollapsed) Icons.Default.ExpandMore else Icons.Default.ExpandLess,
-                        contentDescription = "Collapse / Expand Ribbon"
+                        contentDescription = "Collapse / Expand Ribbon",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(18.dp)
                     )
                 }
             }
+        }
 
-            // Collapsible Active Ribbon Tab Body
-            androidx.compose.animation.AnimatedVisibility(
-                visible = !uiState.isRibbonCollapsed,
-                enter = expandVertically(VexioExpressiveMotion.spatialSpring()) + fadeIn(),
-                exit = shrinkVertically(VexioExpressiveMotion.spatialSpring()) + fadeOut()
+        HorizontalDivider(thickness = 1.dp, color = MaterialTheme.colorScheme.outlineVariant)
+
+        // ELEVATED COMMAND DECK (Distinct White/SurfaceContainerLowest Card Surface + FlowRow Wrapping = Zero Horizontal Scroll!)
+        androidx.compose.animation.AnimatedVisibility(
+            visible = !uiState.isRibbonCollapsed,
+            enter = expandVertically(VexioExpressiveMotion.spatialSpring()) + fadeIn(),
+            exit = shrinkVertically(VexioExpressiveMotion.spatialSpring()) + fadeOut()
+        ) {
+            Surface(
+                color = MaterialTheme.colorScheme.surfaceContainerLowest,
+                tonalElevation = 1.dp,
+                modifier = Modifier.fillMaxWidth()
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState())
-                        .padding(horizontal = 12.dp, vertical = 5.dp)
+                        .padding(horizontal = 10.dp, vertical = 5.dp)
                 ) {
                     when (uiState.activeRibbonTab) {
                         "Home" -> {
                             var headingMenuOpen by remember { mutableStateOf(false) }
-                            Box {
-                                ExpressivePlan2ActionPill(
-                                    label = "Headings ▾",
-                                    selected = false,
-                                    onClick = { headingMenuOpen = true }
-                                )
-                                DropdownMenu(
-                                    expanded = headingMenuOpen,
-                                    onDismissRequest = { headingMenuOpen = false }
-                                ) {
-                                    listOf(
-                                        "title" to "Diagram Title (24 pt Bold)",
-                                        "subtitle" to "Subtitle (14 pt)",
-                                        "h1" to "Heading 1 — Underlined (18 pt)",
-                                        "h2" to "Heading 2 (14 pt Bold)",
-                                        "h3" to "Heading 3 (12 pt Accent)",
-                                        "section_banner" to "Section Header Banner",
-                                        "callout_title" to "Accent Callout Header",
-                                        "body" to "Body Text (11 pt)",
-                                        "caption" to "Caption / Note (9.5 pt)"
-                                    ).forEach { (slug, label) ->
-                                        DropdownMenuItem(
-                                            text = { Text(label) },
-                                            onClick = {
-                                                headingMenuOpen = false
-                                                viewModel.applyOrInsertHeading(slug, forceInsert = false)
-                                            }
-                                        )
-                                    }
-                                }
-                            }
-
-                            // Installed OS Fonts Selector (Searchable + Rendered in Native FontFamily)
-                            Box {
-                                ExpressivePlan2ActionPill(
-                                    label = "${uiState.textFontFamily} ▾",
-                                    selected = false,
-                                    onClick = {
-                                        fontSearchQuery = ""
-                                        fontMenuOpen = true
-                                    }
-                                )
-                                DropdownMenu(
-                                    expanded = fontMenuOpen,
-                                    onDismissRequest = { fontMenuOpen = false },
-                                    modifier = Modifier
-                                        .width(248.dp)
-                                        .heightIn(max = 360.dp)
-                                ) {
-                                    Box(modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)) {
-                                        OutlinedTextField(
-                                            value = fontSearchQuery,
-                                            onValueChange = { fontSearchQuery = it },
-                                            singleLine = true,
-                                            placeholder = {
-                                                Text(
-                                                    VexioI18n.filterFontsPlaceholder(uiState.availableFontFamilies.size, lang),
-                                                    style = MaterialTheme.typography.labelSmall
-                                                )
-                                            },
-                                            textStyle = MaterialTheme.typography.bodySmall,
-                                            modifier = Modifier.fillMaxWidth()
-                                        )
-                                    }
-                                    val filteredFonts = uiState.availableFontFamilies.filter {
-                                        fontSearchQuery.isBlank() || it.contains(fontSearchQuery.trim(), ignoreCase = true)
-                                    }
-                                    filteredFonts.forEach { f ->
-                                        DropdownMenuItem(
-                                            text = {
-                                                Text(
-                                                    text = f,
-                                                    fontFamily = resolveComposeFontFamily(f),
-                                                    maxLines = 1,
-                                                    softWrap = false
-                                                )
-                                            },
-                                            leadingIcon = {
-                                                if (f.equals(uiState.textFontFamily, ignoreCase = true)) {
-                                                    Icon(Icons.Default.Check, contentDescription = null)
-                                                }
-                                            },
-                                            onClick = {
-                                                fontMenuOpen = false
-                                                viewModel.applyRichTextStyle(fontFamily = f)
-                                            }
-                                        )
-                                    }
-                                }
-                            }
-                            Box {
-                                ExpressivePlan2ActionPill(
-                                    label = "${uiState.textFontSizePt} pt ▾",
-                                    selected = false,
-                                    onClick = { fontSizeMenuOpen = true }
-                                )
-                                DropdownMenu(
-                                    expanded = fontSizeMenuOpen,
-                                    onDismissRequest = { fontSizeMenuOpen = false }
-                                ) {
-                                    listOf(8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 36, 48, 72).forEach { pt ->
-                                        DropdownMenuItem(
-                                            text = { Text("$pt pt") },
-                                            leadingIcon = {
-                                                if (uiState.textFontSizePt == pt) {
-                                                    Icon(Icons.Default.Check, contentDescription = null)
-                                                }
-                                            },
-                                            onClick = {
-                                                fontSizeMenuOpen = false
-                                                viewModel.applyRichTextStyle(fontSizePt = pt)
-                                            }
-                                        )
-                                    }
-                                }
-                            }
-                            ExpressivePlan2ActionPill(
-                                label = "A▲",
-                                selected = false,
-                                onClick = { viewModel.applyRichTextStyle(fontSizePt = uiState.textFontSizePt + 2) }
-                            )
-                            ExpressivePlan2ActionPill(
-                                label = "A▼",
-                                selected = false,
-                                onClick = { viewModel.applyRichTextStyle(fontSizePt = (uiState.textFontSizePt - 2).coerceAtLeast(6)) }
-                            )
-                            ExpressivePlan2ActionPill(
-                                label = "B",
-                                selected = uiState.textBold,
-                                onClick = { viewModel.applyRichTextStyle(bold = !uiState.textBold) }
-                            )
-                            ExpressivePlan2ActionPill(
-                                label = "I",
-                                selected = uiState.textItalic,
-                                onClick = { viewModel.applyRichTextStyle(italic = !uiState.textItalic) }
-                            )
-                            ExpressivePlan2ActionPill(
-                                label = "U̲",
-                                selected = uiState.textUnderline,
-                                onClick = { viewModel.applyRichTextStyle(underline = !uiState.textUnderline) }
-                            )
-                            ExpressivePlan2ActionPill(
-                                label = "S̶",
-                                selected = uiState.textStrikethrough,
-                                onClick = { viewModel.applyRichTextStyle(strikethrough = !uiState.textStrikethrough) }
-                            )
-
-                            // Full Color Picker Chips (Text Color, Highlight + Clear, Fill Color, Line Color)
-                            ColorSwatchActionPill(
-                                label = lang.textColorLabel,
-                                swatchColor = parseColorHexOrFallback(uiState.textColorHex, Color(0xFF0F172A)),
-                                isTransparent = false,
-                                onClick = { onOpenColorPicker(VexioColorPickerTarget.TEXT_FG) }
-                            )
-                            ColorSwatchActionPill(
-                                label = lang.highlightColorLabel,
-                                swatchColor = parseColorHexOrFallback(uiState.textBgColorHex, Color(0xFFFEF08A)),
-                                isTransparent = uiState.textBgColorHex == "none",
-                                onClick = { onOpenColorPicker(VexioColorPickerTarget.TEXT_BG) }
-                            )
-                            if (uiState.textBgColorHex != "none") {
-                                ExpressivePlan2ActionPill(
-                                    label = "✕",
-                                    selected = false,
-                                    onClick = { viewModel.applyRichTextStyle(bgColorHex = "none") }
-                                )
-                            }
-                            ColorSwatchActionPill(
-                                label = lang.fillColorLabel,
-                                swatchColor = parseColorHexOrFallback(uiState.shapeFillColorHex, Color(0xFFE8F0FE)),
-                                isTransparent = false,
-                                onClick = { onOpenColorPicker(VexioColorPickerTarget.SHAPE_FILL) }
-                            )
-                            ColorSwatchActionPill(
-                                label = lang.lineColorLabel,
-                                swatchColor = parseColorHexOrFallback(uiState.shapeLineColorHex, Color(0xFF1A73E8)),
-                                isTransparent = false,
-                                onClick = { onOpenColorPicker(VexioColorPickerTarget.SHAPE_LINE) }
-                            )
-
-                            ExpressivePlan2ActionPill(
-                                label = "⇤ L",
-                                selected = uiState.textHorizAlign == 0,
-                                onClick = { viewModel.applyRichTextStyle(horizAlign = 0) }
-                            )
-                            ExpressivePlan2ActionPill(
-                                label = "⇔ C",
-                                selected = uiState.textHorizAlign == 1,
-                                onClick = { viewModel.applyRichTextStyle(horizAlign = 1) }
-                            )
-                            ExpressivePlan2ActionPill(
-                                label = "⇥ R",
-                                selected = uiState.textHorizAlign == 2,
-                                onClick = { viewModel.applyRichTextStyle(horizAlign = 2) }
-                            )
-                            ExpressivePlan2ActionPill(
-                                label = VexioI18n.bulletListPill(lang),
-                                selected = uiState.textBullets,
-                                onClick = { viewModel.applyRichTextStyle(bullets = !uiState.textBullets) }
-                            )
-
-                            VerticalDivider(modifier = Modifier.height(20.dp), color = MaterialTheme.colorScheme.outlineVariant)
-
-                            // Arrange, Align, Distribute, Group, Rotate 90° & Flip for All Stencils
+                            var lineStyleMenuOpen by remember { mutableStateOf(false) }
+                            var arrowRouteMenuOpen by remember { mutableStateOf(false) }
                             var alignMenuOpen by remember { mutableStateOf(false) }
                             var distributeMenuOpen by remember { mutableStateOf(false) }
-                            Box {
-                                ExpressivePlan2ActionPill(
-                                    label = VexioI18n.alignMenuPill(lang),
-                                    selected = false,
-                                    onClick = { alignMenuOpen = true }
+
+                            // 1. Clipboard Group
+                            RibbonCommandGroup(title = VexioI18n.groupClipboard(lang)) {
+                                RibbonSegmentedCluster {
+                                    RibbonIconBtn(
+                                        icon = Icons.Default.ContentCopy,
+                                        tooltip = VexioI18n.ctxDuplicate(lang),
+                                        enabled = hasSelection,
+                                        onClick = { viewModel.duplicateSelectedShapes() }
+                                    )
+                                    RibbonIconBtn(
+                                        icon = Icons.Default.FormatPaint,
+                                        tooltip = "${VexioI18n.toolName(VexioTool.FORMAT_PAINTER, lang)} (Ctrl+Shift+P)",
+                                        selected = uiState.activeTool == VexioTool.FORMAT_PAINTER,
+                                        onClick = {
+                                            viewModel.copySelectedShapeFormat()
+                                            viewModel.selectTool(
+                                                if (uiState.activeTool == VexioTool.FORMAT_PAINTER) VexioTool.POINTER else VexioTool.FORMAT_PAINTER
+                                            )
+                                        }
+                                    )
+                                    RibbonIconBtn(
+                                        icon = Icons.Default.DeleteOutline,
+                                        tooltip = VexioI18n.ctxDelete(lang),
+                                        enabled = hasSelection,
+                                        onClick = { viewModel.deleteSelectedShape() }
+                                    )
+                                }
+                            }
+
+                            // 2. Font & Text Formatting Group
+                            RibbonCommandGroup(title = VexioI18n.groupFont(lang)) {
+                                Box {
+                                    RibbonSelectBox(
+                                        label = VexioI18n.stylesDropdownLabel(lang),
+                                        leadingIcon = Icons.Default.Title,
+                                        maxWidthDp = 112,
+                                        onClick = { headingMenuOpen = true }
+                                    )
+                                    DropdownMenu(
+                                        expanded = headingMenuOpen,
+                                        onDismissRequest = { headingMenuOpen = false }
+                                    ) {
+                                        listOf(
+                                            "title" to "Diagram Title (24 pt Bold)",
+                                            "subtitle" to "Subtitle (14 pt)",
+                                            "h1" to "Heading 1 — Underlined (18 pt)",
+                                            "h2" to "Heading 2 (14 pt Bold)",
+                                            "h3" to "Heading 3 (12 pt Accent)",
+                                            "section_banner" to "Section Header Banner",
+                                            "callout_title" to "Accent Callout Header",
+                                            "body" to "Body Text (11 pt)",
+                                            "caption" to "Caption / Note (9.5 pt)"
+                                        ).forEach { (slug, label) ->
+                                            DropdownMenuItem(
+                                                text = { Text(label) },
+                                                onClick = {
+                                                    headingMenuOpen = false
+                                                    viewModel.applyOrInsertHeading(slug, forceInsert = false)
+                                                }
+                                            )
+                                        }
+                                    }
+                                }
+
+                                Box {
+                                    RibbonSelectBox(
+                                        label = uiState.textFontFamily,
+                                        maxWidthDp = 122,
+                                        onClick = {
+                                            fontSearchQuery = ""
+                                            fontMenuOpen = true
+                                        }
+                                    )
+                                    DropdownMenu(
+                                        expanded = fontMenuOpen,
+                                        onDismissRequest = { fontMenuOpen = false },
+                                        modifier = Modifier
+                                            .width(248.dp)
+                                            .heightIn(max = 360.dp)
+                                    ) {
+                                        Box(modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)) {
+                                            OutlinedTextField(
+                                                value = fontSearchQuery,
+                                                onValueChange = { fontSearchQuery = it },
+                                                singleLine = true,
+                                                placeholder = {
+                                                    Text(
+                                                        VexioI18n.filterFontsPlaceholder(uiState.availableFontFamilies.size, lang),
+                                                        style = MaterialTheme.typography.labelSmall
+                                                    )
+                                                },
+                                                textStyle = MaterialTheme.typography.bodySmall,
+                                                modifier = Modifier.fillMaxWidth()
+                                            )
+                                        }
+                                        val filteredFonts = uiState.availableFontFamilies.filter {
+                                            fontSearchQuery.isBlank() || it.contains(fontSearchQuery.trim(), ignoreCase = true)
+                                        }
+                                        filteredFonts.forEach { f ->
+                                            DropdownMenuItem(
+                                                text = {
+                                                    Text(
+                                                        text = f,
+                                                        fontFamily = resolveComposeFontFamily(f),
+                                                        maxLines = 1,
+                                                        softWrap = false
+                                                    )
+                                                },
+                                                leadingIcon = {
+                                                    if (f.equals(uiState.textFontFamily, ignoreCase = true)) {
+                                                        Icon(Icons.Default.Check, contentDescription = null)
+                                                    }
+                                                },
+                                                onClick = {
+                                                    fontMenuOpen = false
+                                                    viewModel.applyRichTextStyle(fontFamily = f)
+                                                }
+                                            )
+                                        }
+                                    }
+                                }
+
+                                Box {
+                                    RibbonSelectBox(
+                                        label = "${uiState.textFontSizePt} pt",
+                                        maxWidthDp = 66,
+                                        onClick = { fontSizeMenuOpen = true }
+                                    )
+                                    DropdownMenu(
+                                        expanded = fontSizeMenuOpen,
+                                        onDismissRequest = { fontSizeMenuOpen = false }
+                                    ) {
+                                        listOf(8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 36, 48, 72).forEach { pt ->
+                                            DropdownMenuItem(
+                                                text = { Text("$pt pt") },
+                                                leadingIcon = {
+                                                    if (uiState.textFontSizePt == pt) {
+                                                        Icon(Icons.Default.Check, contentDescription = null)
+                                                    }
+                                                },
+                                                onClick = {
+                                                    fontSizeMenuOpen = false
+                                                    viewModel.applyRichTextStyle(fontSizePt = pt)
+                                                }
+                                            )
+                                        }
+                                    }
+                                }
+
+                                RibbonSegmentedCluster {
+                                    RibbonIconBtn(
+                                        icon = Icons.Default.TextIncrease,
+                                        tooltip = "+2 pt",
+                                        onClick = { viewModel.applyRichTextStyle(fontSizePt = uiState.textFontSizePt + 2) }
+                                    )
+                                    RibbonIconBtn(
+                                        icon = Icons.Default.TextDecrease,
+                                        tooltip = "-2 pt",
+                                        onClick = { viewModel.applyRichTextStyle(fontSizePt = (uiState.textFontSizePt - 2).coerceAtLeast(6)) }
+                                    )
+                                }
+
+                                RibbonSegmentedCluster {
+                                    RibbonIconBtn(
+                                        icon = Icons.Default.FormatBold,
+                                        tooltip = "Bold (Ctrl+B)",
+                                        selected = uiState.textBold,
+                                        onClick = { viewModel.applyRichTextStyle(bold = !uiState.textBold) }
+                                    )
+                                    RibbonIconBtn(
+                                        icon = Icons.Default.FormatItalic,
+                                        tooltip = "Italic (Ctrl+I)",
+                                        selected = uiState.textItalic,
+                                        onClick = { viewModel.applyRichTextStyle(italic = !uiState.textItalic) }
+                                    )
+                                    RibbonIconBtn(
+                                        icon = Icons.Default.FormatUnderlined,
+                                        tooltip = "Underline (Ctrl+U)",
+                                        selected = uiState.textUnderline,
+                                        onClick = { viewModel.applyRichTextStyle(underline = !uiState.textUnderline) }
+                                    )
+                                    RibbonIconBtn(
+                                        icon = Icons.Default.StrikethroughS,
+                                        tooltip = "Strikethrough",
+                                        selected = uiState.textStrikethrough,
+                                        onClick = { viewModel.applyRichTextStyle(strikethrough = !uiState.textStrikethrough) }
+                                    )
+                                }
+
+                                RibbonColorIconBtn(
+                                    icon = Icons.Default.FormatColorText,
+                                    tooltip = lang.textColorLabel,
+                                    swatchColor = parseColorHexOrFallback(uiState.textColorHex, Color(0xFF0F172A)),
+                                    isTransparent = false,
+                                    onClick = { onOpenColorPicker(VexioColorPickerTarget.TEXT_FG) }
                                 )
-                                DropdownMenu(
-                                    expanded = alignMenuOpen,
-                                    onDismissRequest = { alignMenuOpen = false }
-                                ) {
-                                    listOf("left", "center", "right", "top", "middle", "bottom").forEach { modeSlug ->
+                                RibbonColorIconBtn(
+                                    icon = Icons.Default.Highlight,
+                                    tooltip = lang.highlightColorLabel,
+                                    swatchColor = parseColorHexOrFallback(uiState.textBgColorHex, Color(0xFFFEF08A)),
+                                    isTransparent = uiState.textBgColorHex == "none",
+                                    onClick = { onOpenColorPicker(VexioColorPickerTarget.TEXT_BG) }
+                                )
+                                if (uiState.textBgColorHex != "none") {
+                                    RibbonIconBtn(
+                                        icon = Icons.Default.Close,
+                                        tooltip = lang.clearHighlightLabel,
+                                        onClick = { viewModel.applyRichTextStyle(bgColorHex = "none") }
+                                    )
+                                }
+                            }
+
+                            // 3. Paragraph & Text Alignment Group (Standard 4-Line Paragraph & Vertical Align Icons!)
+                            RibbonCommandGroup(title = VexioI18n.groupParagraph(lang)) {
+                                RibbonSegmentedCluster {
+                                    RibbonIconBtn(
+                                        icon = Icons.AutoMirrored.Filled.FormatAlignLeft,
+                                        tooltip = VexioI18n.alignTextLeftTooltip(lang),
+                                        selected = uiState.textHorizAlign == 0,
+                                        onClick = { viewModel.applyRichTextStyle(horizAlign = 0) }
+                                    )
+                                    RibbonIconBtn(
+                                        icon = Icons.Default.FormatAlignCenter,
+                                        tooltip = VexioI18n.alignTextCenterTooltip(lang),
+                                        selected = uiState.textHorizAlign == 1,
+                                        onClick = { viewModel.applyRichTextStyle(horizAlign = 1) }
+                                    )
+                                    RibbonIconBtn(
+                                        icon = Icons.AutoMirrored.Filled.FormatAlignRight,
+                                        tooltip = VexioI18n.alignTextRightTooltip(lang),
+                                        selected = uiState.textHorizAlign == 2,
+                                        onClick = { viewModel.applyRichTextStyle(horizAlign = 2) }
+                                    )
+                                }
+                                RibbonSegmentedCluster {
+                                    RibbonIconBtn(
+                                        icon = Icons.Default.VerticalAlignTop,
+                                        tooltip = VexioI18n.valignTopTooltip(lang),
+                                        selected = uiState.textVertAlign == 0,
+                                        onClick = { viewModel.applyRichTextStyle(vertAlign = 0) }
+                                    )
+                                    RibbonIconBtn(
+                                        icon = Icons.Default.VerticalAlignCenter,
+                                        tooltip = VexioI18n.valignMiddleTooltip(lang),
+                                        selected = uiState.textVertAlign == 1,
+                                        onClick = { viewModel.applyRichTextStyle(vertAlign = 1) }
+                                    )
+                                    RibbonIconBtn(
+                                        icon = Icons.Default.VerticalAlignBottom,
+                                        tooltip = VexioI18n.valignBottomTooltip(lang),
+                                        selected = uiState.textVertAlign == 2,
+                                        onClick = { viewModel.applyRichTextStyle(vertAlign = 2) }
+                                    )
+                                }
+                                RibbonSegmentedCluster {
+                                    RibbonIconBtn(
+                                        icon = Icons.AutoMirrored.Filled.FormatListBulleted,
+                                        tooltip = VexioI18n.bulletListTooltip(lang),
+                                        selected = uiState.textBullets,
+                                        onClick = { viewModel.applyRichTextStyle(bullets = !uiState.textBullets) }
+                                    )
+                                }
+                            }
+
+                            // 4. Shape Fill, Line Weight/Dash & Connector Arrowheads Group
+                            RibbonCommandGroup(title = VexioI18n.groupShapeStyle(lang)) {
+                                RibbonColorIconBtn(
+                                    icon = Icons.Default.FormatColorFill,
+                                    tooltip = lang.fillColorLabel,
+                                    swatchColor = parseColorHexOrFallback(uiState.shapeFillColorHex, Color(0xFFE8F0FE)),
+                                    isTransparent = uiState.inspectedObject?.fillPattern == 0,
+                                    onClick = { onOpenColorPicker(VexioColorPickerTarget.SHAPE_FILL) }
+                                )
+                                RibbonColorIconBtn(
+                                    icon = Icons.Default.BorderColor,
+                                    tooltip = lang.lineColorLabel,
+                                    swatchColor = parseColorHexOrFallback(uiState.shapeLineColorHex, Color(0xFF1A73E8)),
+                                    isTransparent = false,
+                                    onClick = { onOpenColorPicker(VexioColorPickerTarget.SHAPE_LINE) }
+                                )
+                                Box {
+                                    RibbonCommandBtn(
+                                        icon = Icons.Default.LineWeight,
+                                        label = VexioI18n.lineWeightLabel(lang),
+                                        tooltip = VexioI18n.lineArrowsSectionTitle(lang),
+                                        hasDropdown = true,
+                                        onClick = { lineStyleMenuOpen = true }
+                                    )
+                                    DropdownMenu(
+                                        expanded = lineStyleMenuOpen,
+                                        onDismissRequest = { lineStyleMenuOpen = false }
+                                    ) {
                                         DropdownMenuItem(
-                                            text = { Text(VexioI18n.alignOptionLabel(modeSlug, lang)) },
+                                            text = { Text("${VexioI18n.fillSectionTitle(lang)}: ${VexioI18n.noFillPill(lang)}") },
+                                            onClick = { lineStyleMenuOpen = false; viewModel.setCellForSelection("FillPattern", "0") }
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text("${VexioI18n.fillSectionTitle(lang)}: ${VexioI18n.solidPill(lang)}") },
+                                            onClick = { lineStyleMenuOpen = false; viewModel.setCellForSelection("FillPattern", "1") }
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text("${VexioI18n.fillSectionTitle(lang)}: ${VexioI18n.gradientPill(lang)}") },
+                                            onClick = { lineStyleMenuOpen = false; viewModel.applyVisualPreset("grad_linear") }
+                                        )
+                                        HorizontalDivider()
+                                        listOf("0.5 pt", "1 pt", "1.5 pt", "2.25 pt", "3 pt", "4.5 pt").forEach { w ->
+                                            DropdownMenuItem(
+                                                text = { Text("${VexioI18n.lineWeightLabel(lang)}: $w") },
+                                                onClick = { lineStyleMenuOpen = false; viewModel.setCellForSelection("LineWeight", w) }
+                                            )
+                                        }
+                                        HorizontalDivider()
+                                        DropdownMenuItem(
+                                            text = { Text(VexioI18n.solidPill(lang)) },
+                                            onClick = { lineStyleMenuOpen = false; viewModel.setCellForSelection("LinePattern", "1") }
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text(VexioI18n.dashedPill(lang)) },
+                                            onClick = { lineStyleMenuOpen = false; viewModel.setCellForSelection("LinePattern", "2") }
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text(VexioI18n.dottedPill(lang)) },
+                                            onClick = { lineStyleMenuOpen = false; viewModel.setCellForSelection("LinePattern", "3") }
+                                        )
+                                    }
+                                }
+                                Box {
+                                    RibbonIconBtn(
+                                        icon = Icons.AutoMirrored.Filled.TrendingFlat,
+                                        tooltip = VexioI18n.lineArrowsSectionTitle(lang),
+                                        onClick = { arrowRouteMenuOpen = true }
+                                    )
+                                    DropdownMenu(
+                                        expanded = arrowRouteMenuOpen,
+                                        onDismissRequest = { arrowRouteMenuOpen = false }
+                                    ) {
+                                        DropdownMenuItem(
+                                            text = { Text("Right-Angle Orthogonal") },
+                                            leadingIcon = { Icon(Icons.Default.Timeline, contentDescription = null, modifier = Modifier.size(16.dp)) },
+                                            onClick = { arrowRouteMenuOpen = false; viewModel.setCellForSelection("ShapeRouteStyle", "16") }
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text("Curved Connector") },
+                                            leadingIcon = { Icon(Icons.Default.Gesture, contentDescription = null, modifier = Modifier.size(16.dp)) },
+                                            onClick = { arrowRouteMenuOpen = false; viewModel.setCellForSelection("ShapeRouteStyle", "2") }
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text("Straight Line") },
+                                            leadingIcon = { Icon(Icons.Default.HorizontalRule, contentDescription = null, modifier = Modifier.size(16.dp)) },
+                                            onClick = { arrowRouteMenuOpen = false; viewModel.setCellForSelection("ShapeRouteStyle", "1") }
+                                        )
+                                        HorizontalDivider()
+                                        listOf(
+                                            0 to "0 — No Arrowhead",
+                                            1 to "1 — Open Arrow",
+                                            4 to "4 — Filled Triangle",
+                                            5 to "5 — Stealth Arrow",
+                                            11 to "11 — Filled Diamond",
+                                            27 to "27 — ERD Crow's Foot"
+                                        ).forEach { (code, label) ->
+                                            DropdownMenuItem(
+                                                text = { Text(label) },
+                                                onClick = { arrowRouteMenuOpen = false; viewModel.setConnectorArrowheads(0, code, 2) }
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            // 5. Arrange, Align, Order, Group & Transform Group
+                            RibbonCommandGroup(title = VexioI18n.arrangeSectionTitle(lang), showDividerAfter = false) {
+                                Box {
+                                    RibbonCommandBtn(
+                                        icon = Icons.Default.AlignHorizontalLeft,
+                                        label = VexioI18n.alignMenuPill(lang).removeSuffix(" ▾"),
+                                        hasDropdown = true,
+                                        onClick = { alignMenuOpen = true }
+                                    )
+                                    DropdownMenu(
+                                        expanded = alignMenuOpen,
+                                        onDismissRequest = { alignMenuOpen = false }
+                                    ) {
+                                        listOf(
+                                            "left" to Icons.Default.AlignHorizontalLeft,
+                                            "center" to Icons.Default.AlignHorizontalCenter,
+                                            "right" to Icons.Default.AlignHorizontalRight,
+                                            "top" to Icons.Default.AlignVerticalTop,
+                                            "middle" to Icons.Default.AlignVerticalCenter,
+                                            "bottom" to Icons.Default.AlignVerticalBottom
+                                        ).forEach { (modeSlug, modeIcon) ->
+                                            DropdownMenuItem(
+                                                text = { Text(VexioI18n.alignOptionLabel(modeSlug, lang)) },
+                                                leadingIcon = { Icon(modeIcon, contentDescription = null, modifier = Modifier.size(17.dp)) },
+                                                onClick = {
+                                                    alignMenuOpen = false
+                                                    viewModel.alignSelectedShapes(modeSlug)
+                                                }
+                                            )
+                                        }
+                                    }
+                                }
+                                Box {
+                                    RibbonCommandBtn(
+                                        icon = Icons.Default.ViewColumn,
+                                        label = VexioI18n.distributeMenuPill(lang).removeSuffix(" ▾"),
+                                        hasDropdown = true,
+                                        onClick = { distributeMenuOpen = true }
+                                    )
+                                    DropdownMenu(
+                                        expanded = distributeMenuOpen,
+                                        onDismissRequest = { distributeMenuOpen = false }
+                                    ) {
+                                        DropdownMenuItem(
+                                            text = { Text(VexioI18n.distributeHorizontally(lang)) },
+                                            leadingIcon = { Icon(Icons.Default.ViewColumn, contentDescription = null, modifier = Modifier.size(17.dp)) },
                                             onClick = {
-                                                alignMenuOpen = false
-                                                viewModel.alignSelectedShapes(modeSlug)
+                                                distributeMenuOpen = false
+                                                viewModel.distributeSelectedShapes("horizontal")
+                                            }
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text(VexioI18n.distributeVertically(lang)) },
+                                            leadingIcon = { Icon(Icons.Default.ViewStream, contentDescription = null, modifier = Modifier.size(17.dp)) },
+                                            onClick = {
+                                                distributeMenuOpen = false
+                                                viewModel.distributeSelectedShapes("vertical")
                                             }
                                         )
                                     }
                                 }
-                            }
-                            Box {
-                                ExpressivePlan2ActionPill(
-                                    label = VexioI18n.distributeMenuPill(lang),
-                                    selected = false,
-                                    onClick = { distributeMenuOpen = true }
-                                )
-                                DropdownMenu(
-                                    expanded = distributeMenuOpen,
-                                    onDismissRequest = { distributeMenuOpen = false }
-                                ) {
-                                    DropdownMenuItem(
-                                        text = { Text(VexioI18n.distributeHorizontally(lang)) },
-                                        onClick = {
-                                            distributeMenuOpen = false
-                                            viewModel.distributeSelectedShapes("horizontal")
-                                        }
+                                RibbonSegmentedCluster {
+                                    RibbonIconBtn(
+                                        icon = Icons.Default.FlipToFront,
+                                        tooltip = VexioI18n.bringToFrontTooltip(lang),
+                                        enabled = hasSelection,
+                                        onClick = { viewModel.reorderSelectedShapes("front") }
                                     )
-                                    DropdownMenuItem(
-                                        text = { Text(VexioI18n.distributeVertically(lang)) },
-                                        onClick = {
-                                            distributeMenuOpen = false
-                                            viewModel.distributeSelectedShapes("vertical")
-                                        }
+                                    RibbonIconBtn(
+                                        icon = Icons.Default.FlipToBack,
+                                        tooltip = VexioI18n.sendToBackTooltip(lang),
+                                        enabled = hasSelection,
+                                        onClick = { viewModel.reorderSelectedShapes("back") }
+                                    )
+                                    RibbonIconBtn(
+                                        icon = Icons.Default.Workspaces,
+                                        tooltip = VexioI18n.ctxGroupSelected(lang),
+                                        enabled = hasMultiSelection,
+                                        onClick = { viewModel.groupSelectedShapes() }
+                                    )
+                                    RibbonIconBtn(
+                                        icon = Icons.Default.CallSplit,
+                                        tooltip = VexioI18n.ctxUngroupSelected(lang),
+                                        enabled = hasSelection,
+                                        onClick = { viewModel.ungroupSelectedShapes() }
+                                    )
+                                }
+                                RibbonSegmentedCluster {
+                                    RibbonIconBtn(
+                                        icon = Icons.Default.Rotate90DegreesCcw,
+                                        tooltip = VexioI18n.rotateLeftTooltip(lang),
+                                        enabled = hasSelection,
+                                        onClick = { viewModel.rotateOrFlipSelected(deltaAngleDeg = -90.0) }
+                                    )
+                                    RibbonIconBtn(
+                                        icon = Icons.Default.Rotate90DegreesCw,
+                                        tooltip = VexioI18n.rotateRightTooltip(lang),
+                                        enabled = hasSelection,
+                                        onClick = { viewModel.rotateOrFlipSelected(deltaAngleDeg = 90.0) }
+                                    )
+                                    RibbonIconBtn(
+                                        icon = Icons.Default.Flip,
+                                        tooltip = VexioI18n.flipHorizTooltip(lang),
+                                        enabled = hasSelection,
+                                        onClick = { viewModel.rotateOrFlipSelected(flipX = true) }
+                                    )
+                                    RibbonIconBtn(
+                                        icon = Icons.Default.SwapVert,
+                                        tooltip = VexioI18n.flipVertTooltip(lang),
+                                        enabled = hasSelection,
+                                        onClick = { viewModel.rotateOrFlipSelected(flipY = true) }
                                     )
                                 }
                             }
-                            ExpressivePlan2ActionPill(
-                                label = VexioI18n.groupPill(lang),
-                                selected = false,
-                                onClick = { viewModel.groupSelectedShapes() }
-                            )
-                            ExpressivePlan2ActionPill(
-                                label = VexioI18n.ungroupPill(lang),
-                                selected = false,
-                                onClick = { viewModel.ungroupSelectedShapes() }
-                            )
-                            ExpressivePlan2ActionPill(
-                                label = "↺ 90°",
-                                selected = false,
-                                onClick = { viewModel.rotateOrFlipSelected(deltaAngleDeg = -90.0) }
-                            )
-                            ExpressivePlan2ActionPill(
-                                label = "↻ 90°",
-                                selected = false,
-                                onClick = { viewModel.rotateOrFlipSelected(deltaAngleDeg = 90.0) }
-                            )
-                            ExpressivePlan2ActionPill(
-                                label = VexioI18n.flipHPill(lang),
-                                selected = false,
-                                onClick = { viewModel.rotateOrFlipSelected(flipX = true) }
-                            )
-                            ExpressivePlan2ActionPill(
-                                label = VexioI18n.flipVPill(lang),
-                                selected = false,
-                                onClick = { viewModel.rotateOrFlipSelected(flipY = true) }
-                            )
                         }
 
                         "Insert" -> {
                             var insertHeadingMenuOpen by remember { mutableStateOf(false) }
-                            ExpressivePlan2ActionPill(
-                                label = VexioI18n.newPagePill(lang),
-                                selected = false,
-                                onClick = viewModel::addNewPage
-                            )
-                            ExpressivePlan2ActionPill(
-                                label = lang.importStencilLabel,
-                                selected = true,
-                                onClick = onImportStencilClick
-                            )
-                            Box {
-                                ExpressivePlan2ActionPill(
-                                    label = "+ Title / Heading ▾",
-                                    selected = false,
-                                    onClick = { insertHeadingMenuOpen = true }
+                            var wallOpeningMenuOpen by remember { mutableStateOf(false) }
+                            var dimensionMenuOpen by remember { mutableStateOf(false) }
+                            var cadMenuOpen by remember { mutableStateOf(false) }
+
+                            RibbonCommandGroup(title = VexioI18n.groupPages(lang)) {
+                                RibbonCommandBtn(
+                                    icon = Icons.Default.NoteAdd,
+                                    label = VexioI18n.shortNewPage(lang),
+                                    tooltip = VexioI18n.newPagePill(lang),
+                                    onClick = viewModel::addNewPage
                                 )
-                                DropdownMenu(
-                                    expanded = insertHeadingMenuOpen,
-                                    onDismissRequest = { insertHeadingMenuOpen = false }
-                                ) {
-                                    listOf(
-                                        "title" to "Insert Diagram Title (24 pt)",
-                                        "subtitle" to "Insert Subtitle (14 pt)",
-                                        "h1" to "Insert Heading 1 — Underlined",
-                                        "h2" to "Insert Heading 2",
-                                        "h3" to "Insert Heading 3",
-                                        "section_banner" to "Insert Section Header Banner",
-                                        "callout_title" to "Insert Accent Callout Header"
-                                    ).forEach { (slug, label) ->
+                                RibbonCommandBtn(
+                                    icon = Icons.Default.Extension,
+                                    label = VexioI18n.shortImportStencil(lang),
+                                    tooltip = lang.importStencilLabel,
+                                    onClick = onImportStencilClick
+                                )
+                                RibbonCommandBtn(
+                                    icon = Icons.Default.LibraryAdd,
+                                    label = VexioI18n.officialPacksShort(lang),
+                                    tooltip = VexioI18n.officialCatalogTitle(lang),
+                                    onClick = onOpenCatalogClick
+                                )
+                            }
+
+                            RibbonCommandGroup(title = VexioI18n.groupDiagramParts(lang)) {
+                                Box {
+                                    RibbonCommandBtn(
+                                        icon = Icons.Default.Title,
+                                        label = VexioI18n.stylesDropdownLabel(lang),
+                                        hasDropdown = true,
+                                        onClick = { insertHeadingMenuOpen = true }
+                                    )
+                                    DropdownMenu(
+                                        expanded = insertHeadingMenuOpen,
+                                        onDismissRequest = { insertHeadingMenuOpen = false }
+                                    ) {
+                                        listOf(
+                                            "title" to "Diagram Title (24 pt)",
+                                            "subtitle" to "Subtitle (14 pt)",
+                                            "h1" to "Heading 1 — Underlined",
+                                            "h2" to "Heading 2",
+                                            "h3" to "Heading 3",
+                                            "section_banner" to "Section Header Banner",
+                                            "callout_title" to "Accent Callout Header"
+                                        ).forEach { (slug, label) ->
+                                            DropdownMenuItem(
+                                                text = { Text(label) },
+                                                onClick = {
+                                                    insertHeadingMenuOpen = false
+                                                    viewModel.applyOrInsertHeading(slug, forceInsert = true)
+                                                }
+                                            )
+                                        }
+                                    }
+                                }
+                                RibbonCommandBtn(
+                                    icon = Icons.Default.TextFields,
+                                    label = VexioI18n.toolName(VexioTool.TEXT_BLOCK, lang),
+                                    tooltip = VexioI18n.textBoxPill(lang),
+                                    selected = uiState.activeTool == VexioTool.TEXT_BLOCK,
+                                    onClick = { viewModel.selectTool(VexioTool.TEXT_BLOCK) }
+                                )
+                                RibbonCommandBtn(
+                                    icon = Icons.Default.CheckBoxOutlineBlank,
+                                    label = VexioI18n.shortContainer(lang),
+                                    onClick = { viewModel.insertContainer() }
+                                )
+                                RibbonCommandBtn(
+                                    icon = Icons.Default.ViewStream,
+                                    label = VexioI18n.shortSwimlanes(lang),
+                                    onClick = { viewModel.insertSwimlanes() }
+                                )
+                                RibbonCommandBtn(
+                                    icon = Icons.Default.ChatBubbleOutline,
+                                    label = VexioI18n.shortCallout(lang),
+                                    onClick = { viewModel.attachCallout() }
+                                )
+                                RibbonCommandBtn(
+                                    icon = Icons.Default.AccountTree,
+                                    label = VexioI18n.subprocessPill(lang).removeSuffix(" (+)"),
+                                    onClick = { viewModel.createOrLinkSubprocess() }
+                                )
+                            }
+
+                            RibbonCommandGroup(title = VexioI18n.groupAec(lang)) {
+                                RibbonCommandBtn(
+                                    icon = Icons.Default.Domain,
+                                    label = VexioI18n.toolName(VexioTool.WALL, lang),
+                                    tooltip = "${VexioI18n.toolName(VexioTool.WALL, lang)} (Ctrl+Shift+W)",
+                                    selected = uiState.activeTool == VexioTool.WALL,
+                                    onClick = {
+                                        viewModel.selectTool(
+                                            if (uiState.activeTool == VexioTool.WALL) VexioTool.POINTER else VexioTool.WALL
+                                        )
+                                    }
+                                )
+                                Box {
+                                    RibbonCommandBtn(
+                                        icon = Icons.Default.SensorDoor,
+                                        label = VexioI18n.shortWallOpening(lang),
+                                        hasDropdown = true,
+                                        onClick = { wallOpeningMenuOpen = true }
+                                    )
+                                    DropdownMenu(
+                                        expanded = wallOpeningMenuOpen,
+                                        onDismissRequest = { wallOpeningMenuOpen = false }
+                                    ) {
+                                        listOf(
+                                            "single_door" to "Single Door (90°)",
+                                            "double_door" to "Double French Door",
+                                            "sliding_door" to "Sliding Door",
+                                            "pocket_door" to "Pocket Door",
+                                            "window" to "Casement Window",
+                                            "cased_opening" to "Cased Opening"
+                                        ).forEach { (slug, label) ->
+                                            DropdownMenuItem(
+                                                text = { Text(label) },
+                                                onClick = {
+                                                    wallOpeningMenuOpen = false
+                                                    viewModel.insertWallOpening(slug)
+                                                }
+                                            )
+                                        }
+                                    }
+                                }
+                                Box {
+                                    RibbonCommandBtn(
+                                        icon = Icons.Default.Straighten,
+                                        label = VexioI18n.toolName(VexioTool.DIMENSION, lang),
+                                        tooltip = "${VexioI18n.toolName(VexioTool.DIMENSION, lang)} (Ctrl+Shift+D)",
+                                        selected = uiState.activeTool == VexioTool.DIMENSION,
+                                        hasDropdown = true,
+                                        onClick = { dimensionMenuOpen = true }
+                                    )
+                                    DropdownMenu(
+                                        expanded = dimensionMenuOpen,
+                                        onDismissRequest = { dimensionMenuOpen = false }
+                                    ) {
                                         DropdownMenuItem(
-                                            text = { Text(label) },
+                                            text = { Text("${VexioI18n.toolName(VexioTool.DIMENSION, lang)} Tool (Ctrl+Shift+D)") },
+                                            leadingIcon = { Icon(Icons.Default.Straighten, contentDescription = null, modifier = Modifier.size(16.dp)) },
                                             onClick = {
-                                                insertHeadingMenuOpen = false
-                                                viewModel.applyOrInsertHeading(slug, forceInsert = true)
+                                                dimensionMenuOpen = false
+                                                viewModel.selectTool(
+                                                    if (uiState.activeTool == VexioTool.DIMENSION) VexioTool.POINTER else VexioTool.DIMENSION
+                                                )
+                                            }
+                                        )
+                                        HorizontalDivider()
+                                        listOf(
+                                            "aligned" to "Insert Aligned Dimension",
+                                            "horizontal" to "Insert Horizontal Span",
+                                            "vertical" to "Insert Vertical Span",
+                                            "angular" to "Insert Angular (2 Shapes)",
+                                            "radial" to "Insert Radial (R)",
+                                            "diameter" to "Insert Diameter (⌀)"
+                                        ).forEach { (slug, label) ->
+                                            DropdownMenuItem(
+                                                text = { Text(label) },
+                                                onClick = {
+                                                    dimensionMenuOpen = false
+                                                    viewModel.insertAssociativeDimension(slug)
+                                                }
+                                            )
+                                        }
+                                    }
+                                }
+                                RibbonCommandBtn(
+                                    icon = Icons.Default.AutoFixHigh,
+                                    label = VexioI18n.shortHealWalls(lang),
+                                    onClick = { viewModel.healWallIntersections() }
+                                )
+                            }
+
+                            RibbonCommandGroup(title = VexioI18n.groupWizardsCad(lang), showDividerAfter = false) {
+                                RibbonCommandBtn(
+                                    icon = Icons.Default.AutoAwesome,
+                                    label = VexioI18n.shortWizards(lang),
+                                    selected = uiState.showDomainWizardsDialog,
+                                    onClick = { viewModel.setDomainWizardsDialogVisible(true) }
+                                )
+                                RibbonCommandBtn(
+                                    icon = Icons.Default.Link,
+                                    label = "Link",
+                                    tooltip = "Hyperlink & ScreenTip (Ctrl+K)",
+                                    selected = uiState.showHyperlinkDialog,
+                                    onClick = { viewModel.setHyperlinkDialogVisible(true) }
+                                )
+                                RibbonCommandBtn(
+                                    icon = Icons.Default.Functions,
+                                    label = "<fld>",
+                                    tooltip = "Insert Dynamic Formula Field",
+                                    selected = uiState.showInsertFieldDialog,
+                                    onClick = { viewModel.setInsertFieldDialogVisible(true) }
+                                )
+                                Box {
+                                    RibbonCommandBtn(
+                                        icon = Icons.Default.Layers,
+                                        label = "CAD",
+                                        selected = uiState.cadScaleLocked,
+                                        hasDropdown = true,
+                                        onClick = { cadMenuOpen = true }
+                                    )
+                                    DropdownMenu(
+                                        expanded = cadMenuOpen,
+                                        onDismissRequest = { cadMenuOpen = false }
+                                    ) {
+                                        DropdownMenuItem(
+                                            text = {
+                                                Text(
+                                                    if (uiState.cadScaleLocked) {
+                                                        "Unlock CAD Scale (${uiState.cadScaleSlug})"
+                                                    } else {
+                                                        "Lock Architectural CAD Scale"
+                                                    }
+                                                )
+                                            },
+                                            leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null, modifier = Modifier.size(16.dp)) },
+                                            onClick = {
+                                                cadMenuOpen = false
+                                                val slug = if (uiState.metricUnits) "1:100" else "1/4_in_ft"
+                                                viewModel.applyCadArchitecturalScale(slug, !uiState.cadScaleLocked)
+                                            }
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text("Convert CAD Layers to Visio Shapes") },
+                                            leadingIcon = { Icon(Icons.Default.Layers, contentDescription = null, modifier = Modifier.size(16.dp)) },
+                                            onClick = {
+                                                cadMenuOpen = false
+                                                viewModel.convertCadLayersToShapeSheet("*")
                                             }
                                         )
                                     }
                                 }
                             }
-                            ExpressivePlan2ActionPill(
-                                label = VexioI18n.textBoxPill(lang),
-                                selected = uiState.activeTool == VexioTool.TEXT_BLOCK,
-                                onClick = { viewModel.selectTool(VexioTool.TEXT_BLOCK) }
-                            )
-                            ExpressivePlan2ActionPill(
-                                label = VexioI18n.containerPill(lang),
-                                selected = false,
-                                onClick = { viewModel.insertContainer() }
-                            )
-                            ExpressivePlan2ActionPill(
-                                label = VexioI18n.swimlanesPill(lang),
-                                selected = false,
-                                onClick = { viewModel.insertSwimlanes() }
-                            )
-                            ExpressivePlan2ActionPill(
-                                label = VexioI18n.calloutPill(lang),
-                                selected = false,
-                                onClick = { viewModel.attachCallout() }
-                            )
-                            ExpressivePlan2ActionPill(
-                                label = VexioI18n.subprocessPill(lang),
-                                selected = false,
-                                onClick = { viewModel.createOrLinkSubprocess() }
-                            )
-                            ExpressivePlan2ActionPill(
-                                label = "Hyperlink & Tip…",
-                                selected = uiState.showHyperlinkDialog || uiState.hyperlinkAddress.isNotBlank(),
-                                onClick = { viewModel.setHyperlinkDialogVisible(true) }
-                            )
-                            ExpressivePlan2ActionPill(
-                                label = "Diagram Wizards…",
-                                selected = uiState.showDomainWizardsDialog,
-                                onClick = { viewModel.setDomainWizardsDialogVisible(true) }
-                            )
-                            ExpressivePlan2ActionPill(
-                                label = "Wall (Ctrl+Shift+W)",
-                                selected = uiState.activeTool == VexioTool.WALL,
-                                onClick = {
-                                    viewModel.selectTool(
-                                        if (uiState.activeTool == VexioTool.WALL) VexioTool.POINTER else VexioTool.WALL
-                                    )
-                                }
-                            )
-                            ExpressivePlan2ActionPill(
-                                label = "Dimension (Ctrl+Shift+D)",
-                                selected = uiState.activeTool == VexioTool.DIMENSION,
-                                onClick = {
-                                    viewModel.selectTool(
-                                        if (uiState.activeTool == VexioTool.DIMENSION) VexioTool.POINTER else VexioTool.DIMENSION
-                                    )
-                                }
-                            )
-                            ExpressivePlan2ActionPill(
-                                label = "+ Dimension",
-                                selected = false,
-                                onClick = { viewModel.insertAssociativeDimension("aligned") }
-                            )
-                            ExpressivePlan2ActionPill(
-                                label = "+ Door",
-                                selected = false,
-                                onClick = { viewModel.insertWallOpening("single_door") }
-                            )
-                            ExpressivePlan2ActionPill(
-                                label = "+ Window",
-                                selected = false,
-                                onClick = { viewModel.insertWallOpening("window") }
-                            )
-                            ExpressivePlan2ActionPill(
-                                label = "Heal Walls",
-                                selected = false,
-                                onClick = { viewModel.healWallIntersections() }
-                            )
-                            ExpressivePlan2ActionPill(
-                                label = "+ Mind Map Topic",
-                                selected = false,
-                                onClick = { viewModel.addMindMapTopic("New Subtopic", false) }
-                            )
-                            ExpressivePlan2ActionPill(
-                                label = "VSM / FTA Calc",
-                                selected = false,
-                                onClick = { viewModel.recalculateVsmAndFta() }
-                            )
-                            ExpressivePlan2ActionPill(
-                                label = if (uiState.cadScaleLocked) "CAD Scale Locked (${uiState.cadScaleSlug})" else "Lock CAD Scale",
-                                selected = uiState.cadScaleLocked,
-                                onClick = {
-                                    val slug = if (uiState.metricUnits) "1:100" else "1/4_in_ft"
-                                    viewModel.applyCadArchitecturalScale(slug, !uiState.cadScaleLocked)
-                                }
-                            )
-                            ExpressivePlan2ActionPill(
-                                label = "Convert CAD Layers",
-                                selected = false,
-                                onClick = { viewModel.convertCadLayersToShapeSheet("*") }
-                            )
                         }
 
                         "Design" -> {
                             var bordersMenuOpen by remember { mutableStateOf(false) }
-                            Box {
-                                ExpressivePlan2ActionPill(
-                                    label = VexioI18n.pageSizePrefix(VexioI18n.pagePresetLabel(uiState.activePagePreset, lang), lang),
-                                    selected = true,
-                                    onClick = { pageSizeMenuOpen = true }
-                                )
-                                DropdownMenu(expanded = pageSizeMenuOpen, onDismissRequest = { pageSizeMenuOpen = false }) {
-                                    VexioPagePresetSpec.entries.forEach { preset ->
-                                        DropdownMenuItem(
-                                            text = { Text(VexioI18n.pagePresetLabel(preset, lang)) },
-                                            leadingIcon = {
-                                                if (uiState.activePagePreset == preset) {
-                                                    Icon(Icons.Default.Check, contentDescription = null)
+                            var layoutMenuOpen by remember { mutableStateOf(false) }
+
+                            RibbonCommandGroup(title = VexioI18n.pagePropertiesTitle(lang)) {
+                                Box {
+                                    RibbonSelectBox(
+                                        label = VexioI18n.pagePresetLabel(uiState.activePagePreset, lang),
+                                        leadingIcon = Icons.Default.AspectRatio,
+                                        maxWidthDp = 176,
+                                        onClick = { pageSizeMenuOpen = true }
+                                    )
+                                    DropdownMenu(expanded = pageSizeMenuOpen, onDismissRequest = { pageSizeMenuOpen = false }) {
+                                        VexioPagePresetSpec.entries.forEach { preset ->
+                                            DropdownMenuItem(
+                                                text = { Text(VexioI18n.pagePresetLabel(preset, lang)) },
+                                                leadingIcon = {
+                                                    if (uiState.activePagePreset == preset) {
+                                                        Icon(Icons.Default.Check, contentDescription = null)
+                                                    }
+                                                },
+                                                onClick = {
+                                                    pageSizeMenuOpen = false
+                                                    viewModel.applyPagePreset(preset)
                                                 }
-                                            },
-                                            onClick = {
-                                                pageSizeMenuOpen = false
-                                                viewModel.applyPagePreset(preset)
-                                            }
-                                        )
+                                            )
+                                        }
+                                    }
+                                }
+                                Box {
+                                    RibbonCommandBtn(
+                                        icon = Icons.Default.BorderOuter,
+                                        label = "Borders & Titles",
+                                        hasDropdown = true,
+                                        onClick = { bordersMenuOpen = true }
+                                    )
+                                    DropdownMenu(
+                                        expanded = bordersMenuOpen,
+                                        onDismissRequest = { bordersMenuOpen = false }
+                                    ) {
+                                        listOf(
+                                            "modern_banner" to "Modern Header Banner",
+                                            "executive_underline" to "Executive Title & Accent Rule",
+                                            "classic_frame" to "Classic Frame & Title",
+                                            "pill_banner" to "Rounded Pill Banner",
+                                            "iso_engineering" to "ISO 7200 / ANSI Engineering Block",
+                                            "none" to "None (Remove Border & Title)"
+                                        ).forEach { (slug, label) ->
+                                            DropdownMenuItem(
+                                                text = { Text(label) },
+                                                onClick = {
+                                                    bordersMenuOpen = false
+                                                    viewModel.applyBorderAndTitle(slug)
+                                                }
+                                            )
+                                        }
                                     }
                                 }
                             }
-                            Box {
-                                ExpressivePlan2ActionPill(
-                                    label = "Borders & Titles ▾",
-                                    selected = false,
-                                    onClick = { bordersMenuOpen = true }
-                                )
-                                DropdownMenu(
-                                    expanded = bordersMenuOpen,
-                                    onDismissRequest = { bordersMenuOpen = false }
-                                ) {
-                                    listOf(
-                                        "modern_banner" to "Modern Header Banner",
-                                        "executive_underline" to "Executive Title & Accent Rule",
-                                        "classic_frame" to "Classic Frame & Title",
-                                        "pill_banner" to "Rounded Pill Banner",
-                                        "iso_engineering" to "ISO 7200 / ANSI Engineering Block",
-                                        "none" to "None (Remove Border & Title)"
-                                    ).forEach { (slug, label) ->
-                                        DropdownMenuItem(
-                                            text = { Text(label) },
-                                            onClick = {
-                                                bordersMenuOpen = false
-                                                viewModel.applyBorderAndTitle(slug)
-                                            }
-                                        )
+
+                            RibbonCommandGroup(title = "Themes") {
+                                VexioThemePreset.entries.forEach { preset ->
+                                    RibbonCommandBtn(
+                                        icon = if (preset == VexioThemePreset.HAND_DRAWN) Icons.Default.Draw else Icons.Default.Palette,
+                                        label = VexioI18n.themePresetName(preset, lang),
+                                        selected = uiState.activeThemeSlug == preset.slug,
+                                        onClick = { viewModel.applyDocumentTheme(preset.slug, uiState.activeThemeVariant) }
+                                    )
+                                }
+                            }
+
+                            RibbonCommandGroup(title = VexioI18n.arrangeSectionTitle(lang), showDividerAfter = false) {
+                                Box {
+                                    RibbonCommandBtn(
+                                        icon = Icons.Default.AccountTree,
+                                        label = VexioI18n.autoLayoutPill(lang),
+                                        hasDropdown = true,
+                                        onClick = { layoutMenuOpen = true }
+                                    )
+                                    DropdownMenu(
+                                        expanded = layoutMenuOpen,
+                                        onDismissRequest = { layoutMenuOpen = false }
+                                    ) {
+                                        listOf(
+                                            "hierarchical_tb" to "Top-to-Bottom Hierarchy",
+                                            "hierarchical_lr" to "Left-to-Right Hierarchy",
+                                            "radial" to "Radial Star Layout",
+                                            "force_directed" to "Force-Directed Network"
+                                        ).forEach { (algo, label) ->
+                                            DropdownMenuItem(
+                                                text = { Text(label) },
+                                                onClick = {
+                                                    layoutMenuOpen = false
+                                                    viewModel.autoLayoutActivePage(algo)
+                                                }
+                                            )
+                                        }
                                     }
                                 }
                             }
-                            VexioThemePreset.entries.forEach { preset ->
-                                ExpressivePlan2ActionPill(
-                                    label = VexioI18n.themePresetName(preset, lang),
-                                    selected = uiState.activeThemeSlug == preset.slug,
-                                    onClick = { viewModel.applyDocumentTheme(preset.slug, uiState.activeThemeVariant) }
-                                )
-                            }
-                            ExpressivePlan2ActionPill(
-                                label = VexioI18n.autoLayoutPill(lang),
-                                selected = false,
-                                onClick = { viewModel.autoLayoutActivePage() }
-                            )
                         }
 
                         "Data" -> {
-                            ExpressivePlan2ActionPill(
-                                label = "Link Data (.xlsx / .csv / .sqlite / .json)",
-                                selected = uiState.externalRecordsets.isNotEmpty(),
-                                onClick = onLinkExternalDataClick
-                            )
-                            ExpressivePlan2ActionPill(
-                                label = "Refresh Data",
-                                selected = false,
-                                onClick = onRefreshExternalDataClick
-                            )
-                            ExpressivePlan2ActionPill(
-                                label = "Two-Way Writeback",
-                                selected = false,
-                                onClick = onTwoWayWritebackClick
-                            )
-                            ExpressivePlan2ActionPill(
-                                label = "Data Graphics",
-                                selected = uiState.dataGraphics.enabled,
-                                onClick = {
-                                    val dg = uiState.dataGraphics
-                                    viewModel.updatePageDataGraphics(dg.copy(enabled = !dg.enabled))
-                                }
-                            )
-                            ExpressivePlan2ActionPill(
-                                label = "Insert Legend",
-                                selected = uiState.dataGraphics.legendVisible,
-                                onClick = { viewModel.insertOrUpdateDataLegend() }
-                            )
-                            ExpressivePlan2ActionPill(
-                                label = "BOM Report (.xlsx)",
-                                selected = false,
-                                onClick = onExportBomReportClick
-                            )
-                            ExpressivePlan2ActionPill(
-                                label = VexioI18n.dataVisualizerPill(lang),
-                                selected = uiState.lastDataVisualizerShapeCount > 0,
-                                onClick = {
-                                    viewModel.importDataVisualizer(
-                                        Plan2SamplePayloads.dataVisualizerCsv.toByteArray(Charsets.UTF_8)
-                                    )
-                                }
-                            )
-                            ExpressivePlan2ActionPill(
-                                label = VexioI18n.cloudDiscoveryPill(lang),
-                                selected = uiState.lastCloudDiscoveryShapeCount > 0,
-                                onClick = { viewModel.importCloudDiscovery(Plan2SamplePayloads.cloudDiscoveryJson) }
-                            )
-                            ExpressivePlan2ActionPill(
-                                label = VexioI18n.entraOrgChartPill(lang),
-                                selected = uiState.lastOrgChartShapeCount > 0,
-                                onClick = { viewModel.importEntraOrLdifOrgChart(Plan2SamplePayloads.entraOrgChartLdif) }
-                            )
+                            RibbonCommandGroup(title = "External Data") {
+                                RibbonCommandBtn(
+                                    icon = Icons.Default.Link,
+                                    label = "Link Data…",
+                                    tooltip = "Link .xlsx, .csv, .sqlite, or .json",
+                                    selected = uiState.externalRecordsets.isNotEmpty(),
+                                    onClick = onLinkExternalDataClick
+                                )
+                                RibbonCommandBtn(
+                                    icon = Icons.Default.Refresh,
+                                    label = "Refresh",
+                                    onClick = onRefreshExternalDataClick
+                                )
+                                RibbonCommandBtn(
+                                    icon = Icons.Default.Sync,
+                                    label = "Writeback",
+                                    onClick = onTwoWayWritebackClick
+                                )
+                            }
+
+                            RibbonCommandGroup(title = "Data Graphics") {
+                                RibbonCommandBtn(
+                                    icon = Icons.Default.Leaderboard,
+                                    label = "Data Graphics",
+                                    selected = uiState.dataGraphics.enabled,
+                                    onClick = {
+                                        val dg = uiState.dataGraphics
+                                        viewModel.updatePageDataGraphics(dg.copy(enabled = !dg.enabled))
+                                    }
+                                )
+                                RibbonCommandBtn(
+                                    icon = Icons.Default.LegendToggle,
+                                    label = "Legend",
+                                    selected = uiState.dataGraphics.legendVisible,
+                                    onClick = { viewModel.insertOrUpdateDataLegend() }
+                                )
+                                RibbonCommandBtn(
+                                    icon = Icons.Default.TableView,
+                                    label = "BOM (.xlsx)",
+                                    onClick = onExportBomReportClick
+                                )
+                            }
+
+                            RibbonCommandGroup(title = "Plan 2 Connectors", showDividerAfter = false) {
+                                RibbonCommandBtn(
+                                    icon = Icons.Default.GridOn,
+                                    label = VexioI18n.dataVisualizerPill(lang),
+                                    onClick = {
+                                        viewModel.importDataVisualizer(
+                                            Plan2SamplePayloads.dataVisualizerCsv.toByteArray(Charsets.UTF_8)
+                                        )
+                                    }
+                                )
+                                RibbonCommandBtn(
+                                    icon = Icons.Default.CloudSync,
+                                    label = VexioI18n.cloudDiscoveryPill(lang),
+                                    onClick = { viewModel.importCloudDiscovery(Plan2SamplePayloads.cloudDiscoveryJson) }
+                                )
+                                RibbonCommandBtn(
+                                    icon = Icons.Default.Badge,
+                                    label = VexioI18n.entraOrgChartPill(lang),
+                                    onClick = { viewModel.importEntraOrLdifOrgChart(Plan2SamplePayloads.entraOrgChartLdif) }
+                                )
+                            }
                         }
 
                         "Process" -> {
-                            ExpressivePlan2ActionPill(
-                                label = VexioI18n.validateBpmnPill(lang),
-                                selected = uiState.validationSummary.standard == "BPMN 2.0",
-                                onClick = { viewModel.validateActiveDiagram("bpmn") }
-                            )
-                            ExpressivePlan2ActionPill(
-                                label = VexioI18n.validateUmlPill(lang),
-                                selected = uiState.validationSummary.standard == "UML 2.5",
-                                onClick = { viewModel.validateActiveDiagram("uml") }
-                            )
-                            ExpressivePlan2ActionPill(
-                                label = VexioI18n.createSubprocessDrillDown(lang),
-                                selected = false,
-                                onClick = { viewModel.createOrLinkSubprocess() }
-                            )
+                            RibbonCommandGroup(title = "Validation") {
+                                RibbonCommandBtn(
+                                    icon = Icons.Default.Verified,
+                                    label = "BPMN 2.0",
+                                    tooltip = VexioI18n.validateBpmnPill(lang),
+                                    selected = uiState.validationSummary.standard == "BPMN 2.0",
+                                    onClick = { viewModel.validateActiveDiagram("bpmn") }
+                                )
+                                RibbonCommandBtn(
+                                    icon = Icons.Default.FactCheck,
+                                    label = "UML 2.5",
+                                    tooltip = VexioI18n.validateUmlPill(lang),
+                                    selected = uiState.validationSummary.standard == "UML 2.5",
+                                    onClick = { viewModel.validateActiveDiagram("uml") }
+                                )
+                                RibbonCommandBtn(
+                                    icon = Icons.Default.Rule,
+                                    label = "SharePoint",
+                                    selected = uiState.validationSummary.standard == "SharePoint",
+                                    onClick = { viewModel.validateActiveDiagram("workflow") }
+                                )
+                            }
+
+                            RibbonCommandGroup(title = "Subprocess") {
+                                RibbonCommandBtn(
+                                    icon = Icons.Default.AccountTree,
+                                    label = VexioI18n.createSubprocessDrillDown(lang),
+                                    onClick = { viewModel.createOrLinkSubprocess() }
+                                )
+                            }
+
+                            RibbonCommandGroup(title = "Plan 2 Analytics", showDividerAfter = false) {
+                                RibbonCommandBtn(
+                                    icon = Icons.Default.CalendarMonth,
+                                    label = "Calendar",
+                                    onClick = {
+                                        viewModel.selectDomainWizardPreset("calendar")
+                                        viewModel.setDomainWizardsDialogVisible(true)
+                                    }
+                                )
+                                RibbonCommandBtn(
+                                    icon = Icons.Default.PivotTableChart,
+                                    label = "PivotDiagram",
+                                    onClick = {
+                                        viewModel.selectDomainWizardPreset("pivot_diagram")
+                                        viewModel.setDomainWizardsDialogVisible(true)
+                                    }
+                                )
+                                RibbonCommandBtn(
+                                    icon = Icons.Default.Psychology,
+                                    label = "Mind Map",
+                                    onClick = {
+                                        viewModel.selectDomainWizardPreset("mind_map")
+                                        viewModel.setDomainWizardsDialogVisible(true)
+                                    }
+                                )
+                                RibbonCommandBtn(
+                                    icon = Icons.Default.Add,
+                                    label = "+ Topic",
+                                    onClick = { viewModel.addMindMapTopic("New Subtopic", false) }
+                                )
+                                RibbonCommandBtn(
+                                    icon = Icons.Default.Analytics,
+                                    label = "Lean VSM",
+                                    onClick = {
+                                        viewModel.selectDomainWizardPreset("vsm")
+                                        viewModel.setDomainWizardsDialogVisible(true)
+                                    }
+                                )
+                                RibbonCommandBtn(
+                                    icon = Icons.Default.Hub,
+                                    label = "Fault Tree",
+                                    onClick = {
+                                        viewModel.selectDomainWizardPreset("fta")
+                                        viewModel.setDomainWizardsDialogVisible(true)
+                                    }
+                                )
+                                RibbonCommandBtn(
+                                    icon = Icons.Default.Calculate,
+                                    label = "Recalc VSM / FTA",
+                                    onClick = { viewModel.recalculateVsmAndFta() }
+                                )
+                            }
                         }
 
                         "Review" -> {
-                            ExpressivePlan2ActionPill(
-                                label = VexioI18n.markupPenPill(lang),
-                                selected = uiState.activeTool == VexioTool.STYLUS_INK,
-                                onClick = { viewModel.selectTool(VexioTool.STYLUS_INK) }
-                            )
-                            ExpressivePlan2ActionPill(
-                                label = VexioI18n.highlighterPill(lang),
-                                selected = uiState.activeTool == VexioTool.HIGHLIGHTER,
-                                onClick = { viewModel.selectTool(VexioTool.HIGHLIGHTER) }
-                            )
-                            ExpressivePlan2ActionPill(
-                                label = "Ink Eraser",
-                                selected = uiState.activeTool == VexioTool.INK_ERASER,
-                                onClick = { viewModel.selectTool(VexioTool.INK_ERASER) }
-                            )
-                            ExpressivePlan2ActionPill(
-                                label = "Clear Ink",
-                                selected = false,
-                                onClick = { viewModel.clearActivePageInk() }
-                            )
-                            ExpressivePlan2ActionPill(
-                                label = "Comments (${uiState.reviewComments.size})",
-                                selected = uiState.showCommentsDialog,
-                                onClick = { viewModel.setCommentsDialogVisible(true) }
-                            )
-                            ExpressivePlan2ActionPill(
-                                label = VexioI18n.diagramComparePill(lang),
-                                selected = uiState.lastCompareSummary != null,
-                                onClick = { viewModel.compareWithBaseline() }
-                            )
+                            RibbonCommandGroup(title = "Markup Ink") {
+                                RibbonCommandBtn(
+                                    icon = Icons.Default.Brush,
+                                    label = VexioI18n.markupPenPill(lang),
+                                    selected = uiState.activeTool == VexioTool.STYLUS_INK,
+                                    onClick = { viewModel.selectTool(VexioTool.STYLUS_INK) }
+                                )
+                                RibbonCommandBtn(
+                                    icon = Icons.Default.Highlight,
+                                    label = VexioI18n.highlighterPill(lang),
+                                    selected = uiState.activeTool == VexioTool.HIGHLIGHTER,
+                                    onClick = { viewModel.selectTool(VexioTool.HIGHLIGHTER) }
+                                )
+                                RibbonCommandBtn(
+                                    icon = Icons.Default.AutoFixNormal,
+                                    label = VexioI18n.toolName(VexioTool.INK_ERASER, lang),
+                                    selected = uiState.activeTool == VexioTool.INK_ERASER,
+                                    onClick = { viewModel.selectTool(VexioTool.INK_ERASER) }
+                                )
+                                RibbonCommandBtn(
+                                    icon = Icons.Default.LayersClear,
+                                    label = "Clear Ink",
+                                    onClick = { viewModel.clearActivePageInk() }
+                                )
+                            }
+
+                            RibbonCommandGroup(title = "Review & Compare", showDividerAfter = false) {
+                                RibbonCommandBtn(
+                                    icon = Icons.Default.Comment,
+                                    label = "Comments (${uiState.reviewComments.size})",
+                                    selected = uiState.showCommentsDialog,
+                                    onClick = { viewModel.setCommentsDialogVisible(true) }
+                                )
+                                RibbonCommandBtn(
+                                    icon = Icons.Default.CompareArrows,
+                                    label = VexioI18n.diagramComparePill(lang),
+                                    onClick = { viewModel.compareWithBaseline() }
+                                )
+                            }
                         }
 
                         "View" -> {
-                            ExpressivePlan2ActionPill(
-                                label = VexioI18n.smartGuidesPill(lang),
-                                selected = uiState.smartGuidesEnabled,
-                                onClick = { viewModel.toggleSmartGuides() }
-                            )
-                            ExpressivePlan2ActionPill(
-                                label = VexioI18n.stencilsNavigatorPill(lang),
-                                selected = uiState.isStencilDrawerExpanded,
-                                onClick = viewModel::toggleStencilDrawer
-                            )
-                            ExpressivePlan2ActionPill(
-                                label = VexioI18n.inspectorPanePill(lang),
-                                selected = uiState.isInspectorExpanded,
-                                onClick = viewModel::toggleInspectorPane
-                            )
-                            ExpressivePlan2ActionPill(
-                                label = "ShapeSheet (Shift+F5)",
-                                selected = uiState.isShapeSheetDrawerExpanded,
-                                onClick = viewModel::toggleShapeSheetDrawer
-                            )
-                            ExpressivePlan2ActionPill(
-                                label = VexioI18n.zoom100Pill(lang),
-                                selected = uiState.zoomPercent == 100,
-                                onClick = { viewModel.setZoomPercent(100) }
-                            )
-                            ExpressivePlan2ActionPill(
-                                label = "Slide Snippets (${uiState.slideSnippets.size})",
-                                selected = uiState.showSlideSnippetsDialog,
-                                onClick = { viewModel.setSlideSnippetsDialogVisible(true) }
-                            )
-                            ExpressivePlan2ActionPill(
-                                label = if (uiState.isPresentationModeActive) "Exit Present ✕" else "Present ▶",
-                                selected = uiState.isPresentationModeActive,
-                                onClick = { viewModel.setPresentationModeActive(!uiState.isPresentationModeActive) }
-                            )
+                            RibbonCommandGroup(title = "Panes") {
+                                RibbonCommandBtn(
+                                    icon = Icons.Default.Schema,
+                                    label = VexioI18n.stencilsNavigatorPill(lang),
+                                    selected = uiState.isStencilDrawerExpanded,
+                                    onClick = viewModel::toggleStencilDrawer
+                                )
+                                RibbonCommandBtn(
+                                    icon = Icons.Default.ViewSidebar,
+                                    label = VexioI18n.inspectorPanePill(lang),
+                                    selected = uiState.isInspectorExpanded,
+                                    onClick = viewModel::toggleInspectorPane
+                                )
+                                RibbonCommandBtn(
+                                    icon = Icons.Default.TableChart,
+                                    label = "ShapeSheet",
+                                    tooltip = VexioI18n.toggleShapeSheetTooltip(lang),
+                                    selected = uiState.isShapeSheetDrawerExpanded,
+                                    onClick = viewModel::toggleShapeSheetDrawer
+                                )
+                            }
+
+                            RibbonCommandGroup(title = "Guides & Snap") {
+                                RibbonCommandBtn(
+                                    icon = Icons.Default.Grid4x4,
+                                    label = VexioI18n.smartGuidesPill(lang),
+                                    selected = uiState.smartGuidesEnabled,
+                                    onClick = { viewModel.toggleSmartGuides() }
+                                )
+                                RibbonCommandBtn(
+                                    icon = Icons.Default.HorizontalRule,
+                                    label = "+ H Guide",
+                                    onClick = { viewModel.addRulerGuide(false, 4.0) }
+                                )
+                                RibbonCommandBtn(
+                                    icon = Icons.Default.VerticalSplit,
+                                    label = "+ V Guide",
+                                    onClick = { viewModel.addRulerGuide(true, 5.5) }
+                                )
+                                RibbonCommandBtn(
+                                    icon = Icons.Default.GridOn,
+                                    label = "Snap & Glue",
+                                    selected = uiState.showSnapGlueDialog,
+                                    onClick = { viewModel.setSnapGlueDialogVisible(true) }
+                                )
+                                RibbonCommandBtn(
+                                    icon = Icons.Default.FormatListNumbered,
+                                    label = "Number Shapes",
+                                    selected = uiState.showNumberShapesDialog,
+                                    onClick = { viewModel.setNumberShapesDialogVisible(true) }
+                                )
+                            }
+
+                            RibbonCommandGroup(title = "Zoom & Present", showDividerAfter = false) {
+                                RibbonCommandBtn(
+                                    icon = Icons.Default.CenterFocusStrong,
+                                    label = VexioI18n.zoom100Pill(lang),
+                                    selected = uiState.zoomPercent == 100,
+                                    onClick = { viewModel.setZoomPercent(100) }
+                                )
+                                RibbonCommandBtn(
+                                    icon = Icons.Default.FilterFrames,
+                                    label = "Slides (${uiState.slideSnippets.size})",
+                                    selected = uiState.showSlideSnippetsDialog,
+                                    onClick = { viewModel.setSlideSnippetsDialogVisible(true) }
+                                )
+                                RibbonCommandBtn(
+                                    icon = Icons.Default.Slideshow,
+                                    label = if (uiState.isPresentationModeActive) "Exit Present" else "Present",
+                                    selected = uiState.isPresentationModeActive,
+                                    onClick = { viewModel.setPresentationModeActive(!uiState.isPresentationModeActive) }
+                                )
+                            }
                         }
 
                         "Developer" -> {
-                            ExpressivePlan2ActionPill(
-                                label = "ShapeSheet Studio",
-                                selected = uiState.isShapeSheetDrawerExpanded,
-                                onClick = viewModel::toggleShapeSheetDrawer
-                            )
-                            ExpressivePlan2ActionPill(
-                                label = "Mermaid / PlantUML / DOT…",
-                                selected = uiState.showMarkupStudioDialog,
-                                onClick = { viewModel.setMarkupStudioDialogVisible(true) }
-                            )
-                            ExpressivePlan2ActionPill(
-                                label = "VBA Macros (Alt+F9)",
-                                selected = uiState.showVbaMacroDialog,
-                                onClick = { viewModel.setVbaMacroDialogVisible(true) }
-                            )
-                            ExpressivePlan2ActionPill(
-                                label = "Edit Vertices",
-                                selected = uiState.activeTool == VexioTool.EDIT_VERTICES,
-                                onClick = {
-                                    viewModel.selectTool(
-                                        if (uiState.activeTool == VexioTool.EDIT_VERTICES) VexioTool.POINTER else VexioTool.EDIT_VERTICES
+                            var booleanMenuOpen by remember { mutableStateOf(false) }
+
+                            RibbonCommandGroup(title = "ShapeSheet") {
+                                RibbonCommandBtn(
+                                    icon = Icons.Default.TableChart,
+                                    label = "ShapeSheet",
+                                    tooltip = VexioI18n.toggleShapeSheetTooltip(lang),
+                                    selected = uiState.isShapeSheetDrawerExpanded,
+                                    onClick = viewModel::toggleShapeSheetDrawer
+                                )
+                                RibbonCommandBtn(
+                                    icon = Icons.Default.Bolt,
+                                    label = "Actions (${uiState.selectedShapeActions.size})",
+                                    selected = uiState.showSmartActionsDialog,
+                                    onClick = { viewModel.setSmartActionsDialogVisible(true) }
+                                )
+                                RibbonCommandBtn(
+                                    icon = Icons.Default.TouchApp,
+                                    label = "+ Control",
+                                    onClick = { viewModel.ensureSelectedControlHandle() }
+                                )
+                                RibbonCommandBtn(
+                                    icon = Icons.Default.AltRoute,
+                                    label = "Reset Route",
+                                    onClick = { viewModel.resetSelectedConnectorRouting() }
+                                )
+                            }
+
+                            RibbonCommandGroup(title = "Geometry & Tools") {
+                                RibbonCommandBtn(
+                                    icon = Icons.Default.Polyline,
+                                    label = VexioI18n.toolName(VexioTool.EDIT_VERTICES, lang),
+                                    selected = uiState.activeTool == VexioTool.EDIT_VERTICES,
+                                    onClick = {
+                                        viewModel.selectTool(
+                                            if (uiState.activeTool == VexioTool.EDIT_VERTICES) VexioTool.POINTER else VexioTool.EDIT_VERTICES
+                                        )
+                                    }
+                                )
+                                RibbonCommandBtn(
+                                    icon = Icons.Default.Adjust,
+                                    label = VexioI18n.toolName(VexioTool.CONNECTION_POINT, lang),
+                                    tooltip = "${VexioI18n.toolName(VexioTool.CONNECTION_POINT, lang)} (Ctrl+Shift+1)",
+                                    selected = uiState.activeTool == VexioTool.CONNECTION_POINT,
+                                    onClick = {
+                                        viewModel.selectTool(
+                                            if (uiState.activeTool == VexioTool.CONNECTION_POINT) VexioTool.POINTER else VexioTool.CONNECTION_POINT
+                                        )
+                                    }
+                                )
+                                RibbonCommandBtn(
+                                    icon = Icons.Default.Transform,
+                                    label = VexioI18n.toolName(VexioTool.TEXT_BLOCK_TRANSFORM, lang),
+                                    tooltip = "${VexioI18n.toolName(VexioTool.TEXT_BLOCK_TRANSFORM, lang)} (Ctrl+Shift+4)",
+                                    selected = uiState.activeTool == VexioTool.TEXT_BLOCK_TRANSFORM,
+                                    onClick = {
+                                        viewModel.selectTool(
+                                            if (uiState.activeTool == VexioTool.TEXT_BLOCK_TRANSFORM) VexioTool.POINTER else VexioTool.TEXT_BLOCK_TRANSFORM
+                                        )
+                                    }
+                                )
+                                Box {
+                                    RibbonCommandBtn(
+                                        icon = Icons.Default.JoinFull,
+                                        label = VexioI18n.booleanGroupTitle(lang),
+                                        hasDropdown = true,
+                                        onClick = { booleanMenuOpen = true }
                                     )
+                                    DropdownMenu(
+                                        expanded = booleanMenuOpen,
+                                        onDismissRequest = { booleanMenuOpen = false }
+                                    ) {
+                                        VexioBooleanOp.entries.forEach { op ->
+                                            DropdownMenuItem(
+                                                text = { Text(VexioI18n.booleanOpName(op, lang)) },
+                                                leadingIcon = { Icon(Icons.Default.JoinFull, contentDescription = null, modifier = Modifier.size(16.dp)) },
+                                                onClick = {
+                                                    booleanMenuOpen = false
+                                                    viewModel.performBooleanOp(op)
+                                                }
+                                            )
+                                        }
+                                    }
                                 }
-                            )
-                            ExpressivePlan2ActionPill(
-                                label = "Conn. Points (Ctrl+Shift+1)",
-                                selected = uiState.activeTool == VexioTool.CONNECTION_POINT,
-                                onClick = {
-                                    viewModel.selectTool(
-                                        if (uiState.activeTool == VexioTool.CONNECTION_POINT) VexioTool.POINTER else VexioTool.CONNECTION_POINT
-                                    )
-                                }
-                            )
-                            ExpressivePlan2ActionPill(
-                                label = "Text Block (Ctrl+Shift+4)",
-                                selected = uiState.activeTool == VexioTool.TEXT_BLOCK_TRANSFORM,
-                                onClick = {
-                                    viewModel.selectTool(
-                                        if (uiState.activeTool == VexioTool.TEXT_BLOCK_TRANSFORM) VexioTool.POINTER else VexioTool.TEXT_BLOCK_TRANSFORM
-                                    )
-                                }
-                            )
-                            ExpressivePlan2ActionPill(
-                                label = "Format Painter",
-                                selected = uiState.activeTool == VexioTool.FORMAT_PAINTER,
-                                onClick = {
-                                    viewModel.copySelectedShapeFormat()
-                                    viewModel.selectTool(
-                                        if (uiState.activeTool == VexioTool.FORMAT_PAINTER) VexioTool.POINTER else VexioTool.FORMAT_PAINTER
-                                    )
-                                }
-                            )
-                            ExpressivePlan2ActionPill(
-                                label = "Insert Field (<fld>)",
-                                selected = uiState.showInsertFieldDialog,
-                                onClick = { viewModel.setInsertFieldDialogVisible(true) }
-                            )
-                            ExpressivePlan2ActionPill(
-                                label = "Find & Replace",
-                                selected = uiState.showFindReplaceDialog,
-                                onClick = { viewModel.setFindReplaceDialogVisible(true) }
-                            )
-                            ExpressivePlan2ActionPill(
-                                label = "Snap & Glue",
-                                selected = uiState.showSnapGlueDialog,
-                                onClick = { viewModel.setSnapGlueDialogVisible(true) }
-                            )
-                            ExpressivePlan2ActionPill(
-                                label = "+ H Guide",
-                                selected = false,
-                                onClick = { viewModel.addRulerGuide(false, 4.0) }
-                            )
-                            ExpressivePlan2ActionPill(
-                                label = "+ V Guide",
-                                selected = false,
-                                onClick = { viewModel.addRulerGuide(true, 5.5) }
-                            )
-                            ExpressivePlan2ActionPill(
-                                label = "Number Shapes",
-                                selected = uiState.showNumberShapesDialog,
-                                onClick = { viewModel.setNumberShapesDialogVisible(true) }
-                            )
-                            ExpressivePlan2ActionPill(
-                                label = "Smart Actions (${uiState.selectedShapeActions.size})",
-                                selected = uiState.showSmartActionsDialog,
-                                onClick = { viewModel.setSmartActionsDialogVisible(true) }
-                            )
-                            ExpressivePlan2ActionPill(
-                                label = "+ Control Handle",
-                                selected = false,
-                                onClick = { viewModel.ensureSelectedControlHandle() }
-                            )
-                            ExpressivePlan2ActionPill(
-                                label = "Reset Route",
-                                selected = false,
-                                onClick = { viewModel.resetSelectedConnectorRouting() }
-                            )
-                            ExpressivePlan2ActionPill(
-                                label = VexioI18n.plan2StripPill(lang),
-                                selected = uiState.isPlan2RibbonExpanded,
-                                onClick = onTogglePlan2Strip
-                            )
-                            VexioBooleanOp.entries.forEach { op ->
-                                ExpressivePlan2ActionPill(
-                                    label = VexioI18n.booleanOpName(op, lang),
-                                    selected = uiState.lastBooleanOp == op.slug,
-                                    onClick = { viewModel.performBooleanOp(op) }
+                                RibbonCommandBtn(
+                                    icon = Icons.Default.Search,
+                                    label = "Find",
+                                    tooltip = "Find & Replace (Ctrl+F)",
+                                    selected = uiState.showFindReplaceDialog,
+                                    onClick = { viewModel.setFindReplaceDialogVisible(true) }
+                                )
+                            }
+
+                            RibbonCommandGroup(title = "Code & Macros", showDividerAfter = false) {
+                                RibbonCommandBtn(
+                                    icon = Icons.Default.Code,
+                                    label = "Mermaid / UML",
+                                    selected = uiState.showMarkupStudioDialog,
+                                    onClick = { viewModel.setMarkupStudioDialogVisible(true) }
+                                )
+                                RibbonCommandBtn(
+                                    icon = Icons.Default.Terminal,
+                                    label = "VBA Macros",
+                                    tooltip = "Sandboxed VBA Studio (Alt+F9)",
+                                    selected = uiState.showVbaMacroDialog,
+                                    onClick = { viewModel.setVbaMacroDialogVisible(true) }
+                                )
+                                RibbonCommandBtn(
+                                    icon = Icons.Default.AutoAwesome,
+                                    label = VexioI18n.plan2StripPill(lang),
+                                    selected = uiState.isPlan2RibbonExpanded,
+                                    onClick = onTogglePlan2Strip
                                 )
                             }
                         }
@@ -4015,7 +5039,7 @@ private fun resolveToolIcon(tool: VexioTool): ImageVector = when (tool) {
     VexioTool.CONNECTOR -> Icons.Default.Timeline
     VexioTool.LINE -> Icons.Default.HorizontalRule
     VexioTool.ARC -> Icons.Default.Gesture
-    VexioTool.FREEFORM -> Icons.Default.Architecture
+    VexioTool.FREEFORM -> Icons.Default.Draw
     VexioTool.RECTANGLE -> Icons.Default.CropSquare
     VexioTool.ROUNDED_RECT -> Icons.Default.RoundedCorner
     VexioTool.ELLIPSE -> Icons.Default.RadioButtonUnchecked
@@ -4023,16 +5047,16 @@ private fun resolveToolIcon(tool: VexioTool): ImageVector = when (tool) {
     VexioTool.TRIANGLE -> Icons.Default.ChangeHistory
     VexioTool.HEXAGON -> Icons.Default.Hexagon
     VexioTool.STAR -> Icons.Default.StarBorder
-    VexioTool.TEXT_BLOCK -> Icons.Default.TextFields
+    VexioTool.TEXT_BLOCK -> Icons.Default.Title
     VexioTool.STYLUS_INK -> Icons.Default.Brush
-    VexioTool.HIGHLIGHTER -> Icons.Default.Edit
-    VexioTool.EDIT_VERTICES -> Icons.Default.Tune
-    VexioTool.INK_ERASER -> Icons.Default.DeleteOutline
-    VexioTool.CONNECTION_POINT -> Icons.Default.Add
-    VexioTool.TEXT_BLOCK_TRANSFORM -> Icons.Default.TextFields
-    VexioTool.FORMAT_PAINTER -> Icons.Default.Brush
-    VexioTool.WALL -> Icons.Default.Architecture
-    VexioTool.DIMENSION -> Icons.Default.HorizontalRule
+    VexioTool.HIGHLIGHTER -> Icons.Default.Highlight
+    VexioTool.EDIT_VERTICES -> Icons.Default.Polyline
+    VexioTool.INK_ERASER -> Icons.Default.AutoFixNormal
+    VexioTool.CONNECTION_POINT -> Icons.Default.Adjust
+    VexioTool.TEXT_BLOCK_TRANSFORM -> Icons.Default.TextRotationNone
+    VexioTool.FORMAT_PAINTER -> Icons.Default.FormatPaint
+    VexioTool.WALL -> Icons.Default.Domain
+    VexioTool.DIMENSION -> Icons.Default.Straighten
 }
 
 /**
@@ -4183,7 +5207,7 @@ private fun StencilMasterDrawerPane(
                     modifier = Modifier.weight(1f)
                 ) {
                     Text(
-                        text = "+ Add to My Shapes",
+                        text = VexioI18n.addToMyShapesShort(lang),
                         style = MaterialTheme.typography.labelSmall,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
@@ -4194,8 +5218,14 @@ private fun StencilMasterDrawerPane(
                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 5.dp),
                     shape = RoundedCornerShape(10.dp)
                 ) {
+                    Icon(
+                        imageVector = Icons.Default.IosShare,
+                        contentDescription = null,
+                        modifier = Modifier.size(13.dp)
+                    )
+                    Spacer(Modifier.width(3.dp))
                     Text(
-                        text = ".vssx ↑",
+                        text = ".vssx",
                         style = MaterialTheme.typography.labelSmall,
                         maxLines = 1
                     )
@@ -4952,6 +5982,7 @@ private fun DraggableStencilMasterCard(
  * Material 3 Expressive Toolbar that morphs smoothly between a floating capsule pill (`28.dp`)
  * and a docked desktop squircle bar (`16.dp`), exposing all 16 Visio drawing & authoring tools.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ExpressiveMorphingToolbar(
     uiState: WorkstationUiState,
@@ -4964,6 +5995,44 @@ private fun ExpressiveMorphingToolbar(
 ) {
     val lang = uiState.language
     val toolbarShape = rememberMorphingToolbarShape(isFloatingPill = isFloating)
+    val dividerAfterTools = remember {
+        setOf(
+            VexioTool.PAN_HAND,
+            VexioTool.FREEFORM,
+            VexioTool.STAR,
+            VexioTool.TEXT_BLOCK_TRANSFORM,
+            VexioTool.FORMAT_PAINTER,
+            VexioTool.DIMENSION,
+            VexioTool.CONNECTION_POINT
+        )
+    }
+    val orderedTools = remember {
+        listOf(
+            VexioTool.POINTER,
+            VexioTool.PAN_HAND,
+            VexioTool.CONNECTOR,
+            VexioTool.LINE,
+            VexioTool.ARC,
+            VexioTool.FREEFORM,
+            VexioTool.RECTANGLE,
+            VexioTool.ROUNDED_RECT,
+            VexioTool.ELLIPSE,
+            VexioTool.DIAMOND,
+            VexioTool.TRIANGLE,
+            VexioTool.HEXAGON,
+            VexioTool.STAR,
+            VexioTool.TEXT_BLOCK,
+            VexioTool.TEXT_BLOCK_TRANSFORM,
+            VexioTool.FORMAT_PAINTER,
+            VexioTool.WALL,
+            VexioTool.DIMENSION,
+            VexioTool.EDIT_VERTICES,
+            VexioTool.CONNECTION_POINT,
+            VexioTool.STYLUS_INK,
+            VexioTool.HIGHLIGHTER,
+            VexioTool.INK_ERASER
+        )
+    }
 
     Surface(
         shape = toolbarShape,
@@ -4974,16 +6043,14 @@ private fun ExpressiveMorphingToolbar(
         border = BorderStroke(0.75.dp, MaterialTheme.colorScheme.outlineVariant),
         modifier = modifier
     ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
+        FlowRow(
             horizontalArrangement = Arrangement.spacedBy(2.dp),
-            modifier = Modifier
-                .horizontalScroll(rememberScrollState())
-                .padding(horizontal = 8.dp, vertical = 4.dp)
+            verticalArrangement = Arrangement.spacedBy(3.dp),
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
         ) {
-            VexioTool.entries.forEach { tool ->
+            orderedTools.forEach { tool ->
                 val isSelected = uiState.activeTool == tool
-                val itemShape = RoundedCornerShape(if (isSelected) 9.dp else 7.dp)
+                val itemShape = RoundedCornerShape(if (isSelected) 8.dp else 6.dp)
                 val scale by rememberExpressiveScaleState(emphasized = isSelected)
                 val bgColor by animateColorAsState(
                     targetValue = if (isSelected) {
@@ -5005,63 +6072,74 @@ private fun ExpressiveMorphingToolbar(
                 )
 
                 val toolTipLabel = "${VexioI18n.toolName(tool, lang)} (${tool.shortcutHint})"
-                VexioTooltip(text = toolTipLabel) {
-                    Surface(
-                        shape = itemShape,
-                        color = bgColor,
-                        modifier = Modifier
-                            .size(28.dp)
-                            .scale(scale)
-                            .clip(itemShape)
-                            .clickable { onSelectTool(tool) }
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Icon(
-                                imageVector = resolveToolIcon(tool),
-                                contentDescription = toolTipLabel,
-                                tint = contentColor,
-                                modifier = Modifier.size(16.dp)
-                            )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    VexioTooltip(text = toolTipLabel) {
+                        Surface(
+                            shape = itemShape,
+                            color = bgColor,
+                            modifier = Modifier
+                                .size(28.dp)
+                                .scale(scale)
+                                .clip(itemShape)
+                                .clickable { onSelectTool(tool) }
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = resolveToolIcon(tool),
+                                    contentDescription = toolTipLabel,
+                                    tint = contentColor,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
                         }
+                    }
+                    if (tool in dividerAfterTools) {
+                        VerticalDivider(
+                            modifier = Modifier
+                                .height(16.dp)
+                                .padding(horizontal = 3.dp),
+                            color = MaterialTheme.colorScheme.outlineVariant
+                        )
                     }
                 }
             }
 
-            VerticalDivider(
-                modifier = Modifier
-                    .height(18.dp)
-                    .padding(horizontal = 4.dp),
-                color = MaterialTheme.colorScheme.outlineVariant
-            )
-
-            CompactHeaderIconButton(
-                icon = Icons.Default.ZoomOut,
-                tooltip = VexioI18n.zoomOutTooltip(lang),
-                onClick = { onZoomDelta(-15) }
-            )
-            VexioTooltip(text = VexioI18n.zoomResetTooltip(lang)) {
-                Text(
-                    text = "${uiState.zoomPercent}%",
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = MaterialTheme.colorScheme.onSurface,
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                VerticalDivider(
                     modifier = Modifier
-                        .clip(RoundedCornerShape(5.dp))
-                        .clickable { onZoomReset() }
-                        .padding(horizontal = 6.dp, vertical = 4.dp)
+                        .height(18.dp)
+                        .padding(horizontal = 4.dp),
+                    color = MaterialTheme.colorScheme.outlineVariant
+                )
+                CompactHeaderIconButton(
+                    icon = Icons.Default.ZoomOut,
+                    tooltip = VexioI18n.zoomOutTooltip(lang),
+                    onClick = { onZoomDelta(-15) }
+                )
+                VexioTooltip(text = VexioI18n.zoomResetTooltip(lang)) {
+                    Text(
+                        text = "${uiState.zoomPercent}%",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(5.dp))
+                            .clickable { onZoomReset() }
+                            .padding(horizontal = 6.dp, vertical = 4.dp)
+                    )
+                }
+                CompactHeaderIconButton(
+                    icon = Icons.Default.ZoomIn,
+                    tooltip = VexioI18n.zoomInTooltip(lang),
+                    onClick = { onZoomDelta(15) }
+                )
+                CompactHeaderIconButton(
+                    icon = Icons.Default.DashboardCustomize,
+                    tooltip = VexioI18n.floatToolbarTooltip(isFloating, lang),
+                    active = isFloating,
+                    onClick = onToggleFloating
                 )
             }
-            CompactHeaderIconButton(
-                icon = Icons.Default.ZoomIn,
-                tooltip = VexioI18n.zoomInTooltip(lang),
-                onClick = { onZoomDelta(15) }
-            )
-            CompactHeaderIconButton(
-                icon = Icons.Default.Tune,
-                tooltip = VexioI18n.floatToolbarTooltip(isFloating, lang),
-                active = isFloating,
-                onClick = onToggleFloating
-            )
         }
     }
 }

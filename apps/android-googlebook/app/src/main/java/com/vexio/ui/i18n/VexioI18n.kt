@@ -177,7 +177,7 @@ object VexioI18n {
             }
         }
         if ("Automatic update check enabled" in raw) {
-            val ver = raw.substringAfter("Vexio ", "").substringBefore(" •").ifBlank { "v0.9.0-beta" }
+            val ver = raw.substringAfter("Vexio ", "").substringBefore(" •").ifBlank { "v0.9.1-beta" }
             return when (lang) {
                 EN -> "Vexio $ver • Automatic update check enabled"
                 DE -> "Vexio $ver • Automatische Update-Prüfung aktiviert"
@@ -578,7 +578,123 @@ object VexioI18n {
     }
 
     fun officialPacksShort(lang: VexioAppLanguage): String = when (lang) {
-        EN -> "Official Packs"; DE -> "Offizielle Pakete"; IT -> "Pacchetti ufficiali"; FR -> "Packs officiels"; ES -> "Paquetes oficiales"; GR -> "Επίσημα πακέτα"
+        EN -> "Catalog"; DE -> "Katalog"; IT -> "Catalogo"; FR -> "Catalogue"; ES -> "Catálogo"; GR -> "Κατάλογος"
+    }
+
+    fun addToMyShapesShort(lang: VexioAppLanguage): String = when (lang) {
+        EN -> "+ My Shapes"; DE -> "+ Eigene Shapes"; IT -> "+ Mie forme"; FR -> "+ Mes formes"; ES -> "+ Mis formas"; GR -> "+ Σχήματά μου"
+    }
+
+    fun newBlankDiagramMenu(lang: VexioAppLanguage): String = when (lang) {
+        EN -> "New Blank Diagram"; DE -> "Neues leeres Diagramm"; IT -> "Nuovo diagramma vuoto"; FR -> "Nouveau diagramme vierge"; ES -> "Nuevo diagrama en blanco"; GR -> "Νέο κενό διάγραμμα"
+    }
+
+    fun printMenuLabel(lang: VexioAppLanguage): String = when (lang) {
+        EN -> "Print…"; DE -> "Drucken…"; IT -> "Stampa…"; FR -> "Imprimer…"; ES -> "Imprimir…"; GR -> "Εκτύπωση…"
+    }
+
+    fun closeDocumentMenuLabel(lang: VexioAppLanguage): String = when (lang) {
+        EN -> "Close Document"; DE -> "Dokument schließen"; IT -> "Chiudi documento"; FR -> "Fermer le document"; ES -> "Cerrar documento"; GR -> "Κλείσιμο εγγράφου"
+    }
+
+    fun exportSubmenuLabel(lang: VexioAppLanguage): String = when (lang) {
+        EN -> "Export As"; DE -> "Exportieren als"; IT -> "Esporta come"; FR -> "Exporter sous"; ES -> "Exportar como"; GR -> "Εξαγωγή ως"
+    }
+
+    fun alignTextLeftTooltip(lang: VexioAppLanguage): String = when (lang) {
+        EN -> "Align Text Left"; DE -> "Text linksbündig"; IT -> "Allinea testo a sinistra"; FR -> "Aligner le texte à gauche"; ES -> "Alinear texto a la izquierda"; GR -> "Στοίχιση κειμένου αριστερά"
+    }
+
+    fun alignTextCenterTooltip(lang: VexioAppLanguage): String = when (lang) {
+        EN -> "Center Text"; DE -> "Text zentrieren"; IT -> "Centra testo"; FR -> "Centrer le texte"; ES -> "Centrar texto"; GR -> "Κεντράρισμα κειμένου"
+    }
+
+    fun alignTextRightTooltip(lang: VexioAppLanguage): String = when (lang) {
+        EN -> "Align Text Right"; DE -> "Text rechtsbündig"; IT -> "Allinea testo a destra"; FR -> "Aligner le texte à droite"; ES -> "Alinear texto a la derecha"; GR -> "Στοίχιση κειμένου δεξιά"
+    }
+
+    fun valignTopTooltip(lang: VexioAppLanguage): String = when (lang) {
+        EN -> "Top Vertical Align"; DE -> "Text oben ausrichten"; IT -> "Allinea in alto"; FR -> "Aligner en haut"; ES -> "Alinear arriba"; GR -> "Στοίχιση επάνω"
+    }
+
+    fun valignMiddleTooltip(lang: VexioAppLanguage): String = when (lang) {
+        EN -> "Middle Vertical Align"; DE -> "Text vertikal zentrieren"; IT -> "Centra verticalmente"; FR -> "Centrer verticalement"; ES -> "Centrar verticalmente"; GR -> "Κατακόρυφο κεντράρισμα"
+    }
+
+    fun valignBottomTooltip(lang: VexioAppLanguage): String = when (lang) {
+        EN -> "Bottom Vertical Align"; DE -> "Text unten ausrichten"; IT -> "Allinea in basso"; FR -> "Aligner en bas"; ES -> "Alinear abajo"; GR -> "Στοίχιση κάτω"
+    }
+
+    fun bulletListTooltip(lang: VexioAppLanguage): String = when (lang) {
+        EN -> "Bulleted List"; DE -> "Aufzählungsliste"; IT -> "Elenco puntato"; FR -> "Liste à puces"; ES -> "Lista con viñetas"; GR -> "Λίστα με κουκκίδες"
+    }
+
+    fun stylesDropdownLabel(lang: VexioAppLanguage): String = when (lang) {
+        EN -> "Styles"; DE -> "Formatvorlagen"; IT -> "Stili"; FR -> "Styles"; ES -> "Estilos"; GR -> "Στυλ"
+    }
+
+    fun groupClipboard(lang: VexioAppLanguage): String = when (lang) {
+        EN -> "Clipboard"; DE -> "Zwischenablage"; IT -> "Appunti"; FR -> "Presse-papiers"; ES -> "Portapapeles"; GR -> "Πρόχειρο"
+    }
+
+    fun groupFont(lang: VexioAppLanguage): String = when (lang) {
+        EN -> "Font"; DE -> "Schriftart"; IT -> "Carattere"; FR -> "Police"; ES -> "Fuente"; GR -> "Γραμματοσειρά"
+    }
+
+    fun groupParagraph(lang: VexioAppLanguage): String = when (lang) {
+        EN -> "Paragraph"; DE -> "Absatz"; IT -> "Paragrafo"; FR -> "Paragraphe"; ES -> "Párrafo"; GR -> "Παράγραφος"
+    }
+
+    fun groupShapeStyle(lang: VexioAppLanguage): String = when (lang) {
+        EN -> "Shape Style"; DE -> "Formstil"; IT -> "Stile forma"; FR -> "Style de forme"; ES -> "Estilo de forma"; GR -> "Στυλ σχήματος"
+    }
+
+    fun groupPages(lang: VexioAppLanguage): String = when (lang) {
+        EN -> "Pages & Stencils"; DE -> "Blätter & Schablonen"; IT -> "Pagine e stencil"; FR -> "Pages et gabarits"; ES -> "Páginas y galerías"; GR -> "Σελίδες & Stencil"
+    }
+
+    fun groupDiagramParts(lang: VexioAppLanguage): String = when (lang) {
+        EN -> "Diagram Parts"; DE -> "Diagrammteile"; IT -> "Parti diagramma"; FR -> "Éléments"; ES -> "Partes del diagrama"; GR -> "Στοιχεία"
+    }
+
+    fun groupAec(lang: VexioAppLanguage): String = when (lang) {
+        EN -> "AEC & Architecture"; DE -> "AEC & Grundriss"; IT -> "AEC e planimetria"; FR -> "AEC et plan"; ES -> "AEC y plano"; GR -> "AEC & Κάτοψη"
+    }
+
+    fun groupWizardsCad(lang: VexioAppLanguage): String = when (lang) {
+        EN -> "Wizards & CAD"; DE -> "Assistenten & CAD"; IT -> "Procedure e CAD"; FR -> "Assistants et CAO"; ES -> "Asistentes y CAD"; GR -> "Οδηγοί & CAD"
+    }
+
+    fun shortNewPage(lang: VexioAppLanguage): String = when (lang) {
+        EN -> "New Page"; DE -> "Neues Blatt"; IT -> "Nuova pagina"; FR -> "Nouvelle page"; ES -> "Nueva página"; GR -> "Νέα σελίδα"
+    }
+
+    fun shortImportStencil(lang: VexioAppLanguage): String = when (lang) {
+        EN -> "Stencil"; DE -> "Schablone"; IT -> "Stencil"; FR -> "Gabarit"; ES -> "Galería"; GR -> "Stencil"
+    }
+
+    fun shortContainer(lang: VexioAppLanguage): String = when (lang) {
+        EN -> "Container"; DE -> "Container"; IT -> "Contenitore"; FR -> "Conteneur"; ES -> "Contenedor"; GR -> "Πλαίσιο"
+    }
+
+    fun shortSwimlanes(lang: VexioAppLanguage): String = when (lang) {
+        EN -> "Swimlanes"; DE -> "Bahnen"; IT -> "Corsie"; FR -> "Couloirs"; ES -> "Calles"; GR -> "Λωρίδες"
+    }
+
+    fun shortCallout(lang: VexioAppLanguage): String = when (lang) {
+        EN -> "Callout"; DE -> "Hinweis"; IT -> "Nota"; FR -> "Légende"; ES -> "Llamada"; GR -> "Σημείωση"
+    }
+
+    fun shortWallOpening(lang: VexioAppLanguage): String = when (lang) {
+        EN -> "Opening"; DE -> "Öffnung"; IT -> "Apertura"; FR -> "Ouverture"; ES -> "Abertura"; GR -> "Άνοιγμα"
+    }
+
+    fun shortHealWalls(lang: VexioAppLanguage): String = when (lang) {
+        EN -> "Heal Walls"; DE -> "Wände heilen"; IT -> "Unisci muri"; FR -> "Joindre murs"; ES -> "Unir muros"; GR -> "Ένωση τοίχων"
+    }
+
+    fun shortWizards(lang: VexioAppLanguage): String = when (lang) {
+        EN -> "Wizards…"; DE -> "Assistenten…"; IT -> "Procedure…"; FR -> "Assistants…"; ES -> "Asistentes…"; GR -> "Οδηγοί…"
     }
 
     fun searchStencilsPlaceholder(shapeCount: Int, packCount: Int, lang: VexioAppLanguage): String = when (lang) {

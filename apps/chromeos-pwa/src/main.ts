@@ -805,7 +805,7 @@ class VexioChromeOsApp {
       return true;
     }
   })();
-  private updateStatusText = 'Vexio v0.9.0-beta • Automatic updates enabled';
+  private updateStatusText = 'Vexio v0.9.1-beta • Automatic updates enabled';
   private sampledFormatJson = '';
   private fieldPresetDraft = 'width';
   private fieldFormatDraft = '0.00 in';
@@ -865,12 +865,12 @@ class VexioChromeOsApp {
     gantt: `ID,Task Name,StartDay,DurationDays,PercentComplete,DependsOn\n1,Architecture Spec,0,4,100,\n2,Rust ShapeSheet & CAD Core,4,7,100,1\n3,Multi-OS Native Viewport,10,6,85,2\n4,Enterprise QA & GA Ship,16,4,50,3`,
     timeline: `# Title: Product Release Roadmap | Horizon: 100\n10,Core Engine Lock,true\n35,CAD & Legacy VSD Parity,false\n65,Multi-OS Public Beta,true\n95,Enterprise v1.0 GA,true`,
     pert: `ID,Task Name,DurationDays,Predecessors\nA,System Architecture,3,\nB,Rust Core & DAG,6,A\nC,Stencil Library,3,A\nD,Multi-OS Shells,5,B;C\nE,Release Signoff,2,D`,
-    calendar: `# Month: 2026-11 | Start: Monday\n2026-11-04|Architecture Review\n2026-11-12|CAD & AEC Freeze\n2026-11-20|Security Audit\n2026-11-27|v0.9.0-beta Release`,
+    calendar: `# Month: 2026-11 | Start: Monday\n2026-11-04|Architecture Review\n2026-11-12|CAD & AEC Freeze\n2026-11-20|Security Audit\n2026-11-27|v0.9.1-beta Release`,
     pivot_diagram: `Region,ProductLine,Revenue\nEMEA,Enterprise Cloud,420\nEMEA,Desktop Suite,260\nAmericas,Enterprise Cloud,610\nAmericas,Desktop Suite,340\nAPAC,Enterprise Cloud,310`,
     mind_map: `# Vexio 1.0 Strategy\n## Native Core\n### ShapeSheet DAG\n### OpenXML & Legacy VSD\n## AEC & CAD\n### Auto-Healing Walls\n### Associative Dimensions\n## Plan 2 Analytics\n### Lean VSM\n### Fault Tree MOCUS`,
     mind_map_radial: `# Product Architecture\n## Desktop Native\n### Windows DX12\n### macOS Metal\n## Mobile & Web\n### Googlebook Vulkan\n### ChromeOS Offline PWA`,
     vsm: `Step,CycleSec,LeadDays,UptimePct,InventoryUnits\nRaw Coil Stamping,42,3.5,96,450\nCNC Precision Machining,95,2.0,92,220\nAnodize & Cure,68,4.0,98,380\nFinal QA & Pack,35,1.0,99.5,90`,
-    fta: `ID,Label,Kind,Gate,Probability,Inputs\nTOP,Data Center Outage,top,OR,,G1;G2\nG1,Dual Utility Loss,intermediate,AND,,E1;E2\nG2,Cooling Failure,intermediate,2of3,,E3;E4;E5\nE1,Grid Feed A Fault,basic,,0.02,\nE2,Backup Generator Fail,basic,,0.015,\nE3,Chiller A Trip,basic,,0.03,\nE4,Chiller B Trip,basic,,0.03,\nE5,Standby Chiller C Trip,basic,,0.04,`,
+    fta: `TOP,Data Center Outage,OR,0,G1;G2\nG1,Dual Utility Loss,AND,0,E1;E2\nG2,Cooling Failure,2/3,0,E3;E4;E5\nE1,Grid Feed A Fault,BASIC,0.02,\nE2,Backup Generator Fail,BASIC,0.015,\nE3,Chiller A Trip,BASIC,0.03,\nE4,Chiller B Trip,BASIC,0.03,\nE5,Standby Chiller C Trip,BASIC,0.04,`,
     rack_42u: `Device,StartU,HeightU\nTop-of-Rack Leaf Switch,41,2\nPerimeter Firewall Pair,38,2\nK8s Compute Blade Chassis,26,8\nNVMe SAN Storage Array,14,6\nRedundant UPS Battery,1,4`,
     arch_room: `Room,WidthIn,HeightIn\nMain Server Hall,3.4,2.4\nNOC Operations Suite,2.6,2.0\nMDF Telecom Closet,1.8,1.6`,
   };
@@ -1382,7 +1382,7 @@ class VexioChromeOsApp {
       return;
     }
 
-    const currentVersion = '0.9.0-beta';
+    const currentVersion = '0.9.1-beta';
     try {
       const resp = await fetch('https://api.github.com/repos/petrosvassiliou/vexio/releases', {
         headers: { Accept: 'application/vnd.github+json' },
@@ -2995,8 +2995,8 @@ class VexioChromeOsApp {
               .map((sz) => `<option value="${sz}" ${this.textFontSizePt === sz ? 'selected' : ''}>${sz}pt</option>`)
               .join('')}
           </select>
-          <button class="fmt-btn" id="btn-font-grow" title="Grow Font Size (A▲)">A▲</button>
-          <button class="fmt-btn" id="btn-font-shrink" title="Shrink Font Size (A▼)">A▼</button>
+          <button class="fmt-btn" id="btn-font-grow" title="Increase Font Size (+2 pt)">A+</button>
+          <button class="fmt-btn" id="btn-font-shrink" title="Decrease Font Size (-2 pt)">A−</button>
           <button class="fmt-btn ${this.textBold ? 'active' : ''}" id="btn-fmt-bold" title="Bold (Ctrl+B)"><strong>B</strong></button>
           <button class="fmt-btn ${this.textItalic ? 'active' : ''}" id="btn-fmt-italic" title="Italic (Ctrl+I)"><em>I</em></button>
           <button class="fmt-btn ${this.textUnderline ? 'active' : ''}" id="btn-fmt-underline" title="Underline (Ctrl+U)"><u>U</u></button>
@@ -3015,13 +3015,29 @@ class VexioChromeOsApp {
               ? `<button class="fmt-btn" id="btn-clear-text-bg" title="${this.i18n.clearHighlight}">✕</button>`
               : ''
           }
-          <button class="fmt-btn ${this.textHorizAlign === 0 ? 'active' : ''}" data-halign="0" title="Align Text Left">≡L</button>
-          <button class="fmt-btn ${this.textHorizAlign === 1 ? 'active' : ''}" data-halign="1" title="Center Text">≡C</button>
-          <button class="fmt-btn ${this.textHorizAlign === 2 ? 'active' : ''}" data-halign="2" title="Align Text Right">≡R</button>
-          <button class="fmt-btn ${this.textVertAlign === 0 ? 'active' : ''}" data-valign="0" title="Top Vertical Align">⤒</button>
-          <button class="fmt-btn ${this.textVertAlign === 1 ? 'active' : ''}" data-valign="1" title="Middle Vertical Align">↕</button>
-          <button class="fmt-btn ${this.textVertAlign === 2 ? 'active' : ''}" data-valign="2" title="Bottom Vertical Align">⤓</button>
-          <button class="fmt-btn ${this.textBullets ? 'active' : ''}" id="btn-fmt-bullets" title="Bulleted List">• List</button>
+          <div class="ribbon-divider"></div>
+          <span class="ribbon-group-label">Paragraph</span>
+          <button class="fmt-btn ${this.textHorizAlign === 0 ? 'active' : ''}" data-halign="0" title="Align Text Left" aria-label="Align Text Left">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><line x1="2" y1="3.5" x2="14" y2="3.5"/><line x1="2" y1="6.8" x2="10" y2="6.8"/><line x1="2" y1="10.1" x2="13" y2="10.1"/><line x1="2" y1="13.4" x2="8.5" y2="13.4"/></svg>
+          </button>
+          <button class="fmt-btn ${this.textHorizAlign === 1 ? 'active' : ''}" data-halign="1" title="Center Text" aria-label="Center Text">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><line x1="2" y1="3.5" x2="14" y2="3.5"/><line x1="4" y1="6.8" x2="12" y2="6.8"/><line x1="2.5" y1="10.1" x2="13.5" y2="10.1"/><line x1="5" y1="13.4" x2="11" y2="13.4"/></svg>
+          </button>
+          <button class="fmt-btn ${this.textHorizAlign === 2 ? 'active' : ''}" data-halign="2" title="Align Text Right" aria-label="Align Text Right">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><line x1="2" y1="3.5" x2="14" y2="3.5"/><line x1="6" y1="6.8" x2="14" y2="6.8"/><line x1="3" y1="10.1" x2="14" y2="10.1"/><line x1="7.5" y1="13.4" x2="14" y2="13.4"/></svg>
+          </button>
+          <button class="fmt-btn ${this.textVertAlign === 0 ? 'active' : ''}" data-valign="0" title="Top Vertical Align" aria-label="Top Vertical Align">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="2.5" y1="2.5" x2="13.5" y2="2.5"/><line x1="8" y1="5" x2="8" y2="13.5"/><polyline points="5.2,7.8 8,5 10.8,7.8"/></svg>
+          </button>
+          <button class="fmt-btn ${this.textVertAlign === 1 ? 'active' : ''}" data-valign="1" title="Middle Vertical Align" aria-label="Middle Vertical Align">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="2.5" y1="8" x2="13.5" y2="8"/><polyline points="5.5,4 8,6.5 10.5,4"/><polyline points="5.5,12 8,9.5 10.5,12"/></svg>
+          </button>
+          <button class="fmt-btn ${this.textVertAlign === 2 ? 'active' : ''}" data-valign="2" title="Bottom Vertical Align" aria-label="Bottom Vertical Align">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="2.5" y1="13.5" x2="13.5" y2="13.5"/><line x1="8" y1="2.5" x2="8" y2="11"/><polyline points="5.2,8.2 8,11 10.8,8.2"/></svg>
+          </button>
+          <button class="fmt-btn ${this.textBullets ? 'active' : ''}" id="btn-fmt-bullets" title="Bulleted List" aria-label="Bulleted List">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="3" cy="4" r="1" fill="currentColor" stroke="none"/><line x1="6" y1="4" x2="14" y2="4"/><circle cx="3" cy="8" r="1" fill="currentColor" stroke="none"/><line x1="6" y1="8" x2="14" y2="8"/><circle cx="3" cy="12" r="1" fill="currentColor" stroke="none"/><line x1="6" y1="12" x2="14" y2="12"/></svg>
+          </button>
           <div class="ribbon-divider"></div>
 
           <span class="ribbon-group-label">Fill &amp; Line</span>
@@ -3746,17 +3762,22 @@ class VexioChromeOsApp {
               ${
                 this.openHeaderMenu === 'file'
                   ? `<div class="top-menu-dropdown" role="menu">
-                      <button class="ctx-item" data-top-cmd="backstage"><span>Start Hub &amp; Templates…</span></button>
-                      <div class="ctx-sep"></div>
-                      <button class="ctx-item" data-top-cmd="new-a4"><span>${t.newBlankA4}</span></button>
+                      <button class="ctx-item" data-top-cmd="new-a4"><span>${t.newBlankA4}</span><span class="ctx-kbd">Ctrl+N</span></button>
                       <button class="ctx-item" data-top-cmd="new-a3"><span>${t.newBlankA3}</span></button>
                       <button class="ctx-item" data-top-cmd="new-letter"><span>${t.newBlankLetter}</span></button>
+                      <button class="ctx-item" data-top-cmd="backstage"><span>Start Hub &amp; Templates…</span></button>
                       <div class="ctx-sep"></div>
                       <button class="ctx-item" data-top-cmd="open-disk"><span>${t.openLocalFile}</span><span class="ctx-kbd">Ctrl+O</span></button>
                       <button class="ctx-item" data-top-cmd="import-stencil"><span>${t.importVisioStencil}</span></button>
                       <div class="ctx-sep"></div>
                       <button class="ctx-item" data-top-cmd="save-vsdx"><span>${t.saveFile}</span><span class="ctx-kbd">Ctrl+S</span></button>
                       <button class="ctx-item" data-top-cmd="save-as-vsdx"><span>${t.saveAs}</span><span class="ctx-kbd">Ctrl+Shift+S</span></button>
+                      <button class="ctx-item" data-top-cmd="exp-pdf"><span>Export PDF/A (.pdf)…</span></button>
+                      <div class="ctx-sep"></div>
+                      <button class="ctx-item" data-top-cmd="page-setup"><span>Page Setup…</span></button>
+                      <button class="ctx-item" data-top-cmd="print-doc"><span>Print…</span><span class="ctx-kbd">Ctrl+P</span></button>
+                      <div class="ctx-sep"></div>
+                      <button class="ctx-item" data-top-cmd="close-doc"><span>Close Document</span><span class="ctx-kbd">Ctrl+W</span></button>
                     </div>`
                   : ''
               }
@@ -4923,7 +4944,7 @@ class VexioChromeOsApp {
             </div>
             <div class="list-row-card" style="flex-direction:column;align-items:flex-start;gap:6px">
               <strong>${this.updateStatusText}</strong>
-              <span style="font-size:11.5px;color:var(--m3-text-muted)">Installed build: Vexio v0.9.0-beta • Offline-First Workbox PWA + GitHub Releases channel</span>
+              <span style="font-size:11.5px;color:var(--m3-text-muted)">Installed build: Vexio v0.9.1-beta • Offline-First Workbox PWA + GitHub Releases channel</span>
             </div>
             <label style="display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer">
               <input type="checkbox" id="chk-auto-updates" ${this.autoCheckUpdates ? 'checked' : ''} />
@@ -5953,6 +5974,24 @@ class VexioChromeOsApp {
           case 'save-as-vsdx':
             this.render();
             await this.handleSaveAs('vsdx');
+            break;
+          case 'page-setup':
+            this.activeRibbonTab = 'Design';
+            this.isRibbonCollapsed = false;
+            this.render();
+            break;
+          case 'print-doc':
+            this.render();
+            window.print();
+            break;
+          case 'close-doc':
+            this.confirmOrRunWithUnsavedCheck(async () => {
+              await this.applyPagePresetById('a4_l', true);
+              this.currentFileName = 'Untitled_Diagram.vsdx';
+              this.activeFileHandle = null;
+              this.markCurrentStateAsClean();
+              this.render();
+            });
             break;
           case 'undo': {
             const res = await this.callEngine('undo');

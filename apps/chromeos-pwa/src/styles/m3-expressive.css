@@ -350,22 +350,16 @@ body,
   align-items: center;
   background: var(--m3-surface-1);
   border-bottom: 1px solid var(--m3-outline);
-  padding: 0 10px;
-  overflow-x: auto;
-  scrollbar-width: none;
-}
-
-.ribbon-bar::-webkit-scrollbar {
-  display: none;
+  padding: 4px 10px;
 }
 
 .ribbon-commands {
   display: flex;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 4px;
+  gap: 4px 5px;
   width: 100%;
-  min-height: 41px;
+  min-height: 36px;
 }
 
 .ribbon-group-label {
