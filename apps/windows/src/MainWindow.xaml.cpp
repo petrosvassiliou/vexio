@@ -6526,10 +6526,11 @@ winrt::fire_and_forget MainWindow::ShowSmartActionsDialogAsync() {
                 entry.beginGroup = obj.GetNamedBoolean(L"beginGroup", false);
                 const bool chk = obj.GetNamedBoolean(L"checked", false);
                 rowsVec->push_back(entry);
+                const std::wstring rowWide{vexio::win::ToHString(entry.rowName)};
                 listView.Items().Append(box_value(hstring{
                     std::format(L"{} Actions.{} — \"{}\"  [={}]",
                                 chk ? L"✓" : L"•",
-                                vexio::win::ToWinRtString(entry.rowName).c_str(),
+                                rowWide,
                                 entry.menu,
                                 entry.actionFormula)
                 }));
@@ -6566,7 +6567,7 @@ winrt::fire_and_forget MainWindow::ShowSmartActionsDialogAsync() {
         const int32_t sel = listView.SelectedIndex();
         if (sel >= 0 && static_cast<size_t>(sel) < rowsVec->size()) {
             const auto& r = (*rowsVec)[static_cast<size_t>(sel)];
-            rowNameBox.Text(vexio::win::ToWinRtString(r.rowName));
+            rowNameBox.Text(vexio::win::ToHString(r.rowName));
             menuBox.Text(hstring{r.menu});
             actionBox.Text(hstring{r.actionFormula});
             checkedBox.Text(hstring{r.checkedFormula});

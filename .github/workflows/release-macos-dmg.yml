@@ -106,14 +106,26 @@ jobs:
           codesign --force --deep --sign - "${APP_BUNDLE}"
 
           ln -s /Applications "${STAGE_DIR}/Applications"
+          touch "${STAGE_DIR}/.metadata_never_index"
+          sync
           VERSION_TAG="${GITHUB_REF_NAME:-dev}"
           DMG_PATH="apps/macos/build/Vexio-${VERSION_TAG}-Universal2.dmg"
-          hdiutil create \
-            -volname "Vexio" \
-            -srcfolder "${STAGE_DIR}" \
-            -ov \
-            -format UDZO \
-            "${DMG_PATH}"
+          for attempt in 1 2 3 4 5; do
+            rm -f "${DMG_PATH}"
+            if hdiutil create \
+              -volname "Vexio" \
+              -srcfolder "${STAGE_DIR}" \
+              -fs HFS+ \
+              -ov \
+              -format UDZO \
+              "${DMG_PATH}"; then
+              break
+            fi
+            echo "hdiutil create transient Resource busy (attempt ${attempt}/5), detaching stale mounts and retrying..."
+            hdiutil detach "/Volumes/Vexio" -force 2>/dev/null || true
+            sync
+            sleep 3
+          done
           ls -lh "${DMG_PATH}"
 
       - name: Upload macOS Universal2 DMG Artifact
