@@ -288,16 +288,30 @@ export async function saveLocalDiagramInPlace(
 export function bindWindowControlsOverlay(onChange?: (visible: boolean) => void): void {
   const wco = navigator.windowControlsOverlay;
   if (!wco) {
+    document.documentElement.style.setProperty('--wco-x', '0px');
+    document.documentElement.style.setProperty('--wco-width', '100%');
+    document.documentElement.style.setProperty('--wco-height', '40px');
     onChange?.(false);
     return;
   }
   const sync = () => {
+    if (!wco.visible) {
+      document.documentElement.style.setProperty('--wco-x', '0px');
+      document.documentElement.style.setProperty('--wco-width', '100%');
+      document.documentElement.style.setProperty('--wco-height', '40px');
+      document.documentElement.dataset.wcoVisible = 'false';
+      onChange?.(false);
+      return;
+    }
     const rect = wco.getTitlebarAreaRect();
-    document.documentElement.style.setProperty('--wco-x', `${rect.x}px`);
-    document.documentElement.style.setProperty('--wco-width', `${rect.width}px`);
-    document.documentElement.style.setProperty('--wco-height', `${Math.max(rect.height, 42)}px`);
-    document.documentElement.dataset.wcoVisible = String(wco.visible);
-    onChange?.(wco.visible);
+    document.documentElement.style.setProperty('--wco-x', `${Math.max(0, rect.x)}px`);
+    document.documentElement.style.setProperty(
+      '--wco-width',
+      rect.width > 120 ? `${rect.width}px` : '100%'
+    );
+    document.documentElement.style.setProperty('--wco-height', `${Math.max(rect.height, 38)}px`);
+    document.documentElement.dataset.wcoVisible = 'true';
+    onChange?.(true);
   };
   sync();
   wco.addEventListener('geometrychange', sync);

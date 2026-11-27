@@ -14,6 +14,7 @@ import { VexioCollabSession, type PeerPresence } from './platform/collabAndVersi
 import {
   detectDefaultLanguage,
   detectDefaultMetricUnits,
+  localizeStencilPackName,
   normalizeLangCode,
   PAGE_PRESET_OPTIONS,
   VEXIO_TRANSLATIONS,
@@ -577,39 +578,65 @@ interface DiagramDiffReportDto {
 }
 
 const UI_ICONS = {
-  pointer: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M3.5 2.2 L12.5 8.8 L8.1 9.5 L6.2 13.8 Z"/></svg>',
-  pan: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8V3.2a1 1 0 0 1 2 0V7m0-3.2a1 1 0 0 1 2 0V7m0-2.4a1 1 0 0 1 2 0V9.5a4 4 0 0 1-4 4H6.8a4 4 0 0 1-3.3-1.8L2.2 9.6a1 1 0 0 1 1.6-1.2L6 9.8Z"/></svg>',
-  line: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><line x1="2.5" y1="13.5" x2="13.5" y2="2.5"/><circle cx="2.5" cy="13.5" r="1.4" fill="currentColor"/><circle cx="13.5" cy="2.5" r="1.4" fill="currentColor"/></svg>',
-  arc: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M2.5 12.5 A 9 9 0 0 1 13.5 3.5"/><circle cx="2.5" cy="12.5" r="1.3" fill="currentColor"/><circle cx="13.5" cy="3.5" r="1.3" fill="currentColor"/></svg>',
-  connector: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="3.5" cy="12.5" r="1.8"/><circle cx="12.5" cy="3.5" r="1.8"/><path d="M5.3 12.5 H8.5 V3.5 H10.7"/></svg>',
-  rect: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2.2" y="3.2" width="11.6" height="9.6" rx="0.8"/></svg>',
-  round_rect: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2.2" y="3.2" width="11.6" height="9.6" rx="3.4"/></svg>',
-  ellipse: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><ellipse cx="8" cy="8" rx="6" ry="4.8"/></svg>',
-  diamond: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><polygon points="8,2 14.2,8 8,14 1.8,8"/></svg>',
-  triangle: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><polygon points="8,2.2 14.2,13.5 1.8,13.5"/></svg>',
-  hexagon: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><polygon points="4.8,2.5 11.2,2.5 14.2,8 11.2,13.5 4.8,13.5 1.8,8"/></svg>',
-  star: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><polygon points="8,1.8 9.8,5.8 14.2,6.2 10.8,9.1 11.9,13.5 8,11.1 4.1,13.5 5.2,9.1 1.8,6.2 6.2,5.8"/></svg>',
-  freeform: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2 12 C4.5 3, 9.5 13, 14 4"/></svg>',
-  text: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M3 3.2 H13 M8 3.2 V13 M5.5 13 H10.5"/></svg>',
-  pen: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11.2 2.2 L13.8 4.8 L5.5 13.1 L2.2 13.8 L2.9 10.5 Z"/></svg>',
-  highlighter: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9.8 2.4 L13.6 6.2 L6.8 13 L3 9.2 Z"/><path d="M2 14 H7"/></svg>',
-  connection_point: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="8" cy="8" r="5.6" stroke-dasharray="2.4 2"/><path d="M5.6 5.6 L10.4 10.4 M10.4 5.6 L5.6 10.4"/></svg>',
-  text_block: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><rect x="2.2" y="3.2" width="11.6" height="9.6" stroke-dasharray="2.2 1.8"/><path d="M5.2 6 H10.8 M8 6 V10.8"/></svg>',
-  format_painter: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="2.2" width="9" height="4.2" rx="1"/><path d="M12 4.3 H13.5 V7.5 H7.5 V10 M6.2 10 H8.8 V13.8 H6.2 Z"/></svg>',
-  wall: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><rect x="1.8" y="5.5" width="12.4" height="5" rx="0.6"/><path d="M6 5.5 V10.5 M10 5.5 V10.5"/></svg>',
-  dimension: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2.2 4.5 V11.5 M13.8 4.5 V11.5 M2.5 8 H13.5 M4.8 6.2 L2.5 8 L4.8 9.8 M11.2 6.2 L13.5 8 L11.2 9.8"/></svg>',
-  duplicate: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><rect x="5.2" y="5.2" width="8.5" height="8.5" rx="1.4"/><path d="M10.5 5.2 V3.3 A1 1 0 0 0 9.5 2.3 H3.3 A1 1 0 0 0 2.3 3.3 V9.5 A1 1 0 0 0 3.3 10.5 H5.2"/></svg>',
-  trash: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M3 4.5 H13 M6 4.5 V2.8 H10 V4.5 M4.5 4.5 L5.2 13.5 H10.8 L11.5 4.5"/></svg>',
-  open: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M2 4.2 H6.2 L7.6 5.8 H14 V12.8 H2 Z"/></svg>',
-  save: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M2.5 2.5 H11.2 L13.5 4.8 V13.5 H2.5 Z"/><path d="M5 2.5 V6 H10.5 V2.5 M4.8 13.5 V9.2 H11.2 V13.5"/></svg>',
-  undo: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5.5 4 L2.2 7.2 L5.5 10.5"/><path d="M2.5 7.2 H9.8 C12.1 7.2 13.8 8.8 13.8 11.2"/></svg>',
-  redo: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10.5 4 L13.8 7.2 L10.5 10.5"/><path d="M13.5 7.2 H6.2 C3.9 7.2 2.2 8.8 2.2 11.2"/></svg>',
-  snapshot: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="8" cy="8" r="5.5"/><path d="M8 5.2 V8.2 L10.2 9.6"/></svg>',
-  sun: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="8" cy="8" r="3"/><path d="M8 1.5 V3 M8 13 V14.5 M1.5 8 H3 M13 8 H14.5 M3.4 3.4 L4.5 4.5 M11.5 11.5 L12.6 12.6 M12.6 3.4 L11.5 4.5 M4.5 11.5 L3.4 12.6"/></svg>',
-  moon: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M13.2 9.8 A5.5 5.5 0 0 1 6.2 2.8 A5.5 5.5 0 1 0 13.2 9.8 Z"/></svg>',
-  sidebarLeft: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2" y="2.5" width="12" height="11" rx="1.8"/><path d="M6.2 2.5 V13.5"/></svg>',
-  sidebarRight: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2" y="2.5" width="12" height="11" rx="1.8"/><path d="M9.8 2.5 V13.5"/></svg>',
-  search: '<svg class="search-box-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5 L13.8 13.8"/></svg>',
+  pointer: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3.5 L18.5 13 L12.2 14 L9.2 20.5 Z"/></svg>',
+  pan: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11V5.5a1.5 1.5 0 0 1 3 0V10m0-5a1.5 1.5 0 0 1 3 0V10m0-3.5a1.5 1.5 0 0 1 3 0V14a6 6 0 0 1-6 6h-1.8a6 6 0 0 1-5-2.7L3.3 14.2a1.5 1.5 0 0 1 2.4-1.8L9 14.5Z"/></svg>',
+  line: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><line x1="4.5" y1="19.5" x2="19.5" y2="4.5"/><circle cx="4.5" cy="19.5" r="2" fill="currentColor"/><circle cx="19.5" cy="4.5" r="2" fill="currentColor"/></svg>',
+  arc: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4.5 18.5 A 13 13 0 0 1 19.5 5.5"/><circle cx="4.5" cy="18.5" r="1.9" fill="currentColor"/><circle cx="19.5" cy="5.5" r="1.9" fill="currentColor"/></svg>',
+  connector: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="15.5" width="5" height="5" rx="1"/><rect x="16" y="3.5" width="5" height="5" rx="1"/><path d="M8 18 H12.5 V6 H16"/></svg>',
+  rect: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><rect x="3.5" y="5" width="17" height="14" rx="1.2"/></svg>',
+  round_rect: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><rect x="3.5" y="5" width="17" height="14" rx="5"/></svg>',
+  ellipse: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><ellipse cx="12" cy="12" rx="8.8" ry="6.8"/></svg>',
+  diamond: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round"><polygon points="12,3 21,12 12,21 3,12"/></svg>',
+  triangle: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round"><polygon points="12,3.5 21,19.8 3,19.8"/></svg>',
+  hexagon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round"><polygon points="7.2,3.8 16.8,3.8 21.2,12 16.8,20.2 7.2,20.2 2.8,12"/></svg>',
+  star: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><polygon points="12,2.8 14.8,8.7 21.2,9.4 16.4,13.8 17.7,20.2 12,16.9 6.3,20.2 7.6,13.8 2.8,9.4 9.2,8.7"/></svg>',
+  freeform: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><path d="M3 18 C6.8 4.5, 14.2 19.5, 21 6"/></svg>',
+  text: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round"><path d="M4.5 5 H19.5 M12 5 V19.5 M8.5 19.5 H15.5"/></svg>',
+  pen: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M16.8 3.5 L20.5 7.2 L8.2 19.5 L3.5 20.5 L4.5 15.8 Z"/></svg>',
+  highlighter: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 3.6 L20.2 9.3 L10.2 19.3 L4.5 13.6 Z"/><path d="M3.5 21 H11"/></svg>',
+  connection_point: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><circle cx="12" cy="12" r="8.2" stroke-dasharray="3.2 2.6"/><path d="M8.5 8.5 L15.5 15.5 M15.5 8.5 L8.5 15.5"/></svg>',
+  text_block: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><rect x="3.5" y="5" width="17" height="14" rx="1.5" stroke-dasharray="3 2.5"/><path d="M8 9.2 H16 M12 9.2 V16"/></svg>',
+  format_painter: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3.5" width="13" height="6" rx="1.4"/><path d="M17 6.5 H19.5 V11 H11 V14.5 M9.2 14.5 H12.8 V20.5 H9.2 Z"/></svg>',
+  wall: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round"><rect x="2.8" y="6.5" width="18.4" height="11" rx="1"/><path d="M2.8 12 H21.2 M9 6.5 V12 M15.5 6.5 V12 M12 12 V17.5"/></svg>',
+  dimension: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 6.5 V17.5 M20.5 6.5 V17.5 M4 12 H20 M7.2 9.4 L4 12 L7.2 14.6 M16.8 9.4 L20 12 L16.8 14.6"/></svg>',
+  paste: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4.5 H15 V7.5 H9 Z"/><path d="M9 6 H6 A1.8 1.8 0 0 0 4.2 7.8 V19.2 A1.8 1.8 0 0 0 6 21 H18 A1.8 1.8 0 0 0 19.8 19.2 V7.8 A1.8 1.8 0 0 0 18 6 H15"/></svg>',
+  copy: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round"><rect x="8.5" y="8.5" width="11.5" height="11.5" rx="2"/><path d="M15.5 8.5 V5.5 A1.5 1.5 0 0 0 14 4 H5.5 A1.5 1.5 0 0 0 4 5.5 V14 A1.5 1.5 0 0 0 5.5 15.5 H8.5"/></svg>',
+  duplicate: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="8.5" y="8.5" width="11.5" height="11.5" rx="2"/><path d="M15.5 8.5 V5.5 A1.5 1.5 0 0 0 14 4 H5.5 A1.5 1.5 0 0 0 4 5.5 V14 A1.5 1.5 0 0 0 5.5 15.5 H8.5"/><path d="M14.2 11.8 V16.6 M11.8 14.2 H16.6"/></svg>',
+  trash: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 6.5 H19.5 M9 6.5 V4.2 H15 V6.5 M6.8 6.5 L7.8 20 H16.2 L17.2 6.5 M10.2 10.5 V16.5 M13.8 10.5 V16.5"/></svg>',
+  open: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round"><path d="M3 6.2 H9.2 L11.4 8.6 H21 V19 H3 Z"/></svg>',
+  save: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round"><path d="M4 4 H16.8 L20 7.2 V20 H4 Z"/><path d="M7.5 4 V9 H15.5 V4 M7.2 20 V13.5 H16.8 V20"/></svg>',
+  print: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M7 8 V4 H17 V8"/><rect x="3.5" y="8" width="17" height="8.5" rx="2"/><rect x="7" y="14" width="10" height="6" fill="var(--m3-surface-1)"/></svg>',
+  exportDoc: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5 V15 M7.8 7.8 L12 3.5 L16.2 7.8"/><path d="M4.5 14.5 V19 A1.5 1.5 0 0 0 6 20.5 H18 A1.5 1.5 0 0 0 19.5 19 V14.5"/></svg>',
+  undo: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M8.5 6 L3.5 10.8 L8.5 15.6"/><path d="M4 10.8 H14.5 C18 10.8 20.5 13.2 20.5 16.8"/></svg>',
+  redo: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M15.5 6 L20.5 10.8 L15.5 15.6"/><path d="M20 10.8 H9.5 C6 10.8 3.5 13.2 3.5 16.8"/></svg>',
+  snapshot: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><circle cx="12" cy="12" r="8.2"/><path d="M12 7.5 V12.2 L15.4 14.4"/></svg>',
+  sun: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.5 V4.8 M12 19.2 V21.5 M2.5 12 H4.8 M19.2 12 H21.5 M5.2 5.2 L6.8 6.8 M17.2 17.2 L18.8 18.8 M18.8 5.2 L17.2 6.8 M6.8 17.2 L5.2 18.8"/></svg>',
+  moon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round"><path d="M19.8 14.8 A8.2 8.2 0 0 1 9.2 4.2 A8.2 8.2 0 1 0 19.8 14.8 Z"/></svg>',
+  sidebarLeft: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M9.2 4 V20"/></svg>',
+  sidebarRight: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M14.8 4 V20"/></svg>',
+  search: '<svg class="search-box-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="10.5" cy="10.5" r="6.8"/><path d="M15.8 15.8 L20.8 20.8"/></svg>',
+  findIcon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5 L20.5 20.5"/></svg>',
+  rotateLeft: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 9.5 H9.5 V4.5"/><path d="M5.2 9.5 A8 8 0 1 1 6.5 17.5"/></svg>',
+  rotateRight: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M19.5 9.5 H14.5 V4.5"/><path d="M18.8 9.5 A8 8 0 1 0 17.5 17.5"/></svg>',
+  flipH: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="3.5" x2="12" y2="20.5" stroke-dasharray="2.5 2.5"/><polygon points="3.5,18.5 9.5,18.5 9.5,6.5"/><polygon points="20.5,18.5 14.5,18.5 14.5,6.5" fill="currentColor" fill-opacity="0.2"/></svg>',
+  flipV: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><line x1="3.5" y1="12" x2="20.5" y2="12" stroke-dasharray="2.5 2.5"/><polygon points="5.5,4 5.5,9.5 17.5,9.5"/><polygon points="5.5,20 5.5,14.5 17.5,14.5" fill="currentColor" fill-opacity="0.2"/></svg>',
+  alignLeft: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><line x1="4" y1="3.5" x2="4" y2="20.5"/><rect x="7.5" y="6" width="12" height="4.5" rx="1"/><rect x="7.5" y="13.5" width="8" height="4.5" rx="1"/></svg>',
+  alignCenter: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><line x1="12" y1="3.5" x2="12" y2="20.5"/><rect x="5" y="6" width="14" height="4.5" rx="1"/><rect x="7.5" y="13.5" width="9" height="4.5" rx="1"/></svg>',
+  alignRight: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><line x1="20" y1="3.5" x2="20" y2="20.5"/><rect x="4.5" y="6" width="12" height="4.5" rx="1"/><rect x="8.5" y="13.5" width="8" height="4.5" rx="1"/></svg>',
+  alignTop: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><line x1="3.5" y1="4" x2="20.5" y2="4"/><rect x="6" y="7.5" width="4.5" height="12" rx="1"/><rect x="13.5" y="7.5" width="4.5" height="8" rx="1"/></svg>',
+  alignMiddle: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><line x1="3.5" y1="12" x2="20.5" y2="12"/><rect x="6" y="5" width="4.5" height="14" rx="1"/><rect x="13.5" y="7.5" width="4.5" height="9" rx="1"/></svg>',
+  alignBottom: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><line x1="3.5" y1="20" x2="20.5" y2="20"/><rect x="6" y="4.5" width="4.5" height="12" rx="1"/><rect x="13.5" y="8.5" width="4.5" height="8" rx="1"/></svg>',
+  distH: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><line x1="4" y1="4" x2="4" y2="20"/><line x1="20" y1="4" x2="20" y2="20"/><rect x="9.2" y="6.5" width="5.6" height="11" rx="1"/></svg>',
+  distV: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><line x1="4" y1="4" x2="20" y2="4"/><line x1="4" y1="20" x2="20" y2="20"/><rect x="6.5" y="9.2" width="11" height="5.6" rx="1"/></svg>',
+  bringFront: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round"><rect x="8.5" y="4" width="11.5" height="11.5" rx="1.6" fill="currentColor" fill-opacity="0.16"/><path d="M8.5 9.5 H5.5 A1.5 1.5 0 0 0 4 11 V18.5 A1.5 1.5 0 0 0 5.5 20 H13 A1.5 1.5 0 0 0 14.5 18.5 V15.5"/></svg>',
+  sendBack: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round"><rect x="4" y="8.5" width="11.5" height="11.5" rx="1.6"/><path d="M9.5 8.5 V5.5 A1.5 1.5 0 0 1 11 4 H18.5 A1.5 1.5 0 0 1 20 5.5 V13 A1.5 1.5 0 0 1 18.5 14.5 H15.5" stroke-dasharray="2.5 2"/></svg>',
+  group: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" stroke-dasharray="3 2.5"/><rect x="6.5" y="6.5" width="5.5" height="5.5" rx="0.8"/><rect x="12" y="12" width="5.5" height="5.5" rx="0.8"/></svg>',
+  ungroup: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round"><rect x="4.5" y="4.5" width="7.5" height="7.5" rx="1"/><rect x="12" y="12" width="7.5" height="7.5" rx="1"/></svg>',
+  grid2Col: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><rect x="3.5" y="3.5" width="7.2" height="7.2" rx="1.4"/><rect x="13.3" y="3.5" width="7.2" height="7.2" rx="1.4"/><rect x="3.5" y="13.3" width="7.2" height="7.2" rx="1.4"/><rect x="13.3" y="13.3" width="7.2" height="7.2" rx="1.4"/></svg>',
+  listRows: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><line x1="8.5" y1="6.5" x2="20" y2="6.5"/><line x1="8.5" y1="12" x2="20" y2="12"/><line x1="8.5" y1="17.5" x2="20" y2="17.5"/><rect x="3.5" y="5" width="3" height="3" rx="0.6"/><rect x="3.5" y="10.5" width="3" height="3" rx="0.6"/><rect x="3.5" y="16" width="3" height="3" rx="0.6"/></svg>',
+  fontsOs: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19 L9.5 5 L15 19 M6.2 14.5 H12.8"/><path d="M17.5 10 V19 M15 16.5 L17.5 19 L20 16.5"/></svg>',
+  newDoc: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3.5 H14.5 L19 8 V20.5 H6 Z"/><path d="M14 3.5 V8.5 H19 M12.5 11.5 V16.5 M10 14 H15"/></svg>',
+  closeDoc: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 6 L18 18 M18 6 L6 18"/></svg>',
 };
 
 function buildFallbackStencilSvg(masterName: string): string {
@@ -778,6 +805,14 @@ class VexioChromeOsApp {
   private activePagePresetId: string = this.metricUnits ? 'a4_l' : 'letter_l';
   private isRibbonCollapsed = false;
   private openHeaderMenu: null | 'file' | 'edit' | 'export' | 'help' = null;
+  private openRibbonPopover: null | 'align' | 'distribute' | 'order' = null;
+  private openRailFlyout: null | 'shapes' | 'connectors' | 'text' | 'aec' | 'ink' = null;
+  private lastShapeTool: ActiveTool = 'rect';
+  private lastConnTool: ActiveTool = 'connector';
+  private lastTextTool: ActiveTool = 'text';
+  private lastAecTool: ActiveTool = 'wall';
+  private lastInkTool: ActiveTool = 'pen';
+  private isStencilListMode = false;
   private isRenamingDocTitle = false;
   private renameDocDraft = '';
   private renamingPageId: number | null = null;
@@ -2100,10 +2135,15 @@ class VexioChromeOsApp {
           menuEl?.remove();
         }
       }
-      if (this.openHeaderMenu) {
-        const topBar = document.querySelector('.top-menubar');
-        if (!topBar || !topBar.contains(ev.target as Node)) {
+      if (this.openHeaderMenu || this.openRibbonPopover || this.openRailFlyout) {
+        const target = ev.target as HTMLElement | null;
+        const insideMenu = Boolean(
+          target?.closest('[data-top-menu], [data-ribbon-pop], [data-rail-flyout-wrap]')
+        );
+        if (!insideMenu) {
           this.openHeaderMenu = null;
+          this.openRibbonPopover = null;
+          this.openRailFlyout = null;
           this.render();
         }
       }
@@ -2128,8 +2168,10 @@ class VexioChromeOsApp {
       }
 
       if (e.key === 'Escape') {
-        if (this.openHeaderMenu !== null) {
+        if (this.openHeaderMenu !== null || this.openRibbonPopover !== null || this.openRailFlyout !== null) {
           this.openHeaderMenu = null;
+          this.openRibbonPopover = null;
+          this.openRailFlyout = null;
           this.render();
           return;
         }
@@ -2588,12 +2630,13 @@ class VexioChromeOsApp {
   private renderStatusChipsOnly(): void {
     const el = document.getElementById('cloud-sync-chip');
     if (!el) return;
+    const t = this.i18n;
     el.className = `status-chip ${this.cloudState.online ? '' : 'offline'} no-drag`;
     el.textContent = this.cloudState.online
       ? this.cloudState.user
-        ? 'Cloud Synced'
-        : 'Saved Locally'
-      : 'Offline Ready';
+        ? t.cloudSynced
+        : t.savedLocally
+      : t.offlineReady;
   }
 
   private renderPeersOverlayOnly(): void {
@@ -2732,38 +2775,126 @@ class VexioChromeOsApp {
   }
 
   private renderDrawingToolRail(): string {
-    const btn = (tool: ActiveTool, icon: string, label: string, tip: string) =>
-      `<button class="rail-tool-btn ${this.activeTool === tool ? 'active' : ''}" data-tool="${tool}" title="${tip}">
-        ${icon}
-        <span class="rail-tool-label">${label}</span>
+    const t = this.i18n;
+    const shapeTools: ActiveTool[] = ['rect', 'round_rect', 'ellipse', 'diamond', 'triangle', 'hexagon', 'star'];
+    const connTools: ActiveTool[] = ['connector', 'line', 'arc', 'freeform', 'connection_point'];
+    const textTools: ActiveTool[] = ['text', 'text_block'];
+    const aecTools: ActiveTool[] = ['wall', 'dimension'];
+    const inkTools: ActiveTool[] = ['pen', 'highlighter'];
+
+    const curShape = shapeTools.includes(this.activeTool) ? this.activeTool : this.lastShapeTool;
+    const curConn = connTools.includes(this.activeTool) ? this.activeTool : this.lastConnTool;
+    const curText = textTools.includes(this.activeTool) ? this.activeTool : this.lastTextTool;
+    const curAec = aecTools.includes(this.activeTool) ? this.activeTool : this.lastAecTool;
+    const curInk = inkTools.includes(this.activeTool) ? this.activeTool : this.lastInkTool;
+
+    const iconForTool = (tool: ActiveTool): string => UI_ICONS[tool] ?? UI_ICONS.rect;
+
+    const flyoutItem = (tool: ActiveTool, label: string, kbd = '') =>
+      `<button class="ctx-item ${this.activeTool === tool ? 'active' : ''}" data-tool="${tool}">
+        <span class="ctx-item-lead">${iconForTool(tool)}<span>${label}</span></span>
+        ${kbd ? `<span class="ctx-kbd">${kbd}</span>` : ''}
       </button>`;
 
     return `
       <aside class="drawing-tool-rail" aria-label="Drawing Tools">
-        ${btn('pointer', UI_ICONS.pointer, 'Select', 'Pointer & Marquee Select (V / Ctrl+1)')}
-        ${btn('pan', UI_ICONS.pan, 'Pan', 'Pan Canvas (H / Hold Space)')}
+        <button class="rail-tool-btn ${this.activeTool === 'pointer' ? 'active' : ''}" data-tool="pointer" title="${t.toolSelect}">
+          ${UI_ICONS.pointer}
+        </button>
+        <button class="rail-tool-btn ${this.activeTool === 'pan' ? 'active' : ''}" data-tool="pan" title="${t.toolPan}">
+          ${UI_ICONS.pan}
+        </button>
         <div class="rail-divider"></div>
-        ${btn('connector', UI_ICONS.connector, 'Connect', 'Dynamic Connector — Drag between shapes or ports (C / Ctrl+3)')}
-        ${btn('connection_point', UI_ICONS.connection_point, 'Ports', 'Connection Point Tool — Click shape to add port, drag to move, Right-Click to delete (Ctrl+Shift+1)')}
-        ${btn('line', UI_ICONS.line, 'Line', 'Straight Line — Click and drag on canvas (L)')}
-        ${btn('arc', UI_ICONS.arc, 'Arc', 'Curved Arc — Click and drag on canvas (A)')}
-        ${btn('freeform', UI_ICONS.freeform, 'Curve', 'Freeform Bezier / Spline Curve (P)')}
+
+        <div class="rail-group-wrap" data-rail-flyout-wrap="shapes">
+          <button class="rail-tool-btn ${shapeTools.includes(this.activeTool) ? 'active' : ''}" data-rail-flyout="shapes" title="${t.toolShapes}">
+            ${iconForTool(curShape)}
+            <span class="rail-flyout-caret"></span>
+          </button>
+          ${
+            this.openRailFlyout === 'shapes'
+              ? `<div class="rail-flyout-menu" role="menu">
+                  ${flyoutItem('rect', 'Rectangle', 'R')}
+                  ${flyoutItem('round_rect', 'Rounded Rectangle', 'U')}
+                  ${flyoutItem('ellipse', 'Ellipse / Circle', 'O')}
+                  ${flyoutItem('diamond', 'Diamond', 'D')}
+                  ${flyoutItem('triangle', 'Triangle', 'G')}
+                  ${flyoutItem('hexagon', 'Hexagon', 'X')}
+                  ${flyoutItem('star', '5-Point Star', 'S')}
+                </div>`
+              : ''
+          }
+        </div>
+
+        <div class="rail-group-wrap" data-rail-flyout-wrap="connectors">
+          <button class="rail-tool-btn ${connTools.includes(this.activeTool) ? 'active' : ''}" data-rail-flyout="connectors" title="${t.toolConnectors}">
+            ${iconForTool(curConn)}
+            <span class="rail-flyout-caret"></span>
+          </button>
+          ${
+            this.openRailFlyout === 'connectors'
+              ? `<div class="rail-flyout-menu" role="menu">
+                  ${flyoutItem('connector', 'Dynamic Connector', 'C')}
+                  ${flyoutItem('line', 'Straight Line', 'L')}
+                  ${flyoutItem('arc', 'Circular Arc', 'A')}
+                  ${flyoutItem('freeform', 'Freeform Curve', 'P')}
+                  <div class="ctx-sep"></div>
+                  ${flyoutItem('connection_point', t.connPointsBtn, 'Ctrl+Shift+1')}
+                </div>`
+              : ''
+          }
+        </div>
+
+        <div class="rail-group-wrap" data-rail-flyout-wrap="text">
+          <button class="rail-tool-btn ${textTools.includes(this.activeTool) ? 'active' : ''}" data-rail-flyout="text" title="${t.toolText}">
+            ${iconForTool(curText)}
+            <span class="rail-flyout-caret"></span>
+          </button>
+          ${
+            this.openRailFlyout === 'text'
+              ? `<div class="rail-flyout-menu" role="menu">
+                  ${flyoutItem('text', 'Text Box', 'T')}
+                  ${flyoutItem('text_block', 'Text Block Transform', 'Ctrl+Shift+4')}
+                </div>`
+              : ''
+          }
+        </div>
+
         <div class="rail-divider"></div>
-        ${btn('rect', UI_ICONS.rect, 'Rect', 'Rectangle / Square — Click and drag on canvas (R)')}
-        ${btn('round_rect', UI_ICONS.round_rect, 'Round', 'Rounded Rectangle — Click and drag on canvas (U)')}
-        ${btn('ellipse', UI_ICONS.ellipse, 'Circle', 'Ellipse / Circle — Click and drag on canvas (O)')}
-        ${btn('diamond', UI_ICONS.diamond, 'Diamond', 'Diamond / Decision — Click and drag on canvas (D)')}
-        ${btn('triangle', UI_ICONS.triangle, 'Triangle', 'Triangle — Click and drag on canvas (G)')}
-        ${btn('hexagon', UI_ICONS.hexagon, 'Hexagon', 'Hexagon / Polygon — Click and drag on canvas (X)')}
-        ${btn('star', UI_ICONS.star, 'Star', '5-Point Star — Click and drag on canvas (S)')}
-        <div class="rail-divider"></div>
-        ${btn('text', UI_ICONS.text, 'Text', 'Text Box — Click or drag on canvas to type immediately, or double-click any stencil (T)')}
-        ${btn('text_block', UI_ICONS.text_block, 'TxtBlk', 'Text Block Tool — Move or rotate shape label independently (Ctrl+Shift+4)')}
-        ${btn('format_painter', UI_ICONS.format_painter, 'Painter', 'Format Painter — Sample Fill/Line/Text formatting & click target shape (Ctrl+Shift+P)')}
-        ${btn('wall', UI_ICONS.wall, 'Wall', 'Architectural Wall Tool — Drag to draw auto-healing L/T walls (Ctrl+Shift+W)')}
-        ${btn('dimension', UI_ICONS.dimension, 'Dim', 'Associative Dimension Tool — Click shape or drag between shapes (Ctrl+Shift+D)')}
-        ${btn('pen', UI_ICONS.pen, 'Pen', 'Freehand Markup Ink Pen (I)')}
-        ${btn('highlighter', UI_ICONS.highlighter, 'Marker', 'Markup Highlighter')}
+
+        <div class="rail-group-wrap" data-rail-flyout-wrap="aec">
+          <button class="rail-tool-btn ${aecTools.includes(this.activeTool) ? 'active' : ''}" data-rail-flyout="aec" title="${t.toolAec}">
+            ${iconForTool(curAec)}
+            <span class="rail-flyout-caret"></span>
+          </button>
+          ${
+            this.openRailFlyout === 'aec'
+              ? `<div class="rail-flyout-menu" role="menu">
+                  ${flyoutItem('wall', 'Architectural Wall', 'Ctrl+Shift+W')}
+                  ${flyoutItem('dimension', 'Associative Dimension', 'Ctrl+Shift+D')}
+                </div>`
+              : ''
+          }
+        </div>
+
+        <button class="rail-tool-btn ${this.activeTool === 'format_painter' ? 'active' : ''}" id="btn-rail-painter" title="Format Painter (Ctrl+Shift+P)">
+          ${UI_ICONS.format_painter}
+        </button>
+
+        <div class="rail-group-wrap" data-rail-flyout-wrap="ink">
+          <button class="rail-tool-btn ${inkTools.includes(this.activeTool) ? 'active' : ''}" data-rail-flyout="ink" title="${t.toolInk}">
+            ${iconForTool(curInk)}
+            <span class="rail-flyout-caret"></span>
+          </button>
+          ${
+            this.openRailFlyout === 'ink'
+              ? `<div class="rail-flyout-menu" role="menu">
+                  ${flyoutItem('pen', t.penInkBtn, 'I')}
+                  ${flyoutItem('highlighter', t.highlighterBtn)}
+                </div>`
+              : ''
+          }
+        </div>
       </aside>
     `;
   }
@@ -2937,6 +3068,7 @@ class VexioChromeOsApp {
   }
 
   private renderContextualRibbon(snap: EngineSnapshot): string {
+    const t = this.i18n;
     const selDisabled = this.selectedShapeIds.length === 0 ? 'disabled' : '';
     const multiDisabled = this.selectedShapeIds.length < 2 ? 'disabled' : '';
     const distDisabled = this.selectedShapeIds.length < 3 ? 'disabled' : '';
@@ -2956,179 +3088,220 @@ class VexioChromeOsApp {
     switch (this.activeRibbonTab) {
       case 'Home':
         return `
-          <span class="ribbon-group-label">Clipboard</span>
-          <button class="m3-btn" id="btn-paste-sel" ${hasClip ? '' : 'disabled'} title="Paste (Ctrl+V)">Paste</button>
-          <button class="m3-btn" id="btn-copy-sel" ${selDisabled} title="Copy (Ctrl+C)">Copy</button>
-          <button class="m3-btn ${this.activeTool === 'format_painter' ? 'active' : ''}" id="btn-format-painter" title="Format Painter — Copy Fill/Line/Text style &amp; click target shape (Ctrl+Shift+P)">Painter</button>
-          <button class="m3-btn tonal" id="btn-open-find-modal" title="Find &amp; Replace across Page or Document (Ctrl+F / Ctrl+H)">Find</button>
-          <button class="m3-btn" id="btn-duplicate-sel" ${selDisabled} title="Duplicate Selected (Ctrl+D)">${UI_ICONS.duplicate}</button>
-          <button class="m3-btn" id="btn-delete-sel" ${selDisabled} title="Delete Selected (Del)">${UI_ICONS.trash}</button>
-          <div class="ribbon-divider"></div>
-
-          <span class="ribbon-group-label">Font &amp; Paragraph</span>
-          <select class="cell-input" id="ribbon-heading-preset" style="width:126px;height:26px;padding:1px 6px;font-size:11.5px;font-weight:600" title="Apply Visio Title / Heading Style to Selection (or Insert onto Page)">
-            <option value="">Headings ▾</option>
-            <option value="title">Diagram Title (24pt)</option>
-            <option value="subtitle">Subtitle (14pt)</option>
-            <option value="h1">Heading 1 — Rule (18pt)</option>
-            <option value="h2">Heading 2 (14pt)</option>
-            <option value="h3">Heading 3 (12pt)</option>
-            <option value="section_banner">Section Banner</option>
-            <option value="callout_title">Accent Callout</option>
-            <option value="body">Body Text (11pt)</option>
-            <option value="caption">Caption (9.5pt)</option>
-          </select>
-          <select class="cell-input" id="ribbon-font-family" style="width:136px;height:26px;padding:1px 6px;font-size:11.5px" title="Installed OS &amp; Document Font Families (${fontList.length})">
-            ${fontList
-              .map(
-                (f) => `<option value="${f.replace(/"/g, '&quot;')}" ${this.textFontFamily === f ? 'selected' : ''}>${f}</option>`
-              )
-              .join('')}
-          </select>
-          ${
-            typeof window !== 'undefined' && 'queryLocalFonts' in window
-              ? `<button class="fmt-btn" id="btn-load-os-fonts" title="${this.i18n.loadOsFonts} — Load all installed OS fonts">${this.i18n.loadOsFonts}</button>`
-              : ''
-          }
-          <select class="cell-input" id="ribbon-font-size" style="width:58px;height:26px;padding:1px 4px;font-size:11.5px" title="Font Size (pt)">
-            ${fontSizes
-              .map((sz) => `<option value="${sz}" ${this.textFontSizePt === sz ? 'selected' : ''}>${sz}pt</option>`)
-              .join('')}
-          </select>
-          <button class="fmt-btn" id="btn-font-grow" title="Increase Font Size (+2 pt)">A+</button>
-          <button class="fmt-btn" id="btn-font-shrink" title="Decrease Font Size (-2 pt)">A−</button>
-          <button class="fmt-btn ${this.textBold ? 'active' : ''}" id="btn-fmt-bold" title="Bold (Ctrl+B)"><strong>B</strong></button>
-          <button class="fmt-btn ${this.textItalic ? 'active' : ''}" id="btn-fmt-italic" title="Italic (Ctrl+I)"><em>I</em></button>
-          <button class="fmt-btn ${this.textUnderline ? 'active' : ''}" id="btn-fmt-underline" title="Underline (Ctrl+U)"><u>U</u></button>
-          <button class="fmt-btn ${this.textStrikethrough ? 'active' : ''}" id="btn-fmt-strike" title="Strikethrough"><s>S</s></button>
-          <label class="native-color-chip" title="Text Color (Native OS Color Picker)">
-            <span>A</span>
-            <input type="color" id="ribbon-text-color-picker" class="native-color-input" value="${activeTextColor}" />
-          </label>
-          <button class="fmt-btn ${this.textBgColorHex !== 'none' ? 'active' : ''}" id="btn-apply-text-bg" title="Toggle Yellow Text Highlight">${this.textBgColorHex !== 'none' ? 'ab✓' : 'ab'}</button>
-          <label class="native-color-chip" title="Text Highlight Color (Native OS Color Picker)">
-            <span>▾</span>
-            <input type="color" id="ribbon-text-bg-picker" class="native-color-input" value="${activeBgColor}" />
-          </label>
-          ${
-            this.textBgColorHex !== 'none'
-              ? `<button class="fmt-btn" id="btn-clear-text-bg" title="${this.i18n.clearHighlight}">✕</button>`
-              : ''
-          }
-          <div class="ribbon-divider"></div>
-          <span class="ribbon-group-label">Paragraph</span>
-          <button class="fmt-btn ${this.textHorizAlign === 0 ? 'active' : ''}" data-halign="0" title="Align Text Left" aria-label="Align Text Left">
-            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><line x1="2" y1="3.5" x2="14" y2="3.5"/><line x1="2" y1="6.8" x2="10" y2="6.8"/><line x1="2" y1="10.1" x2="13" y2="10.1"/><line x1="2" y1="13.4" x2="8.5" y2="13.4"/></svg>
-          </button>
-          <button class="fmt-btn ${this.textHorizAlign === 1 ? 'active' : ''}" data-halign="1" title="Center Text" aria-label="Center Text">
-            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><line x1="2" y1="3.5" x2="14" y2="3.5"/><line x1="4" y1="6.8" x2="12" y2="6.8"/><line x1="2.5" y1="10.1" x2="13.5" y2="10.1"/><line x1="5" y1="13.4" x2="11" y2="13.4"/></svg>
-          </button>
-          <button class="fmt-btn ${this.textHorizAlign === 2 ? 'active' : ''}" data-halign="2" title="Align Text Right" aria-label="Align Text Right">
-            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><line x1="2" y1="3.5" x2="14" y2="3.5"/><line x1="6" y1="6.8" x2="14" y2="6.8"/><line x1="3" y1="10.1" x2="14" y2="10.1"/><line x1="7.5" y1="13.4" x2="14" y2="13.4"/></svg>
-          </button>
-          <button class="fmt-btn ${this.textVertAlign === 0 ? 'active' : ''}" data-valign="0" title="Top Vertical Align" aria-label="Top Vertical Align">
-            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="2.5" y1="2.5" x2="13.5" y2="2.5"/><line x1="8" y1="5" x2="8" y2="13.5"/><polyline points="5.2,7.8 8,5 10.8,7.8"/></svg>
-          </button>
-          <button class="fmt-btn ${this.textVertAlign === 1 ? 'active' : ''}" data-valign="1" title="Middle Vertical Align" aria-label="Middle Vertical Align">
-            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="2.5" y1="8" x2="13.5" y2="8"/><polyline points="5.5,4 8,6.5 10.5,4"/><polyline points="5.5,12 8,9.5 10.5,12"/></svg>
-          </button>
-          <button class="fmt-btn ${this.textVertAlign === 2 ? 'active' : ''}" data-valign="2" title="Bottom Vertical Align" aria-label="Bottom Vertical Align">
-            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="2.5" y1="13.5" x2="13.5" y2="13.5"/><line x1="8" y1="2.5" x2="8" y2="11"/><polyline points="5.2,8.2 8,11 10.8,8.2"/></svg>
-          </button>
-          <button class="fmt-btn ${this.textBullets ? 'active' : ''}" id="btn-fmt-bullets" title="Bulleted List" aria-label="Bulleted List">
-            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="3" cy="4" r="1" fill="currentColor" stroke="none"/><line x1="6" y1="4" x2="14" y2="4"/><circle cx="3" cy="8" r="1" fill="currentColor" stroke="none"/><line x1="6" y1="8" x2="14" y2="8"/><circle cx="3" cy="12" r="1" fill="currentColor" stroke="none"/><line x1="6" y1="12" x2="14" y2="12"/></svg>
-          </button>
-          <div class="ribbon-divider"></div>
-
-          <span class="ribbon-group-label">Fill &amp; Line</span>
-          <label class="native-color-chip" title="${this.i18n.fillColor} (Native OS Color Picker)">
-            <span>Fill</span>
-            <input type="color" id="ribbon-fill-color-picker" class="native-color-input" value="${this.shapeFillHex}" />
-          </label>
-          <label class="native-color-chip" title="${this.i18n.lineColor} (Native OS Color Picker)">
-            <span>Line</span>
-            <input type="color" id="ribbon-line-color-picker" class="native-color-input" value="${this.shapeLineHex}" />
-          </label>
-          <select class="cell-input" id="ribbon-end-arrow-select" style="width:118px;height:26px;padding:1px 5px;font-size:11px" ${selDisabled} title="All 45 Canonical Visio End Arrowheads (0..45)">
-            <option value="">Arrows (45) ▾</option>
-            <option value="0">0 — None</option>
-            <option value="1">1 — Open Arrow</option>
-            <option value="2">2 — Hollow Triangle</option>
-            <option value="4">4 — Filled Triangle</option>
-            <option value="5">5 — Stealth Arrow</option>
-            <option value="9">9 — Dimension Slash</option>
-            <option value="10">10 — Filled Dot</option>
-            <option value="11">11 — Filled Diamond</option>
-            <option value="14">14 — Hollow Stealth</option>
-            <option value="22">22 — Hollow Diamond</option>
-            <option value="24">24 — Dim Arrow + Bar</option>
-            <option value="25">25 — ERD Double Bar ||</option>
-            <option value="27">27 — Crow's Foot &lt;</option>
-            <option value="28">28 — One &amp; Many |&lt;</option>
-            <option value="29">29 — Zero or Many o&lt;</option>
-            <option value="30">30 — Zero or One o|</option>
-            <option value="31">31 — Hollow Circle</option>
-            <option value="36">36 — Double Triangle</option>
-            <option value="41">41 — Circle Cross ⊕</option>
-            <option value="45">45 — Triple Feather</option>
-          </select>
-          <div class="swatch-row">
-            ${['255,255,255', '239,246,255', '219,234,254', '220,252,231', '254,243,199', '243,232,255', '254,226,226']
-              .map(
-                (rgb) =>
-                  `<button class="swatch-btn" data-fill-rgb="${rgb}" style="background:rgb(${rgb})" title="Fill RGB(${rgb})"></button>`
-              )
-              .join('')}
+          <div class="ribbon-cluster">
+            <button class="m3-btn tonal" id="btn-paste-sel" ${hasClip ? '' : 'disabled'} title="${t.paste} (Ctrl+V)">${UI_ICONS.paste}<span>${t.paste}</span></button>
+            <button class="m3-btn icon-only" id="btn-copy-sel" ${selDisabled} title="${t.copy} (Ctrl+C)">${UI_ICONS.copy}</button>
+            <button class="m3-btn icon-only" id="btn-duplicate-sel" ${selDisabled} title="${t.duplicate} (Ctrl+D)">${UI_ICONS.duplicate}</button>
+            <button class="m3-btn icon-only ${this.activeTool === 'format_painter' ? 'active' : ''}" id="btn-format-painter" title="Format Painter (Ctrl+Shift+P)">${UI_ICONS.format_painter}</button>
+            <button class="m3-btn icon-only" id="btn-delete-sel" ${selDisabled} title="${t.delete} (Del)">${UI_ICONS.trash}</button>
           </div>
           <div class="ribbon-divider"></div>
 
-          <span class="ribbon-group-label">Rotate &amp; Arrange</span>
-          <button class="m3-btn tonal" data-rot-deg="-90" ${selDisabled} title="${this.i18n.rotateLeft90} (Ctrl+L)">↺ 90°</button>
-          <button class="m3-btn tonal" data-rot-deg="90" ${selDisabled} title="${this.i18n.rotateRight90} (Ctrl+R)">↻ 90°</button>
-          <button class="m3-btn" data-flip-axis="x" ${selDisabled} title="${this.i18n.flipHoriz}">⇆ Flip H</button>
-          <button class="m3-btn" data-flip-axis="y" ${selDisabled} title="${this.i18n.flipVert}">⇅ Flip V</button>
-          <button class="m3-btn" data-zorder="front" ${selDisabled} title="Bring Selected to Front">Front</button>
-          <button class="m3-btn" data-zorder="back" ${selDisabled} title="Send Selected to Back">Back</button>
-          <button class="m3-btn" data-align="left" ${multiDisabled} title="Align Left">Align L</button>
-          <button class="m3-btn" data-align="center" ${multiDisabled} title="Align Center">Center</button>
-          <button class="m3-btn" data-align="right" ${multiDisabled} title="Align Right">Align R</button>
-          <button class="m3-btn" data-align="top" ${multiDisabled} title="Align Top">Top</button>
-          <button class="m3-btn" data-align="middle" ${multiDisabled} title="Align Middle">Middle</button>
-          <button class="m3-btn" data-align="bottom" ${multiDisabled} title="Align Bottom">Bottom</button>
-          <button class="m3-btn" data-align="distribute_h" ${distDisabled} title="Distribute Horizontally (Equal Gaps)">Dist H</button>
-          <button class="m3-btn" data-align="distribute_v" ${distDisabled} title="Distribute Vertically (Equal Gaps)">Dist V</button>
-          <button class="m3-btn tonal" id="btn-group-sel" ${multiDisabled} title="Group Selected Shapes (Ctrl+G)">Group</button>
-          <button class="m3-btn" id="btn-ungroup-sel" ${ungroupDisabled} title="Ungroup Selected Group (Ctrl+Shift+G)">Ungroup</button>
-          <button class="m3-btn tonal" data-layout="tb" title="Auto-Arrange Diagram Top-Down">Auto-Layout</button>
+          <div class="ribbon-cluster">
+            <select class="cell-input" id="ribbon-heading-preset" style="width:112px;height:26px;padding:1px 6px;font-size:11.5px;font-weight:600" title="${t.headings}">
+              <option value="">${t.headings} ▾</option>
+              <option value="title">Diagram Title (24pt)</option>
+              <option value="subtitle">Subtitle (14pt)</option>
+              <option value="h1">Heading 1 (18pt)</option>
+              <option value="h2">Heading 2 (14pt)</option>
+              <option value="h3">Heading 3 (12pt)</option>
+              <option value="section_banner">Section Banner</option>
+              <option value="callout_title">Accent Callout</option>
+              <option value="body">Body Text (11pt)</option>
+              <option value="caption">Caption (9.5pt)</option>
+            </select>
+            <select class="cell-input" id="ribbon-font-family" style="width:124px;height:26px;padding:1px 6px;font-size:11.5px" title="Font Family (${fontList.length})">
+              ${fontList
+                .map(
+                  (f) => `<option value="${f.replace(/"/g, '&quot;')}" ${this.textFontFamily === f ? 'selected' : ''}>${f}</option>`
+                )
+                .join('')}
+            </select>
+            ${
+              typeof window !== 'undefined' && 'queryLocalFonts' in window
+                ? `<button class="fmt-btn" id="btn-load-os-fonts" title="${t.loadOsFonts}" style="width:26px;padding:0">${UI_ICONS.fontsOs}</button>`
+                : ''
+            }
+            <select class="cell-input" id="ribbon-font-size" style="width:54px;height:26px;padding:1px 4px;font-size:11.5px" title="Font Size (pt)">
+              ${fontSizes
+                .map((sz) => `<option value="${sz}" ${this.textFontSizePt === sz ? 'selected' : ''}>${sz}pt</option>`)
+                .join('')}
+            </select>
+            <button class="fmt-btn" id="btn-font-grow" title="Increase Font Size (+2 pt)">A+</button>
+            <button class="fmt-btn" id="btn-font-shrink" title="Decrease Font Size (-2 pt)">A−</button>
+            <button class="fmt-btn ${this.textBold ? 'active' : ''}" id="btn-fmt-bold" title="Bold (Ctrl+B)"><strong>B</strong></button>
+            <button class="fmt-btn ${this.textItalic ? 'active' : ''}" id="btn-fmt-italic" title="Italic (Ctrl+I)"><em>I</em></button>
+            <button class="fmt-btn ${this.textUnderline ? 'active' : ''}" id="btn-fmt-underline" title="Underline (Ctrl+U)"><u>U</u></button>
+            <button class="fmt-btn ${this.textStrikethrough ? 'active' : ''}" id="btn-fmt-strike" title="Strikethrough"><s>S</s></button>
+            <label class="native-color-chip" title="Text Color">
+              <span>A</span>
+              <input type="color" id="ribbon-text-color-picker" class="native-color-input" value="${activeTextColor}" />
+            </label>
+            <button class="fmt-btn ${this.textBgColorHex !== 'none' ? 'active' : ''}" id="btn-apply-text-bg" title="Toggle Text Highlight">${this.textBgColorHex !== 'none' ? 'ab✓' : 'ab'}</button>
+            <label class="native-color-chip" title="Highlight Color" style="padding:0 4px">
+              <input type="color" id="ribbon-text-bg-picker" class="native-color-input" value="${activeBgColor}" />
+            </label>
+            ${
+              this.textBgColorHex !== 'none'
+                ? `<button class="fmt-btn" id="btn-clear-text-bg" title="${t.clearHighlight}">✕</button>`
+                : ''
+            }
+          </div>
+          <div class="ribbon-divider"></div>
+
+          <div class="ribbon-cluster">
+            <button class="fmt-btn ${this.textHorizAlign === 0 ? 'active' : ''}" data-halign="0" title="${t.alignLeft}" aria-label="${t.alignLeft}">
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><line x1="2" y1="3.5" x2="14" y2="3.5"/><line x1="2" y1="6.8" x2="10" y2="6.8"/><line x1="2" y1="10.1" x2="13" y2="10.1"/><line x1="2" y1="13.4" x2="8.5" y2="13.4"/></svg>
+            </button>
+            <button class="fmt-btn ${this.textHorizAlign === 1 ? 'active' : ''}" data-halign="1" title="${t.alignCenter}" aria-label="${t.alignCenter}">
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><line x1="2" y1="3.5" x2="14" y2="3.5"/><line x1="4" y1="6.8" x2="12" y2="6.8"/><line x1="2.5" y1="10.1" x2="13.5" y2="10.1"/><line x1="5" y1="13.4" x2="11" y2="13.4"/></svg>
+            </button>
+            <button class="fmt-btn ${this.textHorizAlign === 2 ? 'active' : ''}" data-halign="2" title="${t.alignRight}" aria-label="${t.alignRight}">
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><line x1="2" y1="3.5" x2="14" y2="3.5"/><line x1="6" y1="6.8" x2="14" y2="6.8"/><line x1="3" y1="10.1" x2="14" y2="10.1"/><line x1="7.5" y1="13.4" x2="14" y2="13.4"/></svg>
+            </button>
+            <button class="fmt-btn ${this.textVertAlign === 0 ? 'active' : ''}" data-valign="0" title="${t.alignTop}" aria-label="${t.alignTop}">
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="2.5" y1="2.5" x2="13.5" y2="2.5"/><line x1="8" y1="5" x2="8" y2="13.5"/><polyline points="5.2,7.8 8,5 10.8,7.8"/></svg>
+            </button>
+            <button class="fmt-btn ${this.textVertAlign === 1 ? 'active' : ''}" data-valign="1" title="${t.alignMiddle}" aria-label="${t.alignMiddle}">
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="2.5" y1="8" x2="13.5" y2="8"/><polyline points="5.5,4 8,6.5 10.5,4"/><polyline points="5.5,12 8,9.5 10.5,12"/></svg>
+            </button>
+            <button class="fmt-btn ${this.textVertAlign === 2 ? 'active' : ''}" data-valign="2" title="${t.alignBottom}" aria-label="${t.alignBottom}">
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="2.5" y1="13.5" x2="13.5" y2="13.5"/><line x1="8" y1="2.5" x2="8" y2="11"/><polyline points="5.2,8.2 8,11 10.8,8.2"/></svg>
+            </button>
+            <button class="fmt-btn ${this.textBullets ? 'active' : ''}" id="btn-fmt-bullets" title="Bulleted List" aria-label="Bulleted List">
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="3" cy="4" r="1" fill="currentColor" stroke="none"/><line x1="6" y1="4" x2="14" y2="4"/><circle cx="3" cy="8" r="1" fill="currentColor" stroke="none"/><line x1="6" y1="8" x2="14" y2="8"/><circle cx="3" cy="12" r="1" fill="currentColor" stroke="none"/><line x1="6" y1="12" x2="14" y2="12"/></svg>
+            </button>
+          </div>
+          <div class="ribbon-divider"></div>
+
+          <div class="ribbon-cluster">
+            <label class="native-color-chip" title="${t.fillColor}">
+              <span>${t.fillShort}</span>
+              <input type="color" id="ribbon-fill-color-picker" class="native-color-input" value="${this.shapeFillHex}" />
+            </label>
+            <label class="native-color-chip" title="${t.lineColor}">
+              <span>${t.lineShort}</span>
+              <input type="color" id="ribbon-line-color-picker" class="native-color-input" value="${this.shapeLineHex}" />
+            </label>
+            <select class="cell-input" id="ribbon-end-arrow-select" style="width:98px;height:26px;padding:1px 5px;font-size:11px" ${selDisabled} title="${t.arrowsLabel} (0..45)">
+              <option value="">${t.arrowsLabel} ▾</option>
+              <option value="0">0 — None</option>
+              <option value="1">1 — Open Arrow</option>
+              <option value="2">2 — Hollow Triangle</option>
+              <option value="4">4 — Filled Triangle</option>
+              <option value="5">5 — Stealth Arrow</option>
+              <option value="9">9 — Dimension Slash</option>
+              <option value="10">10 — Filled Dot</option>
+              <option value="11">11 — Filled Diamond</option>
+              <option value="14">14 — Hollow Stealth</option>
+              <option value="22">22 — Hollow Diamond</option>
+              <option value="24">24 — Dim Arrow + Bar</option>
+              <option value="25">25 — ERD Double Bar ||</option>
+              <option value="27">27 — Crow's Foot &lt;</option>
+              <option value="28">28 — One &amp; Many |&lt;</option>
+              <option value="29">29 — Zero or Many o&lt;</option>
+              <option value="30">30 — Zero or One o|</option>
+              <option value="31">31 — Hollow Circle</option>
+              <option value="36">36 — Double Triangle</option>
+              <option value="41">41 — Circle Cross ⊕</option>
+              <option value="45">45 — Triple Feather</option>
+            </select>
+            <div class="swatch-row">
+              ${['255,255,255', '219,234,254', '220,252,231', '254,243,199', '243,232,255', '254,226,226']
+                .map(
+                  (rgb) =>
+                    `<button class="swatch-btn" data-fill-rgb="${rgb}" style="background:rgb(${rgb})" title="${t.fillColor} RGB(${rgb})"></button>`
+                )
+                .join('')}
+            </div>
+          </div>
+          <div class="ribbon-divider"></div>
+
+          <div class="ribbon-cluster">
+            <button class="m3-btn icon-only" data-rot-deg="-90" ${selDisabled} title="${t.rotateLeft90} (Ctrl+L)">${UI_ICONS.rotateLeft}</button>
+            <button class="m3-btn icon-only" data-rot-deg="90" ${selDisabled} title="${t.rotateRight90} (Ctrl+R)">${UI_ICONS.rotateRight}</button>
+            <button class="m3-btn icon-only" data-flip-axis="x" ${selDisabled} title="${t.flipHoriz}">${UI_ICONS.flipH}</button>
+            <button class="m3-btn icon-only" data-flip-axis="y" ${selDisabled} title="${t.flipVert}">${UI_ICONS.flipV}</button>
+
+            <div class="ribbon-pop-wrap" data-ribbon-pop="align">
+              <button class="m3-btn tonal ${this.openRibbonPopover === 'align' ? 'active' : ''}" data-ribbon-pop-trigger="align" ${multiDisabled} title="${t.alignMenu}">
+                ${UI_ICONS.alignLeft}<span>${t.alignMenu} ▾</span>
+              </button>
+              ${
+                this.openRibbonPopover === 'align'
+                  ? `<div class="ribbon-pop-menu" role="menu">
+                      <button class="ctx-item" data-align="left"><span class="ctx-item-lead">${UI_ICONS.alignLeft}<span>${t.alignLeft}</span></span></button>
+                      <button class="ctx-item" data-align="center"><span class="ctx-item-lead">${UI_ICONS.alignCenter}<span>${t.alignCenter}</span></span></button>
+                      <button class="ctx-item" data-align="right"><span class="ctx-item-lead">${UI_ICONS.alignRight}<span>${t.alignRight}</span></span></button>
+                      <div class="ctx-sep"></div>
+                      <button class="ctx-item" data-align="top"><span class="ctx-item-lead">${UI_ICONS.alignTop}<span>${t.alignTop}</span></span></button>
+                      <button class="ctx-item" data-align="middle"><span class="ctx-item-lead">${UI_ICONS.alignMiddle}<span>${t.alignMiddle}</span></span></button>
+                      <button class="ctx-item" data-align="bottom"><span class="ctx-item-lead">${UI_ICONS.alignBottom}<span>${t.alignBottom}</span></span></button>
+                    </div>`
+                  : ''
+              }
+            </div>
+
+            <div class="ribbon-pop-wrap" data-ribbon-pop="distribute">
+              <button class="m3-btn tonal ${this.openRibbonPopover === 'distribute' ? 'active' : ''}" data-ribbon-pop-trigger="distribute" ${distDisabled} title="${t.distributeMenu}">
+                ${UI_ICONS.distH}<span>${t.distributeMenu} ▾</span>
+              </button>
+              ${
+                this.openRibbonPopover === 'distribute'
+                  ? `<div class="ribbon-pop-menu" role="menu">
+                      <button class="ctx-item" data-align="distribute_h"><span class="ctx-item-lead">${UI_ICONS.distH}<span>${t.distributeHoriz}</span></span></button>
+                      <button class="ctx-item" data-align="distribute_v"><span class="ctx-item-lead">${UI_ICONS.distV}<span>${t.distributeVert}</span></span></button>
+                    </div>`
+                  : ''
+              }
+            </div>
+
+            <div class="ribbon-pop-wrap" data-ribbon-pop="order">
+              <button class="m3-btn tonal ${this.openRibbonPopover === 'order' ? 'active' : ''}" data-ribbon-pop-trigger="order" ${selDisabled} title="${t.orderMenu}">
+                ${UI_ICONS.bringFront}<span>${t.orderMenu} ▾</span>
+              </button>
+              ${
+                this.openRibbonPopover === 'order'
+                  ? `<div class="ribbon-pop-menu" role="menu">
+                      <button class="ctx-item" data-zorder="front"><span class="ctx-item-lead">${UI_ICONS.bringFront}<span>${t.bringFront}</span></span></button>
+                      <button class="ctx-item" data-zorder="back"><span class="ctx-item-lead">${UI_ICONS.sendBack}<span>${t.sendBack}</span></span></button>
+                      <div class="ctx-sep"></div>
+                      <button class="ctx-item" data-layout="tb"><span>${t.autoLayout} (↓)</span></button>
+                      <button class="ctx-item" data-layout="lr"><span>${t.autoLayout} (→)</span></button>
+                    </div>`
+                  : ''
+              }
+            </div>
+
+            <button class="m3-btn tonal" id="btn-group-sel" ${multiDisabled} title="${t.group} (Ctrl+G)">${UI_ICONS.group}<span>${t.group}</span></button>
+            <button class="m3-btn icon-only" id="btn-ungroup-sel" ${ungroupDisabled} title="${t.ungroup} (Ctrl+Shift+G)">${UI_ICONS.ungroup}</button>
+          </div>
         `;
       case 'Insert':
         return `
-          <span class="ribbon-group-label">Pages &amp; Stencils</span>
-          <button class="m3-btn tonal" id="btn-ribbon-add-page">+ Blank Page</button>
-          <button class="m3-btn active" id="btn-ribbon-import-vssx">${this.i18n.importVisioStencil}</button>
+          <button class="m3-btn tonal" id="btn-ribbon-add-page">${t.newPageBtn}</button>
+          <button class="m3-btn active" id="btn-ribbon-import-vssx">${t.stencilImportShort} (.vssx)</button>
           <div class="ribbon-divider"></div>
-          <span class="ribbon-group-label">Diagram Structure</span>
-          <select class="cell-input" id="ribbon-insert-heading" style="width:138px;height:28px;padding:2px 6px;font-size:11.5px;font-weight:600" title="Insert a Visio Title, Subtitle, Heading (H1–H3), or Section Banner">
-            <option value="">+ Title / Heading ▾</option>
+          <select class="cell-input" id="ribbon-insert-heading" style="width:132px;height:28px;padding:2px 6px;font-size:11.5px;font-weight:600" title="${t.headings}">
+            <option value="">+ ${t.headings} ▾</option>
             <option value="title">Diagram Title (24pt)</option>
             <option value="subtitle">Subtitle (14pt)</option>
-            <option value="h1">Heading 1 — Underlined</option>
+            <option value="h1">Heading 1 — Rule</option>
             <option value="h2">Heading 2</option>
             <option value="h3">Heading 3</option>
-            <option value="section_banner">Section Header Banner</option>
-            <option value="callout_title">Accent Callout Header</option>
+            <option value="section_banner">Section Banner</option>
+            <option value="callout_title">Accent Callout</option>
           </select>
-          <button class="m3-btn tonal" id="btn-ins-container">Container Box</button>
-          <button class="m3-btn tonal" id="btn-ins-swimlanes">Swimlanes</button>
-          <button class="m3-btn tonal" id="btn-ins-callout">Callout Note</button>
-          <button class="m3-btn" id="btn-ins-image">Image...</button>
-          <button class="m3-btn" id="btn-ins-ctrl-handle" ${this.primarySelectedId ? '' : 'disabled'}>Control Handle</button>
-          <button class="m3-btn tonal" id="btn-open-field-modal" ${this.primarySelectedId ? '' : 'disabled'} title="Insert Dynamic Formula Text Field (&lt;fld&gt;)">Field…</button>
-          <button class="m3-btn" id="btn-open-link-modal" ${this.primarySelectedId ? '' : 'disabled'}>Hyperlink...</button>
+          <button class="m3-btn tonal" id="btn-ins-container">${t.containerBtn}</button>
+          <button class="m3-btn tonal" id="btn-ins-swimlanes">${t.swimlanesBtn}</button>
+          <button class="m3-btn tonal" id="btn-ins-callout">${t.calloutBtn}</button>
+          <button class="m3-btn" id="btn-ins-image">${t.imageBtn}</button>
+          <button class="m3-btn" id="btn-ins-ctrl-handle" ${this.primarySelectedId ? '' : 'disabled'}>Control</button>
+          <button class="m3-btn tonal" id="btn-open-field-modal" ${this.primarySelectedId ? '' : 'disabled'}>${t.fieldBtn}</button>
+          <button class="m3-btn" id="btn-open-link-modal" ${this.primarySelectedId ? '' : 'disabled'}>${t.hyperlinkBtn}</button>
           <div class="ribbon-divider"></div>
-          <span class="ribbon-group-label">Engineering, AEC &amp; Plan 2</span>
-          <select class="cell-input" id="ribbon-insert-dimension" style="width:136px;height:28px;padding:2px 6px;font-size:11.5px;font-weight:600" ${this.primarySelectedId ? '' : 'disabled'} title="Insert Live Associative Architectural Dimension">
-            <option value="">+ Dimension ▾</option>
+          <select class="cell-input" id="ribbon-insert-dimension" style="width:128px;height:28px;padding:2px 6px;font-size:11.5px;font-weight:600" ${this.primarySelectedId ? '' : 'disabled'}>
+            <option value="">${t.dimensionLabel} ▾</option>
             <option value="aligned">Aligned Length</option>
             <option value="horizontal">Horizontal Span</option>
             <option value="vertical">Vertical Span</option>
@@ -3136,8 +3309,8 @@ class VexioChromeOsApp {
             <option value="radial">Radial (R)</option>
             <option value="diameter">Diameter (⌀)</option>
           </select>
-          <select class="cell-input" id="ribbon-insert-opening" style="width:132px;height:28px;padding:2px 6px;font-size:11.5px;font-weight:600" ${this.primarySelectedId ? '' : 'disabled'} title="Cut Parametric Door or Window Opening into Selected Wall">
-            <option value="">+ Wall Opening ▾</option>
+          <select class="cell-input" id="ribbon-insert-opening" style="width:130px;height:28px;padding:2px 6px;font-size:11.5px;font-weight:600" ${this.primarySelectedId ? '' : 'disabled'}>
+            <option value="">${t.wallOpeningLabel} ▾</option>
             <option value="single_door">Single Door (90°)</option>
             <option value="double_door">Double French Door</option>
             <option value="sliding_door">Sliding Door</option>
@@ -3145,21 +3318,17 @@ class VexioChromeOsApp {
             <option value="window">Casement Window</option>
             <option value="cased_opening">Cased Opening</option>
           </select>
-          <button class="m3-btn tonal" id="btn-heal-walls" title="Auto-Heal Wall Miter (L-Corner) &amp; T-Join Intersections">Heal Walls</button>
-          <button class="m3-btn tonal" id="btn-add-mm-subtopic" title="Add Mind Map Topic / Subtopic">+ Mind Map Topic</button>
-          <button class="m3-btn tonal" id="btn-open-wizards" title="Calendar, PivotDiagram, Mind Map, Lean VSM, Fault Tree, Gantt, PERT, Rack &amp; Room Wizards">Plan 2 Wizards…</button>
-          <button class="m3-btn" id="btn-ins-room">Room Wizard...</button>
-          <button class="m3-btn" id="btn-ins-rack">42U Rack Wizard...</button>
-          <button class="m3-btn tonal" id="btn-ins-cad">Import DWG / DXF...</button>
-          <button class="m3-btn tonal" id="btn-open-cad-tools">CAD Scale &amp; Convert...</button>
-          <button class="m3-btn" id="btn-export-dwg">Export .DWG</button>
-          <button class="m3-btn" id="btn-export-docx">Export Word Spec (.docx)</button>
-          <button class="m3-btn" id="btn-export-vsd">Export Legacy .VSD</button>
+          <button class="m3-btn tonal" id="btn-heal-walls">${UI_ICONS.wall}<span>${t.healWallsBtn}</span></button>
+          <button class="m3-btn tonal" id="btn-open-wizards">${t.wizardsBtn}</button>
+          <button class="m3-btn tonal" id="btn-ins-cad">${t.importCadBtn}</button>
+          <button class="m3-btn" id="btn-open-cad-tools">${t.cadScaleBtn}</button>
+          <button class="m3-btn" id="btn-export-dwg">.DWG</button>
+          <button class="m3-btn" id="btn-export-docx">.DOCX</button>
+          <button class="m3-btn" id="btn-export-vsd">.VSD</button>
         `;
       case 'Design':
         return `
-          <span class="ribbon-group-label">Page Size &amp; Units</span>
-          <select class="cell-input" id="page-preset-select" style="width:210px;height:28px;padding:2px 8px;font-size:11.5px" title="ISO Metric (A0-A5) &amp; US Standard Page Sizes">
+          <select class="cell-input" id="page-preset-select" style="width:200px;height:28px;padding:2px 8px;font-size:11.5px">
             ${PAGE_PRESET_OPTIONS.map(
               (p) => `<option value="${p.id}" ${this.activePagePresetId === p.id ? 'selected' : ''}>${p.label}</option>`
             ).join('')}
@@ -3170,16 +3339,15 @@ class VexioChromeOsApp {
           <button class="fmt-btn ${this.metricUnits ? 'active' : ''}" id="btn-unit-mm" title="Metric Units (mm)">mm</button>
           <button class="fmt-btn ${!this.metricUnits ? 'active' : ''}" id="btn-unit-in" title="Imperial Units (in)">in</button>
           <div class="ribbon-divider"></div>
-          <span class="ribbon-group-label">Theme</span>
-          <select class="cell-input" id="theme-slug-select" style="width:122px;height:28px;padding:2px 8px">
+          <select class="cell-input" id="theme-slug-select" style="width:118px;height:28px;padding:2px 8px">
             ${['modern', 'professional', 'vibrant', 'blueprint', 'monochrome', 'hand_drawn']
               .map(
-                (t) =>
-                  `<option value="${t}" ${this.selectedThemeSlug === t ? 'selected' : ''}>${t.replace('_', ' ')}</option>`
+                (th) =>
+                  `<option value="${th}" ${this.selectedThemeSlug === th ? 'selected' : ''}>${th.replace('_', ' ')}</option>`
               )
               .join('')}
           </select>
-          <select class="cell-input" id="theme-variant-select" style="width:90px;height:28px;padding:2px 8px">
+          <select class="cell-input" id="theme-variant-select" style="width:88px;height:28px;padding:2px 8px">
             ${[0, 1, 2, 3]
               .map(
                 (v) =>
@@ -3187,25 +3355,24 @@ class VexioChromeOsApp {
               )
               .join('')}
           </select>
-          <button class="m3-btn active" id="btn-apply-theme">Apply</button>
+          <button class="m3-btn active" id="btn-apply-theme">${t.applyBtn}</button>
           <div class="ribbon-divider"></div>
-          <span class="ribbon-group-label">Effects &amp; Layout</span>
-          <button class="m3-btn" data-vis-preset="grad_linear" ${selDisabled}>Linear Grad</button>
+          <button class="m3-btn" data-vis-preset="grad_linear" ${selDisabled}>Gradient</button>
           <button class="m3-btn" data-vis-preset="shadow_soft" ${selDisabled}>Shadow</button>
           <button class="m3-btn" data-vis-preset="bevel_3d" ${selDisabled}>3D Bevel</button>
-          <button class="m3-btn" data-layout="tb">Top-Down</button>
-          <button class="m3-btn" data-layout="lr">Left-Right</button>
-          <select class="cell-input" id="ribbon-border-title-select" style="width:154px;height:28px;padding:2px 6px;font-size:11.5px;font-weight:600" title="Apply Visio Page Borders &amp; Title Blocks">
-            <option value="">Borders &amp; Titles ▾</option>
+          <button class="m3-btn tonal" data-layout="tb">${t.autoLayout} ↓</button>
+          <button class="m3-btn tonal" data-layout="lr">${t.autoLayout} →</button>
+          <select class="cell-input" id="ribbon-border-title-select" style="width:148px;height:28px;padding:2px 6px;font-size:11.5px;font-weight:600">
+            <option value="">${t.bordersTitlesLabel} ▾</option>
             <option value="modern_banner">Modern Header Banner</option>
             <option value="executive_underline">Executive Title &amp; Rule</option>
             <option value="classic_frame">Classic Frame &amp; Title</option>
             <option value="pill_banner">Rounded Pill Banner</option>
             <option value="iso_engineering">ISO 7200 Engineering Block</option>
-            <option value="none">None (Remove Border/Title)</option>
+            <option value="none">None</option>
           </select>
-          <select class="cell-input" id="ribbon-line-jump-select" style="width:142px;height:28px;padding:2px 6px;font-size:11.5px" title="Configure Visio Connector Line Jumps">
-            <option value="">Line Jumps ▾</option>
+          <select class="cell-input" id="ribbon-line-jump-select" style="width:136px;height:28px;padding:2px 6px;font-size:11.5px">
+            <option value="">${t.lineJumpsLabel} ▾</option>
             <option value="1:0">Horiz — Arc Jump</option>
             <option value="1:1">Horiz — Gap Jump</option>
             <option value="1:2">Horiz — Square Jump</option>
@@ -3220,103 +3387,91 @@ class VexioChromeOsApp {
         const dgEnabled = Boolean(this.snapshot?.dataLinkState?.dataGraphics?.enabled);
         const hasRs = (this.snapshot?.dataLinkState?.recordsets?.length ?? 0) > 0;
         return `
-          <span class="ribbon-group-label">External Data &amp; Graphics</span>
-          <button class="m3-btn tonal" id="btn-ribbon-link-data" title="Link .xlsx, .csv, .sqlite/.db, or .json">Link Data File...</button>
-          <button class="m3-btn" id="btn-ribbon-refresh-data" ${hasRs ? '' : 'disabled'} title="Refresh bound shapes from linked recordsets">Refresh</button>
-          <button class="m3-btn" id="btn-ribbon-sync-data" ${hasRs ? '' : 'disabled'} title="Push canvas Prop.* edits back to .xlsx / .csv / .sqlite / .json">Two-Way Writeback</button>
-          <button class="m3-btn ${dgEnabled ? 'active' : ''}" id="btn-ribbon-toggle-dg" title="Toggle live Icon Sets, Data Bars, Color-by-Value &amp; Text Callouts">Data Graphics</button>
-          <button class="m3-btn" id="btn-ribbon-insert-legend" title="Insert or update live category Legend on page">Legend</button>
-          <button class="m3-btn tonal" id="btn-open-data-modal">Data Link Studio...</button>
+          <button class="m3-btn tonal" id="btn-ribbon-link-data">${t.linkDataBtn}</button>
+          <button class="m3-btn" id="btn-ribbon-refresh-data" ${hasRs ? '' : 'disabled'}>${t.refreshBtn}</button>
+          <button class="m3-btn" id="btn-ribbon-sync-data" ${hasRs ? '' : 'disabled'}>${t.writebackBtn}</button>
+          <button class="m3-btn ${dgEnabled ? 'active' : ''}" id="btn-ribbon-toggle-dg">${t.dataGraphicsBtn}</button>
+          <button class="m3-btn" id="btn-ribbon-insert-legend">${t.legendBtn}</button>
+          <button class="m3-btn tonal" id="btn-open-data-modal">Data Studio…</button>
           <div class="ribbon-divider"></div>
-          <span class="ribbon-group-label">Plan 2 Connectors &amp; Reports</span>
-          <button class="m3-btn tonal" id="btn-open-dataviz-modal">Excel Data Visualizer...</button>
-          <button class="m3-btn tonal" id="btn-open-cloud-modal">Cloud Discovery...</button>
-          <button class="m3-btn tonal" id="btn-open-org-modal">Org Chart Wizard...</button>
-          <button class="m3-btn" id="btn-export-pbi">Power BI (.pbi.json)</button>
-          <button class="m3-btn" id="btn-export-bom">BOM Report (.xlsx)</button>
+          <button class="m3-btn tonal" id="btn-open-dataviz-modal">Excel Data Visualizer…</button>
+          <button class="m3-btn tonal" id="btn-open-cloud-modal">Cloud Discovery…</button>
+          <button class="m3-btn tonal" id="btn-open-org-modal">Org Chart…</button>
+          <button class="m3-btn" id="btn-export-pbi">Power BI (.json)</button>
+          <button class="m3-btn" id="btn-export-bom">BOM (.xlsx)</button>
         `;
       }
       case 'Process':
         return `
-          <span class="ribbon-group-label">Subprocess</span>
-          <button class="m3-btn active" id="btn-create-subprocess" ${this.primarySelectedId ? '' : 'disabled'}>Link / Create Subprocess</button>
-          <button class="m3-btn tonal" id="btn-export-flow">Power Automate (.flow.json)</button>
+          <button class="m3-btn active" id="btn-create-subprocess" ${this.primarySelectedId ? '' : 'disabled'}>${t.subprocessBtn}</button>
+          <button class="m3-btn tonal" id="btn-export-flow">Power Automate (.json)</button>
           <div class="ribbon-divider"></div>
-          <span class="ribbon-group-label">Validate Rules</span>
-          <button class="m3-btn" data-validate="bpmn">BPMN 2.0</button>
-          <button class="m3-btn" data-validate="uml">UML 2.5</button>
-          <button class="m3-btn" data-validate="workflow">SharePoint</button>
+          <button class="m3-btn tonal" data-validate="bpmn">${t.validateGroup}: BPMN 2.0</button>
+          <button class="m3-btn tonal" data-validate="uml">${t.validateGroup}: UML 2.5</button>
+          <button class="m3-btn tonal" data-validate="workflow">${t.validateGroup}: SharePoint</button>
           <div class="ribbon-divider"></div>
-          <span class="ribbon-group-label">Schedules &amp; Plan 2 Analytics</span>
           <button class="m3-btn" id="btn-gen-pert">PERT CPM</button>
-          <button class="m3-btn" id="btn-gen-gantt">Gantt Chart</button>
+          <button class="m3-btn" id="btn-gen-gantt">Gantt</button>
           <button class="m3-btn" id="btn-gen-timeline">Timeline</button>
           <button class="m3-btn" id="btn-gen-calendar">Calendar</button>
           <button class="m3-btn" id="btn-gen-pivot">PivotDiagram</button>
           <button class="m3-btn" id="btn-gen-mindmap">Mind Map</button>
           <button class="m3-btn tonal" id="btn-gen-vsm">Lean VSM</button>
           <button class="m3-btn tonal" id="btn-gen-fta">Fault Tree</button>
-          <button class="m3-btn active" id="btn-recalc-vsm-fta" title="Recalculate Lean VSM Lead-Time/PCE% &amp; Fault Tree Top-Event MOCUS Cut Sets">Recalc VSM / FTA</button>
+          <button class="m3-btn active" id="btn-recalc-vsm-fta">Recalc VSM / FTA</button>
         `;
       case 'Review':
         return `
-          <span class="ribbon-group-label">Markup Ink</span>
-          <button class="m3-btn ${this.activeTool === 'pen' ? 'active' : ''}" data-tool="pen">Pen Ink</button>
-          <button class="m3-btn ${this.activeTool === 'highlighter' ? 'active' : ''}" data-tool="highlighter">Highlighter</button>
-          <button class="m3-btn" id="btn-clear-page-ink">Clear Ink</button>
+          <button class="m3-btn ${this.activeTool === 'pen' ? 'active' : 'tonal'}" data-tool="pen">${UI_ICONS.pen}<span>${t.penInkBtn}</span></button>
+          <button class="m3-btn ${this.activeTool === 'highlighter' ? 'active' : 'tonal'}" data-tool="highlighter">${UI_ICONS.highlighter}<span>${t.highlighterBtn}</span></button>
+          <button class="m3-btn" id="btn-clear-page-ink">${t.clearInkBtn}</button>
           <div class="ribbon-divider"></div>
-          <span class="ribbon-group-label">Compare &amp; Review (${snap.comments.length} notes)</span>
-          <button class="m3-btn tonal" id="btn-open-compare-modal">Compare Diagrams...</button>
-          <button class="m3-btn" id="btn-add-quick-comment">Comments</button>
-          <button class="m3-btn" id="btn-open-versions">Version History...</button>
+          <button class="m3-btn tonal" id="btn-open-compare-modal">${t.compareBtn}</button>
+          <button class="m3-btn tonal" id="btn-add-quick-comment">${t.commentsBtn} (${snap.comments.length})</button>
+          <button class="m3-btn" id="btn-open-versions">${t.versionHistoryBtn}</button>
         `;
       case 'View':
         return `
-          <span class="ribbon-group-label">Workspace Panes</span>
-          <button class="m3-btn ${this.showLeftStencils ? 'active' : ''}" id="btn-view-stencils">Shapes Library</button>
-          <button class="m3-btn ${this.showRightInspector ? 'active' : ''}" id="btn-view-inspector">Format Inspector</button>
-          <button class="m3-btn ${this.showFormulaBar ? 'active' : ''}" id="btn-toggle-fx-bar">Formula Bar (fx)</button>
-          <button class="m3-btn ${this.showShapeSheet ? 'active' : ''}" id="btn-toggle-ss">ShapeSheet (Shift+F5)</button>
-          <button class="m3-btn ${this.showMinimap ? 'active' : ''}" id="btn-toggle-minimap">Overview Map</button>
+          <button class="m3-btn ${this.showLeftStencils ? 'active' : ''}" id="btn-view-stencils">${UI_ICONS.sidebarLeft}<span>${t.stencilsTitle}</span></button>
+          <button class="m3-btn ${this.showRightInspector ? 'active' : ''}" id="btn-view-inspector">${UI_ICONS.sidebarRight}<span>${t.formatTab}</span></button>
+          <button class="m3-btn ${this.showFormulaBar ? 'active' : ''}" id="btn-toggle-fx-bar">${t.formulaBarBtn}</button>
+          <button class="m3-btn ${this.showShapeSheet ? 'active' : ''}" id="btn-toggle-ss">${t.shapeSheetBtn}</button>
+          <button class="m3-btn ${this.showMinimap ? 'active' : ''}" id="btn-toggle-minimap">${t.overviewTitle}</button>
           <div class="ribbon-divider"></div>
-          <span class="ribbon-group-label">Canvas Aids</span>
-          <button class="m3-btn ${this.showRulers ? 'active' : ''}" id="btn-toggle-rulers">Rulers</button>
-          <button class="m3-btn ${this.showGrid ? 'active' : ''}" id="btn-toggle-grid">Dot Grid</button>
-          <button class="m3-btn ${this.showSmartGuides ? 'active' : ''}" id="btn-toggle-smart-guides" title="Toggle Dynamic Grid Smart Alignment &amp; Equal-Spacing Guides (Hold Alt to bypass)">Smart Guides</button>
-          <button class="m3-btn tonal" id="btn-add-h-guide" title="Add Draggable Horizontal Ruler Guide">+ H Guide</button>
-          <button class="m3-btn tonal" id="btn-add-v-guide" title="Add Draggable Vertical Ruler Guide">+ V Guide</button>
-          <button class="m3-btn tonal" id="btn-open-snap-glue-modal" title="Configure Visio Snap &amp; Glue Matrix">Snap &amp; Glue…</button>
-          <button class="m3-btn tonal" id="btn-open-number-shapes-modal" title="Automatic Shape Numbering Wizard">Number Shapes…</button>
-          <button class="m3-btn" id="btn-open-layers">Layers (${snap.layers.length})</button>
-          <button class="m3-btn" id="btn-fit-window">Fit Sheet</button>
+          <button class="m3-btn ${this.showRulers ? 'active' : ''}" id="btn-toggle-rulers">${t.rulersBtn}</button>
+          <button class="m3-btn ${this.showGrid ? 'active' : ''}" id="btn-toggle-grid">${t.gridBtn}</button>
+          <button class="m3-btn ${this.showSmartGuides ? 'active' : ''}" id="btn-toggle-smart-guides">${t.smartGuidesBtn}</button>
+          <button class="m3-btn tonal" id="btn-add-h-guide">+ H Guide</button>
+          <button class="m3-btn tonal" id="btn-add-v-guide">+ V Guide</button>
+          <button class="m3-btn tonal" id="btn-open-snap-glue-modal">${t.snapGlueBtn}</button>
+          <button class="m3-btn tonal" id="btn-open-number-shapes-modal">${t.numberShapesBtn}</button>
+          <button class="m3-btn" id="btn-open-layers">${t.layersTab} (${snap.layers.length})</button>
+          <button class="m3-btn" id="btn-fit-window">${t.fitBtn}</button>
           <button class="m3-btn" id="btn-zoom-100">100%</button>
-          <button class="m3-btn tonal" id="btn-open-slides-modal" title="Manage Presentation Mode Slide Snippets &amp; Export Multi-Slide .pptx">Slide Snippets (${snap.slideSnippets?.length ?? 0})...</button>
-          <button class="m3-btn ${this.isPresentationModeActive ? 'active' : ''}" id="btn-toggle-presentation" title="Launch Interactive Presentation Mode">Present ▶</button>
-          <button class="m3-btn" id="btn-recover-opfs">Recover Journal</button>
+          <button class="m3-btn tonal" id="btn-open-slides-modal">Slides (${snap.slideSnippets?.length ?? 0})…</button>
+          <button class="m3-btn ${this.isPresentationModeActive ? 'active' : ''}" id="btn-toggle-presentation">▶ ${t.presentBtn}</button>
+          <button class="m3-btn" id="btn-recover-opfs">OPFS WAL</button>
         `;
       case 'Developer':
       default:
         return `
-          <span class="ribbon-group-label">ShapeSheet &amp; Formula</span>
-          <button class="m3-btn ${this.showFormulaBar ? 'active' : ''}" id="btn-dev-fx-bar">Formula Bar (fx)</button>
-          <button class="m3-btn ${this.showShapeSheet ? 'active' : ''}" id="btn-dev-ss">ShapeSheet</button>
-          <button class="m3-btn" id="btn-reset-conn-route" ${this.primarySelectedId ? '' : 'disabled'} title="Reset manual orthogonal connector bends back to automatic A* routing">Reset Route</button>
+          <button class="m3-btn ${this.showFormulaBar ? 'active' : ''}" id="btn-dev-fx-bar">${t.formulaBarBtn}</button>
+          <button class="m3-btn ${this.showShapeSheet ? 'active' : ''}" id="btn-dev-ss">${t.shapeSheetBtn}</button>
+          <button class="m3-btn" id="btn-reset-conn-route" ${this.primarySelectedId ? '' : 'disabled'}>Reset Route</button>
           <div class="ribbon-divider"></div>
-          <span class="ribbon-group-label">Boolean Shape Operations</span>
           <button class="m3-btn" data-bool-op="union" ${multiDisabled}>Union</button>
           <button class="m3-btn" data-bool-op="combine" ${multiDisabled}>Combine</button>
           <button class="m3-btn" data-bool-op="fragment" ${multiDisabled}>Fragment</button>
           <button class="m3-btn" data-bool-op="intersect" ${multiDisabled}>Intersect</button>
           <button class="m3-btn" data-bool-op="subtract" ${multiDisabled}>Subtract</button>
           <button class="m3-btn" data-bool-op="offset" ${selDisabled}>Offset</button>
-          <button class="m3-btn ${this.showVertexGrips ? 'active' : ''}" id="btn-toggle-vertices" ${this.primarySelectedId ? '' : 'disabled'}>Edit Vertices</button>
-          <button class="m3-btn ${this.activeTool === 'connection_point' ? 'active' : ''}" id="btn-dev-conn-pts" title="Interactive Connection Point Tool (Ctrl+Shift+1)">Connection Points</button>
-          <button class="m3-btn tonal" id="btn-open-smart-actions-modal" ${this.primarySelectedId ? '' : 'disabled'} title="Author Right-Click Smart-Shape Actions.* Rows">Smart Actions…</button>
+          <button class="m3-btn ${this.showVertexGrips ? 'active' : ''}" id="btn-toggle-vertices" ${this.primarySelectedId ? '' : 'disabled'}>${t.editVerticesBtn}</button>
+          <button class="m3-btn ${this.activeTool === 'connection_point' ? 'active' : ''}" id="btn-dev-conn-pts">${t.connPointsBtn}</button>
+          <button class="m3-btn tonal" id="btn-open-smart-actions-modal" ${this.primarySelectedId ? '' : 'disabled'}>Smart Actions…</button>
           <div class="ribbon-divider"></div>
-          <span class="ribbon-group-label">Studios</span>
-          <button class="m3-btn active" id="btn-open-markup-modal" title="Bidirectional Mermaid (.mmd), PlantUML (.puml) &amp; Graphviz DOT (.dot) Interop">Mermaid / PlantUML / DOT...</button>
-          <button class="m3-btn tonal" id="btn-open-vba-modal">VBA Macros...</button>
-          <button class="m3-btn tonal" id="btn-open-sql-modal">SQL ⇄ ERD...</button>
+          <button class="m3-btn active" id="btn-open-markup-modal">Mermaid / PlantUML / DOT…</button>
+          <button class="m3-btn tonal" id="btn-open-vba-modal">VBA Macros…</button>
+          <button class="m3-btn tonal" id="btn-open-sql-modal">SQL ⇄ ERD…</button>
         `;
     }
   }
@@ -3743,10 +3898,10 @@ class VexioChromeOsApp {
     this.isRebuildingDom = true;
     root.innerHTML = `
       <div class="workstation-shell ${this.isRibbonCollapsed ? 'ribbon-collapsed' : ''}">
-        <!-- Row 1: Clean ChromeOS Header + Top-Left Inline Rename + Hover-Switching Menus + Collapsible Visio Ribbon Tabs -->
+        <!-- Row 1: Clean ChromeOS Window Controls Overlay Titlebar (Brand, Document, Quick Access & Sync) -->
         <header class="wco-titlebar">
           <div class="brand-lockup no-drag" id="btn-brand-backstage" title="${t.startHeroTitle}">
-            <img src="/icons/vexio-icon.svg" alt="Vexio" width="22" height="22" style="display:block;flex-shrink:0" />
+            <img src="/icons/vexio-icon.svg" alt="Vexio" width="20" height="20" style="display:block;flex-shrink:0" />
             <span class="brand-name">Vexio</span>
           </div>
 
@@ -3756,111 +3911,40 @@ class VexioChromeOsApp {
               : `<span class="doc-title-pill no-drag" id="doc-title-pill" title="${t.renameHint} (${this.currentFileName})">${this.currentFileName}${this.hasUnsavedChanges ? ' •' : ''}</span>`
           }
 
-          <div class="top-menubar no-drag" role="menubar">
-            <div class="top-menu-wrap" data-top-menu="file">
-              <button class="top-menu-trigger file-accent ${this.openHeaderMenu === 'file' ? 'open' : ''}" data-top-trigger="file">${t.fileMenu}</button>
-              ${
-                this.openHeaderMenu === 'file'
-                  ? `<div class="top-menu-dropdown" role="menu">
-                      <button class="ctx-item" data-top-cmd="new-a4"><span>${t.newBlankA4}</span><span class="ctx-kbd">Ctrl+N</span></button>
-                      <button class="ctx-item" data-top-cmd="new-a3"><span>${t.newBlankA3}</span></button>
-                      <button class="ctx-item" data-top-cmd="new-letter"><span>${t.newBlankLetter}</span></button>
-                      <button class="ctx-item" data-top-cmd="backstage"><span>Start Hub &amp; Templates…</span></button>
-                      <div class="ctx-sep"></div>
-                      <button class="ctx-item" data-top-cmd="open-disk"><span>${t.openLocalFile}</span><span class="ctx-kbd">Ctrl+O</span></button>
-                      <button class="ctx-item" data-top-cmd="import-stencil"><span>${t.importVisioStencil}</span></button>
-                      <div class="ctx-sep"></div>
-                      <button class="ctx-item" data-top-cmd="save-vsdx"><span>${t.saveFile}</span><span class="ctx-kbd">Ctrl+S</span></button>
-                      <button class="ctx-item" data-top-cmd="save-as-vsdx"><span>${t.saveAs}</span><span class="ctx-kbd">Ctrl+Shift+S</span></button>
-                      <button class="ctx-item" data-top-cmd="exp-pdf"><span>Export PDF/A (.pdf)…</span></button>
-                      <div class="ctx-sep"></div>
-                      <button class="ctx-item" data-top-cmd="page-setup"><span>Page Setup…</span></button>
-                      <button class="ctx-item" data-top-cmd="print-doc"><span>Print…</span><span class="ctx-kbd">Ctrl+P</span></button>
-                      <div class="ctx-sep"></div>
-                      <button class="ctx-item" data-top-cmd="close-doc"><span>Close Document</span><span class="ctx-kbd">Ctrl+W</span></button>
-                    </div>`
-                  : ''
-              }
-            </div>
-
-            <div class="top-menu-wrap" data-top-menu="edit">
-              <button class="top-menu-trigger ${this.openHeaderMenu === 'edit' ? 'open' : ''}" data-top-trigger="edit">${t.editMenu}</button>
-              ${
-                this.openHeaderMenu === 'edit'
-                  ? `<div class="top-menu-dropdown" role="menu">
-                      <button class="ctx-item" data-top-cmd="undo" ${snap.canUndo ? '' : 'disabled'}><span>Undo</span><span class="ctx-kbd">Ctrl+Z</span></button>
-                      <button class="ctx-item" data-top-cmd="redo" ${snap.canRedo ? '' : 'disabled'}><span>Redo</span><span class="ctx-kbd">Ctrl+Y</span></button>
-                      <div class="ctx-sep"></div>
-                      <button class="ctx-item" data-top-cmd="group" ${this.selectedShapeIds.length >= 2 ? '' : 'disabled'}><span>Group Shapes</span><span class="ctx-kbd">Ctrl+G</span></button>
-                      <button class="ctx-item" data-top-cmd="ungroup" ${snap.shapes.some((s) => this.selectedShapeIds.includes(s.id) && s.kind === 'Group') ? '' : 'disabled'}><span>Ungroup Shapes</span><span class="ctx-kbd">Ctrl+Shift+G</span></button>
-                      <div class="ctx-sep"></div>
-                      <button class="ctx-item" data-top-cmd="rotate-left" ${this.selectedShapeIds.length ? '' : 'disabled'}><span>${t.rotateLeft90}</span><span class="ctx-kbd">Ctrl+L</span></button>
-                      <button class="ctx-item" data-top-cmd="rotate-right" ${this.selectedShapeIds.length ? '' : 'disabled'}><span>${t.rotateRight90}</span><span class="ctx-kbd">Ctrl+R</span></button>
-                      <button class="ctx-item" data-top-cmd="flip-h" ${this.selectedShapeIds.length ? '' : 'disabled'}><span>${t.flipHoriz}</span></button>
-                      <button class="ctx-item" data-top-cmd="flip-v" ${this.selectedShapeIds.length ? '' : 'disabled'}><span>${t.flipVert}</span></button>
-                      <div class="ctx-sep"></div>
-                      <button class="ctx-item" data-top-cmd="rename-doc"><span>Rename Document…</span></button>
-                    </div>`
-                  : ''
-              }
-            </div>
-
-            <div class="top-menu-wrap" data-top-menu="export">
-              <button class="top-menu-trigger ${this.openHeaderMenu === 'export' ? 'open' : ''}" data-top-trigger="export">${t.exportMenu}</button>
-              ${
-                this.openHeaderMenu === 'export'
-                  ? `<div class="top-menu-dropdown" role="menu">
-                      <button class="ctx-item" data-top-cmd="exp-pdf"><span>Export Vector PDF/A (.pdf)</span></button>
-                      <button class="ctx-item" data-top-cmd="exp-svg"><span>Copy / Export Vector SVG (.svg)</span></button>
-                      <button class="ctx-item" data-top-cmd="exp-png"><span>Export High-DPI PNG (.png)</span></button>
-                      <button class="ctx-item" data-top-cmd="exp-jpg"><span>Export High-DPI JPEG (.jpg)</span></button>
-                      <div class="ctx-sep"></div>
-                      <button class="ctx-item" data-top-cmd="exp-dxf"><span>Export AutoCAD (.dxf)</span></button>
-                      <button class="ctx-item" data-top-cmd="exp-pptx"><span>Export PowerPoint (.pptx)</span></button>
-                      <button class="ctx-item" data-top-cmd="exp-docx"><span>Export Word Spec (.docx)</span></button>
-                    </div>`
-                  : ''
-              }
-            </div>
-
-            <div class="top-menu-wrap" data-top-menu="help">
-              <button class="top-menu-trigger ${this.openHeaderMenu === 'help' ? 'open' : ''}" data-top-trigger="help">${t.helpMenu}</button>
-              ${
-                this.openHeaderMenu === 'help'
-                  ? `<div class="top-menu-dropdown" role="menu">
-                      <button class="ctx-item" data-top-cmd="check-updates"><span>${t.checkUpdates}</span></button>
-                      <button class="ctx-item" data-top-cmd="toggle-auto-updates"><span>${this.autoCheckUpdates ? '✓ ' : ''}${t.autoCheckUpdates}</span></button>
-                      <div class="ctx-sep"></div>
-                      <button class="ctx-item" data-top-cmd="open-ss"><span>ShapeSheet Studio</span><span class="ctx-kbd">Shift+F5</span></button>
-                    </div>`
-                  : ''
-              }
-            </div>
-          </div>
+          <span class="doc-unit-badge no-drag">${(this.currentFileName.split('.').pop() || 'vsdx').toUpperCase()} · ${this.metricUnits ? 'MM' : 'IN'}</span>
 
           <div class="qat-group no-drag">
+            <button class="m3-btn icon-only" id="btn-undo" title="${t.undo} (Ctrl+Z)" ${snap.canUndo ? '' : 'disabled'}>${UI_ICONS.undo}</button>
+            <button class="m3-btn icon-only" id="btn-redo" title="${t.redo} (Ctrl+Y)" ${snap.canRedo ? '' : 'disabled'}>${UI_ICONS.redo}</button>
             <button class="m3-btn icon-only" id="btn-open" title="${t.openLocalFile} (Ctrl+O)">${UI_ICONS.open}</button>
             <button class="m3-btn icon-only" id="btn-save" title="${t.saveFile} (Ctrl+S)">${UI_ICONS.save}</button>
-            <button class="m3-btn" id="btn-save-as" style="height:26px;padding:0 7px;font-size:11px" title="${t.saveAs} (Ctrl+Shift+S)">${t.saveAs}</button>
-            <button class="m3-btn icon-only" id="btn-snapshot-quick" title="Save OPFS Version Snapshot">${UI_ICONS.snapshot}</button>
-            <button class="m3-btn icon-only" id="btn-undo" title="Undo (Ctrl+Z)" ${snap.canUndo ? '' : 'disabled'}>${UI_ICONS.undo}</button>
-            <button class="m3-btn icon-only" id="btn-redo" title="Redo (Ctrl+Y)" ${snap.canRedo ? '' : 'disabled'}>${UI_ICONS.redo}</button>
+            <button class="m3-btn icon-only" id="btn-print-quick" title="${t.printDoc} (Ctrl+P)">${UI_ICONS.print}</button>
+            <button class="m3-btn icon-only" id="btn-snapshot-quick" title="${t.versionHistoryBtn}">${UI_ICONS.snapshot}</button>
           </div>
-
-          <nav class="header-ribbon-tabs no-drag" aria-label="Visio Ribbon Tabs">
-            ${ribbonTabLabels
-              .map(
-                ([tabId, label]) =>
-                  `<button class="ribbon-tab ${this.activeRibbonTab === tabId && !this.isRibbonCollapsed ? 'active' : ''}" data-tab="${tabId}" title="Click to switch • Double-click to collapse/expand Ribbon">${label}</button>`
-              )
-              .join('')}
-          </nav>
-
-          <button class="m3-btn icon-only no-drag" id="btn-collapse-ribbon" title="${this.isRibbonCollapsed ? 'Expand Ribbon' : 'Collapse Ribbon'}">${this.isRibbonCollapsed ? '▾' : '▴'}</button>
 
           <div style="flex:1"></div>
 
-          <select class="cell-input no-drag" id="lang-switcher" style="width:68px;height:26px;padding:1px 6px;font-size:11px;font-weight:700" title="Application Language (EN / DE / IT / FR / ES / GR)">
+          <div class="top-menu-wrap no-drag" data-top-menu="export">
+            <button class="m3-btn tonal ${this.openHeaderMenu === 'export' ? 'active' : ''}" data-top-trigger="export" style="height:26px;padding:0 9px;font-size:11.5px">
+              ${UI_ICONS.exportDoc}<span>${t.exportMenu} ▾</span>
+            </button>
+            ${
+              this.openHeaderMenu === 'export'
+                ? `<div class="top-menu-dropdown" style="right:0;left:auto" role="menu">
+                    <button class="ctx-item" data-top-cmd="exp-pdf"><span>PDF/A Vector (.pdf)</span></button>
+                    <button class="ctx-item" data-top-cmd="exp-svg"><span>SVG Vector (.svg)</span></button>
+                    <button class="ctx-item" data-top-cmd="exp-png"><span>High-DPI PNG (.png)</span></button>
+                    <button class="ctx-item" data-top-cmd="exp-jpg"><span>High-DPI JPEG (.jpg)</span></button>
+                    <div class="ctx-sep"></div>
+                    <button class="ctx-item" data-top-cmd="exp-dxf"><span>AutoCAD (.dxf)</span></button>
+                    <button class="ctx-item" data-top-cmd="exp-pptx"><span>PowerPoint (.pptx)</span></button>
+                    <button class="ctx-item" data-top-cmd="exp-docx"><span>Word Spec (.docx)</span></button>
+                  </div>`
+                : ''
+            }
+          </div>
+
+          <select class="cell-input no-drag" id="lang-switcher" style="width:62px;height:26px;padding:1px 5px;font-size:11px;font-weight:700" title="Language (EN / DE / IT / FR / ES / GR)">
             ${(['en', 'de', 'it', 'fr', 'es', 'gr'] as const)
               .map(
                 (code) =>
@@ -3871,26 +3955,72 @@ class VexioChromeOsApp {
 
           <div class="peer-avatar-stack no-drag" id="peer-avatar-stack"></div>
           <span class="status-chip ${this.cloudState.online ? '' : 'offline'} no-drag" id="cloud-sync-chip">
-            ${this.cloudState.online ? (this.cloudState.user ? 'Cloud Synced' : 'Saved Locally') : 'Offline Ready'}
+            ${this.cloudState.online ? (this.cloudState.user ? t.cloudSynced : t.savedLocally) : t.offlineReady}
           </span>
-          <button class="m3-btn icon-only ${this.showLeftStencils ? 'active' : ''} no-drag" id="btn-strip-stencils" title="Toggle Shapes & Stencils Library">${UI_ICONS.sidebarLeft}</button>
-          <button class="m3-btn icon-only ${this.showRightInspector ? 'active' : ''} no-drag" id="btn-strip-inspector" title="Toggle Format & Page Inspector">${UI_ICONS.sidebarRight}</button>
-          <button class="m3-btn icon-only no-drag" id="btn-theme-toggle" title="Switch Light / Dark Appearance">
+          <button class="m3-btn icon-only ${this.showLeftStencils ? 'active' : ''} no-drag" id="btn-strip-stencils" title="${t.stencilsTitle}">${UI_ICONS.sidebarLeft}</button>
+          <button class="m3-btn icon-only ${this.showRightInspector ? 'active' : ''} no-drag" id="btn-strip-inspector" title="${t.formatTab}">${UI_ICONS.sidebarRight}</button>
+          <button class="m3-btn icon-only no-drag" id="btn-theme-toggle" title="Light / Dark">
             ${this.uiTheme === 'light' ? UI_ICONS.moon : UI_ICONS.sun}
           </button>
-          <button class="m3-btn tonal no-drag" id="btn-auth">
-            ${this.cloudState.user ? 'Sign Out' : 'Sign In'}
+          <button class="m3-btn tonal no-drag" id="btn-auth" style="height:26px;padding:0 10px;font-size:11.5px">
+            ${this.cloudState.user ? t.signOut : t.signIn}
           </button>
         </header>
 
-        <!-- Row 2: Classic Collapsible Visio Ribbon Command Bar -->
+        <!-- Row 2: Dedicated Visio File Menu & Underline Ribbon Tab Strip -->
+        <div class="ribbon-tab-strip">
+          <div class="top-menu-wrap" data-top-menu="file" style="align-self:center;margin-right:4px">
+            <button class="top-menu-trigger file-accent ${this.openHeaderMenu === 'file' ? 'open' : ''}" data-top-trigger="file" style="height:25px;padding:0 12px;font-size:12px;border-radius:6px">${t.fileMenu}</button>
+            ${
+              this.openHeaderMenu === 'file'
+                ? `<div class="top-menu-dropdown" role="menu">
+                    <button class="ctx-item" data-top-cmd="new-a4"><span class="ctx-item-lead">${UI_ICONS.newDoc}<span>${t.newBlankA4}</span></span><span class="ctx-kbd">Ctrl+N</span></button>
+                    <button class="ctx-item" data-top-cmd="new-a3"><span class="ctx-item-lead">${UI_ICONS.newDoc}<span>${t.newBlankA3}</span></span></button>
+                    <button class="ctx-item" data-top-cmd="new-letter"><span class="ctx-item-lead">${UI_ICONS.newDoc}<span>${t.newBlankLetter}</span></span></button>
+                    <button class="ctx-item" data-top-cmd="backstage"><span>${t.startHub}</span></button>
+                    <div class="ctx-sep"></div>
+                    <button class="ctx-item" data-top-cmd="open-disk"><span class="ctx-item-lead">${UI_ICONS.open}<span>${t.openLocalFile}</span></span><span class="ctx-kbd">Ctrl+O</span></button>
+                    <button class="ctx-item" data-top-cmd="import-stencil"><span>${t.importVisioStencil}</span></button>
+                    <div class="ctx-sep"></div>
+                    <button class="ctx-item" data-top-cmd="save-vsdx"><span class="ctx-item-lead">${UI_ICONS.save}<span>${t.saveFile}</span></span><span class="ctx-kbd">Ctrl+S</span></button>
+                    <button class="ctx-item" data-top-cmd="save-as-vsdx"><span>${t.saveAs}</span><span class="ctx-kbd">Ctrl+Shift+S</span></button>
+                    <button class="ctx-item" data-top-cmd="exp-pdf"><span class="ctx-item-lead">${UI_ICONS.exportDoc}<span>Export PDF/A (.pdf)…</span></span></button>
+                    <div class="ctx-sep"></div>
+                    <button class="ctx-item" data-top-cmd="page-setup"><span>${t.pageSetup}</span></button>
+                    <button class="ctx-item" data-top-cmd="print-doc"><span class="ctx-item-lead">${UI_ICONS.print}<span>${t.printDoc}</span></span><span class="ctx-kbd">Ctrl+P</span></button>
+                    <button class="ctx-item" data-top-cmd="check-updates"><span>${t.checkUpdates}</span></button>
+                    <div class="ctx-sep"></div>
+                    <button class="ctx-item danger" data-top-cmd="close-doc"><span class="ctx-item-lead">${UI_ICONS.closeDoc}<span>${t.closeDoc}</span></span><span class="ctx-kbd">Ctrl+W</span></button>
+                  </div>`
+                : ''
+            }
+          </div>
+
+          <nav class="header-ribbon-tabs" aria-label="Visio Ribbon Tabs">
+            ${ribbonTabLabels
+              .map(
+                ([tabId, label]) =>
+                  `<button class="ribbon-tab ${this.activeRibbonTab === tabId && !this.isRibbonCollapsed ? 'active' : ''}" data-tab="${tabId}">${label}</button>`
+              )
+              .join('')}
+          </nav>
+
+          <div class="ribbon-tab-strip-right">
+            <button class="m3-btn" id="btn-open-find-modal" style="height:25px;padding:0 8px;font-size:11.5px" title="${t.find} (Ctrl+F)">
+              ${UI_ICONS.findIcon}<span>${t.find}</span>
+            </button>
+            <button class="m3-btn icon-only" id="btn-collapse-ribbon" style="width:25px;height:25px" title="${this.isRibbonCollapsed ? t.expandRibbon : t.collapseRibbon}">${this.isRibbonCollapsed ? '▾' : '▴'}</button>
+          </div>
+        </div>
+
+        <!-- Row 3: Classic Collapsible Visio Ribbon Command Bar -->
         <div class="ribbon-bar ${this.isRibbonCollapsed ? 'collapsed' : ''}">
           <div class="ribbon-commands">
             ${this.renderContextualRibbon(snap)}
           </div>
         </div>
 
-        <!-- Row 3: Optional Visio fx Formula Bar (Hidden by Default — Toggle in View or Developer) -->
+        <!-- Row 4: Optional Visio fx Formula Bar (Hidden by Default — Toggle in View or Developer) -->
         <div class="formula-strip ${this.showFormulaBar ? '' : 'hidden'}">
           <span class="formula-shape-tag">
             ${selectedShape ? `Sheet.${selectedShape.id} • ${selectedShape.text || selectedShape.name}` : 'PageSheet'}
@@ -3906,55 +4036,60 @@ class VexioChromeOsApp {
           <label style="display:inline-flex;align-items:center;gap:4px;font-size:11px;color:var(--m3-text-muted);cursor:pointer" title="Override GUARD() formula with SETF">
             <input type="checkbox" id="force-setf-chk" /> SETF
           </label>
-          <button class="m3-btn tonal" id="btn-apply-formula" style="height:24px;padding:0 9px;font-size:11.5px">Apply</button>
-          <button class="m3-btn ${this.showShapeSheet ? 'active' : ''}" id="btn-strip-ss" style="height:24px;padding:0 9px;font-size:11.5px" title="Toggle Full ShapeSheet Table (Shift+F5)">
-            ShapeSheet ${this.showShapeSheet ? '▾' : '▸'}
+          <button class="m3-btn tonal" id="btn-apply-formula" style="height:24px;padding:0 9px;font-size:11.5px">${t.applyBtn}</button>
+          <button class="m3-btn ${this.showShapeSheet ? 'active' : ''}" id="btn-strip-ss" style="height:24px;padding:0 9px;font-size:11.5px" title="${t.shapeSheetBtn} (Shift+F5)">
+            ${t.shapeSheetBtn} ${this.showShapeSheet ? '▾' : '▸'}
           </button>
         </div>
 
-        <!-- Row 4: Main 4-Column Workspace (Stencils | Persistent Drawing Tool Rail | Canvas | Inspector) -->
+        <!-- Row 5: Main 4-Column Workspace (Stencils | Sleek 44px Tool Rail | Canvas | Inspector) -->
         <main class="${mainGridClasses}">
           <aside class="stencil-pane" style="${this.showLeftStencils ? '' : 'display:none'}">
             <div class="pane-header">
-              <span>Shapes (${orderedPacks.length} Packs · ${totalMasterCount})</span>
-              <button class="m3-btn" id="btn-expand-collapse-packs" style="height:20px;padding:0 6px;font-size:10px">
-                ${this.expandedStencilPacks.size >= orderedPacks.length ? 'Collapse' : 'Expand All'}
-              </button>
+              <span>${t.stencilsTitle} (${totalMasterCount})</span>
+              <div style="display:inline-flex;align-items:center;gap:3px">
+                <button class="fmt-btn" id="btn-toggle-stencil-view" style="width:24px;height:22px;padding:0" title="${this.isStencilListMode ? t.gridView : t.listView}">
+                  ${this.isStencilListMode ? UI_ICONS.grid2Col : UI_ICONS.listRows}
+                </button>
+                <button class="m3-btn" id="btn-expand-collapse-packs" style="height:22px;padding:0 6px;font-size:10px">
+                  ${this.expandedStencilPacks.size >= orderedPacks.length ? t.collapseAll : t.expandAll}
+                </button>
+              </div>
             </div>
 
             <div style="display:flex;gap:4px">
-              <button class="m3-btn tonal" id="btn-import-vssx" style="flex:1;height:28px;font-size:11px;justify-content:center" title="${t.importVisioStencil} (.vssx, .vss, .zip, .svg)">
-                + Stencil / .zip
+              <button class="m3-btn tonal" id="btn-import-vssx" style="flex:1;height:26px;padding:0 6px;font-size:10.5px;justify-content:center" title="${t.importVisioStencil}">
+                ${t.stencilImportShort}
               </button>
-              <button class="m3-btn active" id="btn-open-stencil-catalog" style="flex:1;height:28px;font-size:11px;justify-content:center" title="1-Click Official Microsoft 365, Azure, Cisco & Rack Stencil Packs">
-                Official Packs ↓
+              <button class="m3-btn active" id="btn-open-stencil-catalog" style="flex:1;height:26px;padding:0 6px;font-size:10.5px;justify-content:center" title="Microsoft 365, Azure, Cisco &amp; Rack Stencils">
+                ${t.officialPacksShort} ↓
               </button>
-            </div>
-            <div style="display:flex;gap:4px">
-              <button class="m3-btn" id="btn-add-to-my-shapes" ${this.selectedShapeIds.length > 0 ? '' : 'disabled'} style="flex:1;height:26px;font-size:10.5px;justify-content:center" title="Save selected canvas shape(s) as a reusable Master in My Shapes">
-                ★ + My Shapes
+              <button class="m3-btn" id="btn-add-to-my-shapes" ${this.selectedShapeIds.length > 0 ? '' : 'disabled'} style="height:26px;padding:0 6px;font-size:10.5px" title="${t.myShapesShort}">
+                ★+
               </button>
-              <button class="m3-btn" id="btn-export-my-shapes-vssx" ${(this.stencilCatalog['My Shapes']?.length ?? 0) > 0 ? '' : 'disabled'} style="height:26px;padding:0 8px;font-size:10.5px;justify-content:center" title="Export My Shapes custom stencil as OpenXML .vssx">
-                .vssx ↓
-              </button>
+              ${
+                (this.stencilCatalog['My Shapes']?.length ?? 0) > 0
+                  ? `<button class="m3-btn" id="btn-export-my-shapes-vssx" style="height:26px;padding:0 6px;font-size:10px" title="Export My Shapes (.vssx)">.vssx</button>`
+                  : ''
+              }
             </div>
             <input type="file" id="vssx-file-input" accept=".vssx,.vssm,.vss,.vsdx,.vstx,.vstm,.vsd,.vst,.vdx,.zip,.svg,.png" style="display:none" />
 
             <div class="search-box-wrap">
               ${UI_ICONS.search}
-              <input class="search-input" id="stencil-search" placeholder="Search ${totalMasterCount} shapes in ${orderedPacks.length} packs..." value="${this.stencilFilter.replace(/"/g, '&quot;')}" />
-              ${this.stencilFilter ? '<button class="search-clear-btn" id="btn-clear-stencil-search" title="Clear search">×</button>' : ''}
+              <input class="search-input" id="stencil-search" style="height:28px;font-size:11.5px" placeholder="${t.searchShapesPlaceholder.replace('{count}', String(totalMasterCount))}" value="${this.stencilFilter.replace(/"/g, '&quot;')}" />
+              ${this.stencilFilter ? '<button class="search-clear-btn" id="btn-clear-stencil-search" title="Clear">×</button>' : ''}
             </div>
 
             <div class="stencil-group-pills" role="tablist" aria-label="Stencil domain filter">
               ${(
                 [
-                  ['all', 'All'],
+                  ['all', t.filterAll],
+                  ['basic', t.filterBasic],
                   ['microsoft', 'Microsoft'],
-                  ['network', 'Servers & Net'],
-                  ['basic', 'Basic & Flow'],
-                  ['cloud', 'Cloud & Dev'],
-                  ['eng', 'Eng & CAD'],
+                  ['network', t.filterNetwork],
+                  ['cloud', t.filterCloud],
+                  ['eng', t.filterEng],
                 ] as const
               )
                 .map(
@@ -3967,21 +4102,16 @@ class VexioChromeOsApp {
             ${
               q.length > 0
                 ? `
-                  <div class="pane-header" style="margin-top:2px">
-                    <span>Search Results</span>
-                    <span>${searchResults.length} matches</span>
-                  </div>
-                  <div class="stencil-grid">
+                  <div class="stencil-grid ${this.isStencilListMode ? 'list-mode' : ''}">
                     ${
                       searchResults.length === 0
-                        ? '<div style="grid-column:span 2;padding:18px 8px;text-align:center;color:var(--m3-text-muted)">No matching shapes found.</div>'
+                        ? `<div style="grid-column:1/-1;padding:18px 8px;text-align:center;color:var(--m3-text-muted)">${t.noMatchingShapes}</div>`
                         : searchResults
                             .map(
                               (item) => `
-                            <div class="stencil-item" draggable="true" data-pack="${item.pack}" data-master="${item.name}" title="${item.pack}: ${item.name} — Click or drag onto canvas (Right-click for options)">
+                            <div class="stencil-item" draggable="true" data-pack="${item.pack}" data-master="${item.name}" title="${localizeStencilPackName(item.pack, this.lang)}: ${item.name}">
                               <div class="stencil-preview-stage">${item.svg}</div>
                               <div class="stencil-title">${item.name}</div>
-                              <div class="stencil-pack-sub">${this.shortPackLabel(item.pack)}</div>
                             </div>`
                             )
                             .join('')
@@ -4036,22 +4166,23 @@ class VexioChromeOsApp {
                           this.stencilGroupFilter !== 'all' || this.expandedStencilPacks.has(pack);
                         const useCompactScroll =
                           this.stencilGroupFilter === 'all' && this.expandedStencilPacks.size > 1;
+                        const packLabel = localizeStencilPackName(pack, this.lang);
                         return `
                           <div class="stencil-accordion ${isOpen ? 'expanded' : ''}">
-                            <button class="stencil-acc-header" data-acc-pack="${pack}" aria-expanded="${isOpen ? 'true' : 'false'}" title="Click to ${isOpen ? 'collapse' : 'expand'} ${pack}">
+                            <button class="stencil-acc-header" data-acc-pack="${pack}" aria-expanded="${isOpen ? 'true' : 'false'}" title="${packLabel}">
                               <span>${isOpen ? '▾' : '▸'}</span>
-                              <span class="stencil-acc-title">${pack}</span>
+                              <span class="stencil-acc-title">${packLabel}</span>
                               <span class="stencil-acc-badge">${masters.length}</span>
                             </button>
                             ${
                               isOpen
                                 ? `
                                   <div class="stencil-acc-body ${useCompactScroll ? 'compact-scroll' : ''}">
-                                    <div class="stencil-grid">
+                                    <div class="stencil-grid ${this.isStencilListMode ? 'list-mode' : ''}">
                                       ${masters
                                         .map(
                                           (mName) => `
-                                          <div class="stencil-item" draggable="true" data-pack="${pack}" data-master="${mName}" title="${pack}: ${mName} — Click or drag onto canvas">
+                                          <div class="stencil-item" draggable="true" data-pack="${pack}" data-master="${mName}" title="${packLabel}: ${mName}">
                                             <div class="stencil-preview-stage">${this.getStencilSvgPreview(pack, mName)}</div>
                                             <div class="stencil-title">${mName}</div>
                                           </div>`
@@ -4101,9 +4232,9 @@ class VexioChromeOsApp {
               <button class="m3-btn icon-only" id="btn-zoom-out" title="Zoom Out (Ctrl+Wheel)" style="width:24px;height:24px">−</button>
               <span class="zoom-readout">${this.zoomPct}%</span>
               <button class="m3-btn icon-only" id="btn-zoom-in" title="Zoom In (Ctrl+Wheel)" style="width:24px;height:24px">+</button>
-              <button class="m3-btn ${this.isAutoFitPageMode ? 'active' : ''}" id="btn-zoom-reset" title="Fit Page to Window" style="height:24px;padding:0 7px;font-size:11px">Fit</button>
-              <button class="m3-btn" id="btn-zoom-100-pill" title="Actual Size (100%)" style="height:24px;padding:0 6px;font-size:11px">100%</button>
-              <button class="m3-btn ${this.showMinimap ? 'active' : ''}" id="btn-zoom-map-pill" title="Toggle Overview Minimap" style="height:24px;padding:0 6px;font-size:11px">Map</button>
+              <button class="m3-btn ${this.isAutoFitPageMode ? 'active' : ''}" id="btn-zoom-reset" title="${t.fitBtn}" style="height:24px;padding:0 7px;font-size:11px">${t.fitBtn}</button>
+              <button class="m3-btn" id="btn-zoom-100-pill" title="100%" style="height:24px;padding:0 6px;font-size:11px">100%</button>
+              <button class="m3-btn ${this.showMinimap ? 'active' : ''}" id="btn-zoom-map-pill" title="${t.overviewTitle}" style="height:24px;padding:0 6px;font-size:11px">${t.overviewTitle}</button>
             </div>
 
             ${
@@ -4113,11 +4244,11 @@ class VexioChromeOsApp {
                     const idx = Math.max(0, Math.min(slides.length - 1, this.activeSlideIndex));
                     const curSlide = slides[idx];
                     return `<div style="position:absolute;bottom:14px;left:50%;transform:translateX(-50%);z-index:35;display:flex;align-items:center;gap:8px;padding:6px 12px;border-radius:999px;background:var(--m3-surface-elevated,rgba(15,23,42,0.92));color:#f8fafc;box-shadow:0 8px 24px rgba(15,23,42,0.28);font-size:12px">
-                      <button class="m3-btn tonal" id="btn-pres-prev" style="height:24px;padding:0 8px;font-size:11px">◀ Prev</button>
-                      <span style="font-weight:600;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${curSlide.notes.replace(/"/g, '&quot;')}">Slide ${idx + 1}/${slides.length}: ${curSlide.title}</span>
-                      <button class="m3-btn tonal" id="btn-pres-next" style="height:24px;padding:0 8px;font-size:11px">Next ▶</button>
-                      <button class="m3-btn" id="btn-pres-pptx" style="height:24px;padding:0 8px;font-size:11px">Export .pptx</button>
-                      <button class="m3-btn active" id="btn-pres-exit" style="height:24px;padding:0 8px;font-size:11px">Exit ✕</button>
+                      <button class="m3-btn tonal" id="btn-pres-prev" style="height:24px;padding:0 8px;font-size:11px">◀</button>
+                      <span style="font-weight:600;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${curSlide.notes.replace(/"/g, '&quot;')}">${idx + 1}/${slides.length}: ${curSlide.title}</span>
+                      <button class="m3-btn tonal" id="btn-pres-next" style="height:24px;padding:0 8px;font-size:11px">▶</button>
+                      <button class="m3-btn" id="btn-pres-pptx" style="height:24px;padding:0 8px;font-size:11px">.pptx</button>
+                      <button class="m3-btn active" id="btn-pres-exit" style="height:24px;padding:0 8px;font-size:11px">✕</button>
                     </div>`;
                   })()
                 : ''
@@ -4127,8 +4258,8 @@ class VexioChromeOsApp {
               this.showMinimap
                 ? `<div class="minimap-dock" title="Click or Drag to Pan Viewport">
                     <div class="minimap-header">
-                      <span>Overview</span>
-                      <span>${snap.shapes.length} shapes</span>
+                      <span>${t.overviewTitle}</span>
+                      <span>${snap.shapes.length} ${t.shapesCountWord}</span>
                     </div>
                     <div class="minimap-stage" id="minimap-stage">
                       ${snap.svgPreview}
@@ -4142,24 +4273,24 @@ class VexioChromeOsApp {
           <aside class="inspector-pane" style="${this.showRightInspector ? '' : 'display:none'}">
             ${this.renderObjectIdentityHeader(snap, selectedShape)}
             <div class="insp-segmented">
-              <button class="insp-seg-btn ${this.activeInspectorTab === 'props' ? 'active' : ''}" data-insp="props" title="Format Shape — Fill, Line, Arrows, Text &amp; Effects">${selectedShape ? 'Format' : 'Page'}</button>
-              <button class="insp-seg-btn ${this.activeInspectorTab === 'sizepos' ? 'active' : ''}" data-insp="sizepos" title="Size &amp; Position — X, Y, Width, Height, Angle &amp; Protection">Size &amp; Pos</button>
-              <button class="insp-seg-btn ${this.activeInspectorTab === 'data' ? 'active' : ''}" data-insp="data" title="Shape Data (Prop.*) — Custom Properties">Data (${selectedShape?.shapeData?.length ?? 0})</button>
-              <button class="insp-seg-btn ${this.activeInspectorTab === 'layers' ? 'active' : ''}" data-insp="layers" title="Layer Properties &amp; Object Layer Membership">Layers (${snap.layers.length})</button>
+              <button class="insp-seg-btn ${this.activeInspectorTab === 'props' ? 'active' : ''}" data-insp="props">${selectedShape ? t.formatTab : t.pageTab}</button>
+              <button class="insp-seg-btn ${this.activeInspectorTab === 'sizepos' ? 'active' : ''}" data-insp="sizepos">${t.sizePosTab}</button>
+              <button class="insp-seg-btn ${this.activeInspectorTab === 'data' ? 'active' : ''}" data-insp="data">${t.dataTab} (${selectedShape?.shapeData?.length ?? 0})</button>
+              <button class="insp-seg-btn ${this.activeInspectorTab === 'layers' ? 'active' : ''}" data-insp="layers">${t.layersTab} (${snap.layers.length})</button>
             </div>
 
             ${this.renderInspectorBody(snap, selectedShape)}
           </aside>
         </main>
 
-        <!-- Row 5: Optional Bottom ShapeSheet Split-View -->
+        <!-- Row 6: Optional Bottom ShapeSheet Split-View -->
         <section class="shapesheet-dock ${this.showShapeSheet ? '' : 'hidden'}">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-            <span class="pane-header">ShapeSheet Cells — ${selectedShape ? `${selectedShape.name} (Sheet.${selectedShape.id}) • Click any row to edit in fx bar` : 'PageSheet (Select a shape to inspect cells)'}</span>
-            <button class="m3-btn" id="btn-close-ss" style="height:22px;padding:0 8px;font-size:11px">Close ✕</button>
+            <span class="pane-header">${t.shapeSheetBtn} — ${selectedShape ? `${selectedShape.name} (Sheet.${selectedShape.id})` : 'PageSheet'}</span>
+            <button class="m3-btn" id="btn-close-ss" style="height:22px;padding:0 8px;font-size:11px">✕</button>
           </div>
           <table class="ss-table">
-            <thead><tr><th>Cell Name</th><th>Formula</th><th>Evaluated Value</th><th>Protection</th></tr></thead>
+            <thead><tr><th>Cell</th><th>Formula</th><th>Value</th><th>Guard</th></tr></thead>
             <tbody>
               ${(selectedShape?.cells ?? [])
                 .map(
@@ -4176,22 +4307,22 @@ class VexioChromeOsApp {
           </table>
         </section>
 
-        <!-- Row 6: Bottom Page Tabs & Status Strip -->
+        <!-- Row 7: Bottom Page Tabs & Status Strip -->
         <footer class="status-bar">
           <div class="page-tabs">
             ${snap.pages
               .map((p) =>
                 this.renamingPageId === p.id
                   ? `<input id="page-rename-inline-input" class="page-rename-inline-input" data-rename-page="${p.id}" value="${this.renamePageDraft.replace(/"/g, '&quot;')}" aria-label="${t.renamePage}" />`
-                  : `<button class="m3-btn page-tab-btn ${p.id === snap.activePageId ? 'active' : ''}" data-page="${p.id}" title="Click to switch • Double-click or right-click to rename, duplicate, or delete">${p.name}</button>`
+                  : `<button class="m3-btn page-tab-btn ${p.id === snap.activePageId ? 'active' : ''}" data-page="${p.id}" title="${p.name}">${p.name}</button>`
               )
               .join('')}
-            <button class="m3-btn page-tab-btn tonal" id="btn-add-page" title="Insert New Page">+ Page</button>
+            <button class="m3-btn page-tab-btn tonal" id="btn-add-page" title="${t.addPageTab}">${t.addPageTab}</button>
           </div>
           <div style="display:flex;align-items:center;gap:14px;flex-shrink:0">
-            <span style="color:var(--m3-text-muted);font-size:11px;white-space:nowrap">Tool: <strong style="color:var(--m3-text);text-transform:capitalize">${this.activeTool.replace('_', ' ')}</strong></span>
+            <span style="color:var(--m3-text-muted);font-size:11px;white-space:nowrap">${t.toolStatusLabel}: <strong style="color:var(--m3-text);text-transform:capitalize">${this.activeTool.replace('_', ' ')}</strong></span>
             <span id="coord-readout" style="font-variant-numeric:tabular-nums;white-space:nowrap">X: ${this.formatLengthFromIn(this.cursorCoordsIn[0])} &nbsp;Y: ${this.formatLengthFromIn(this.cursorCoordsIn[1])}</span>
-            <span style="white-space:nowrap">Selected: <strong>${this.selectedShapeIds.length}</strong></span>
+            <span style="white-space:nowrap">${t.selectedLabel}: <strong>${this.selectedShapeIds.length}</strong></span>
             <label style="display:inline-flex;align-items:center;gap:6px">
               <input type="range" id="zoom-slider" min="25" max="400" value="${this.zoomPct}" style="width:88px;accent-color:var(--m3-primary)" />
             </label>
@@ -4265,12 +4396,13 @@ class VexioChromeOsApp {
     snap: EngineSnapshot,
     selectedShape: EngineSnapshot['shapes'][number] | null
   ): string {
+    const t = this.i18n;
     if (!selectedShape) {
       return `
-        <div class="insp-card" style="margin-bottom:8px">
+        <div class="insp-card" style="margin-bottom:2px">
           <div class="insp-card-title" style="display:flex;justify-content:space-between;align-items:center">
-            <span>Page Properties</span>
-            <span style="font-weight:600;color:var(--m3-primary);text-transform:none">${snap.shapes.length} shapes</span>
+            <span>${t.pageProperties}</span>
+            <span style="font-weight:600;color:var(--m3-primary);text-transform:none">${snap.shapes.length} ${t.shapesCountWord}</span>
           </div>
           <div style="font-size:11.5px;color:var(--m3-text-muted)">${this.formatLengthFromIn(snap.pageWidthIn)} × ${this.formatLengthFromIn(snap.pageHeightIn)}</div>
         </div>
@@ -4279,28 +4411,28 @@ class VexioChromeOsApp {
     const typeBadge = selectedShape.isGroup
       ? selectedShape.masterName
         ? `Master: ${selectedShape.masterName} (${selectedShape.childCount ?? 1})`
-        : `Group (${selectedShape.childCount ?? 0} shapes)`
+        : `Group (${selectedShape.childCount ?? 0})`
       : selectedShape.kind === 'Connector1D'
         ? '1D Dynamic Connector'
         : selectedShape.masterName
           ? `${selectedShape.kind} • ${selectedShape.masterName}`
           : selectedShape.kind;
     return `
-      <div class="insp-card" style="margin-bottom:8px;display:flex;flex-direction:column;gap:6px">
+      <div class="insp-card" style="margin-bottom:2px;display:flex;flex-direction:column;gap:5px">
         <div style="display:flex;justify-content:space-between;align-items:center">
           <div>
             <strong style="font-size:12px;color:var(--m3-primary)">Sheet.${selectedShape.id}</strong>
             <div style="font-size:10.5px;color:var(--m3-text-muted)">${typeBadge}</div>
           </div>
-          <button class="fmt-btn" id="btn-insp-open-ss" title="Open ShapeSheet Formula Grid (Shift+F5)">fx</button>
+          <button class="fmt-btn" id="btn-insp-open-ss" title="${t.shapeSheetBtn} (Shift+F5)">fx</button>
         </div>
         <div style="display:flex;gap:5px;align-items:center">
-          <span style="font-size:10.5px;color:var(--m3-text-muted);width:42px">Name</span>
-          <input class="cell-input" id="shape-name-input" value="${selectedShape.name.replace(/"/g, '&quot;')}" title="Visio Object Name (press Enter to rename)" style="flex:1;height:25px" />
+          <span style="font-size:10.5px;color:var(--m3-text-muted);width:44px">${t.nameField}</span>
+          <input class="cell-input" id="shape-name-input" value="${selectedShape.name.replace(/"/g, '&quot;')}" style="flex:1;height:25px" />
         </div>
         <div style="display:flex;gap:5px;align-items:center">
-          <span style="font-size:10.5px;color:var(--m3-text-muted);width:42px">Text</span>
-          <input class="cell-input" id="shape-text-input" value="${selectedShape.text.replace(/"/g, '&quot;')}" placeholder="Type shape label..." title="Shape Text / Caption (press Enter to apply)" style="flex:1;height:25px" />
+          <span style="font-size:10.5px;color:var(--m3-text-muted);width:44px">${t.textField}</span>
+          <input class="cell-input" id="shape-text-input" value="${selectedShape.text.replace(/"/g, '&quot;')}" placeholder="…" style="flex:1;height:25px" />
         </div>
       </div>
     `;
@@ -4681,7 +4813,7 @@ class VexioChromeOsApp {
     return `
       <div class="insp-card">
         <div class="insp-card-title" style="display:flex;justify-content:space-between;align-items:center">
-          <span>Selected (${this.selectedShapeIds.length})</span>
+          <span>${this.i18n.selectedLabel} (${this.selectedShapeIds.length})</span>
           <span style="font-weight:600;color:var(--m3-primary);text-transform:none">Sheet.${selectedShape.id}</span>
         </div>
         <select class="search-input" id="shape-selector" style="padding:5px 8px">
@@ -4695,20 +4827,20 @@ class VexioChromeOsApp {
       </div>
 
       <div class="insp-card">
-        <div class="insp-card-title">Text Formatting</div>
+        <div class="insp-card-title">${this.i18n.textFormattingTitle}</div>
         <div style="display:flex;gap:6px;margin-top:4px;align-items:center">
-          <select class="cell-input" id="insp-font-family" style="flex:1;height:26px;padding:1px 6px;font-size:11.5px" title="Installed OS Font Family">
+          <select class="cell-input" id="insp-font-family" style="flex:1;height:26px;padding:1px 6px;font-size:11.5px">
             ${inspFonts
               .map(
                 (f) => `<option value="${f.replace(/"/g, '&quot;')}" ${this.textFontFamily === f ? 'selected' : ''}>${f}</option>`
               )
               .join('')}
           </select>
-          <label class="native-color-chip" title="Text Color (Native OS Color Picker)">
+          <label class="native-color-chip" title="Text Color">
             <span>A</span>
             <input type="color" id="insp-text-color-picker" class="native-color-input" value="${activeTextColor}" />
           </label>
-          <label class="native-color-chip" title="Text Highlight (Native OS Color Picker)">
+          <label class="native-color-chip" title="Highlight">
             <span>ab</span>
             <input type="color" id="insp-text-bg-picker" class="native-color-input" value="${activeBgColor}" />
           </label>
@@ -4722,20 +4854,28 @@ class VexioChromeOsApp {
           <button class="fmt-btn ${this.textBold ? 'active' : ''}" id="btn-insp-bold" title="Bold (Ctrl+B)"><strong>B</strong></button>
           <button class="fmt-btn ${this.textItalic ? 'active' : ''}" id="btn-insp-italic" title="Italic (Ctrl+I)"><em>I</em></button>
           <button class="fmt-btn ${this.textUnderline ? 'active' : ''}" id="btn-insp-underline" title="Underline (Ctrl+U)"><u>U</u></button>
-          <button class="fmt-btn ${this.textHorizAlign === 0 ? 'active' : ''}" data-halign="0" title="Align Left">≡L</button>
-          <button class="fmt-btn ${this.textHorizAlign === 1 ? 'active' : ''}" data-halign="1" title="Center">≡C</button>
-          <button class="fmt-btn ${this.textHorizAlign === 2 ? 'active' : ''}" data-halign="2" title="Align Right">≡R</button>
-          <button class="fmt-btn ${this.textBullets ? 'active' : ''}" id="btn-insp-bullets" title="Bullets">•</button>
+          <button class="fmt-btn ${this.textHorizAlign === 0 ? 'active' : ''}" data-halign="0" title="${this.i18n.alignLeft}">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><line x1="2" y1="3.5" x2="14" y2="3.5"/><line x1="2" y1="6.8" x2="10" y2="6.8"/><line x1="2" y1="10.1" x2="13" y2="10.1"/><line x1="2" y1="13.4" x2="8.5" y2="13.4"/></svg>
+          </button>
+          <button class="fmt-btn ${this.textHorizAlign === 1 ? 'active' : ''}" data-halign="1" title="${this.i18n.alignCenter}">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><line x1="2" y1="3.5" x2="14" y2="3.5"/><line x1="4" y1="6.8" x2="12" y2="6.8"/><line x1="2.5" y1="10.1" x2="13.5" y2="10.1"/><line x1="5" y1="13.4" x2="11" y2="13.4"/></svg>
+          </button>
+          <button class="fmt-btn ${this.textHorizAlign === 2 ? 'active' : ''}" data-halign="2" title="${this.i18n.alignRight}">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><line x1="2" y1="3.5" x2="14" y2="3.5"/><line x1="6" y1="6.8" x2="14" y2="6.8"/><line x1="3" y1="10.1" x2="14" y2="10.1"/><line x1="7.5" y1="13.4" x2="14" y2="13.4"/></svg>
+          </button>
+          <button class="fmt-btn ${this.textBullets ? 'active' : ''}" id="btn-insp-bullets" title="Bullets">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="3" cy="4" r="1" fill="currentColor" stroke="none"/><line x1="6" y1="4" x2="14" y2="4"/><circle cx="3" cy="8" r="1" fill="currentColor" stroke="none"/><line x1="6" y1="8" x2="14" y2="8"/><circle cx="3" cy="12" r="1" fill="currentColor" stroke="none"/><line x1="6" y1="12" x2="14" y2="12"/></svg>
+          </button>
         </div>
       </div>
 
       <div class="insp-card">
-        <div class="insp-card-title">Rotate &amp; Flip Stencil</div>
+        <div class="insp-card-title">${this.i18n.rotateFlipTitle}</div>
         <div class="effect-chips-grid">
-          <button class="m3-btn tonal" data-rot-deg="-90" style="height:27px;font-size:11px">↺ Left 90°</button>
-          <button class="m3-btn tonal" data-rot-deg="90" style="height:27px;font-size:11px">↻ Right 90°</button>
-          <button class="m3-btn tonal" data-flip-axis="x" style="height:27px;font-size:11px">⇆ Flip Horiz</button>
-          <button class="m3-btn tonal" data-flip-axis="y" style="height:27px;font-size:11px">⇅ Flip Vert</button>
+          <button class="m3-btn tonal" data-rot-deg="-90" style="height:27px;font-size:11px">${UI_ICONS.rotateLeft}<span>90°</span></button>
+          <button class="m3-btn tonal" data-rot-deg="90" style="height:27px;font-size:11px">${UI_ICONS.rotateRight}<span>90°</span></button>
+          <button class="m3-btn tonal" data-flip-axis="x" style="height:27px;font-size:11px">${UI_ICONS.flipH}<span>${this.i18n.flipHoriz}</span></button>
+          <button class="m3-btn tonal" data-flip-axis="y" style="height:27px;font-size:11px">${UI_ICONS.flipV}<span>${this.i18n.flipVert}</span></button>
         </div>
       </div>
 
@@ -5938,9 +6078,52 @@ class VexioChromeOsApp {
       trig.addEventListener('click', (ev) => {
         ev.stopPropagation();
         const menuId = (trig as HTMLElement).dataset.topTrigger as 'file' | 'edit' | 'export' | 'help';
+        this.openRibbonPopover = null;
+        this.openRailFlyout = null;
         this.openHeaderMenu = this.openHeaderMenu === menuId ? null : menuId;
         this.render();
       });
+    });
+
+    document.querySelectorAll('[data-ribbon-pop-trigger]').forEach((trig) => {
+      trig.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        const popId = (trig as HTMLElement).dataset.ribbonPopTrigger as 'align' | 'distribute' | 'order';
+        this.openHeaderMenu = null;
+        this.openRailFlyout = null;
+        this.openRibbonPopover = this.openRibbonPopover === popId ? null : popId;
+        this.render();
+      });
+    });
+
+    document.querySelectorAll('[data-rail-flyout]').forEach((btn) => {
+      btn.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        const flyId = (btn as HTMLElement).dataset.railFlyout as 'shapes' | 'connectors' | 'text' | 'aec' | 'ink';
+        this.openHeaderMenu = null;
+        this.openRibbonPopover = null;
+        this.openRailFlyout = this.openRailFlyout === flyId ? null : flyId;
+        this.render();
+      });
+    });
+
+    document.getElementById('btn-rail-painter')?.addEventListener('click', async () => {
+      this.openRailFlyout = null;
+      if (this.primarySelectedId) {
+        const res = await this.callEngine('copyShapeFormat', { shapeId: this.primarySelectedId });
+        this.sampledFormatJson = res.formatJson ?? '';
+      }
+      this.activeTool = this.activeTool === 'format_painter' ? 'pointer' : 'format_painter';
+      this.render();
+    });
+
+    document.getElementById('btn-print-quick')?.addEventListener('click', () => {
+      window.print();
+    });
+
+    document.getElementById('btn-toggle-stencil-view')?.addEventListener('click', () => {
+      this.isStencilListMode = !this.isStencilListMode;
+      this.render();
     });
     document.querySelectorAll('[data-top-cmd]').forEach((item) => {
       item.addEventListener('click', async (ev) => {
@@ -6387,7 +6570,21 @@ class VexioChromeOsApp {
 
     document.querySelectorAll('[data-tool]').forEach((btn) => {
       btn.addEventListener('click', () => {
-        this.activeTool = ((btn as HTMLElement).dataset.tool as ActiveTool) ?? 'pointer';
+        const nextTool = ((btn as HTMLElement).dataset.tool as ActiveTool) ?? 'pointer';
+        this.activeTool = nextTool;
+        if (['rect', 'round_rect', 'ellipse', 'diamond', 'triangle', 'hexagon', 'star'].includes(nextTool)) {
+          this.lastShapeTool = nextTool;
+        } else if (['connector', 'line', 'arc', 'freeform', 'connection_point'].includes(nextTool)) {
+          this.lastConnTool = nextTool;
+        } else if (['text', 'text_block'].includes(nextTool)) {
+          this.lastTextTool = nextTool;
+        } else if (['wall', 'dimension'].includes(nextTool)) {
+          this.lastAecTool = nextTool;
+        } else if (['pen', 'highlighter'].includes(nextTool)) {
+          this.lastInkTool = nextTool;
+        }
+        this.openRailFlyout = null;
+        this.openRibbonPopover = null;
         this.editingShapeId = null;
         this.render();
       });
@@ -6416,6 +6613,7 @@ class VexioChromeOsApp {
 
     document.querySelectorAll('[data-zorder]').forEach((btn) => {
       btn.addEventListener('click', async () => {
+        this.openRibbonPopover = null;
         if (this.selectedShapeIds.length === 0) return;
         const mode = (btn as HTMLElement).dataset.zorder ?? 'front';
         const res = await this.callEngine('reorderShapes', {
@@ -6430,6 +6628,7 @@ class VexioChromeOsApp {
 
     document.querySelectorAll('[data-align]').forEach((btn) => {
       btn.addEventListener('click', async () => {
+        this.openRibbonPopover = null;
         const mode = (btn as HTMLElement).dataset.align ?? 'left';
         const isDist = mode === 'distribute_h' || mode === 'distribute_v';
         if (this.selectedShapeIds.length < (isDist ? 3 : 2)) return;
