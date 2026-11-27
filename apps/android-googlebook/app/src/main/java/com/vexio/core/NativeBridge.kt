@@ -6657,7 +6657,7 @@ class VexioSessionViewModel(
             }
             n
         } else {
-            val cur = _uiState.value.inspectedObject?.text ?: _uiState.value.selectedShapeName
+            val cur = _uiState.value.inspectedObject?.text.orEmpty().ifEmpty { _uiState.value.selectedShapeName }
             if (cur.contains(clean, ignoreCase = !matchCase)) {
                 val updated = cur.replace(clean, replaceStr, ignoreCase = !matchCase)
                 _uiState.update { st ->
