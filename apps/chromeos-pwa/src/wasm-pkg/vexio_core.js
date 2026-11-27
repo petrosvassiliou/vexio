@@ -95,6 +95,25 @@ export class WasmVexioSession {
         return ret[0] >>> 0;
     }
     /**
+     * @param {number} page_id
+     * @param {number} anchor_shape_id
+     * @param {string} topic_text
+     * @param {boolean} as_sibling
+     * @returns {number}
+     */
+    add_mind_map_topic(page_id, anchor_shape_id, topic_text, as_sibling) {
+        const val2 = +page_id;
+        const val3 = +anchor_shape_id;
+        const val4 = +as_sibling;
+        const ptr0 = passStringToWasm0(topic_text, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.wasmvexiosession_add_mind_map_topic(this.__wbg_ptr, val2, val3, ptr0, len0, val4);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return ret[0] >>> 0;
+    }
+    /**
      * @param {string} name
      * @returns {number}
      */
@@ -696,15 +715,6 @@ export class WasmVexioSession {
     /**
      * @param {number} page_id
      * @param {number} shape_id
-     * @returns {boolean}
-     */
-    delete_shape(page_id, shape_id) {
-        const ret = wasm.wasmvexiosession_delete_shape(this.__wbg_ptr, page_id, shape_id);
-        return ret !== 0;
-    }
-    /**
-     * @param {number} page_id
-     * @param {number} shape_id
      * @param {string} row_name
      * @returns {boolean}
      */
@@ -714,6 +724,15 @@ export class WasmVexioSession {
         const ptr0 = passStringToWasm0(row_name, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
         const len0 = WASM_VECTOR_LEN;
         const ret = wasm.wasmvexiosession_delete_shape_action(this.__wbg_ptr, val2, val3, ptr0, len0);
+        return ret !== 0;
+    }
+    /**
+     * @param {number} page_id
+     * @param {number} shape_id
+     * @returns {boolean}
+     */
+    delete_shape(page_id, shape_id) {
+        const ret = wasm.wasmvexiosession_delete_shape(this.__wbg_ptr, page_id, shape_id);
         return ret !== 0;
     }
     /**
@@ -797,6 +816,22 @@ export class WasmVexioSession {
      */
     draw_arc(page_id, x1_in, y1_in, x2_in, y2_in, bow_in) {
         const ret = wasm.wasmvexiosession_draw_arc(this.__wbg_ptr, page_id, x1_in, y1_in, x2_in, y2_in, bow_in);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return ret[0] >>> 0;
+    }
+    /**
+     * @param {number} page_id
+     * @param {number} x1_in
+     * @param {number} y1_in
+     * @param {number} x2_in
+     * @param {number} y2_in
+     * @param {number} thickness_in
+     * @returns {number}
+     */
+    draw_architectural_wall(page_id, x1_in, y1_in, x2_in, y2_in, thickness_in) {
+        const ret = wasm.wasmvexiosession_draw_architectural_wall(this.__wbg_ptr, page_id, x1_in, y1_in, x2_in, y2_in, thickness_in);
         if (ret[2]) {
             throw takeFromExternrefTable0(ret[1]);
         }
@@ -1076,6 +1111,22 @@ export class WasmVexioSession {
         }
     }
     /**
+     * @param {number} page_id
+     * @returns {string}
+     */
+    export_mind_map_outline(page_id) {
+        let deferred1_0;
+        let deferred1_1;
+        try {
+            const ret = wasm.wasmvexiosession_export_mind_map_outline(this.__wbg_ptr, page_id);
+            deferred1_0 = ret[0];
+            deferred1_1 = ret[1];
+            return getStringFromWasm0(ret[0], ret[1]);
+        } finally {
+            wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+        }
+    }
+    /**
      * @returns {Uint8Array}
      */
     export_wal() {
@@ -1243,6 +1294,18 @@ export class WasmVexioSession {
         const len0 = WASM_VECTOR_LEN;
         const ret = wasm.wasmvexiosession_group_shapes(this.__wbg_ptr, val2, ptr0, len0);
         return ret >>> 0;
+    }
+    /**
+     * @param {number} page_id
+     * @param {number} tolerance_in
+     * @returns {number}
+     */
+    heal_wall_intersections(page_id, tolerance_in) {
+        const ret = wasm.wasmvexiosession_heal_wall_intersections(this.__wbg_ptr, page_id, tolerance_in);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return ret[0] >>> 0;
     }
     /**
      * @param {number} page_id
@@ -1474,6 +1537,37 @@ export class WasmVexioSession {
     }
     /**
      * @param {number} page_id
+     * @param {string} dim_kind
+     * @param {number} target_shape_id
+     * @param {number} second_shape_id
+     * @param {number} offset_in
+     * @param {string} unit_format
+     * @returns {number}
+     */
+    insert_associative_dimension(page_id, dim_kind, target_shape_id, second_shape_id, offset_in, unit_format) {
+        const val3 = +page_id;
+        const val4 = +target_shape_id;
+        const val5 = +second_shape_id;
+        const val6 = +offset_in;
+        let ptr0, len0, ptr1, len1;
+        try {
+            ptr0 = passStringToWasm0(dim_kind, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+            len0 = WASM_VECTOR_LEN;
+            ptr1 = passStringToWasm0(unit_format, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+            len1 = WASM_VECTOR_LEN;
+        } catch (e) {
+            if (ptr1) { wasm.__wbindgen_free(ptr1, len1 * 1, 1); }
+            if (ptr0) { wasm.__wbindgen_free(ptr0, len0 * 1, 1); }
+            throw e;
+        }
+        const ret = wasm.wasmvexiosession_insert_associative_dimension(this.__wbg_ptr, val3, ptr0, len0, val4, val5, val6, ptr1, len1);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return ret[0] >>> 0;
+    }
+    /**
+     * @param {number} page_id
      * @param {number} target_shape_id
      * @param {string} text
      * @returns {number}
@@ -1647,6 +1741,37 @@ export class WasmVexioSession {
             throw e;
         }
         const ret = wasm.wasmvexiosession_insert_text_field(this.__wbg_ptr, val4, val5, ptr0, len0, ptr1, len1, ptr2, len2);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return ret[0] >>> 0;
+    }
+    /**
+     * @param {number} page_id
+     * @param {number} wall_shape_id
+     * @param {string} opening_kind
+     * @param {number} offset_along_in
+     * @param {number} opening_width_in
+     * @param {string} swing_dir
+     * @returns {number}
+     */
+    insert_wall_opening(page_id, wall_shape_id, opening_kind, offset_along_in, opening_width_in, swing_dir) {
+        const val3 = +page_id;
+        const val4 = +wall_shape_id;
+        const val5 = +offset_along_in;
+        const val6 = +opening_width_in;
+        let ptr0, len0, ptr1, len1;
+        try {
+            ptr0 = passStringToWasm0(opening_kind, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+            len0 = WASM_VECTOR_LEN;
+            ptr1 = passStringToWasm0(swing_dir, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+            len1 = WASM_VECTOR_LEN;
+        } catch (e) {
+            if (ptr1) { wasm.__wbindgen_free(ptr1, len1 * 1, 1); }
+            if (ptr0) { wasm.__wbindgen_free(ptr0, len0 * 1, 1); }
+            throw e;
+        }
+        const ret = wasm.wasmvexiosession_insert_wall_opening(this.__wbg_ptr, val3, val4, ptr0, len0, val5, val6, ptr1, len1);
         if (ret[2]) {
             throw takeFromExternrefTable0(ret[1]);
         }
@@ -2080,6 +2205,28 @@ export class WasmVexioSession {
         var v1 = getArrayU32FromWasm0(ret[0], ret[1]).slice();
         wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
         return v1;
+    }
+    /**
+     * @param {number} page_id
+     * @returns {string}
+     */
+    recalculate_vsm_and_fta_json(page_id) {
+        let deferred2_0;
+        let deferred2_1;
+        try {
+            const ret = wasm.wasmvexiosession_recalculate_vsm_and_fta_json(this.__wbg_ptr, page_id);
+            var ptr1 = ret[0];
+            var len1 = ret[1];
+            if (ret[3]) {
+                ptr1 = 0; len1 = 0;
+                throw takeFromExternrefTable0(ret[2]);
+            }
+            deferred2_0 = ptr1;
+            deferred2_1 = len1;
+            return getStringFromWasm0(ptr1, len1);
+        } finally {
+            wasm.__wbindgen_free(deferred2_0, deferred2_1, 1);
+        }
     }
     /**
      * @returns {boolean}
@@ -4587,7 +4734,7 @@ function __wbg_get_imports() {
             arg0.writeBuffer(arg1, arg2, arg3, arg4, arg5);
         }, arguments); },
         __wbindgen_generic_0000000000000001: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [Externref], shim_idx: 2067, ret: Result(Unit), inner_ret: Some(Result(Unit)) }, mutable: true }) -> Externref`.
+            // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [Externref], shim_idx: 2068, ret: Result(Unit), inner_ret: Some(Result(Unit)) }, mutable: true }) -> Externref`.
             const ret = makeMutClosure(arg0, arg1, wasm_bindgen_70d1b2bcb7a7720f___convert__closures_____invoke___wasm_bindgen_70d1b2bcb7a7720f___JsValue__core_d941ad8722425d2e___result__Result_____wasm_bindgen_70d1b2bcb7a7720f___JsError___true_);
             return ret;
         },

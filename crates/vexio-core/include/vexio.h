@@ -237,6 +237,15 @@ VexioStatus vexio_doc_copy_shape_format_json(const VexioDoc* doc, uint32_t page_
 VexioStatus vexio_doc_apply_format_painter(VexioDoc* doc, uint32_t page_id, const uint64_t* target_ids_ptr, size_t target_ids_len, const char* format_json_utf8, uint32_t* out_modified_count);
 VexioStatus vexio_doc_number_shapes(VexioDoc* doc, uint32_t page_id, const uint64_t* shape_ids_ptr, size_t shape_ids_len, const char* order_mode_utf8, int32_t start_num, int32_t interval, const char* prefix_utf8, const char* target_mode_utf8, uint32_t* out_numbered_count);
 
+/* v0.9.0-beta: Associative Architectural Dimensions, Wall Miter/T-Join Auto-Healing, Door/Window Wall Openings, Calendar, PivotDiagram, Mind Map & Lean VSM / Fault Tree Calculators */
+VexioStatus vexio_doc_insert_associative_dimension(VexioDoc* doc, uint32_t page_id, const char* dim_kind_utf8, uint64_t target_shape_id, uint64_t second_shape_id, double offset_in, const char* unit_format_utf8, uint64_t* out_dim_shape_id);
+VexioStatus vexio_doc_draw_architectural_wall(VexioDoc* doc, uint32_t page_id, double x1_in, double y1_in, double x2_in, double y2_in, double thickness_in, uint64_t* out_wall_shape_id);
+VexioStatus vexio_doc_heal_wall_intersections(VexioDoc* doc, uint32_t page_id, double tolerance_in, uint32_t* out_healed_count);
+VexioStatus vexio_doc_insert_wall_opening(VexioDoc* doc, uint32_t page_id, uint64_t wall_shape_id, const char* opening_kind_utf8, double offset_along_in, double opening_width_in, const char* swing_dir_utf8, uint64_t* out_opening_shape_id);
+VexioStatus vexio_doc_add_mind_map_topic(VexioDoc* doc, uint32_t page_id, uint64_t anchor_shape_id, const char* topic_text_utf8, bool as_sibling, uint64_t* out_topic_shape_id);
+VexioStatus vexio_doc_export_mind_map_outline(const VexioDoc* doc, uint32_t page_id, VexioOwnedBuffer* out_markdown_utf8);
+VexioStatus vexio_doc_recalculate_vsm_and_fta_json(VexioDoc* doc, uint32_t page_id, VexioOwnedBuffer* out_report_json);
+
 #ifdef __cplusplus
 }
 #endif

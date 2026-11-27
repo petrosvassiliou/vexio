@@ -3132,4 +3132,103 @@ impl WasmVexioSession {
             .map(|n| n as u32)
             .map_err(|e| JsValue::from_str(&e.to_string()))
     }
+
+    // ------------------------------------------------------------------------
+    // Milestone 4 (`v0.9.0-beta`): Associative Dimensions, Auto-Healing Walls,
+    // Door/Window Openings, Mind Map Topics & VSM/FTA Live Calculators
+    // ------------------------------------------------------------------------
+
+    pub fn insert_associative_dimension(
+        &mut self,
+        page_id: u32,
+        dim_kind: &str,
+        target_shape_id: u32,
+        second_shape_id: u32,
+        offset_in: f64,
+        unit_format: &str,
+    ) -> Result<u32, JsValue> {
+        self.inner
+            .insert_associative_dimension(
+                page_id,
+                dim_kind,
+                target_shape_id as u64,
+                second_shape_id as u64,
+                offset_in,
+                unit_format,
+            )
+            .map(|id| id as u32)
+            .map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
+    pub fn draw_architectural_wall(
+        &mut self,
+        page_id: u32,
+        x1_in: f64,
+        y1_in: f64,
+        x2_in: f64,
+        y2_in: f64,
+        thickness_in: f64,
+    ) -> Result<u32, JsValue> {
+        self.inner
+            .draw_architectural_wall(page_id, x1_in, y1_in, x2_in, y2_in, thickness_in)
+            .map(|id| id as u32)
+            .map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
+    pub fn heal_wall_intersections(
+        &mut self,
+        page_id: u32,
+        tolerance_in: f64,
+    ) -> Result<u32, JsValue> {
+        self.inner
+            .heal_wall_intersections(page_id, tolerance_in)
+            .map(|n| n as u32)
+            .map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn insert_wall_opening(
+        &mut self,
+        page_id: u32,
+        wall_shape_id: u32,
+        opening_kind: &str,
+        offset_along_in: f64,
+        opening_width_in: f64,
+        swing_dir: &str,
+    ) -> Result<u32, JsValue> {
+        self.inner
+            .insert_wall_opening(
+                page_id,
+                wall_shape_id as u64,
+                opening_kind,
+                offset_along_in,
+                opening_width_in,
+                swing_dir,
+            )
+            .map(|id| id as u32)
+            .map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
+    pub fn add_mind_map_topic(
+        &mut self,
+        page_id: u32,
+        anchor_shape_id: u32,
+        topic_text: &str,
+        as_sibling: bool,
+    ) -> Result<u32, JsValue> {
+        self.inner
+            .add_mind_map_topic(page_id, anchor_shape_id as u64, topic_text, as_sibling)
+            .map(|id| id as u32)
+            .map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
+    pub fn export_mind_map_outline(&self, page_id: u32) -> String {
+        self.inner.export_mind_map_outline(page_id)
+    }
+
+    pub fn recalculate_vsm_and_fta_json(&mut self, page_id: u32) -> Result<String, JsValue> {
+        self.inner
+            .recalculate_vsm_and_fta_json(page_id)
+            .map_err(|e| JsValue::from_str(&e.to_string()))
+    }
 }

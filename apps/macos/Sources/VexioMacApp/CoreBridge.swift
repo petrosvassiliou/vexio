@@ -208,10 +208,12 @@ public enum VexioCanvasTool: String, CaseIterable, Identifiable, Sendable {
     case connectionPoint = "Connection Points"
     case textBlock = "Text Block"
     case formatPainter = "Format Painter"
+    case wall = "Wall Tool"
+    case dimension = "Dimension Tool"
 
     public var id: String { rawValue }
 
-    /// Matches `NativeCanvasTool` C-ABI discriminant (`0..20`) in `vexio_viewport_set_tool`.
+    /// Matches `NativeCanvasTool` C-ABI discriminant (`0..22`) in `vexio_viewport_set_tool`.
     public var engineToolCode: UInt32 {
         switch self {
         case .pointer: return 0
@@ -235,6 +237,8 @@ public enum VexioCanvasTool: String, CaseIterable, Identifiable, Sendable {
         case .connectionPoint: return 18
         case .textBlock: return 19
         case .formatPainter: return 20
+        case .wall: return 21
+        case .dimension: return 22
         }
     }
 
@@ -261,6 +265,8 @@ public enum VexioCanvasTool: String, CaseIterable, Identifiable, Sendable {
         case .connectionPoint: return "plus.circle.dashed"
         case .textBlock: return "textbox"
         case .formatPainter: return "paintbrush.pointed"
+        case .wall: return "rectangle.split.3x1"
+        case .dimension: return "ruler"
         }
     }
 
@@ -287,6 +293,8 @@ public enum VexioCanvasTool: String, CaseIterable, Identifiable, Sendable {
         case .connectionPoint: return "⌃⇧1"
         case .textBlock: return "⌃⇧4"
         case .formatPainter: return "⌃⇧P"
+        case .wall: return "⌃⇧W"
+        case .dimension: return "⌃⇧D"
         }
     }
 
@@ -3059,6 +3067,123 @@ private final class NativeDocumentCore: @unchecked Sendable {
         guard let ptr = outBuf.ptr, outBuf.len > 0 else { return Data() }
         return Data(bytes: ptr, count: outBuf.len)
     }
+
+    // MARK: - v0.9.0-beta C-ABI: Dimensions, Auto-Healing Walls, Openings, Mind Map & VSM/FTA
+
+    func insertAssociativeDimension(
+        pageId: UInt32,
+        dimKind: String,
+        targetShapeId: UInt64,
+        secondShapeId: UInt64,
+        offsetIn: Double,
+        unitFormat: String
+    ) throws -> UInt64 {
+        lock.lock()
+        defer { lock.unlock() }
+        var outId: UInt64 = 0
+        let status = dimKind.withCString { kCStr in
+            unitFormat.withCString { uCStr in
+                vexio_doc_insert_associative_dimension(doc, pageId, kCStr, targetShapeId, secondShapeId, offsetIn, uCStr, &outId)
+            }
+        }
+        if let err = VexioBridgeError.from(status: status, context: "insert_associative_dimension") {
+            throw err
+        }
+        return outId
+    }
+
+    func drawArchitecturalWall(
+        pageId: UInt32,
+        x1In: Double,
+        y1In: Double,
+        x2In: Double,
+        y2In: Double,
+        thicknessIn: Double
+    ) throws -> UInt64 {
+        lock.lock()
+        defer { lock.unlock() }
+        var outId: UInt64 = 0
+        let status = vexio_doc_draw_architectural_wall(doc, pageId, x1In, y1In, x2In, y2In, thicknessIn, &outId)
+        if let err = VexioBridgeError.from(status: status, context: "draw_architectural_wall") {
+            throw err
+        }
+        return outId
+    }
+
+    func healWallIntersections(pageId: UInt32, toleranceIn: Double) throws -> UInt32 {
+        lock.lock()
+        defer { lock.unlock() }
+        var outCount: UInt32 = 0
+        let status = vexio_doc_heal_wall_intersections(doc, pageId, toleranceIn, &outCount)
+        if let err = VexioBridgeError.from(status: status, context: "heal_wall_intersections") {
+            throw err
+        }
+        return outCount
+    }
+
+    func insertWallOpening(
+        pageId: UInt32,
+        wallShapeId: UInt64,
+        openingKind: String,
+        offsetAlongIn: Double,
+        openingWidthIn: Double,
+        swingDir: String
+    ) throws -> UInt64 {
+        lock.lock()
+        defer { lock.unlock() }
+        var outId: UInt64 = 0
+        let status = openingKind.withCString { kCStr in
+            swingDir.withCString { sCStr in
+                vexio_doc_insert_wall_opening(doc, pageId, wallShapeId, kCStr, offsetAlongIn, openingWidthIn, sCStr, &outId)
+            }
+        }
+        if let err = VexioBridgeError.from(status: status, context: "insert_wall_opening") {
+            throw err
+        }
+        return outId
+    }
+
+    func addMindMapTopic(
+        pageId: UInt32,
+        anchorShapeId: UInt64,
+        topicText: String,
+        asSibling: Bool
+    ) throws -> UInt64 {
+        lock.lock()
+        defer { lock.unlock() }
+        var outId: UInt64 = 0
+        let status = topicText.withCString { tCStr in
+            vexio_doc_add_mind_map_topic(doc, pageId, anchorShapeId, tCStr, asSibling, &outId)
+        }
+        if let err = VexioBridgeError.from(status: status, context: "add_mind_map_topic") {
+            throw err
+        }
+        return outId
+    }
+
+    func exportMindMapOutline(pageId: UInt32) throws -> String {
+        lock.lock()
+        defer { lock.unlock() }
+        var outBuf = VexioOwnedBuffer(ptr: nil, len: 0, cap: 0)
+        let status = vexio_doc_export_mind_map_outline(doc, pageId, &outBuf)
+        if let err = VexioBridgeError.from(status: status, context: "export_mind_map_outline") {
+            vexio_buffer_free(outBuf)
+            throw err
+        }
+        return Self.consumeOwnedBufferAsUTF8(outBuf)
+    }
+
+    func recalculateVsmAndFtaJSON(pageId: UInt32) throws -> String {
+        lock.lock()
+        defer { lock.unlock() }
+        var outBuf = VexioOwnedBuffer(ptr: nil, len: 0, cap: 0)
+        let status = vexio_doc_recalculate_vsm_and_fta_json(doc, pageId, &outBuf)
+        if let err = VexioBridgeError.from(status: status, context: "recalculate_vsm_and_fta") {
+            vexio_buffer_free(outBuf)
+            throw err
+        }
+        return Self.consumeOwnedBufferAsUTF8(outBuf)
+    }
 }
 
 public struct ShapeSmartActionItem: Identifiable, Hashable, Sendable {
@@ -3647,7 +3772,7 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
         switch activeTool {
         case .pan:
             return engineCursorCode == 3 ? .closedHand : .openHand
-        case .connector, .line, .arc, .freeform, .rectangle, .roundedRect, .ellipse, .diamond, .triangle, .hexagon, .star, .ink, .highlighter, .editVertices, .inkEraser, .connectionPoint, .textBlock, .formatPainter:
+        case .connector, .line, .arc, .freeform, .rectangle, .roundedRect, .ellipse, .diamond, .triangle, .hexagon, .star, .ink, .highlighter, .editVertices, .inkEraser, .connectionPoint, .textBlock, .formatPainter, .wall, .dimension:
             if engineCursorCode == 0 || engineCursorCode == 2 {
                 return .crosshair
             }
@@ -7038,6 +7163,148 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
             syncSelectedShapeMetadataFromCore()
             core.renderViewportFrame()
             statusMessage = "Numbered \(count) shape(s)"
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    // MARK: - v0.9.0-beta Public Session Actions (Dimensions, Auto-Healing Walls, Openings, Mind Map & VSM/FTA)
+
+    public func insertAssociativeDimensionOnSelection(dimKind: String, offsetIn: Double = 0.65, unitFormat: String = "", undoManager: UndoManager? = nil) {
+        let ids = selectedShapeIds.isEmpty ? (selectedShapeId != 0 ? [selectedShapeId] : []) : selectedShapeIds
+        guard let firstId = ids.first, firstId > 0 else {
+            statusMessage = "Select one shape (or two shapes for span/angular) first."
+            return
+        }
+        let secondId: UInt64 = ids.count >= 2 ? ids[1] : 0
+        do {
+            let dimId = try core.insertAssociativeDimension(
+                pageId: activePageId,
+                dimKind: dimKind,
+                targetShapeId: firstId,
+                secondShapeId: secondId,
+                offsetIn: offsetIn,
+                unitFormat: unitFormat
+            )
+            registerJournalUndoStep(actionName: "Insert \(dimKind.capitalized) Dimension", undoManager: undoManager)
+            if dimId > 0 {
+                selectedShapeId = dimId
+                selectedShapeIds = [dimId]
+                core.setSelectionIds([dimId])
+            }
+            reloadSelectedShapeSheetCells()
+            syncSelectedShapeMetadataFromCore()
+            core.renderViewportFrame()
+            statusMessage = "Inserted associative \(dimKind) dimension (Sheet.\(dimId))"
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    public func drawArchitecturalWallSegment(x1In: Double, y1In: Double, x2In: Double, y2In: Double, thicknessIn: Double = 0.35, undoManager: UndoManager? = nil) {
+        do {
+            let wallId = try core.drawArchitecturalWall(pageId: activePageId, x1In: x1In, y1In: y1In, x2In: x2In, y2In: y2In, thicknessIn: thicknessIn)
+            registerJournalUndoStep(actionName: "Draw Architectural Wall", undoManager: undoManager)
+            if wallId > 0 {
+                selectedShapeId = wallId
+                selectedShapeIds = [wallId]
+                core.setSelectionIds([wallId])
+            }
+            reloadSelectedShapeSheetCells()
+            syncSelectedShapeMetadataFromCore()
+            core.renderViewportFrame()
+            statusMessage = "Drew architectural wall (Sheet.\(wallId))"
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    public func healActivePageWalls(toleranceIn: Double = 0.35, undoManager: UndoManager? = nil) {
+        do {
+            let healed = try core.healWallIntersections(pageId: activePageId, toleranceIn: toleranceIn)
+            registerJournalUndoStep(actionName: "Auto-Heal Walls", undoManager: undoManager)
+            reloadSelectedShapeSheetCells()
+            syncSelectedShapeMetadataFromCore()
+            core.renderViewportFrame()
+            statusMessage = "Auto-healed \(healed) wall L-corner / T-join intersection(s)"
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    public func insertWallOpeningOnSelection(openingKind: String, offsetAlongIn: Double = 0.5, openingWidthIn: Double = 0.85, swingDir: String = "in_left", undoManager: UndoManager? = nil) {
+        let wallId = selectedShapeIds.first ?? selectedShapeId
+        guard wallId > 0 else {
+            statusMessage = "Select an architectural wall first to insert a door or window."
+            return
+        }
+        do {
+            let openId = try core.insertWallOpening(
+                pageId: activePageId,
+                wallShapeId: wallId,
+                openingKind: openingKind,
+                offsetAlongIn: offsetAlongIn,
+                openingWidthIn: openingWidthIn,
+                swingDir: swingDir
+            )
+            registerJournalUndoStep(actionName: "Insert \(openingKind)", undoManager: undoManager)
+            if openId > 0 {
+                selectedShapeId = openId
+                selectedShapeIds = [openId]
+                core.setSelectionIds([openId])
+            }
+            reloadSelectedShapeSheetCells()
+            syncSelectedShapeMetadataFromCore()
+            core.renderViewportFrame()
+            statusMessage = "Inserted \(openingKind.replacingOccurrences(of: "_", with: " ")) into wall Sheet.\(wallId)"
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    public func addMindMapTopicOnSelection(topicText: String = "New Subtopic", asSibling: Bool = false, undoManager: UndoManager? = nil) {
+        let anchorId = selectedShapeIds.first ?? selectedShapeId
+        do {
+            let topicId = try core.addMindMapTopic(pageId: activePageId, anchorShapeId: anchorId, topicText: topicText, asSibling: asSibling)
+            registerJournalUndoStep(actionName: "Add Mind Map Topic", undoManager: undoManager)
+            if topicId > 0 {
+                selectedShapeId = topicId
+                selectedShapeIds = [topicId]
+                core.setSelectionIds([topicId])
+            }
+            reloadSelectedShapeSheetCells()
+            syncSelectedShapeMetadataFromCore()
+            core.renderViewportFrame()
+            statusMessage = "Added Mind Map topic '\(topicText)'"
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    public func exportMindMapOutlineMarkdown() -> String {
+        (try? core.exportMindMapOutline(pageId: activePageId)) ?? ""
+    }
+
+    public func recalculateVsmAndFtaOnActivePage(undoManager: UndoManager? = nil) {
+        do {
+            let raw = try core.recalculateVsmAndFtaJSON(pageId: activePageId)
+            registerJournalUndoStep(actionName: "Recalculate VSM & FTA", undoManager: undoManager)
+            reloadSelectedShapeSheetCells()
+            syncSelectedShapeMetadataFromCore()
+            core.renderViewportFrame()
+            if let data = raw.data(using: .utf8),
+               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                var notes: [String] = []
+                if let pce = obj["pcePct"] as? Double, let lead = obj["totalLeadDays"] as? Double, lead > 0 {
+                    notes.append(String(format: "VSM Lead %.2fd · PCE %.2f%%", lead, pce))
+                }
+                if let topP = obj["topEventProbability"] as? Double, let mcs = obj["minimalCutSets"] as? [[String]], !mcs.isEmpty {
+                    notes.append(String(format: "FTA Top P=%.3e (%d MOCUS cut sets)", topP, mcs.count))
+                }
+                statusMessage = notes.isEmpty ? "Recalculated VSM & FTA metrics" : notes.joined(separator: " | ")
+            } else {
+                statusMessage = "Recalculated VSM & FTA metrics"
+            }
         } catch {
             statusMessage = error.localizedDescription
         }

@@ -136,6 +136,8 @@ pub enum NativeCanvasTool {
     ConnectionPoint = 18,
     TextBlock = 19,
     FormatPainter = 20,
+    Wall = 21,
+    Dimension = 22,
 }
 
 impl NativeCanvasTool {
@@ -161,6 +163,8 @@ impl NativeCanvasTool {
             18 => Self::ConnectionPoint,
             19 => Self::TextBlock,
             20 => Self::FormatPainter,
+            21 => Self::Wall,
+            22 => Self::Dimension,
             _ => Self::Select,
         }
     }
@@ -2012,6 +2016,15 @@ impl VexioViewport {
                                     self.overlay.connector_preview_in = Some((sp, page_pt));
                                 }
                                 self.present_if_attached(&session.doc);
+                            } else if matches!(
+                                t_copy,
+                                NativeCanvasTool::Wall
+                                    | NativeCanvasTool::Dimension
+                                    | NativeCanvasTool::Line
+                                    | NativeCanvasTool::Arc
+                            ) {
+                                self.overlay.connector_preview_in = Some((sp, page_pt));
+                                self.present_if_attached(&session.doc);
                             }
                             return if t_copy == NativeCanvasTool::Text {
                                 7
@@ -2604,6 +2617,41 @@ impl VexioViewport {
                                         page_pt[1],
                                     )
                                     .ok(),
+                                NativeCanvasTool::Wall => session
+                                    .draw_architectural_wall(
+                                        pid,
+                                        start_page[0],
+                                        start_page[1],
+                                        page_pt[0],
+                                        page_pt[1],
+                                        0.25,
+                                    )
+                                    .ok(),
+                                NativeCanvasTool::Dimension => {
+                                    let end_hit = top_hit;
+                                    let second_sid = match (from_shape_id, end_hit) {
+                                        (Some(a), Some(b)) if a != b => b,
+                                        _ => 0,
+                                    };
+                                    let primary_sid = from_shape_id.or(end_hit).unwrap_or(0);
+                                    let kind = if (page_pt[1] - start_page[1]).abs()
+                                        > (page_pt[0] - start_page[0]).abs() * 1.5
+                                    {
+                                        "vertical"
+                                    } else {
+                                        "aligned"
+                                    };
+                                    session
+                                        .insert_associative_dimension(
+                                            pid,
+                                            kind,
+                                            primary_sid,
+                                            second_sid,
+                                            0.45,
+                                            "auto",
+                                        )
+                                        .ok()
+                                }
                                 _ => session
                                     .draw_primitive_2d(
                                         pid,
@@ -6877,6 +6925,242 @@ pub unsafe extern "C" fn vexio_doc_number_shapes(
                 if !out_numbered_count.is_null() {
                     unsafe { *out_numbered_count = n as u32 };
                 }
+                VexioStatus::Ok
+            }
+            Err(e) => map_core_err(e),
+        }
+    })
+}
+
+#[no_mangle]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn vexio_doc_insert_associative_dimension(
+    doc: *mut VexioDoc,
+    page_id: u32,
+    dim_kind_utf8: *const c_char,
+    target_shape_id: u64,
+    second_shape_id: u64,
+    offset_in: f64,
+    unit_format_utf8: *const c_char,
+    out_dim_shape_id: *mut u64,
+) -> VexioStatus {
+    catch_ffi_status(|| {
+        if doc.is_null() {
+            return VexioStatus::ErrInvalidArg;
+        }
+        let kind_s = if dim_kind_utf8.is_null() {
+            "aligned"
+        } else {
+            unsafe { CStr::from_ptr(dim_kind_utf8) }
+                .to_str()
+                .unwrap_or("aligned")
+        };
+        let unit_s = if unit_format_utf8.is_null() {
+            "auto"
+        } else {
+            unsafe { CStr::from_ptr(unit_format_utf8) }
+                .to_str()
+                .unwrap_or("auto")
+        };
+        // SAFETY: `doc` verified non-null.
+        let d = unsafe { &mut *doc };
+        match d.session.insert_associative_dimension(
+            page_id,
+            kind_s,
+            target_shape_id,
+            second_shape_id,
+            offset_in,
+            unit_s,
+        ) {
+            Ok(id) => {
+                if !out_dim_shape_id.is_null() {
+                    unsafe { *out_dim_shape_id = id };
+                }
+                VexioStatus::Ok
+            }
+            Err(e) => map_core_err(e),
+        }
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_doc_draw_architectural_wall(
+    doc: *mut VexioDoc,
+    page_id: u32,
+    x1_in: f64,
+    y1_in: f64,
+    x2_in: f64,
+    y2_in: f64,
+    thickness_in: f64,
+    out_wall_shape_id: *mut u64,
+) -> VexioStatus {
+    catch_ffi_status(|| {
+        if doc.is_null() {
+            return VexioStatus::ErrInvalidArg;
+        }
+        // SAFETY: `doc` verified non-null.
+        let d = unsafe { &mut *doc };
+        match d
+            .session
+            .draw_architectural_wall(page_id, x1_in, y1_in, x2_in, y2_in, thickness_in)
+        {
+            Ok(wid) => {
+                if !out_wall_shape_id.is_null() {
+                    unsafe { *out_wall_shape_id = wid };
+                }
+                VexioStatus::Ok
+            }
+            Err(e) => map_core_err(e),
+        }
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_doc_heal_wall_intersections(
+    doc: *mut VexioDoc,
+    page_id: u32,
+    tolerance_in: f64,
+    out_healed_count: *mut u32,
+) -> VexioStatus {
+    catch_ffi_status(|| {
+        if doc.is_null() {
+            return VexioStatus::ErrInvalidArg;
+        }
+        // SAFETY: `doc` verified non-null.
+        let d = unsafe { &mut *doc };
+        match d.session.heal_wall_intersections(page_id, tolerance_in) {
+            Ok(n) => {
+                if !out_healed_count.is_null() {
+                    unsafe { *out_healed_count = n as u32 };
+                }
+                VexioStatus::Ok
+            }
+            Err(e) => map_core_err(e),
+        }
+    })
+}
+
+#[no_mangle]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn vexio_doc_insert_wall_opening(
+    doc: *mut VexioDoc,
+    page_id: u32,
+    wall_shape_id: u64,
+    opening_kind_utf8: *const c_char,
+    offset_along_in: f64,
+    opening_width_in: f64,
+    swing_dir_utf8: *const c_char,
+    out_opening_shape_id: *mut u64,
+) -> VexioStatus {
+    catch_ffi_status(|| {
+        if doc.is_null() {
+            return VexioStatus::ErrInvalidArg;
+        }
+        let kind_s = if opening_kind_utf8.is_null() {
+            "single_door"
+        } else {
+            unsafe { CStr::from_ptr(opening_kind_utf8) }
+                .to_str()
+                .unwrap_or("single_door")
+        };
+        let swing_s = if swing_dir_utf8.is_null() {
+            "in_left"
+        } else {
+            unsafe { CStr::from_ptr(swing_dir_utf8) }
+                .to_str()
+                .unwrap_or("in_left")
+        };
+        // SAFETY: `doc` verified non-null.
+        let d = unsafe { &mut *doc };
+        match d.session.insert_wall_opening(
+            page_id,
+            wall_shape_id,
+            kind_s,
+            offset_along_in,
+            opening_width_in,
+            swing_s,
+        ) {
+            Ok(oid) => {
+                if !out_opening_shape_id.is_null() {
+                    unsafe { *out_opening_shape_id = oid };
+                }
+                VexioStatus::Ok
+            }
+            Err(e) => map_core_err(e),
+        }
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_doc_add_mind_map_topic(
+    doc: *mut VexioDoc,
+    page_id: u32,
+    anchor_shape_id: u64,
+    topic_text_utf8: *const c_char,
+    as_sibling: bool,
+    out_topic_shape_id: *mut u64,
+) -> VexioStatus {
+    catch_ffi_status(|| {
+        if doc.is_null() {
+            return VexioStatus::ErrInvalidArg;
+        }
+        let txt_s = if topic_text_utf8.is_null() {
+            ""
+        } else {
+            unsafe { CStr::from_ptr(topic_text_utf8) }
+                .to_str()
+                .unwrap_or("")
+        };
+        // SAFETY: `doc` verified non-null.
+        let d = unsafe { &mut *doc };
+        match d
+            .session
+            .add_mind_map_topic(page_id, anchor_shape_id, txt_s, as_sibling)
+        {
+            Ok(tid) => {
+                if !out_topic_shape_id.is_null() {
+                    unsafe { *out_topic_shape_id = tid };
+                }
+                VexioStatus::Ok
+            }
+            Err(e) => map_core_err(e),
+        }
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_doc_export_mind_map_outline(
+    doc: *const VexioDoc,
+    page_id: u32,
+    out_markdown_utf8: *mut VexioOwnedBuffer,
+) -> VexioStatus {
+    catch_ffi_status(|| {
+        if doc.is_null() || out_markdown_utf8.is_null() {
+            return VexioStatus::ErrInvalidArg;
+        }
+        // SAFETY: `doc` and `out_markdown_utf8` verified non-null.
+        let d = unsafe { &*doc };
+        let md = d.session.export_mind_map_outline(page_id);
+        unsafe { *out_markdown_utf8 = VexioOwnedBuffer::from_vec(md.into_bytes()) };
+        VexioStatus::Ok
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_doc_recalculate_vsm_and_fta_json(
+    doc: *mut VexioDoc,
+    page_id: u32,
+    out_report_json: *mut VexioOwnedBuffer,
+) -> VexioStatus {
+    catch_ffi_status(|| {
+        if doc.is_null() || out_report_json.is_null() {
+            return VexioStatus::ErrInvalidArg;
+        }
+        // SAFETY: `doc` and `out_report_json` verified non-null.
+        let d = unsafe { &mut *doc };
+        match d.session.recalculate_vsm_and_fta_json(page_id) {
+            Ok(json) => {
+                unsafe { *out_report_json = VexioOwnedBuffer::from_vec(json.into_bytes()) };
                 VexioStatus::Ok
             }
             Err(e) => map_core_err(e),

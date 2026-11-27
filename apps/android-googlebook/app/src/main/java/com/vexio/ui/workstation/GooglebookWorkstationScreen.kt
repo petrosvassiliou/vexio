@@ -483,12 +483,26 @@ fun GooglebookWorkstationScreen(
                         true
                     }
                     // Ctrl + W / Ctrl + Q -> Close Window (prompts Save / Don't Save / Cancel if dirty!)
-                    ctrlOrMeta && (keyEvent.key == Key.W || keyEvent.key == Key.Q) -> {
+                    ctrlOrMeta && !shift && (keyEvent.key == Key.W || keyEvent.key == Key.Q) -> {
                         if (uiState.isDirty) {
                             showUnsavedExitDialog = true
                         } else {
                             (context as? Activity)?.finish()
                         }
+                        true
+                    }
+                    // Ctrl + Shift + W -> Architectural Wall Tool
+                    ctrlOrMeta && shift && keyEvent.key == Key.W -> {
+                        viewModel.selectTool(
+                            if (uiState.activeTool == VexioTool.WALL) VexioTool.POINTER else VexioTool.WALL
+                        )
+                        true
+                    }
+                    // Ctrl + Shift + D -> Associative Dimension Tool
+                    ctrlOrMeta && shift && keyEvent.key == Key.D -> {
+                        viewModel.selectTool(
+                            if (uiState.activeTool == VexioTool.DIMENSION) VexioTool.POINTER else VexioTool.DIMENSION
+                        )
                         true
                     }
                     // Ctrl + P -> Native OS Vector PDF PrintManager
@@ -1685,7 +1699,14 @@ fun GooglebookWorkstationScreen(
                 "sql_forward" to "ERD → SQL",
                 "org_chart" to "Org Chart",
                 "rack_42u" to "42U Rack",
-                "arch_room" to "Room SqFt"
+                "arch_room" to "Room SqFt",
+                "calendar" to "Calendar",
+                "pivot_diagram" to "PivotDiagram",
+                "mind_map" to "Mind Map",
+                "mind_map_radial" to "Radial Map",
+                "mind_map_export" to "Map → MD",
+                "vsm" to "Lean VSM",
+                "fta" to "Fault Tree"
             )
             AlertDialog(
                 onDismissRequest = { viewModel.setDomainWizardsDialogVisible(false) },
@@ -1720,7 +1741,9 @@ fun GooglebookWorkstationScreen(
                             label = { Text("Wizard Specification (CSV / SQL DDL / Dialect)") },
                             modifier = Modifier.fillMaxWidth()
                         )
-                        if (uiState.domainWizardSlug == "sql_forward" && !uiState.lastDomainWizardOutput.isNullOrBlank()) {
+                        if (uiState.domainWizardSlug in setOf("sql_forward", "mind_map_export") &&
+                            !uiState.lastDomainWizardOutput.isNullOrBlank()
+                        ) {
                             OutlinedTextField(
                                 value = uiState.lastDomainWizardOutput.orEmpty(),
                                 onValueChange = {},
@@ -1728,7 +1751,15 @@ fun GooglebookWorkstationScreen(
                                 textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
                                 minLines = 4,
                                 maxLines = 8,
-                                label = { Text("Generated SQL DDL") },
+                                label = {
+                                    Text(
+                                        if (uiState.domainWizardSlug == "sql_forward") {
+                                            "Generated SQL DDL"
+                                        } else {
+                                            "Exported Mind Map Markdown"
+                                        }
+                                    )
+                                },
                                 modifier = Modifier.fillMaxWidth()
                             )
                         }
@@ -2911,6 +2942,54 @@ private fun ClassicVisioM3Ribbon(
                                 onClick = { viewModel.setDomainWizardsDialogVisible(true) }
                             )
                             ExpressivePlan2ActionPill(
+                                label = "Wall (Ctrl+Shift+W)",
+                                selected = uiState.activeTool == VexioTool.WALL,
+                                onClick = {
+                                    viewModel.selectTool(
+                                        if (uiState.activeTool == VexioTool.WALL) VexioTool.POINTER else VexioTool.WALL
+                                    )
+                                }
+                            )
+                            ExpressivePlan2ActionPill(
+                                label = "Dimension (Ctrl+Shift+D)",
+                                selected = uiState.activeTool == VexioTool.DIMENSION,
+                                onClick = {
+                                    viewModel.selectTool(
+                                        if (uiState.activeTool == VexioTool.DIMENSION) VexioTool.POINTER else VexioTool.DIMENSION
+                                    )
+                                }
+                            )
+                            ExpressivePlan2ActionPill(
+                                label = "+ Dimension",
+                                selected = false,
+                                onClick = { viewModel.insertAssociativeDimension("aligned") }
+                            )
+                            ExpressivePlan2ActionPill(
+                                label = "+ Door",
+                                selected = false,
+                                onClick = { viewModel.insertWallOpening("single_door") }
+                            )
+                            ExpressivePlan2ActionPill(
+                                label = "+ Window",
+                                selected = false,
+                                onClick = { viewModel.insertWallOpening("window") }
+                            )
+                            ExpressivePlan2ActionPill(
+                                label = "Heal Walls",
+                                selected = false,
+                                onClick = { viewModel.healWallIntersections() }
+                            )
+                            ExpressivePlan2ActionPill(
+                                label = "+ Mind Map Topic",
+                                selected = false,
+                                onClick = { viewModel.addMindMapTopic("New Subtopic", false) }
+                            )
+                            ExpressivePlan2ActionPill(
+                                label = "VSM / FTA Calc",
+                                selected = false,
+                                onClick = { viewModel.recalculateVsmAndFta() }
+                            )
+                            ExpressivePlan2ActionPill(
                                 label = if (uiState.cadScaleLocked) "CAD Scale Locked (${uiState.cadScaleSlug})" else "Lock CAD Scale",
                                 selected = uiState.cadScaleLocked,
                                 onClick = {
@@ -3952,6 +4031,8 @@ private fun resolveToolIcon(tool: VexioTool): ImageVector = when (tool) {
     VexioTool.CONNECTION_POINT -> Icons.Default.Add
     VexioTool.TEXT_BLOCK_TRANSFORM -> Icons.Default.TextFields
     VexioTool.FORMAT_PAINTER -> Icons.Default.Brush
+    VexioTool.WALL -> Icons.Default.Architecture
+    VexioTool.DIMENSION -> Icons.Default.HorizontalRule
 }
 
 /**

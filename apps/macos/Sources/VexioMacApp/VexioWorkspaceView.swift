@@ -4803,6 +4803,12 @@ private struct VexioDomainWizardsSheet: View {
         "gantt": "ID,Task Name,StartDay,DurationDays,PercentComplete,DependsOn\n1,Architecture Spec,0,4,100,\n2,Rust ShapeSheet & CAD Core,4,7,100,1\n3,Multi-OS Native Viewport,10,6,85,2\n4,Enterprise QA & GA Ship,16,4,50,3",
         "timeline": "# Title: Product Release Roadmap | Horizon: 100\n10,Core Engine Lock,true\n35,CAD & Legacy VSD Parity,false\n65,Multi-OS Public Beta,true\n95,Enterprise v1.0 GA,true",
         "pert": "ID,Task Name,DurationDays,Predecessors\nA,System Architecture,3,\nB,Rust Core & DAG,6,A\nC,Stencil Library,3,A\nD,Multi-OS Shells,5,B;C\nE,Release Signoff,2,D",
+        "calendar": "# Month: 2026-11 | Start: Monday\n2026-11-04|Architecture Review\n2026-11-12|CAD & AEC Freeze\n2026-11-20|Security Audit\n2026-11-27|v0.9.0-beta Release",
+        "pivot_diagram": "Region,ProductLine,Revenue\nEMEA,Enterprise Cloud,420\nEMEA,Desktop Suite,260\nAmericas,Enterprise Cloud,610\nAmericas,Desktop Suite,340\nAPAC,Enterprise Cloud,310",
+        "mind_map": "# Vexio 1.0 Strategy\n## Native Core\n### ShapeSheet DAG\n### OpenXML & Legacy VSD\n## AEC & CAD\n### Auto-Healing Walls\n### Associative Dimensions\n## Plan 2 Analytics\n### Lean VSM\n### Fault Tree MOCUS",
+        "mind_map_radial": "# Product Architecture\n## Desktop Native\n### Windows DX12\n### macOS Metal\n## Mobile & Web\n### Googlebook Vulkan\n### ChromeOS Offline PWA",
+        "vsm": "Step,CycleSec,LeadDays,UptimePct,InventoryUnits\nRaw Coil Stamping,42,3.5,96,450\nCNC Precision Machining,95,2.0,92,220\nAnodize & Cure,68,4.0,98,380\nFinal QA & Pack,35,1.0,99.5,90",
+        "fta": "ID,Label,Kind,Gate,Probability,Inputs\nTOP,Data Center Outage,top,OR,,G1;G2\nG1,Dual Utility Loss,intermediate,AND,,E1;E2\nG2,Cooling Failure,intermediate,2of3,,E3;E4;E5\nE1,Grid Feed A Fault,basic,,0.02,\nE2,Backup Generator Fail,basic,,0.015,\nE3,Chiller A Trip,basic,,0.03,\nE4,Chiller B Trip,basic,,0.03,\nE5,Standby Chiller C Trip,basic,,0.04,",
         "sql_reverse": "CREATE TABLE customers (\n  id INT PRIMARY KEY,\n  email VARCHAR NOT NULL,\n  tier VARCHAR\n);\nCREATE TABLE orders (\n  id INT PRIMARY KEY,\n  customer_id INT NOT NULL REFERENCES customers(id),\n  total DECIMAL NOT NULL\n);",
         "org_chart": "Name,Title,Manager,Department\nAda Lovelace,CEO,,Executive\nGrace Hopper,VP Engineering,Ada Lovelace,Platform\nAlan Turing,Principal Architect,Grace Hopper,Core Engine",
         "rack_42u": "Device,StartU,HeightU\nTop-of-Rack Leaf Switch,41,2\nPerimeter Firewall Pair,38,2\nK8s Compute Blade Chassis,26,8\nNVMe SAN Storage Array,14,6\nRedundant UPS Battery,1,4",
@@ -4818,15 +4824,21 @@ private struct VexioDomainWizardsSheet: View {
                 Button("Close", action: onClose)
             }
             Picker("Wizard", selection: $wizardSlug) {
-                Text("Gantt").tag("gantt")
-                Text("Timeline").tag("timeline")
-                Text("PERT / CPM").tag("pert")
-                Text("SQL ⇄ ERD").tag("sql_reverse")
-                Text("Org Chart").tag("org_chart")
-                Text("42U Rack").tag("rack_42u")
-                Text("Arch Rooms").tag("arch_room")
+                Text("Gantt Schedule").tag("gantt")
+                Text("Project Timeline").tag("timeline")
+                Text("PERT / Critical Path").tag("pert")
+                Text("Monthly Calendar").tag("calendar")
+                Text("PivotDiagram Rollup").tag("pivot_diagram")
+                Text("Mind Map (Balanced)").tag("mind_map")
+                Text("Mind Map (Radial Star)").tag("mind_map_radial")
+                Text("Lean Value Stream (VSM)").tag("vsm")
+                Text("Fault Tree Analysis (FTA)").tag("fta")
+                Text("SQL ⇄ Crow's Foot ERD").tag("sql_reverse")
+                Text("Organization Chart").tag("org_chart")
+                Text("42U Rack Elevation").tag("rack_42u")
+                Text("Architectural Rooms").tag("arch_room")
             }
-            .pickerStyle(.segmented)
+            .pickerStyle(.menu)
             .onChange(of: wizardSlug) { _, next in
                 specDraft = Self.defaultsBySlug[next] ?? ""
                 outputMessage = ""
@@ -4851,6 +4863,14 @@ private struct VexioDomainWizardsSheet: View {
                             specDraft = res.exportedText
                         }
                         outputMessage = res.summary
+                    }
+                } else if wizardSlug.hasPrefix("mind_map") {
+                    Button("← Export Page Mind Map to Markdown") {
+                        let md = session.exportMindMapOutlineMarkdown()
+                        if !md.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            specDraft = md
+                            outputMessage = "Exported hierarchical Mind Map outline from active page."
+                        }
                     }
                 }
                 Spacer()

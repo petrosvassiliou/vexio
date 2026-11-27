@@ -4524,3 +4524,227 @@ pub extern "system" fn Java_com_vexio_core_NativeBridge_nativeNumberShapes<'loca
     }))
     .unwrap_or(0)
 }
+
+// ============================================================================
+// Milestone 4 (`v0.9.0-beta`) JNI Bridge: Associative Dimensions, Walls,
+// Door/Window Openings, Mind Map Topics & VSM/FTA Live Calculators
+// ============================================================================
+
+#[no_mangle]
+#[allow(clippy::too_many_arguments)]
+pub extern "system" fn Java_com_vexio_core_NativeBridge_nativeInsertAssociativeDimension<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    doc_ptr: jlong,
+    page_id: jint,
+    dim_kind: JString<'local>,
+    target_shape_id: jlong,
+    second_shape_id: jlong,
+    offset_in: jdouble,
+    unit_format: JString<'local>,
+) -> jlong {
+    catch_unwind(AssertUnwindSafe(|| {
+        if doc_ptr == 0 || page_id <= 0 {
+            return 0;
+        }
+        let kind_s = if dim_kind.is_null() {
+            "aligned".into()
+        } else {
+            env.get_string(&dim_kind)
+                .map(String::from)
+                .unwrap_or_else(|_| "aligned".into())
+        };
+        let unit_s = if unit_format.is_null() {
+            "auto".into()
+        } else {
+            env.get_string(&unit_format)
+                .map(String::from)
+                .unwrap_or_else(|_| "auto".into())
+        };
+        // SAFETY: `doc_ptr` verified non-zero handle.
+        let doc = unsafe { &mut *(doc_ptr as *mut VexioDoc) };
+        doc.session
+            .insert_associative_dimension(
+                page_id as u32,
+                &kind_s,
+                target_shape_id.max(0) as u64,
+                second_shape_id.max(0) as u64,
+                offset_in,
+                &unit_s,
+            )
+            .unwrap_or(0) as jlong
+    }))
+    .unwrap_or(0)
+}
+
+#[no_mangle]
+#[allow(clippy::too_many_arguments)]
+pub extern "system" fn Java_com_vexio_core_NativeBridge_nativeDrawArchitecturalWall<'local>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    doc_ptr: jlong,
+    page_id: jint,
+    x1_in: jdouble,
+    y1_in: jdouble,
+    x2_in: jdouble,
+    y2_in: jdouble,
+    thickness_in: jdouble,
+) -> jlong {
+    catch_unwind(AssertUnwindSafe(|| {
+        if doc_ptr == 0 || page_id <= 0 {
+            return 0;
+        }
+        // SAFETY: `doc_ptr` verified non-zero handle.
+        let doc = unsafe { &mut *(doc_ptr as *mut VexioDoc) };
+        doc.session
+            .draw_architectural_wall(page_id as u32, x1_in, y1_in, x2_in, y2_in, thickness_in)
+            .unwrap_or(0) as jlong
+    }))
+    .unwrap_or(0)
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_vexio_core_NativeBridge_nativeHealWallIntersections<'local>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    doc_ptr: jlong,
+    page_id: jint,
+    tolerance_in: jdouble,
+) -> jint {
+    catch_unwind(AssertUnwindSafe(|| {
+        if doc_ptr == 0 || page_id <= 0 {
+            return 0;
+        }
+        // SAFETY: `doc_ptr` verified non-zero handle.
+        let doc = unsafe { &mut *(doc_ptr as *mut VexioDoc) };
+        doc.session
+            .heal_wall_intersections(page_id as u32, tolerance_in)
+            .unwrap_or(0) as jint
+    }))
+    .unwrap_or(0)
+}
+
+#[no_mangle]
+#[allow(clippy::too_many_arguments)]
+pub extern "system" fn Java_com_vexio_core_NativeBridge_nativeInsertWallOpening<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    doc_ptr: jlong,
+    page_id: jint,
+    wall_shape_id: jlong,
+    opening_kind: JString<'local>,
+    offset_along_in: jdouble,
+    opening_width_in: jdouble,
+    swing_dir: JString<'local>,
+) -> jlong {
+    catch_unwind(AssertUnwindSafe(|| {
+        if doc_ptr == 0 || page_id <= 0 {
+            return 0;
+        }
+        let kind_s = if opening_kind.is_null() {
+            "single_door".into()
+        } else {
+            env.get_string(&opening_kind)
+                .map(String::from)
+                .unwrap_or_else(|_| "single_door".into())
+        };
+        let swing_s = if swing_dir.is_null() {
+            "in_left".into()
+        } else {
+            env.get_string(&swing_dir)
+                .map(String::from)
+                .unwrap_or_else(|_| "in_left".into())
+        };
+        // SAFETY: `doc_ptr` verified non-zero handle.
+        let doc = unsafe { &mut *(doc_ptr as *mut VexioDoc) };
+        doc.session
+            .insert_wall_opening(
+                page_id as u32,
+                wall_shape_id.max(0) as u64,
+                &kind_s,
+                offset_along_in,
+                opening_width_in,
+                &swing_s,
+            )
+            .unwrap_or(0) as jlong
+    }))
+    .unwrap_or(0)
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_vexio_core_NativeBridge_nativeAddMindMapTopic<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    doc_ptr: jlong,
+    page_id: jint,
+    anchor_shape_id: jlong,
+    topic_text: JString<'local>,
+    as_sibling: jboolean,
+) -> jlong {
+    catch_unwind(AssertUnwindSafe(|| {
+        if doc_ptr == 0 || page_id <= 0 {
+            return 0;
+        }
+        let txt_s = if topic_text.is_null() {
+            String::new()
+        } else {
+            env.get_string(&topic_text).map(String::from).unwrap_or_default()
+        };
+        // SAFETY: `doc_ptr` verified non-zero handle.
+        let doc = unsafe { &mut *(doc_ptr as *mut VexioDoc) };
+        doc.session
+            .add_mind_map_topic(
+                page_id as u32,
+                anchor_shape_id.max(0) as u64,
+                &txt_s,
+                as_sibling != 0,
+            )
+            .unwrap_or(0) as jlong
+    }))
+    .unwrap_or(0)
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_vexio_core_NativeBridge_nativeExportMindMapOutline<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    doc_ptr: jlong,
+    page_id: jint,
+) -> jstring {
+    catch_unwind(AssertUnwindSafe(|| {
+        if doc_ptr == 0 || page_id <= 0 {
+            return env.new_string("").unwrap().into_raw();
+        }
+        // SAFETY: `doc_ptr` verified non-zero handle.
+        let doc = unsafe { &*(doc_ptr as *const VexioDoc) };
+        let md = doc.session.export_mind_map_outline(page_id as u32);
+        env.new_string(md)
+            .map(|s| s.into_raw())
+            .unwrap_or(std::ptr::null_mut())
+    }))
+    .unwrap_or(std::ptr::null_mut())
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_vexio_core_NativeBridge_nativeRecalculateVsmAndFtaJson<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    doc_ptr: jlong,
+    page_id: jint,
+) -> jstring {
+    catch_unwind(AssertUnwindSafe(|| {
+        if doc_ptr == 0 || page_id <= 0 {
+            return env.new_string("{}").unwrap().into_raw();
+        }
+        // SAFETY: `doc_ptr` verified non-zero handle.
+        let doc = unsafe { &mut *(doc_ptr as *mut VexioDoc) };
+        let json = doc
+            .session
+            .recalculate_vsm_and_fta_json(page_id as u32)
+            .unwrap_or_else(|_| "{}".into());
+        env.new_string(json)
+            .map(|s| s.into_raw())
+            .unwrap_or(std::ptr::null_mut())
+    }))
+    .unwrap_or(std::ptr::null_mut())
+}

@@ -48,7 +48,9 @@ type ActiveTool =
   | 'highlighter'
   | 'connection_point'
   | 'text_block'
-  | 'format_painter';
+  | 'format_painter'
+  | 'wall'
+  | 'dimension';
 type InspectorTab = 'props' | 'sizepos' | 'data' | 'layers' | 'comments' | 'validate';
 type ActiveModal =
   | null
@@ -594,6 +596,8 @@ const UI_ICONS = {
   connection_point: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="8" cy="8" r="5.6" stroke-dasharray="2.4 2"/><path d="M5.6 5.6 L10.4 10.4 M10.4 5.6 L5.6 10.4"/></svg>',
   text_block: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><rect x="2.2" y="3.2" width="11.6" height="9.6" stroke-dasharray="2.2 1.8"/><path d="M5.2 6 H10.8 M8 6 V10.8"/></svg>',
   format_painter: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="2.2" width="9" height="4.2" rx="1"/><path d="M12 4.3 H13.5 V7.5 H7.5 V10 M6.2 10 H8.8 V13.8 H6.2 Z"/></svg>',
+  wall: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><rect x="1.8" y="5.5" width="12.4" height="5" rx="0.6"/><path d="M6 5.5 V10.5 M10 5.5 V10.5"/></svg>',
+  dimension: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2.2 4.5 V11.5 M13.8 4.5 V11.5 M2.5 8 H13.5 M4.8 6.2 L2.5 8 L4.8 9.8 M11.2 6.2 L13.5 8 L11.2 9.8"/></svg>',
   duplicate: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><rect x="5.2" y="5.2" width="8.5" height="8.5" rx="1.4"/><path d="M10.5 5.2 V3.3 A1 1 0 0 0 9.5 2.3 H3.3 A1 1 0 0 0 2.3 3.3 V9.5 A1 1 0 0 0 3.3 10.5 H5.2"/></svg>',
   trash: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M3 4.5 H13 M6 4.5 V2.8 H10 V4.5 M4.5 4.5 L5.2 13.5 H10.8 L11.5 4.5"/></svg>',
   open: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M2 4.2 H6.2 L7.6 5.8 H14 V12.8 H2 Z"/></svg>',
@@ -801,7 +805,7 @@ class VexioChromeOsApp {
       return true;
     }
   })();
-  private updateStatusText = 'Vexio v0.8.0-beta • Automatic updates enabled';
+  private updateStatusText = 'Vexio v0.9.0-beta • Automatic updates enabled';
   private sampledFormatJson = '';
   private fieldPresetDraft = 'width';
   private fieldFormatDraft = '0.00 in';
@@ -832,11 +836,41 @@ class VexioChromeOsApp {
   private actionDisabledDraft = 'FALSE';
   private actionBeginGroupDraft = false;
 
-  private activeWizardSlug: 'gantt' | 'timeline' | 'pert' | 'rack_42u' | 'arch_room' = 'gantt';
-  private wizardDraftBySlug: Record<'gantt' | 'timeline' | 'pert' | 'rack_42u' | 'arch_room', string> = {
+  private activeWizardSlug:
+    | 'gantt'
+    | 'timeline'
+    | 'pert'
+    | 'calendar'
+    | 'pivot_diagram'
+    | 'mind_map'
+    | 'mind_map_radial'
+    | 'vsm'
+    | 'fta'
+    | 'rack_42u'
+    | 'arch_room' = 'gantt';
+  private wizardDraftBySlug: Record<
+    | 'gantt'
+    | 'timeline'
+    | 'pert'
+    | 'calendar'
+    | 'pivot_diagram'
+    | 'mind_map'
+    | 'mind_map_radial'
+    | 'vsm'
+    | 'fta'
+    | 'rack_42u'
+    | 'arch_room',
+    string
+  > = {
     gantt: `ID,Task Name,StartDay,DurationDays,PercentComplete,DependsOn\n1,Architecture Spec,0,4,100,\n2,Rust ShapeSheet & CAD Core,4,7,100,1\n3,Multi-OS Native Viewport,10,6,85,2\n4,Enterprise QA & GA Ship,16,4,50,3`,
     timeline: `# Title: Product Release Roadmap | Horizon: 100\n10,Core Engine Lock,true\n35,CAD & Legacy VSD Parity,false\n65,Multi-OS Public Beta,true\n95,Enterprise v1.0 GA,true`,
     pert: `ID,Task Name,DurationDays,Predecessors\nA,System Architecture,3,\nB,Rust Core & DAG,6,A\nC,Stencil Library,3,A\nD,Multi-OS Shells,5,B;C\nE,Release Signoff,2,D`,
+    calendar: `# Month: 2026-11 | Start: Monday\n2026-11-04|Architecture Review\n2026-11-12|CAD & AEC Freeze\n2026-11-20|Security Audit\n2026-11-27|v0.9.0-beta Release`,
+    pivot_diagram: `Region,ProductLine,Revenue\nEMEA,Enterprise Cloud,420\nEMEA,Desktop Suite,260\nAmericas,Enterprise Cloud,610\nAmericas,Desktop Suite,340\nAPAC,Enterprise Cloud,310`,
+    mind_map: `# Vexio 1.0 Strategy\n## Native Core\n### ShapeSheet DAG\n### OpenXML & Legacy VSD\n## AEC & CAD\n### Auto-Healing Walls\n### Associative Dimensions\n## Plan 2 Analytics\n### Lean VSM\n### Fault Tree MOCUS`,
+    mind_map_radial: `# Product Architecture\n## Desktop Native\n### Windows DX12\n### macOS Metal\n## Mobile & Web\n### Googlebook Vulkan\n### ChromeOS Offline PWA`,
+    vsm: `Step,CycleSec,LeadDays,UptimePct,InventoryUnits\nRaw Coil Stamping,42,3.5,96,450\nCNC Precision Machining,95,2.0,92,220\nAnodize & Cure,68,4.0,98,380\nFinal QA & Pack,35,1.0,99.5,90`,
+    fta: `ID,Label,Kind,Gate,Probability,Inputs\nTOP,Data Center Outage,top,OR,,G1;G2\nG1,Dual Utility Loss,intermediate,AND,,E1;E2\nG2,Cooling Failure,intermediate,2of3,,E3;E4;E5\nE1,Grid Feed A Fault,basic,,0.02,\nE2,Backup Generator Fail,basic,,0.015,\nE3,Chiller A Trip,basic,,0.03,\nE4,Chiller B Trip,basic,,0.03,\nE5,Standby Chiller C Trip,basic,,0.04,`,
     rack_42u: `Device,StartU,HeightU\nTop-of-Rack Leaf Switch,41,2\nPerimeter Firewall Pair,38,2\nK8s Compute Blade Chassis,26,8\nNVMe SAN Storage Array,14,6\nRedundant UPS Battery,1,4`,
     arch_room: `Room,WidthIn,HeightIn\nMain Server Hall,3.4,2.4\nNOC Operations Suite,2.6,2.0\nMDF Telecom Closet,1.8,1.6`,
   };
@@ -1348,7 +1382,7 @@ class VexioChromeOsApp {
       return;
     }
 
-    const currentVersion = '0.8.0-beta';
+    const currentVersion = '0.9.0-beta';
     try {
       const resp = await fetch('https://api.github.com/repos/petrosvassiliou/vexio/releases', {
         headers: { Accept: 'application/vnd.github+json' },
@@ -1401,6 +1435,8 @@ class VexioChromeOsApp {
           | 'control'
           | 'vertex'
           | 'conn_point_edit'
+          | 'wall'
+          | 'dimension'
           | 'open_text_edit';
         primitiveKind?: string;
         startPageIn: [number, number];
@@ -2207,6 +2243,18 @@ class VexioChromeOsApp {
         this.render();
         return;
       }
+      if (!inInput && (e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'w') {
+        e.preventDefault();
+        this.activeTool = this.activeTool === 'wall' ? 'pointer' : 'wall';
+        this.render();
+        return;
+      }
+      if (!inInput && (e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'd') {
+        e.preventDefault();
+        this.activeTool = this.activeTool === 'dimension' ? 'pointer' : 'dimension';
+        this.render();
+        return;
+      }
       if (!inInput && (e.ctrlKey || e.metaKey) && (e.key.toLowerCase() === 'f' || e.key.toLowerCase() === 'h')) {
         e.preventDefault();
         this.activeModal = 'findReplace';
@@ -2261,6 +2309,7 @@ class VexioChromeOsApp {
       } else if (
         !inInput &&
         (e.ctrlKey || e.metaKey) &&
+        !e.shiftKey &&
         e.key.toLowerCase() === 'd' &&
         this.selectedShapeIds.length > 0
       ) {
@@ -2711,6 +2760,8 @@ class VexioChromeOsApp {
         ${btn('text', UI_ICONS.text, 'Text', 'Text Box — Click or drag on canvas to type immediately, or double-click any stencil (T)')}
         ${btn('text_block', UI_ICONS.text_block, 'TxtBlk', 'Text Block Tool — Move or rotate shape label independently (Ctrl+Shift+4)')}
         ${btn('format_painter', UI_ICONS.format_painter, 'Painter', 'Format Painter — Sample Fill/Line/Text formatting & click target shape (Ctrl+Shift+P)')}
+        ${btn('wall', UI_ICONS.wall, 'Wall', 'Architectural Wall Tool — Drag to draw auto-healing L/T walls (Ctrl+Shift+W)')}
+        ${btn('dimension', UI_ICONS.dimension, 'Dim', 'Associative Dimension Tool — Click shape or drag between shapes (Ctrl+Shift+D)')}
         ${btn('pen', UI_ICONS.pen, 'Pen', 'Freehand Markup Ink Pen (I)')}
         ${btn('highlighter', UI_ICONS.highlighter, 'Marker', 'Markup Highlighter')}
       </aside>
@@ -3059,7 +3110,28 @@ class VexioChromeOsApp {
           <button class="m3-btn tonal" id="btn-open-field-modal" ${this.primarySelectedId ? '' : 'disabled'} title="Insert Dynamic Formula Text Field (&lt;fld&gt;)">Field…</button>
           <button class="m3-btn" id="btn-open-link-modal" ${this.primarySelectedId ? '' : 'disabled'}>Hyperlink...</button>
           <div class="ribbon-divider"></div>
-          <span class="ribbon-group-label">Engineering &amp; CAD</span>
+          <span class="ribbon-group-label">Engineering, AEC &amp; Plan 2</span>
+          <select class="cell-input" id="ribbon-insert-dimension" style="width:136px;height:28px;padding:2px 6px;font-size:11.5px;font-weight:600" ${this.primarySelectedId ? '' : 'disabled'} title="Insert Live Associative Architectural Dimension">
+            <option value="">+ Dimension ▾</option>
+            <option value="aligned">Aligned Length</option>
+            <option value="horizontal">Horizontal Span</option>
+            <option value="vertical">Vertical Span</option>
+            <option value="angular">Angular (2 Shapes)</option>
+            <option value="radial">Radial (R)</option>
+            <option value="diameter">Diameter (⌀)</option>
+          </select>
+          <select class="cell-input" id="ribbon-insert-opening" style="width:132px;height:28px;padding:2px 6px;font-size:11.5px;font-weight:600" ${this.primarySelectedId ? '' : 'disabled'} title="Cut Parametric Door or Window Opening into Selected Wall">
+            <option value="">+ Wall Opening ▾</option>
+            <option value="single_door">Single Door (90°)</option>
+            <option value="double_door">Double French Door</option>
+            <option value="sliding_door">Sliding Door</option>
+            <option value="pocket_door">Pocket Door</option>
+            <option value="window">Casement Window</option>
+            <option value="cased_opening">Cased Opening</option>
+          </select>
+          <button class="m3-btn tonal" id="btn-heal-walls" title="Auto-Heal Wall Miter (L-Corner) &amp; T-Join Intersections">Heal Walls</button>
+          <button class="m3-btn tonal" id="btn-add-mm-subtopic" title="Add Mind Map Topic / Subtopic">+ Mind Map Topic</button>
+          <button class="m3-btn tonal" id="btn-open-wizards" title="Calendar, PivotDiagram, Mind Map, Lean VSM, Fault Tree, Gantt, PERT, Rack &amp; Room Wizards">Plan 2 Wizards…</button>
           <button class="m3-btn" id="btn-ins-room">Room Wizard...</button>
           <button class="m3-btn" id="btn-ins-rack">42U Rack Wizard...</button>
           <button class="m3-btn tonal" id="btn-ins-cad">Import DWG / DXF...</button>
@@ -3159,10 +3231,16 @@ class VexioChromeOsApp {
           <button class="m3-btn" data-validate="uml">UML 2.5</button>
           <button class="m3-btn" data-validate="workflow">SharePoint</button>
           <div class="ribbon-divider"></div>
-          <span class="ribbon-group-label">Schedules</span>
+          <span class="ribbon-group-label">Schedules &amp; Plan 2 Analytics</span>
           <button class="m3-btn" id="btn-gen-pert">PERT CPM</button>
           <button class="m3-btn" id="btn-gen-gantt">Gantt Chart</button>
           <button class="m3-btn" id="btn-gen-timeline">Timeline</button>
+          <button class="m3-btn" id="btn-gen-calendar">Calendar</button>
+          <button class="m3-btn" id="btn-gen-pivot">PivotDiagram</button>
+          <button class="m3-btn" id="btn-gen-mindmap">Mind Map</button>
+          <button class="m3-btn tonal" id="btn-gen-vsm">Lean VSM</button>
+          <button class="m3-btn tonal" id="btn-gen-fta">Fault Tree</button>
+          <button class="m3-btn active" id="btn-recalc-vsm-fta" title="Recalculate Lean VSM Lead-Time/PCE% &amp; Fault Tree Top-Event MOCUS Cut Sets">Recalc VSM / FTA</button>
         `;
       case 'Review':
         return `
@@ -4845,7 +4923,7 @@ class VexioChromeOsApp {
             </div>
             <div class="list-row-card" style="flex-direction:column;align-items:flex-start;gap:6px">
               <strong>${this.updateStatusText}</strong>
-              <span style="font-size:11.5px;color:var(--m3-text-muted)">Installed build: Vexio v0.8.0-beta • Offline-First Workbox PWA + GitHub Releases channel</span>
+              <span style="font-size:11.5px;color:var(--m3-text-muted)">Installed build: Vexio v0.9.0-beta • Offline-First Workbox PWA + GitHub Releases channel</span>
             </div>
             <label style="display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer">
               <input type="checkbox" id="chk-auto-updates" ${this.autoCheckUpdates ? 'checked' : ''} />
@@ -5025,7 +5103,7 @@ class VexioChromeOsApp {
         <div class="modal-backdrop">
           <div class="modal-card wide">
             <div style="display:flex;justify-content:space-between;align-items:center">
-              <strong>Enterprise Diagram Wizards — Gantt · Timeline · PERT/CPM · 42U Rack · Architectural Rooms</strong>
+              <strong>Enterprise Plan 2 Wizards — Gantt · Timeline · PERT · Calendar · PivotDiagram · Mind Map · Lean VSM · Fault Tree · Rack · Rooms</strong>
               <button class="m3-btn" id="btn-close-modal">Close</button>
             </div>
             <div style="display:flex;gap:6px;flex-wrap:wrap">
@@ -5033,9 +5111,15 @@ class VexioChromeOsApp {
                 [
                   ['gantt', 'Gantt Schedule'],
                   ['timeline', 'Project Timeline'],
-                  ['pert', 'PERT / Critical Path'],
-                  ['rack_42u', '42U Rack Elevation'],
-                  ['arch_room', 'Architectural Rooms'],
+                  ['pert', 'PERT / CPM'],
+                  ['calendar', 'Calendar'],
+                  ['pivot_diagram', 'PivotDiagram'],
+                  ['mind_map', 'Mind Map'],
+                  ['mind_map_radial', 'Mind Map (Radial)'],
+                  ['vsm', 'Lean VSM'],
+                  ['fta', 'Fault Tree (FTA)'],
+                  ['rack_42u', '42U Rack'],
+                  ['arch_room', 'Arch Rooms'],
                 ] as const
               )
                 .map(
@@ -5046,9 +5130,18 @@ class VexioChromeOsApp {
             </div>
             <textarea class="studio-textarea" id="domain-wizard-editor" style="min-height:210px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace">${draft.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</textarea>
             ${this.modalOutputMessage ? `<div style="color:var(--m3-secondary);font-size:12px">${this.modalOutputMessage}</div>` : ''}
-            <div style="display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap">
-              <button class="m3-btn tonal" id="btn-wizard-run-cur">Build on Active Page</button>
-              <button class="m3-btn active" id="btn-wizard-run-new">+ Build on New Page</button>
+            <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap">
+              <div>
+                ${
+                  slug === 'mind_map' || slug === 'mind_map_radial'
+                    ? '<button class="m3-btn" id="btn-wizard-export-mm">← Read Mind Map Outline from Page</button>'
+                    : ''
+                }
+              </div>
+              <div style="display:flex;gap:8px;flex-wrap:wrap">
+                <button class="m3-btn tonal" id="btn-wizard-run-cur">Build on Active Page</button>
+                <button class="m3-btn active" id="btn-wizard-run-new">+ Build on New Page</button>
+              </div>
             </div>
           </div>
         </div>
@@ -7007,18 +7100,116 @@ class VexioChromeOsApp {
       this.render();
     });
 
-    const openWizardModal = (slug: 'gantt' | 'timeline' | 'pert' | 'rack_42u' | 'arch_room') => {
+    const openWizardModal = (slug: typeof this.activeWizardSlug) => {
       this.activeWizardSlug = slug;
       this.activeModal = 'wizards';
       this.modalOutputMessage = '';
       this.render();
     };
 
+    document.getElementById('btn-open-wizards')?.addEventListener('click', () => openWizardModal('calendar'));
     document.getElementById('btn-ins-room')?.addEventListener('click', () => openWizardModal('arch_room'));
     document.getElementById('btn-ins-rack')?.addEventListener('click', () => openWizardModal('rack_42u'));
     document.getElementById('btn-gen-pert')?.addEventListener('click', () => openWizardModal('pert'));
     document.getElementById('btn-gen-gantt')?.addEventListener('click', () => openWizardModal('gantt'));
     document.getElementById('btn-gen-timeline')?.addEventListener('click', () => openWizardModal('timeline'));
+    document.getElementById('btn-gen-calendar')?.addEventListener('click', () => openWizardModal('calendar'));
+    document.getElementById('btn-gen-pivot')?.addEventListener('click', () => openWizardModal('pivot_diagram'));
+    document.getElementById('btn-gen-mindmap')?.addEventListener('click', () => openWizardModal('mind_map'));
+    document.getElementById('btn-gen-vsm')?.addEventListener('click', () => openWizardModal('vsm'));
+    document.getElementById('btn-gen-fta')?.addEventListener('click', () => openWizardModal('fta'));
+
+    document.getElementById('ribbon-insert-dimension')?.addEventListener('change', async (ev) => {
+      const sel = ev.target as HTMLSelectElement;
+      const dimKind = sel.value;
+      sel.value = '';
+      if (!dimKind || !this.primarySelectedId) return;
+      const secondShapeId = this.selectedShapeIds.length >= 2 ? this.selectedShapeIds[1] : 0;
+      const res = await this.callEngine('insertAssociativeDimension', {
+        dimKind,
+        targetShapeId: this.primarySelectedId,
+        secondShapeId,
+        offsetIn: 0.65,
+        unitFormat: this.metricUnits ? '0 mm' : '0.00 in',
+      });
+      this.snapshot = res.snapshot;
+      if (res.dimShapeId > 0) {
+        this.setSingleSelection(res.dimShapeId);
+      }
+      this.persistMutationSideEffects(res.wal);
+      this.showToast(`Inserted ${dimKind} associative dimension`, 'info');
+      this.render();
+    });
+
+    document.getElementById('ribbon-insert-opening')?.addEventListener('change', async (ev) => {
+      const sel = ev.target as HTMLSelectElement;
+      const openingKind = sel.value;
+      sel.value = '';
+      if (!openingKind || !this.primarySelectedId) return;
+      const res = await this.callEngine('insertWallOpening', {
+        wallShapeId: this.primarySelectedId,
+        openingKind,
+        offsetAlongIn: 0.5,
+        openingWidthIn: openingKind === 'double_door' ? 1.2 : 0.75,
+        swingDir: 'in_left',
+      });
+      this.snapshot = res.snapshot;
+      if (res.openingShapeId > 0) {
+        this.setSingleSelection(res.openingShapeId);
+      }
+      this.persistMutationSideEffects(res.wal);
+      this.showToast(`Inserted ${openingKind.replace('_', ' ')} into wall`, 'info');
+      this.render();
+    });
+
+    document.getElementById('btn-heal-walls')?.addEventListener('click', async () => {
+      const res = await this.callEngine('healWallIntersections', { toleranceIn: 0.35 });
+      this.snapshot = res.snapshot;
+      this.persistMutationSideEffects(res.wal);
+      this.showToast(`Auto-healed ${res.healedCount ?? 0} wall intersection(s)`, 'info');
+      this.render();
+    });
+
+    document.getElementById('btn-add-mm-subtopic')?.addEventListener('click', async () => {
+      const label = window.prompt('Mind Map Topic Text:', 'New Subtopic');
+      if (label === null) return;
+      const res = await this.callEngine('addMindMapTopic', {
+        anchorShapeId: this.primarySelectedId ?? 0,
+        topicText: label.trim() || 'New Subtopic',
+        asSibling: false,
+      });
+      this.snapshot = res.snapshot;
+      if (res.topicShapeId > 0) {
+        this.setSingleSelection(res.topicShapeId);
+      }
+      this.persistMutationSideEffects(res.wal);
+      this.render();
+    });
+
+    document.getElementById('btn-recalc-vsm-fta')?.addEventListener('click', async () => {
+      const res = await this.callEngine('recalculateVsmAndFta');
+      this.snapshot = res.snapshot;
+      this.persistMutationSideEffects(res.wal);
+      const rep = res.report ?? {};
+      const parts: string[] = [];
+      if (typeof rep.pcePct === 'number' && rep.totalLeadDays > 0) {
+        parts.push(`VSM Lead ${Number(rep.totalLeadDays).toFixed(2)}d · VA ${Number(rep.totalVaSec).toFixed(0)}s · PCE ${Number(rep.pcePct).toFixed(2)}%`);
+      }
+      if (typeof rep.topEventProbability === 'number' && Array.isArray(rep.minimalCutSets) && rep.minimalCutSets.length > 0) {
+        parts.push(`FTA Top P=${Number(rep.topEventProbability).toExponential(3)} (${rep.minimalCutSets.length} MOCUS cut sets)`);
+      }
+      this.showToast(parts.join(' | ') || 'Recalculated Lean VSM & Fault Tree metrics on active page', 'info');
+      this.render();
+    });
+
+    document.getElementById('btn-wizard-export-mm')?.addEventListener('click', async () => {
+      const res = await this.callEngine('exportMindMapOutline');
+      if (res.markdown && String(res.markdown).trim()) {
+        this.wizardDraftBySlug[this.activeWizardSlug] = String(res.markdown);
+        this.modalOutputMessage = 'Exported hierarchical Mind Map outline from active page.';
+        this.render();
+      }
+    });
 
     document.querySelectorAll('[data-wizard-slug]').forEach((btn) => {
       btn.addEventListener('click', () => {
@@ -7039,6 +7230,12 @@ class VexioChromeOsApp {
         gantt: 'Gantt-Schedule',
         timeline: 'Project-Timeline',
         pert: 'PERT-CriticalPath',
+        calendar: 'Monthly-Calendar',
+        pivot_diagram: 'Pivot-Rollup',
+        mind_map: 'Mind-Map',
+        mind_map_radial: 'Radial-MindMap',
+        vsm: 'Value-Stream-Map',
+        fta: 'Fault-Tree-Analysis',
         rack_42u: 'Rack-Elevation',
         arch_room: 'Floor-Rooms',
       };
@@ -9003,6 +9200,22 @@ class VexioChromeOsApp {
           return;
         }
 
+        if (this.activeTool === 'wall') {
+          this.dragState = { mode: 'wall', startPageIn: ptIn, curPageIn: ptIn };
+          return;
+        }
+
+        if (this.activeTool === 'dimension') {
+          const hit2D = this.hitTestSnapshotSync(ptIn[0], ptIn[1], true);
+          this.dragState = {
+            mode: 'dimension',
+            startPageIn: ptIn,
+            curPageIn: ptIn,
+            shapeId: hit2D || (this.primarySelectedId ?? 0),
+          };
+          return;
+        }
+
         if (this.activeTool === 'connector') {
           const from2D = this.hitTestSnapshotSync(ptIn[0], ptIn[1], true);
           this.dragState = {
@@ -9173,6 +9386,10 @@ class VexioChromeOsApp {
           overlay.innerHTML = `<polyline points="${ptsAttr}" fill="none" stroke="#7c3aed" stroke-width="2.5" stroke-dasharray="4,2" stroke-linecap="round"/>`;
         } else if (this.dragState.mode === 'line') {
           overlay.innerHTML = `<line x1="${sx(this.dragState.startPageIn[0])}" y1="${sy(this.dragState.startPageIn[1])}" x2="${sx(ptIn[0])}" y2="${sy(ptIn[1])}" stroke="#1e293b" stroke-width="2.2" stroke-dasharray="5,3"/>`;
+        } else if (this.dragState.mode === 'wall') {
+          overlay.innerHTML = `<line x1="${sx(this.dragState.startPageIn[0])}" y1="${sy(this.dragState.startPageIn[1])}" x2="${sx(ptIn[0])}" y2="${sy(ptIn[1])}" stroke="#334155" stroke-width="10" stroke-opacity="0.65" stroke-linecap="square"/>`;
+        } else if (this.dragState.mode === 'dimension') {
+          overlay.innerHTML = `<line x1="${sx(this.dragState.startPageIn[0])}" y1="${sy(this.dragState.startPageIn[1])}" x2="${sx(ptIn[0])}" y2="${sy(ptIn[1])}" stroke="#2563eb" stroke-width="1.8" stroke-dasharray="4,2"/>`;
         } else if (this.dragState.mode === 'arc') {
           const x1 = sx(this.dragState.startPageIn[0]);
           const y1 = sy(this.dragState.startPageIn[1]);
@@ -9428,6 +9645,48 @@ class VexioChromeOsApp {
           this.persistMutationSideEffects(res.wal);
           this.snapshot = res.snapshot;
           this.setSingleSelection(res.shapeId);
+          this.activeTool = 'pointer';
+          this.render();
+        } else if (st.mode === 'wall') {
+          let [x2, y2] = ptIn;
+          if (Math.hypot(x2 - st.startPageIn[0], y2 - st.startPageIn[1]) < 0.08) {
+            x2 = st.startPageIn[0] + 3.0;
+            y2 = st.startPageIn[1];
+          }
+          const res = await this.callEngine('drawArchitecturalWall', {
+            x1In: st.startPageIn[0],
+            y1In: st.startPageIn[1],
+            x2In: x2,
+            y2In: y2,
+            thicknessIn: 0.35,
+          });
+          this.persistMutationSideEffects(res.wal);
+          this.snapshot = res.snapshot;
+          if (res.wallShapeId > 0) {
+            this.setSingleSelection(res.wallShapeId);
+          }
+          this.render();
+        } else if (st.mode === 'dimension') {
+          const endHit = this.hitTestSnapshotSync(ptIn[0], ptIn[1], true);
+          const firstId = st.shapeId || endHit || (this.primarySelectedId ?? 0);
+          if (firstId > 0) {
+            const secondId = endHit > 0 && endHit !== firstId ? endHit : 0;
+            const dx = Math.abs(ptIn[0] - st.startPageIn[0]);
+            const dy = Math.abs(ptIn[1] - st.startPageIn[1]);
+            const dimKind = secondId > 0 ? (dx >= dy ? 'horizontal' : 'vertical') : 'aligned';
+            const res = await this.callEngine('insertAssociativeDimension', {
+              dimKind,
+              targetShapeId: firstId,
+              secondShapeId: secondId,
+              offsetIn: 0.65,
+              unitFormat: this.metricUnits ? '0 mm' : '0.00 in',
+            });
+            this.persistMutationSideEffects(res.wal);
+            this.snapshot = res.snapshot;
+            if (res.dimShapeId > 0) {
+              this.setSingleSelection(res.dimShapeId);
+            }
+          }
           this.activeTool = 'pointer';
           this.render();
         } else if (st.mode === 'arc') {

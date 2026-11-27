@@ -30,6 +30,8 @@
             <KeyboardAccelerator Key="P" Modifiers="Control,Shift" Invoked="OnFormatPainterAccelerator" />
             <KeyboardAccelerator Key="F" Modifiers="Control" Invoked="OnFindReplaceAccelerator" />
             <KeyboardAccelerator Key="H" Modifiers="Control" Invoked="OnFindReplaceAccelerator" />
+            <KeyboardAccelerator Key="W" Modifiers="Control,Shift" Invoked="OnWallToolAccelerator" />
+            <KeyboardAccelerator Key="D" Modifiers="Control,Shift" Invoked="OnDimensionToolAccelerator" />
         </Grid.KeyboardAccelerators>
 
         <Grid.RowDefinitions>
@@ -554,6 +556,41 @@
                             <AppBarSeparator />
                             <StackPanel>
                                 <StackPanel Orientation="Horizontal" Spacing="4" Height="56">
+                                    <ToggleButton x:Name="WallToolToggle" Style="{StaticResource VexioRibbonToggleButtonStyle}" Click="OnWallToolToggleClick" Content="Wall (Ctrl+Shift+W)" ToolTipService.ToolTip="Architectural Wall Tool with Auto-Healing Miter &amp; T-Join Intersections (Ctrl+Shift+W)" />
+                                    <ToggleButton x:Name="DimensionToolToggle" Style="{StaticResource VexioRibbonToggleButtonStyle}" Click="OnDimensionToolToggleClick" Content="Dim Tool (Ctrl+Shift+D)" ToolTipService.ToolTip="Interactive Associative Architectural Dimension Tool (Ctrl+Shift+D)" />
+                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Content="Dimension ▾" FontWeight="SemiBold" ToolTipService.ToolTip="Attach Live Formula-Driven Associative Architectural Dimension to Selection">
+                                        <Button.Flyout>
+                                            <MenuFlyout>
+                                                <MenuFlyoutItem Text="Aligned Dimension" Tag="aligned" Click="OnInsertDimensionMenuClick" />
+                                                <MenuFlyoutItem Text="Horizontal Linear Dimension" Tag="horizontal" Click="OnInsertDimensionMenuClick" />
+                                                <MenuFlyoutItem Text="Vertical Linear Dimension" Tag="vertical" Click="OnInsertDimensionMenuClick" />
+                                                <MenuFlyoutItem Text="Angular Dimension (°)" Tag="angular" Click="OnInsertDimensionMenuClick" />
+                                                <MenuFlyoutItem Text="Radial Dimension (R)" Tag="radial" Click="OnInsertDimensionMenuClick" />
+                                                <MenuFlyoutItem Text="Diameter Dimension (⌀)" Tag="diameter" Click="OnInsertDimensionMenuClick" />
+                                            </MenuFlyout>
+                                        </Button.Flyout>
+                                    </Button>
+                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Content="Wall Opening ▾" ToolTipService.ToolTip="Cut Parametric Door or Window Opening into Selected Architectural Wall">
+                                        <Button.Flyout>
+                                            <MenuFlyout>
+                                                <MenuFlyoutItem Text="Single Swing Door (90° Arc)" Tag="single_door" Click="OnInsertWallOpeningMenuClick" />
+                                                <MenuFlyoutItem Text="Double French Door" Tag="double_door" Click="OnInsertWallOpeningMenuClick" />
+                                                <MenuFlyoutItem Text="Sliding Door" Tag="sliding_door" Click="OnInsertWallOpeningMenuClick" />
+                                                <MenuFlyoutItem Text="Pocket Door" Tag="pocket_door" Click="OnInsertWallOpeningMenuClick" />
+                                                <MenuFlyoutItem Text="Glazed Casement Window" Tag="window" Click="OnInsertWallOpeningMenuClick" />
+                                                <MenuFlyoutItem Text="Cased Wall Opening" Tag="cased_opening" Click="OnInsertWallOpeningMenuClick" />
+                                            </MenuFlyout>
+                                        </Button.Flyout>
+                                    </Button>
+                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnHealWallsClick" Content="Heal Walls" ToolTipService.ToolTip="Auto-Heal L-Corner Miters &amp; T-Joins Across Page Walls" />
+                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnAddMindMapTopicClick" Content="+ Mind Map Topic" ToolTipService.ToolTip="Append Child Topic to Selected Mind Map Node" />
+                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnRecalculateVsmFtaClick" Content="VSM / FTA Calc" ToolTipService.ToolTip="Recalculate Lean VSM Lead-Time PCE% &amp; Fault Tree MOCUS Cut Sets" />
+                                </StackPanel>
+                                <TextBlock Text="AEC Walls, Dimensions &amp; Plan 2" Style="{StaticResource VexioRibbonGroupLabelStyle}" />
+                            </StackPanel>
+                            <AppBarSeparator />
+                            <StackPanel>
+                                <StackPanel Orientation="Horizontal" Spacing="4" Height="56">
                                     <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnInsertCadDrawingClick" Content="CAD Drawing (.dwg / .dxf)" />
                                     <ToggleButton x:Name="LockCadScaleToggle" Style="{StaticResource VexioRibbonToggleButtonStyle}" IsChecked="True"
                                                   Click="OnLockCadScaleClick" Content="Lock CAD Architectural Scale" />
@@ -1036,6 +1073,12 @@
                         </ToggleButton>
                         <ToggleButton Tag="20" Click="OnRailToolClick" HorizontalAlignment="Stretch" Padding="2,4" ToolTipService.ToolTip="Format Painter (Ctrl+Shift+P)">
                             <StackPanel Spacing="1"><PathIcon Width="13" Height="13" Data="M 3,2 L 13,2 L 13,7 L 3,7 Z M 8,7 L 8,14" /><TextBlock Text="Paint" FontSize="9.5" HorizontalAlignment="Center" /></StackPanel>
+                        </ToggleButton>
+                        <ToggleButton Tag="21" Click="OnRailToolClick" HorizontalAlignment="Stretch" Padding="2,4" ToolTipService.ToolTip="Architectural Wall Tool (Ctrl+Shift+W)">
+                            <StackPanel Spacing="1"><PathIcon Width="13" Height="13" Data="M 1,4 L 15,4 L 15,12 L 1,12 Z M 8,4 L 8,8 M 4,8 L 4,12 M 12,8 L 12,12 M 1,8 L 15,8" /><TextBlock Text="Wall" FontSize="9.5" HorizontalAlignment="Center" /></StackPanel>
+                        </ToggleButton>
+                        <ToggleButton Tag="22" Click="OnRailToolClick" HorizontalAlignment="Stretch" Padding="2,4" ToolTipService.ToolTip="Associative Dimension Tool (Ctrl+Shift+D)">
+                            <StackPanel Spacing="1"><PathIcon Width="13" Height="13" Data="M 2,3 L 2,13 M 14,3 L 14,13 M 2,8 L 14,8 M 5,5 L 2,8 L 5,11 M 11,5 L 14,8 L 11,11" /><TextBlock Text="Dim" FontSize="9.5" HorizontalAlignment="Center" /></StackPanel>
                         </ToggleButton>
                     </StackPanel>
                 </ScrollViewer>
@@ -1603,7 +1646,7 @@
                                 </StackPanel>
                                 <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
                                     <Button Click="OnCheckUpdatesClick" Content="Check for Updates Now" />
-                                    <TextBlock x:Name="BackstageUpdateStatusText" Text="Vexio v0.8.0-beta • Automatic background update check enabled."
+                                    <TextBlock x:Name="BackstageUpdateStatusText" Text="Vexio v0.9.0-beta • Automatic background update check enabled."
                                                FontSize="12" Opacity="0.8" VerticalAlignment="Center" />
                                 </StackPanel>
                             </StackPanel>

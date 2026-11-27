@@ -8,6 +8,7 @@ export class WasmVexioSession {
     add_connection_point(page_id: number, shape_id: number, page_x_in: number, page_y_in: number, point_type: number): number;
     add_ink_stroke(page_id: number, color_hex: string, width_pt: number, highlighter: boolean, points_json: string): number;
     add_layer(page_id: number, name: string): number;
+    add_mind_map_topic(page_id: number, anchor_shape_id: number, topic_text: string, as_sibling: boolean): number;
     add_page(name: string): number;
     add_ruler_guide(page_id: number, is_vertical: boolean, coord_in: number): number;
     add_slide_snippet(page_id: number, title: string, notes: string, x_in: number, y_in: number, width_in: number, height_in: number): number;
@@ -50,14 +51,15 @@ export class WasmVexioSession {
     delete_external_recordset(recordset_id: number): boolean;
     delete_page(page_id: number): boolean;
     delete_ruler_guide(page_id: number, guide_id: number): boolean;
-    delete_shape(page_id: number, shape_id: number): boolean;
     delete_shape_action(page_id: number, shape_id: number, row_name: string): boolean;
+    delete_shape(page_id: number, shape_id: number): boolean;
     delete_shape_data(page_id: number, shape_id: number, row_name: string): boolean;
     delete_shape_vertex(page_id: number, shape_id: number, geom_index: number, row_ix: number): boolean;
     delete_slide_snippet(page_id: number, snippet_id: number): boolean;
     distribute_shapes(page_id: number, shape_ids: Uint32Array | number[], axis: string): number;
     drag_connector_segment(page_id: number, shape_id: number, seg_index: number, coord_in: number): boolean;
     draw_arc(page_id: number, x1_in: number, y1_in: number, x2_in: number, y2_in: number, bow_in: number): number;
+    draw_architectural_wall(page_id: number, x1_in: number, y1_in: number, x2_in: number, y2_in: number, thickness_in: number): number;
     draw_freeform_curve(page_id: number, points_json: string, closed: boolean): number;
     draw_line(page_id: number, x1_in: number, y1_in: number, x2_in: number, y2_in: number): number;
     draw_primitive_2d(page_id: number, kind: string, x1_in: number, y1_in: number, x2_in: number, y2_in: number): number;
@@ -73,6 +75,7 @@ export class WasmVexioSession {
     export_custom_stencil_vssx(stencil_title: string): Uint8Array;
     export_data_visualizer_workbook(page_id: number): Uint8Array;
     export_diagram_markup(page_id: number, format_slug: string): string;
+    export_mind_map_outline(page_id: number): string;
     export_wal(): Uint8Array;
     find_in_document_json(active_page_id: number, query: string, match_case: boolean, whole_word: boolean, all_pages: boolean): string;
     flush_crdt_ops_json(now_ms: number): string;
@@ -85,6 +88,7 @@ export class WasmVexioSession {
     get_state_json(active_page_id: number): string;
     get_text_block_overlay_json(page_id: number, shape_id: number, zoom_ppi: number): string;
     group_shapes(page_id: number, shape_ids: Uint32Array | number[]): number;
+    heal_wall_intersections(page_id: number, tolerance_in: number): number;
     hit_test_page(page_id: number, x_in: number, y_in: number): number;
     import_cloud_discovery(page_id: number, discovery_json: string): number;
     import_data_visualizer(page_id: number, bytes: Uint8Array | number[]): number;
@@ -99,6 +103,7 @@ export class WasmVexioSession {
      */
     import_stencil_bytes(file_name: string, bytes: Uint8Array | number[]): string;
     insert_architectural_room(page_id: number, room_name: string): number;
+    insert_associative_dimension(page_id: number, dim_kind: string, target_shape_id: number, second_shape_id: number, offset_in: number, unit_format: string): number;
     insert_callout(page_id: number, target_shape_id: number, text: string): number;
     insert_container(page_id: number, title: string, member_ids: Uint32Array | number[]): number;
     insert_cropped_image(page_id: number, media_type: string, image_bytes: Uint8Array | number[], x_in: number, y_in: number, crop_in: number, brightness: number, contrast: number): number;
@@ -108,6 +113,7 @@ export class WasmVexioSession {
     insert_shape_vertex(page_id: number, shape_id: number, geom_index: number, after_row_ix: number, x_in: number, y_in: number): boolean;
     insert_swimlanes(page_id: number, lanes_semicolon: string): number;
     insert_text_field(page_id: number, shape_id: number, preset_or_formula: string, format_spec: string, prefix_label: string): number;
+    insert_wall_opening(page_id: number, wall_shape_id: number, opening_kind: string, offset_along_in: number, opening_width_in: number, swing_dir: string): number;
     link_csv_and_apply_data_graphics(page_id: number, csv_text: string, key_col: string): number;
     list_arrowheads_json(): string;
     list_builtin_pack_order_json(): string;
@@ -143,6 +149,7 @@ export class WasmVexioSession {
      * Marquee Lasso Multi-Select resolving top-level page shapes & groups via Visio enclosure rules.
      */
     query_box_shapes(page_id: number, x1_in: number, y1_in: number, x2_in: number, y2_in: number): Uint32Array;
+    recalculate_vsm_and_fta_json(page_id: number): string;
     redo(): boolean;
     refresh_external_recordset_bytes(page_id: number, recordset_id: number, new_bytes: Uint8Array | number[], format_hint: string): number;
     /**
@@ -211,6 +218,7 @@ export interface InitOutput {
     readonly vexio_doc_add_comment: (a: number, b: number, c: bigint, d: number, e: number, f: number, g: number, h: number) => number;
     readonly vexio_doc_add_connection_point: (a: number, b: number, c: bigint, d: number, e: number, f: number, g: number) => number;
     readonly vexio_doc_add_layer: (a: number, b: number, c: number, d: number) => number;
+    readonly vexio_doc_add_mind_map_topic: (a: number, b: number, c: bigint, d: number, e: number, f: number) => number;
     readonly vexio_doc_add_page: (a: number, b: number, c: number) => number;
     readonly vexio_doc_add_ruler_guide: (a: number, b: number, c: number, d: number, e: number) => number;
     readonly vexio_doc_add_slide_snippet: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => number;
@@ -251,6 +259,7 @@ export interface InitOutput {
     readonly vexio_doc_distribute_shapes: (a: number, b: number, c: number, d: number, e: number, f: number) => number;
     readonly vexio_doc_drag_connector_segment: (a: number, b: number, c: bigint, d: number, e: number) => number;
     readonly vexio_doc_drag_control_handle: (a: number, b: number, c: bigint, d: number, e: number, f: number) => number;
+    readonly vexio_doc_draw_architectural_wall: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => number;
     readonly vexio_doc_draw_freeform_json: (a: number, b: number, c: number, d: number, e: number) => number;
     readonly vexio_doc_draw_primitive: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => number;
     readonly vexio_doc_drop_stencil: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => number;
@@ -262,24 +271,28 @@ export interface InitOutput {
     readonly vexio_doc_export_custom_stencil_vssx: (a: number, b: number, c: number) => number;
     readonly vexio_doc_export_data_visualizer_xlsx: (a: number, b: number, c: number) => number;
     readonly vexio_doc_export_markup: (a: number, b: number, c: number, d: number) => number;
+    readonly vexio_doc_export_mind_map_outline: (a: number, b: number, c: number) => number;
     readonly vexio_doc_find_json: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => number;
     readonly vexio_doc_flush_crdt_json: (a: number, b: number, c: number, d: bigint, e: number) => number;
     readonly vexio_doc_get_data_link_state_json: (a: number, b: number, c: number) => number;
     readonly vexio_doc_get_snap_glue_json: (a: number, b: number, c: number) => number;
     readonly vexio_doc_get_state_json: (a: number, b: number, c: number) => number;
     readonly vexio_doc_group_shapes: (a: number, b: number, c: number, d: number, e: number) => number;
+    readonly vexio_doc_heal_wall_intersections: (a: number, b: number, c: number, d: number) => number;
     readonly vexio_doc_import_cloud_discovery: (a: number, b: number, c: number, d: number) => number;
     readonly vexio_doc_import_data_visualizer: (a: number, b: number, c: number, d: number) => number;
     readonly vexio_doc_import_entra_or_ldif: (a: number, b: number, c: number, d: number) => number;
     readonly vexio_doc_import_external_recordset: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number) => number;
     readonly vexio_doc_import_markup: (a: number, b: number, c: number, d: number, e: number) => number;
     readonly vexio_doc_import_stencil_bytes: (a: number, b: number, c: number, d: number) => number;
+    readonly vexio_doc_insert_associative_dimension: (a: number, b: number, c: number, d: bigint, e: bigint, f: number, g: number, h: number) => number;
     readonly vexio_doc_insert_container: (a: number, b: number, c: number, d: number, e: number, f: number) => number;
     readonly vexio_doc_insert_data_legend: (a: number, b: number, c: number, d: number, e: number, f: number) => number;
     readonly vexio_doc_insert_heading: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => number;
     readonly vexio_doc_insert_swimlanes: (a: number, b: number, c: number, d: number) => number;
     readonly vexio_doc_insert_text_field: (a: number, b: number, c: bigint, d: number, e: number, f: number, g: number) => number;
     readonly vexio_doc_insert_vertex: (a: number, b: number, c: bigint, d: number, e: number, f: number, g: number) => number;
+    readonly vexio_doc_insert_wall_opening: (a: number, b: number, c: bigint, d: number, e: number, f: number, g: number, h: number) => number;
     readonly vexio_doc_list_comments_json: (a: number, b: number, c: number) => number;
     readonly vexio_doc_list_connection_points_json: (a: number, b: number, c: bigint, d: number) => number;
     readonly vexio_doc_list_ruler_guides_json: (a: number, b: number, c: number) => number;
@@ -294,6 +307,7 @@ export interface InitOutput {
     readonly vexio_doc_move_vertex: (a: number, b: number, c: bigint, d: number, e: number, f: number, g: number) => number;
     readonly vexio_doc_number_shapes: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number) => number;
     readonly vexio_doc_open_bytes: (a: number, b: number, c: number, d: number) => number;
+    readonly vexio_doc_recalculate_vsm_and_fta_json: (a: number, b: number, c: number) => number;
     readonly vexio_doc_redo: (a: number) => number;
     readonly vexio_doc_refresh_external_recordset: (a: number, b: number, c: number, d: number, e: number, f: number) => number;
     readonly vexio_doc_rename_custom_master: (a: number, b: number, c: number, d: number) => number;
@@ -362,6 +376,7 @@ export interface InitOutput {
     readonly wasmvexiosession_add_connection_point: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
     readonly wasmvexiosession_add_ink_stroke: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => [number, number, number];
     readonly wasmvexiosession_add_layer: (a: number, b: number, c: number, d: number) => [number, number, number];
+    readonly wasmvexiosession_add_mind_map_topic: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
     readonly wasmvexiosession_add_page: (a: number, b: number, c: number) => [number, number, number];
     readonly wasmvexiosession_add_ruler_guide: (a: number, b: number, c: number, d: number) => [number, number, number];
     readonly wasmvexiosession_add_slide_snippet: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number) => [number, number, number];
@@ -404,6 +419,7 @@ export interface InitOutput {
     readonly wasmvexiosession_distribute_shapes: (a: number, b: number, c: number, d: number, e: number, f: number) => number;
     readonly wasmvexiosession_drag_connector_segment: (a: number, b: number, c: number, d: number, e: number) => [number, number, number];
     readonly wasmvexiosession_draw_arc: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number, number];
+    readonly wasmvexiosession_draw_architectural_wall: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number, number];
     readonly wasmvexiosession_draw_freeform_curve: (a: number, b: number, c: number, d: number, e: number) => [number, number, number];
     readonly wasmvexiosession_draw_line: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
     readonly wasmvexiosession_draw_primitive_2d: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => [number, number, number];
@@ -419,6 +435,7 @@ export interface InitOutput {
     readonly wasmvexiosession_export_custom_stencil_vssx: (a: number, b: number, c: number) => [number, number, number, number];
     readonly wasmvexiosession_export_data_visualizer_workbook: (a: number, b: number) => [number, number, number, number];
     readonly wasmvexiosession_export_diagram_markup: (a: number, b: number, c: number, d: number) => [number, number, number, number];
+    readonly wasmvexiosession_export_mind_map_outline: (a: number, b: number) => [number, number];
     readonly wasmvexiosession_export_wal: (a: number) => [number, number];
     readonly wasmvexiosession_find_in_document_json: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number];
     readonly wasmvexiosession_flush_crdt_ops_json: (a: number, b: number) => [number, number];
@@ -431,6 +448,7 @@ export interface InitOutput {
     readonly wasmvexiosession_get_state_json: (a: number, b: number) => [number, number];
     readonly wasmvexiosession_get_text_block_overlay_json: (a: number, b: number, c: number, d: number) => [number, number];
     readonly wasmvexiosession_group_shapes: (a: number, b: number, c: number, d: number) => number;
+    readonly wasmvexiosession_heal_wall_intersections: (a: number, b: number, c: number) => [number, number, number];
     readonly wasmvexiosession_hit_test_page: (a: number, b: number, c: number, d: number) => number;
     readonly wasmvexiosession_import_cloud_discovery: (a: number, b: number, c: number, d: number) => [number, number, number];
     readonly wasmvexiosession_import_data_visualizer: (a: number, b: number, c: number, d: number) => [number, number, number];
@@ -441,6 +459,7 @@ export interface InitOutput {
     readonly wasmvexiosession_import_sqlite_recordset: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => [number, number, number];
     readonly wasmvexiosession_import_stencil_bytes: (a: number, b: number, c: number, d: number, e: number) => [number, number, number, number];
     readonly wasmvexiosession_insert_architectural_room: (a: number, b: number, c: number, d: number) => number;
+    readonly wasmvexiosession_insert_associative_dimension: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => [number, number, number];
     readonly wasmvexiosession_insert_callout: (a: number, b: number, c: number, d: number, e: number) => number;
     readonly wasmvexiosession_insert_container: (a: number, b: number, c: number, d: number, e: number, f: number) => number;
     readonly wasmvexiosession_insert_cropped_image: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number) => number;
@@ -450,6 +469,7 @@ export interface InitOutput {
     readonly wasmvexiosession_insert_shape_vertex: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => number;
     readonly wasmvexiosession_insert_swimlanes: (a: number, b: number, c: number, d: number) => number;
     readonly wasmvexiosession_insert_text_field: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => [number, number, number];
+    readonly wasmvexiosession_insert_wall_opening: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => [number, number, number];
     readonly wasmvexiosession_link_csv_and_apply_data_graphics: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
     readonly wasmvexiosession_list_arrowheads_json: (a: number) => [number, number];
     readonly wasmvexiosession_list_builtin_pack_order_json: (a: number) => [number, number];
@@ -476,6 +496,7 @@ export interface InitOutput {
     readonly wasmvexiosession_number_shapes_on_page: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number, l: number) => [number, number, number];
     readonly wasmvexiosession_open_bytes: (a: number, b: number, c: number, d: number, e: number) => [number, number];
     readonly wasmvexiosession_query_box_shapes: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number];
+    readonly wasmvexiosession_recalculate_vsm_and_fta_json: (a: number, b: number) => [number, number, number, number];
     readonly wasmvexiosession_redo: (a: number) => number;
     readonly wasmvexiosession_refresh_external_recordset_bytes: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number, number];
     readonly wasmvexiosession_register_font_bytes: (a: number, b: number, c: number, d: number, e: number) => number;

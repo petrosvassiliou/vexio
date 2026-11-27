@@ -6114,8 +6114,19 @@ impl DocumentSession {
             });
             return Ok(res.to_string());
         }
+        if slug == "mind_map_export" || slug == "brainstorming_export" {
+            let md = crate::aec_plan2_m4::export_mind_map_outline(&self.doc, page_id);
+            let res = serde_json::json!({
+                "wizard": "mind_map_export",
+                "createdCount": 0,
+                "exportedText": md,
+                "summary": format!("Exported Mind Map Markdown outline ({} bytes)", md.len())
+            });
+            return Ok(res.to_string());
+        }
 
         let mut created_count = 0usize;
+        let mut exported_extra = String::new();
         let mut summary = String::new();
         let mut parse_err: Option<String> = None;
 
@@ -6211,6 +6222,62 @@ impl DocumentSession {
                     }
                     summary = format!("Created {} Architectural Room space(s) with reactive AreaSqFt", created_count);
                 }
+                "calendar" | "calendar_month" => {
+                    created_count = crate::aec_plan2_m4::build_calendar_diagram(doc, page_id, spec_text);
+                    summary = format!("Generated Calendar grid with {} cell/banner shape(s)", created_count);
+                }
+                "pivot" | "pivot_diagram" => {
+                    created_count = crate::aec_plan2_m4::build_pivot_diagram(doc, page_id, spec_text);
+                    if created_count == 0 {
+                        parse_err = Some("PivotDiagram requires CSV header + at least 1 data row".into());
+                    } else {
+                        summary = format!("Generated Hierarchical PivotDiagram with {} rollup card(s)", created_count);
+                    }
+                }
+                "mind_map" | "brainstorming" | "mindmap" => {
+                    created_count = crate::aec_plan2_m4::build_mind_map_from_outline(doc, page_id, spec_text, "balanced");
+                    if created_count == 0 {
+                        parse_err = Some("Mind Map requires at least 1 topic line".into());
+                    } else {
+                        exported_extra = crate::aec_plan2_m4::export_mind_map_outline(doc, page_id);
+                        summary = format!("Generated Balanced Mind Map with {} topic node(s)", created_count);
+                    }
+                }
+                "mind_map_radial" => {
+                    created_count = crate::aec_plan2_m4::build_mind_map_from_outline(doc, page_id, spec_text, "radial");
+                    if created_count == 0 {
+                        parse_err = Some("Mind Map requires at least 1 topic line".into());
+                    } else {
+                        exported_extra = crate::aec_plan2_m4::export_mind_map_outline(doc, page_id);
+                        summary = format!("Generated Radial Mind Map with {} topic node(s)", created_count);
+                    }
+                }
+                "vsm" | "value_stream" => {
+                    created_count = crate::aec_plan2_m4::build_vsm_diagram(doc, page_id, spec_text);
+                    if created_count == 0 {
+                        parse_err = Some("VSM spec requires at least 1 process step (Name,CycleTimeSec,WaitDays,UptimePct,Operators)".into());
+                    } else {
+                        let rep = crate::aec_plan2_m4::recalculate_vsm_and_fta(doc, page_id);
+                        exported_extra = serde_json::to_string_pretty(&rep).unwrap_or_default();
+                        summary = format!(
+                            "Generated Lean VSM ({} step(s), Lead {:.2}d, VA {:.1}s, PCE {:.4}%, Bottleneck: {})",
+                            rep.vsm_step_count, rep.vsm_total_lead_time_days, rep.vsm_total_value_added_sec, rep.vsm_pce_percent, rep.vsm_bottleneck_step
+                        );
+                    }
+                }
+                "fta" | "fault_tree" => {
+                    created_count = crate::aec_plan2_m4::build_fault_tree_diagram(doc, page_id, spec_text);
+                    if created_count == 0 {
+                        parse_err = Some("FTA spec requires at least 1 gate/event row (ID,Label,GateOrBasic,Prob,Children)".into());
+                    } else {
+                        let rep = crate::aec_plan2_m4::recalculate_vsm_and_fta(doc, page_id);
+                        exported_extra = serde_json::to_string_pretty(&rep).unwrap_or_default();
+                        summary = format!(
+                            "Generated Fault Tree ({} gate(s), {} basic event(s), Top P = {:.6}, {} minimal cut set(s))",
+                            rep.fta_gate_count, rep.fta_basic_event_count, rep.fta_top_probability, rep.fta_minimal_cut_sets.len()
+                        );
+                    }
+                }
                 other => {
                     parse_err = Some(format!("unsupported domain wizard '{other}'"));
                 }
@@ -6224,7 +6291,7 @@ impl DocumentSession {
         let res = serde_json::json!({
             "wizard": slug,
             "createdCount": created_count,
-            "exportedText": "",
+            "exportedText": exported_extra,
             "summary": summary
         });
         Ok(res.to_string())
@@ -8218,6 +8285,178 @@ impl DocumentSession {
                 ReactiveEngine::recalculate_document(doc);
             });
         Ok(numbered)
+    }
+
+    // ------------------------------------------------------------------------
+    // Milestone 4 (`v0.9.0-beta`): Associative Dimensions, Auto-Healing Walls,
+    // Door/Window Openings, Mind Map Topics & VSM/FTA Live Calculators
+    // ------------------------------------------------------------------------
+
+    pub fn insert_associative_dimension(
+        &mut self,
+        page_id: u32,
+        dim_kind: &str,
+        target_shape_id: u64,
+        second_shape_id: u64,
+        offset_in: f64,
+        unit_format: &str,
+    ) -> Result<u64, CoreError> {
+        if self.doc.page(page_id).is_none() {
+            return Err(CoreError::Journal(JournalError::PageNotFound(page_id)));
+        }
+        let mut created_id: Option<u64> = None;
+        let _ = self.journal.record_mutation(
+            &mut self.doc,
+            "Insert Associative Dimension",
+            |doc| {
+                created_id = crate::aec_plan2_m4::insert_associative_dimension(
+                    doc,
+                    page_id,
+                    dim_kind,
+                    target_shape_id,
+                    second_shape_id,
+                    offset_in,
+                    unit_format,
+                );
+            },
+        );
+        match created_id {
+            Some(id) => Ok(id),
+            None => {
+                let _ = self.journal.undo(&mut self.doc);
+                Err(CoreError::Journal(JournalError::ShapeNotFound(target_shape_id)))
+            }
+        }
+    }
+
+    pub fn draw_architectural_wall(
+        &mut self,
+        page_id: u32,
+        x1_in: f64,
+        y1_in: f64,
+        x2_in: f64,
+        y2_in: f64,
+        thickness_in: f64,
+    ) -> Result<u64, CoreError> {
+        if self.doc.page(page_id).is_none() {
+            return Err(CoreError::Journal(JournalError::PageNotFound(page_id)));
+        }
+        let mut wid: Option<u64> = None;
+        let _ = self
+            .journal
+            .record_mutation(&mut self.doc, "Draw Architectural Wall", |doc| {
+                wid = crate::aec_plan2_m4::draw_architectural_wall(
+                    doc,
+                    page_id,
+                    x1_in,
+                    y1_in,
+                    x2_in,
+                    y2_in,
+                    thickness_in,
+                );
+            });
+        wid.ok_or(CoreError::Journal(JournalError::PageNotFound(page_id)))
+    }
+
+    pub fn heal_wall_intersections(
+        &mut self,
+        page_id: u32,
+        tolerance_in: f64,
+    ) -> Result<usize, CoreError> {
+        if self.doc.page(page_id).is_none() {
+            return Err(CoreError::Journal(JournalError::PageNotFound(page_id)));
+        }
+        let mut count = 0usize;
+        let _ = self
+            .journal
+            .record_mutation(&mut self.doc, "Heal Wall Intersections", |doc| {
+                count = crate::aec_plan2_m4::heal_wall_intersections(doc, page_id, tolerance_in);
+            });
+        Ok(count)
+    }
+
+    pub fn insert_wall_opening(
+        &mut self,
+        page_id: u32,
+        wall_shape_id: u64,
+        opening_kind: &str,
+        offset_along_in: f64,
+        opening_width_in: f64,
+        swing_dir: &str,
+    ) -> Result<u64, CoreError> {
+        if self.doc.page(page_id).is_none() {
+            return Err(CoreError::Journal(JournalError::PageNotFound(page_id)));
+        }
+        let mut oid: Option<u64> = None;
+        let _ = self
+            .journal
+            .record_mutation(&mut self.doc, "Insert Wall Opening", |doc| {
+                oid = crate::aec_plan2_m4::insert_wall_opening(
+                    doc,
+                    page_id,
+                    wall_shape_id,
+                    opening_kind,
+                    offset_along_in,
+                    opening_width_in,
+                    swing_dir,
+                );
+            });
+        match oid {
+            Some(id) => Ok(id),
+            None => {
+                let _ = self.journal.undo(&mut self.doc);
+                Err(CoreError::Journal(JournalError::ShapeNotFound(wall_shape_id)))
+            }
+        }
+    }
+
+    pub fn add_mind_map_topic(
+        &mut self,
+        page_id: u32,
+        anchor_shape_id: u64,
+        topic_text: &str,
+        as_sibling: bool,
+    ) -> Result<u64, CoreError> {
+        if self.doc.page(page_id).is_none() {
+            return Err(CoreError::Journal(JournalError::PageNotFound(page_id)));
+        }
+        let mut tid: Option<u64> = None;
+        let _ = self
+            .journal
+            .record_mutation(&mut self.doc, "Add Mind Map Topic", |doc| {
+                tid = crate::aec_plan2_m4::add_mind_map_topic(
+                    doc,
+                    page_id,
+                    anchor_shape_id,
+                    topic_text,
+                    as_sibling,
+                );
+            });
+        match tid {
+            Some(id) => Ok(id),
+            None => {
+                let _ = self.journal.undo(&mut self.doc);
+                Err(CoreError::Journal(JournalError::ShapeNotFound(anchor_shape_id)))
+            }
+        }
+    }
+
+    pub fn export_mind_map_outline(&self, page_id: u32) -> String {
+        crate::aec_plan2_m4::export_mind_map_outline(&self.doc, page_id)
+    }
+
+    pub fn recalculate_vsm_and_fta_json(&mut self, page_id: u32) -> Result<String, CoreError> {
+        if self.doc.page(page_id).is_none() {
+            return Err(CoreError::Journal(JournalError::PageNotFound(page_id)));
+        }
+        let mut json_out = String::new();
+        let _ = self
+            .journal
+            .record_mutation(&mut self.doc, "Recalculate VSM & FTA", |doc| {
+                let rep = crate::aec_plan2_m4::recalculate_vsm_and_fta(doc, page_id);
+                json_out = serde_json::to_string(&rep).unwrap_or_else(|_| "{}".into());
+            });
+        Ok(json_out)
     }
 
     fn register_custom_masters_preserving_ports(

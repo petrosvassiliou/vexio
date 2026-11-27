@@ -581,6 +581,39 @@ interface WasmSessionInstance {
     prefix: string,
     target_mode: string
   ): number;
+  insert_associative_dimension?(
+    page_id: number,
+    dim_kind: string,
+    target_shape_id: number,
+    second_shape_id: number,
+    offset_in: number,
+    unit_format: string
+  ): number;
+  draw_architectural_wall?(
+    page_id: number,
+    x1_in: number,
+    y1_in: number,
+    x2_in: number,
+    y2_in: number,
+    thickness_in: number
+  ): number;
+  heal_wall_intersections?(page_id: number, tolerance_in: number): number;
+  insert_wall_opening?(
+    page_id: number,
+    wall_shape_id: number,
+    opening_kind: string,
+    offset_along_in: number,
+    opening_width_in: number,
+    swing_dir: string
+  ): number;
+  add_mind_map_topic?(
+    page_id: number,
+    anchor_shape_id: number,
+    topic_text: string,
+    as_sibling: boolean
+  ): number;
+  export_mind_map_outline?(page_id: number): string;
+  recalculate_vsm_and_fta_json?(page_id: number): string;
   apply_title_block_border(page_id: number, project_code: string, author: string, revision: string): number;
   compare_with_vsdx_bytes(baseline_vsdx: Uint8Array): string;
   import_data_visualizer(page_id: number, bytes: Uint8Array): number;
@@ -2482,6 +2515,95 @@ self.onmessage = async (ev: MessageEvent) => {
             : 0;
         const wal = session.export_wal();
         self.postMessage({ id, ok: true, count, wal, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'insertAssociativeDimension': {
+        const dimShapeId =
+          typeof session.insert_associative_dimension === 'function'
+            ? session.insert_associative_dimension(
+                activePageId,
+                String(payload.dimKind ?? 'aligned'),
+                Number(payload.targetShapeId ?? 0),
+                Number(payload.secondShapeId ?? 0),
+                Number(payload.offsetIn ?? 0.65),
+                String(payload.unitFormat ?? '')
+              )
+            : 0;
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, dimShapeId, wal, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'drawArchitecturalWall': {
+        const wallShapeId =
+          typeof session.draw_architectural_wall === 'function'
+            ? session.draw_architectural_wall(
+                activePageId,
+                Number(payload.x1In ?? 2.0),
+                Number(payload.y1In ?? 4.0),
+                Number(payload.x2In ?? 6.0),
+                Number(payload.y2In ?? 4.0),
+                Number(payload.thicknessIn ?? 0.35)
+              )
+            : 0;
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, wallShapeId, wal, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'healWallIntersections': {
+        const healedCount =
+          typeof session.heal_wall_intersections === 'function'
+            ? session.heal_wall_intersections(activePageId, Number(payload.toleranceIn ?? 0.3))
+            : 0;
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, healedCount, wal, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'insertWallOpening': {
+        const openingShapeId =
+          typeof session.insert_wall_opening === 'function'
+            ? session.insert_wall_opening(
+                activePageId,
+                Number(payload.wallShapeId ?? 0),
+                String(payload.openingKind ?? 'single_door'),
+                Number(payload.offsetAlongIn ?? 0.5),
+                Number(payload.openingWidthIn ?? 0.9),
+                String(payload.swingDir ?? 'in_left')
+              )
+            : 0;
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, openingShapeId, wal, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'addMindMapTopic': {
+        const topicShapeId =
+          typeof session.add_mind_map_topic === 'function'
+            ? session.add_mind_map_topic(
+                activePageId,
+                Number(payload.anchorShapeId ?? 0),
+                String(payload.topicText ?? 'New Subtopic'),
+                Boolean(payload.asSibling)
+              )
+            : 0;
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, topicShapeId, wal, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'exportMindMapOutline': {
+        const markdown =
+          typeof session.export_mind_map_outline === 'function'
+            ? session.export_mind_map_outline(activePageId)
+            : '';
+        self.postMessage({ id, ok: true, markdown });
+        break;
+      }
+      case 'recalculateVsmAndFta': {
+        const raw =
+          typeof session.recalculate_vsm_and_fta_json === 'function'
+            ? session.recalculate_vsm_and_fta_json(activePageId)
+            : '{}';
+        const report = raw ? JSON.parse(raw) : {};
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, report, wal, snapshot: buildSnapshot(session) });
         break;
       }
     }

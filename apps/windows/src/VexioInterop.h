@@ -2161,6 +2161,132 @@ public:
         return VexioResult<uint32_t>{VEXIO_OK, count};
     }
 
+    // -----------------------------------------------------------------------
+    // v0.9.0-beta: Associative Architectural Dimensions, Wall Miter/T-Join
+    // Auto-Healing, Door/Window Openings, Mind Map Topics & VSM/FTA Calculators
+    // -----------------------------------------------------------------------
+    [[nodiscard]] VexioResult<uint64_t> InsertAssociativeDimension(
+        uint32_t pageId,
+        std::string_view dimKindUtf8,
+        uint64_t targetShapeId,
+        uint64_t secondShapeId = 0,
+        double offsetIn = 0.55,
+        std::string_view unitFormatUtf8 = "auto")
+    {
+        if (m_ptr == nullptr || targetShapeId == 0) {
+            return VexioResult<uint64_t>{VEXIO_ERR_INVALID_ARG, std::nullopt};
+        }
+        const std::string kind{dimKindUtf8.empty() ? "aligned" : dimKindUtf8};
+        const std::string unit{unitFormatUtf8.empty() ? "auto" : unitFormatUtf8};
+        uint64_t dimId = 0;
+        const VexioStatus status = vexio_doc_insert_associative_dimension(
+            m_ptr, pageId, kind.c_str(), targetShapeId, secondShapeId, offsetIn, unit.c_str(), &dimId);
+        if (status != VEXIO_OK) {
+            return VexioResult<uint64_t>{status, std::nullopt};
+        }
+        return VexioResult<uint64_t>{VEXIO_OK, dimId};
+    }
+
+    [[nodiscard]] VexioResult<uint64_t> DrawArchitecturalWall(
+        uint32_t pageId,
+        double x1In,
+        double y1In,
+        double x2In,
+        double y2In,
+        double thicknessIn = 0.25)
+    {
+        if (m_ptr == nullptr) {
+            return VexioResult<uint64_t>{VEXIO_ERR_INVALID_ARG, std::nullopt};
+        }
+        uint64_t wallId = 0;
+        const VexioStatus status = vexio_doc_draw_architectural_wall(
+            m_ptr, pageId, x1In, y1In, x2In, y2In, thicknessIn, &wallId);
+        if (status != VEXIO_OK) {
+            return VexioResult<uint64_t>{status, std::nullopt};
+        }
+        return VexioResult<uint64_t>{VEXIO_OK, wallId};
+    }
+
+    [[nodiscard]] VexioResult<uint32_t> HealWallIntersections(
+        uint32_t pageId,
+        double toleranceIn = 0.30)
+    {
+        if (m_ptr == nullptr) {
+            return VexioResult<uint32_t>{VEXIO_ERR_INVALID_ARG, std::nullopt};
+        }
+        uint32_t healed = 0;
+        const VexioStatus status = vexio_doc_heal_wall_intersections(m_ptr, pageId, toleranceIn, &healed);
+        if (status != VEXIO_OK) {
+            return VexioResult<uint32_t>{status, std::nullopt};
+        }
+        return VexioResult<uint32_t>{VEXIO_OK, healed};
+    }
+
+    [[nodiscard]] VexioResult<uint64_t> InsertWallOpening(
+        uint32_t pageId,
+        uint64_t wallShapeId,
+        std::string_view openingKindUtf8,
+        double offsetAlongIn = -1.0,
+        double openingWidthIn = 0.90,
+        std::string_view swingDirUtf8 = "in_left")
+    {
+        if (m_ptr == nullptr || wallShapeId == 0) {
+            return VexioResult<uint64_t>{VEXIO_ERR_INVALID_ARG, std::nullopt};
+        }
+        const std::string kind{openingKindUtf8.empty() ? "single_door" : openingKindUtf8};
+        const std::string swing{swingDirUtf8.empty() ? "in_left" : swingDirUtf8};
+        uint64_t openId = 0;
+        const VexioStatus status = vexio_doc_insert_wall_opening(
+            m_ptr, pageId, wallShapeId, kind.c_str(), offsetAlongIn, openingWidthIn, swing.c_str(), &openId);
+        if (status != VEXIO_OK) {
+            return VexioResult<uint64_t>{status, std::nullopt};
+        }
+        return VexioResult<uint64_t>{VEXIO_OK, openId};
+    }
+
+    [[nodiscard]] VexioResult<uint64_t> AddMindMapTopic(
+        uint32_t pageId,
+        uint64_t anchorShapeId,
+        std::string_view topicTextUtf8,
+        bool asSibling = false)
+    {
+        if (m_ptr == nullptr) {
+            return VexioResult<uint64_t>{VEXIO_ERR_INVALID_ARG, std::nullopt};
+        }
+        const std::string txt{topicTextUtf8};
+        uint64_t topicId = 0;
+        const VexioStatus status = vexio_doc_add_mind_map_topic(
+            m_ptr, pageId, anchorShapeId, txt.c_str(), asSibling, &topicId);
+        if (status != VEXIO_OK) {
+            return VexioResult<uint64_t>{status, std::nullopt};
+        }
+        return VexioResult<uint64_t>{VEXIO_OK, topicId};
+    }
+
+    [[nodiscard]] VexioResult<winrt::hstring> ExportMindMapOutline(uint32_t pageId) const {
+        if (m_ptr == nullptr) {
+            return VexioResult<winrt::hstring>{VEXIO_ERR_INVALID_ARG, std::nullopt};
+        }
+        OwnedBufferGuard buf;
+        const VexioStatus status = vexio_doc_export_mind_map_outline(m_ptr, pageId, buf.OutPtr());
+        if (status != VEXIO_OK) {
+            return VexioResult<winrt::hstring>{status, std::nullopt};
+        }
+        return VexioResult<winrt::hstring>{VEXIO_OK, buf.ToWinRtString()};
+    }
+
+    [[nodiscard]] VexioResult<winrt::hstring> RecalculateVsmAndFtaJson(uint32_t pageId) {
+        if (m_ptr == nullptr) {
+            return VexioResult<winrt::hstring>{VEXIO_ERR_INVALID_ARG, std::nullopt};
+        }
+        OwnedBufferGuard buf;
+        const VexioStatus status = vexio_doc_recalculate_vsm_and_fta_json(m_ptr, pageId, buf.OutPtr());
+        if (status != VEXIO_OK) {
+            return VexioResult<winrt::hstring>{status, std::nullopt};
+        }
+        return VexioResult<winrt::hstring>{VEXIO_OK, buf.ToWinRtString()};
+    }
+
 private:
     VexioDoc* m_ptr{nullptr};
 };

@@ -830,6 +830,12 @@ public struct VexioHeaderAndRibbonBar: View {
                     LiquidGlassIconButton(systemImage: "paintbrush.pointed", title: "Format Painter (⌃⇧P)", isActive: session.activeTool == .formatPainter) {
                         session.activeTool = (session.activeTool == .formatPainter) ? .pointer : .formatPainter
                     }
+                    LiquidGlassIconButton(systemImage: "rectangle.split.3x1", title: "Wall Tool (⌃⇧W)", isActive: session.activeTool == .wall) {
+                        session.activeTool = (session.activeTool == .wall) ? .pointer : .wall
+                    }
+                    LiquidGlassIconButton(systemImage: "ruler", title: "Dimension Tool (⌃⇧D)", isActive: session.activeTool == .dimension) {
+                        session.activeTool = (session.activeTool == .dimension) ? .pointer : .dimension
+                    }
                     LiquidGlassIconButton(systemImage: "magnifyingglass", title: "Find & Replace… (⌘F)") {
                         NotificationCenter.default.post(name: .vexioOpenFindReplaceSheet, object: nil)
                     }
@@ -1012,11 +1018,74 @@ public struct VexioHeaderAndRibbonBar: View {
                     ribbonCompactButton("number.square", "Field…", tip: "Insert Dynamic ShapeSheet Text Field (<fld>)") {
                         NotificationCenter.default.post(name: .vexioOpenInsertFieldSheet, object: nil)
                     }
-                    ribbonCompactButton("wand.and.stars", "Wizards…", tip: "SQL ⇄ ERD, Gantt, Timeline, PERT/CPM, Org Chart, 42U Rack & Room Wizards") {
+                    ribbonCompactButton("wand.and.stars", "Wizards…", tip: "Calendar, PivotDiagram, Mind Map, Lean VSM, Fault Tree, SQL ⇄ ERD, Gantt, PERT, Rack & Room Wizards") {
                         NotificationCenter.default.post(name: .vexioOpenDomainWizardsSheet, object: nil)
                     }
                     ribbonCompactButton("ruler", "CAD Tools…", tip: "Architectural Scale Lock, Convert CAD Layers & Export Binary .DWG") {
                         NotificationCenter.default.post(name: .vexioOpenCadToolsSheet, object: nil)
+                    }
+                }
+            }
+            Divider().frame(height: 44)
+            ribbonGroup(title: "AEC & Plan 2") {
+                HStack(spacing: 5) {
+                    HoverSwitchMenuButton(
+                        id: "insert.dimension",
+                        title: "Dimension",
+                        systemImage: "ruler",
+                        tooltip: "Insert Live Associative Architectural Dimension on Selected Shape(s)",
+                        coordinator: menuCoordinator
+                    ) {
+                        ForEach([
+                            ("Aligned Length", "aligned"),
+                            ("Horizontal Span", "horizontal"),
+                            ("Vertical Span", "vertical"),
+                            ("Angular (2 Shapes)", "angular"),
+                            ("Radial (R)", "radial"),
+                            ("Diameter (⌀)", "diameter"),
+                        ], id: \.1) { lbl, slug in
+                            Button(lbl) {
+                                let fmt = i18n.unitPreference.isMetric ? "0 mm" : "0.00 in"
+                                session.insertAssociativeDimensionOnSelection(dimKind: slug, unitFormat: slug == "angular" ? "0.0 deg" : fmt, undoManager: undoManager)
+                                menuCoordinator.activeMenuID = nil
+                            }
+                            .buttonStyle(.plain)
+                            .padding(.vertical, 2)
+                        }
+                    }
+
+                    HoverSwitchMenuButton(
+                        id: "insert.wallopening",
+                        title: "Opening",
+                        systemImage: "door.left.hand.open",
+                        tooltip: "Cut Parametric Door or Window Opening into Selected Architectural Wall",
+                        coordinator: menuCoordinator
+                    ) {
+                        ForEach([
+                            ("Single Door (90°)", "single_door", 0.75),
+                            ("Double French Door", "double_door", 1.20),
+                            ("Sliding Door", "sliding_door", 1.10),
+                            ("Pocket Door", "pocket_door", 0.75),
+                            ("Casement Window", "window", 0.95),
+                            ("Cased Opening", "cased_opening", 0.85),
+                        ], id: \.1) { lbl, slug, wIn in
+                            Button(lbl) {
+                                session.insertWallOpeningOnSelection(openingKind: slug, openingWidthIn: wIn, undoManager: undoManager)
+                                menuCoordinator.activeMenuID = nil
+                            }
+                            .buttonStyle(.plain)
+                            .padding(.vertical, 2)
+                        }
+                    }
+
+                    ribbonCompactButton("square.split.bottomrightquarter", "Heal Walls", tip: "Auto-Heal Wall Miter (L-Corner) & T-Join Intersections") {
+                        session.healActivePageWalls(undoManager: undoManager)
+                    }
+                    ribbonCompactButton("point.3.filled.connected.trianglepath.dotted", "+ Topic", tip: "Add Brainstorming / Mind Map Subtopic") {
+                        session.addMindMapTopicOnSelection(undoManager: undoManager)
+                    }
+                    ribbonCompactButton("function", "VSM / FTA Calc", tip: "Recalculate Lean VSM Lead-Time/PCE% & Fault Tree MOCUS Cut Sets") {
+                        session.recalculateVsmAndFtaOnActivePage(undoManager: undoManager)
                     }
                 }
             }

@@ -1111,6 +1111,67 @@ object NativeBridge {
         prefix: String,
         targetMode: String
     ): Int
+
+    @JvmStatic
+    external fun nativeInsertAssociativeDimension(
+        docPtr: Long,
+        pageId: Int,
+        dimKind: String,
+        targetShapeId: Long,
+        secondShapeId: Long,
+        offsetIn: Double,
+        unitFormat: String
+    ): Long
+
+    @JvmStatic
+    external fun nativeDrawArchitecturalWall(
+        docPtr: Long,
+        pageId: Int,
+        x1In: Double,
+        y1In: Double,
+        x2In: Double,
+        y2In: Double,
+        thicknessIn: Double
+    ): Long
+
+    @JvmStatic
+    external fun nativeHealWallIntersections(
+        docPtr: Long,
+        pageId: Int,
+        toleranceIn: Double
+    ): Int
+
+    @JvmStatic
+    external fun nativeInsertWallOpening(
+        docPtr: Long,
+        pageId: Int,
+        wallShapeId: Long,
+        openingKind: String,
+        offsetAlongIn: Double,
+        openingWidthIn: Double,
+        swingDir: String
+    ): Long
+
+    @JvmStatic
+    external fun nativeAddMindMapTopic(
+        docPtr: Long,
+        pageId: Int,
+        anchorShapeId: Long,
+        topicText: String,
+        asSibling: Boolean
+    ): Long
+
+    @JvmStatic
+    external fun nativeExportMindMapOutline(
+        docPtr: Long,
+        pageId: Int
+    ): String?
+
+    @JvmStatic
+    external fun nativeRecalculateVsmAndFtaJson(
+        docPtr: Long,
+        pageId: Int
+    ): String?
 }
 
 /**
@@ -1346,7 +1407,9 @@ enum class VexioTool(val displayName: String, val shortcutHint: String, val nati
     INK_ERASER("Ink Eraser", "Alt+E", 17),
     CONNECTION_POINT("Connection Point", "Ctrl+Shift+1", 18),
     TEXT_BLOCK_TRANSFORM("Text Block Tool", "Ctrl+Shift+4", 19),
-    FORMAT_PAINTER("Format Painter", "Ctrl+Shift+P", 20)
+    FORMAT_PAINTER("Format Painter", "Ctrl+Shift+P", 20),
+    WALL("Wall Tool", "Ctrl+Shift+W", 21),
+    DIMENSION("Dimension Tool", "Ctrl+Shift+D", 22)
 }
 
 data class RulerGuideUiItem(
@@ -2152,7 +2215,7 @@ data class WorkstationUiState(
     val inlineTextEditor: InlineCanvasEditorModel? = null,
     val smartGuidesEnabled: Boolean = true,
     val autoCheckUpdates: Boolean = true,
-    val updateStatusMessage: String = "Vexio v0.8.0-beta • Automatic update check enabled",
+    val updateStatusMessage: String = "Vexio v0.9.0-beta • Automatic update check enabled",
     val availableUpdateTag: String? = null,
     val availableUpdateUrl: String? = null,
     val showUpdateDialog: Boolean = false,
@@ -3031,7 +3094,8 @@ class VexioSessionViewModel(
                 VexioTool.INK_ERASER,
                 VexioTool.CONNECTION_POINT,
                 VexioTool.TEXT_BLOCK_TRANSFORM,
-                VexioTool.FORMAT_PAINTER
+                VexioTool.FORMAT_PAINTER,
+                VexioTool.WALL
             )
         if (shouldResetToPointer && NativeBridge.isNativeAvailable && viewportPtr != 0L) {
             NativeBridge.nativeSetViewportTool(viewportPtr, VexioTool.POINTER.nativeCode)
@@ -6039,6 +6103,13 @@ class VexioSessionViewModel(
             "org_chart" -> "1,,Alex Rivera,Chief Executive Officer,Executive\n2,1,Priya Patel,VP Engineering,Engineering\n3,1,Marcus Chen,VP Product,Product\n4,2,Elena Rostova,Principal Architect,Core"
             "rack_42u" -> "41,2,Core Spine Switch,Switch,320,12\n37,4,GPU Compute Node A,Compute,1400,48\n33,4,NVMe Storage Array,Storage,850,38\n1,2,Dual Redundant UPS,UPS,1800,62"
             "arch_room" -> "Conference Suite A,2.0,3.0,5.0,3.5"
+            "calendar" -> "2026-11,monday\n2026-11-03|Architecture Freeze\n2026-11-12|Security Audit\n2026-11-27|v0.9.0-beta Release"
+            "pivot_diagram" -> "GROUP=Region>Service;METRIC=Cost;AGG=SUM\nRegion,Service,Cost\nEMEA,Compute,42000\nEMEA,Storage,18000\nAmericas,Compute,64000\nAmericas,AI_GPU,51000\nAPAC,Compute,29000"
+            "mind_map" -> "# Vexio 1.0 Launch\n## Core Engine\n### Associative Dimensions\n### Wall Auto-Healing\n## Native Apps\n### Windows WinUI 3\n### macOS Liquid Glass\n### Android Vulkan\n### ChromeOS Offline PWA"
+            "mind_map_radial" -> "# Product Strategy\n## Enterprise CAD\n### DWG R2024\n### Scale Locking\n## Process Intelligence\n### Lean VSM\n### Fault Tree MOCUS"
+            "mind_map_export" -> "# Vexio Mind Map"
+            "vsm" -> "CUSTOMER=Enterprise Accounts;SUPPLIER=Cloud Foundry\nStep,CycleSec,WaitMin,UptimePct,Operators,WIP\nOrder Intake,45,15,99.5,1,12\nCredit & Compliance,120,90,98.0,2,34\nProvision Tenant,60,25,99.9,1,8\nQA & Handover,90,40,97.5,2,15"
+            "fta" -> "TOP,Service Outage,OR,,\nG1,Primary Region Down,AND,TOP,\nG2,Failover Blocked,OR,TOP,\nE1,Power Feed A Lost,BASIC,G1,0.01\nE2,UPS Transfer Failure,BASIC,G1,0.02\nE3,DNS Stale TTL,BASIC,G2,0.005\nE4,Replica Lag > RPO,BASIC,G2,0.008"
             else -> ""
         }
         _uiState.update { it.copy(domainWizardSlug = slug, domainWizardSpec = sample, lastDomainWizardOutput = null) }
@@ -6062,25 +6133,28 @@ class VexioSessionViewModel(
             out
         } else if (slug == "sql_forward") {
             "{\"wizard\":\"sql_forward\",\"sql_ddl\":\"CREATE TABLE diagram_entities (id SERIAL PRIMARY KEY);\"}"
+        } else if (slug == "mind_map_export") {
+            "{\"wizard\":\"mind_map_export\",\"markdown\":\"# Vexio 1.0 Launch\\n## Core Engine\"}"
         } else {
-            "{\"wizard\":\"$slug\",\"created_shapes\":4}"
+            "{\"wizard\":\"$slug\",\"created_shapes\":6}"
         }
-        val ddlOut = if (slug == "sql_forward") {
-            runCatching { org.json.JSONObject(rawResult).optString("sql_ddl", rawResult) }.getOrDefault(rawResult)
-        } else {
-            null
+        val textOut = when (slug) {
+            "sql_forward" -> runCatching { org.json.JSONObject(rawResult).optString("sql_ddl", rawResult) }.getOrDefault(rawResult)
+            "mind_map_export" -> runCatching { org.json.JSONObject(rawResult).optString("markdown", rawResult) }.getOrDefault(rawResult)
+            else -> null
         }
+        val isReadOnlyExport = slug == "sql_forward" || slug == "mind_map_export"
         _uiState.update {
             it.copy(
-                showDomainWizardsDialog = slug == "sql_forward",
-                lastDomainWizardOutput = ddlOut ?: rawResult,
-                isDirty = slug != "sql_forward",
+                showDomainWizardsDialog = isReadOnlyExport,
+                lastDomainWizardOutput = textOut ?: rawResult,
+                isDirty = !isReadOnlyExport || it.isDirty,
                 canUndo = true,
-                pageShapeCount = if (slug != "sql_forward") it.pageShapeCount + 4 else it.pageShapeCount,
+                pageShapeCount = if (!isReadOnlyExport) it.pageShapeCount + 6 else it.pageShapeCount,
                 statusBanner = "Executed domain wizard: $slug"
             )
         }
-        return ddlOut ?: rawResult
+        return textOut ?: rawResult
     }
 
     @Synchronized
@@ -6769,6 +6843,226 @@ class VexioSessionViewModel(
         return count
     }
 
+    // -------------------------------------------------------------------------
+    // Milestone 4 (`v0.9.0-beta`): Associative Architectural Dimensions,
+    // Wall Miter/T-Join Auto-Healing, Door/Window Openings, Mind Map Topics & VSM/FTA
+    // -------------------------------------------------------------------------
+    @Synchronized
+    fun insertAssociativeDimension(
+        dimKind: String = "aligned",
+        targetShapeId: Long = _uiState.value.selectedShapeId,
+        secondShapeId: Long = _uiState.value.selectedShapeIds.getOrNull(1) ?: 0L,
+        offsetIn: Double = 0.55,
+        unitFormat: String = "auto"
+    ): Long {
+        if (targetShapeId <= 0L) return 0L
+        val pid = resolveNativePageId(_uiState.value.activePageId)
+        val cleanKind = dimKind.trim().ifBlank { "aligned" }
+        val dimId = if (NativeBridge.isNativeAvailable && docPtr != 0L) {
+            val id = NativeBridge.nativeInsertAssociativeDimension(
+                docPtr, pid, cleanKind, targetShapeId, secondShapeId.coerceAtLeast(0L), offsetIn, unitFormat
+            )
+            if (id > 0L) {
+                syncViewportSelection(listOf(id))
+                refreshSelectedShapeFormulas()
+                presentViewportOrFallback()
+            }
+            id
+        } else {
+            val id = nextSyntheticShapeId++
+            _uiState.update { st ->
+                st.copy(
+                    shapeSheetCells = st.shapeSheetCells.filterNot { it.cellName == "User.DimKind" } +
+                        ShapeSheetCellEntry("User-Defined Cells", "User.DimKind", "\"$cleanKind\"", false)
+                )
+            }
+            id
+        }
+        if (dimId > 0L) {
+            _uiState.update {
+                it.copy(
+                    selectedShapeId = dimId,
+                    selectedShapeIds = listOf(dimId),
+                    selectedShapeName = "Sheet.$dimId (Dimension)",
+                    pageShapeCount = it.pageShapeCount + 1,
+                    isDirty = true,
+                    canUndo = true,
+                    statusBanner = "Attached associative $cleanKind dimension (Sheet.$dimId)"
+                )
+            }
+        }
+        return dimId
+    }
+
+    @Synchronized
+    fun drawArchitecturalWall(
+        x1In: Double,
+        y1In: Double,
+        x2In: Double,
+        y2In: Double,
+        thicknessIn: Double = 0.25
+    ): Long {
+        val pid = resolveNativePageId(_uiState.value.activePageId)
+        val wallId = if (NativeBridge.isNativeAvailable && docPtr != 0L) {
+            val id = NativeBridge.nativeDrawArchitecturalWall(docPtr, pid, x1In, y1In, x2In, y2In, thicknessIn)
+            if (id > 0L) {
+                syncViewportSelection(listOf(id))
+                refreshSelectedShapeFormulas()
+                presentViewportOrFallback()
+            }
+            id
+        } else {
+            nextSyntheticShapeId++
+        }
+        if (wallId > 0L) {
+            _uiState.update {
+                it.copy(
+                    selectedShapeId = wallId,
+                    selectedShapeIds = listOf(wallId),
+                    selectedShapeName = "Sheet.$wallId (Wall)",
+                    pageShapeCount = it.pageShapeCount + 1,
+                    isDirty = true,
+                    canUndo = true,
+                    statusBanner = "Drew architectural wall segment (Sheet.$wallId) with auto-healing miters"
+                )
+            }
+        }
+        return wallId
+    }
+
+    @Synchronized
+    fun healWallIntersections(toleranceIn: Double = 0.30): Int {
+        val pid = resolveNativePageId(_uiState.value.activePageId)
+        val healed = if (NativeBridge.isNativeAvailable && docPtr != 0L) {
+            val n = NativeBridge.nativeHealWallIntersections(docPtr, pid, toleranceIn)
+            presentViewportOrFallback()
+            n
+        } else {
+            1
+        }
+        _uiState.update {
+            it.copy(
+                isDirty = healed > 0 || it.isDirty,
+                canUndo = healed > 0 || it.canUndo,
+                statusBanner = "Auto-healed $healed wall L-corner miter & T-join intersection(s)"
+            )
+        }
+        return healed
+    }
+
+    @Synchronized
+    fun insertWallOpening(
+        openingKind: String = "single_door",
+        wallShapeId: Long = _uiState.value.selectedShapeId,
+        offsetAlongIn: Double = -1.0,
+        openingWidthIn: Double = if (openingKind in setOf("double_door", "sliding_door")) 1.40 else 0.90,
+        swingDir: String = "in_left"
+    ): Long {
+        if (wallShapeId <= 0L) return 0L
+        val pid = resolveNativePageId(_uiState.value.activePageId)
+        val cleanKind = openingKind.trim().ifBlank { "single_door" }
+        val openingId = if (NativeBridge.isNativeAvailable && docPtr != 0L) {
+            val id = NativeBridge.nativeInsertWallOpening(
+                docPtr, pid, wallShapeId, cleanKind, offsetAlongIn, openingWidthIn, swingDir
+            )
+            if (id > 0L) {
+                syncViewportSelection(listOf(id))
+                refreshSelectedShapeFormulas()
+                presentViewportOrFallback()
+            }
+            id
+        } else {
+            nextSyntheticShapeId++
+        }
+        if (openingId > 0L) {
+            _uiState.update {
+                it.copy(
+                    selectedShapeId = openingId,
+                    selectedShapeIds = listOf(openingId),
+                    selectedShapeName = "Sheet.$openingId ($cleanKind)",
+                    pageShapeCount = it.pageShapeCount + 1,
+                    isDirty = true,
+                    canUndo = true,
+                    statusBanner = "Cut parametric $cleanKind opening (Sheet.$openingId) into Wall Sheet.$wallShapeId"
+                )
+            }
+        }
+        return openingId
+    }
+
+    @Synchronized
+    fun addMindMapTopic(
+        topicText: String = "New Subtopic",
+        asSibling: Boolean = false,
+        anchorShapeId: Long = _uiState.value.selectedShapeId
+    ): Long {
+        val pid = resolveNativePageId(_uiState.value.activePageId)
+        val cleanTopic = topicText.trim().ifBlank { "New Topic" }
+        val topicId = if (NativeBridge.isNativeAvailable && docPtr != 0L) {
+            val id = NativeBridge.nativeAddMindMapTopic(docPtr, pid, anchorShapeId.coerceAtLeast(0L), cleanTopic, asSibling)
+            if (id > 0L) {
+                syncViewportSelection(listOf(id))
+                refreshSelectedShapeFormulas()
+                presentViewportOrFallback()
+            }
+            id
+        } else {
+            nextSyntheticShapeId++
+        }
+        if (topicId > 0L) {
+            _uiState.update {
+                it.copy(
+                    selectedShapeId = topicId,
+                    selectedShapeIds = listOf(topicId),
+                    selectedShapeName = cleanTopic,
+                    pageShapeCount = it.pageShapeCount + 1,
+                    isDirty = true,
+                    canUndo = true,
+                    statusBanner = "Added Mind Map topic '$cleanTopic' (Sheet.$topicId)"
+                )
+            }
+        }
+        return topicId
+    }
+
+    @Synchronized
+    fun exportMindMapOutline(): String {
+        val pid = resolveNativePageId(_uiState.value.activePageId)
+        val md = if (NativeBridge.isNativeAvailable && docPtr != 0L) {
+            NativeBridge.nativeExportMindMapOutline(docPtr, pid).orEmpty()
+        } else {
+            "# ${_uiState.value.documentTitle.substringBeforeLast('.')}\n## ${_uiState.value.selectedShapeName}\n"
+        }
+        _uiState.update {
+            it.copy(
+                lastDomainWizardOutput = md,
+                statusBanner = "Exported Mind Map Markdown outline (${md.lines().count { l -> l.isNotBlank() }} topics)"
+            )
+        }
+        return md
+    }
+
+    @Synchronized
+    fun recalculateVsmAndFta(): String {
+        val pid = resolveNativePageId(_uiState.value.activePageId)
+        val reportJson = if (NativeBridge.isNativeAvailable && docPtr != 0L) {
+            val out = NativeBridge.nativeRecalculateVsmAndFtaJson(docPtr, pid).orEmpty()
+            refreshSelectedShapeFormulas()
+            presentViewportOrFallback()
+            out
+        } else {
+            """{"vsm":{"pce_pct":18.4,"value_added_sec":315.0},"fta":{"top_probability":0.0132,"minimal_cut_sets":3}}"""
+        }
+        _uiState.update {
+            it.copy(
+                isDirty = true,
+                canUndo = true,
+                statusBanner = "Recalculated Lean VSM PCE% & Fault Tree MOCUS Cut Sets"
+            )
+        }
+        return reportJson
+    }
+
     @Synchronized
     fun focusSlideSnippet(index: Int, enterPresenter: Boolean = true) {
         var slides = _uiState.value.slideSnippets
@@ -7045,7 +7339,7 @@ class VexioSessionViewModel(
                     instanceFollowRedirects = true
                     connectTimeout = 20_000
                     readTimeout = 45_000
-                    setRequestProperty("User-Agent", "Vexio-Android-Workstation/0.8.0-beta")
+                    setRequestProperty("User-Agent", "Vexio-Android-Workstation/0.9.0-beta")
                 }
                 try {
                     val code = conn.responseCode
@@ -8007,7 +8301,7 @@ class VexioSessionViewModel(
             }
         }
         viewModelScope.launch(ioDispatcher) {
-            val currentVersion = "0.8.0-beta"
+            val currentVersion = "0.9.0-beta"
             var latestTag: String? = null
             var downloadUrl = "https://github.com/petrosvassiliou/vexio/releases"
             var ok = false
@@ -8018,7 +8312,7 @@ class VexioSessionViewModel(
                     requestMethod = "GET"
                     connectTimeout = 4500
                     readTimeout = 4500
-                    setRequestProperty("User-Agent", "Vexio-Android-Googlebook/0.8.0-beta")
+                    setRequestProperty("User-Agent", "Vexio-Android-Googlebook/0.9.0-beta")
                     setRequestProperty("Accept", "application/vnd.github+json")
                 }
                 if (conn.responseCode in 200..299) {

@@ -685,6 +685,16 @@ public final class VexioMetalNSView: NSView {
             refreshActiveCursor()
             return
         }
+        if flags.contains(.control) && flags.contains(.shift) && event.charactersIgnoringModifiers?.lowercased() == "w" {
+            session.activeTool = (session.activeTool == .wall) ? .pointer : .wall
+            refreshActiveCursor()
+            return
+        }
+        if flags.contains(.control) && flags.contains(.shift) && event.charactersIgnoringModifiers?.lowercased() == "d" {
+            session.activeTool = (session.activeTool == .dimension) ? .pointer : .dimension
+            refreshActiveCursor()
+            return
+        }
         if flags.intersection([.command, .shift, .control, .option]) == [.command],
            event.charactersIgnoringModifiers?.lowercased() == "f" {
             NotificationCenter.default.post(name: .vexioOpenFindReplaceSheet, object: nil)

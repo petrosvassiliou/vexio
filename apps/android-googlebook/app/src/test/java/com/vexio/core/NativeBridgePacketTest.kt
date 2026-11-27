@@ -309,6 +309,13 @@ class NativeBridgePacketTest {
         verifyNative("nativeCopyShapeFormatJson", String::class.java, longT, intT, longT)
         verifyNative("nativeApplyFormatPainter", intT, longT, intT, LongArray::class.java, String::class.java)
         verifyNative("nativeNumberShapes", intT, longT, intT, LongArray::class.java, String::class.java, intT, intT, String::class.java, String::class.java)
+        verifyNative("nativeInsertAssociativeDimension", longT, longT, intT, String::class.java, longT, longT, doubleT, String::class.java)
+        verifyNative("nativeDrawArchitecturalWall", longT, longT, intT, doubleT, doubleT, doubleT, doubleT, doubleT)
+        verifyNative("nativeHealWallIntersections", intT, longT, intT, doubleT)
+        verifyNative("nativeInsertWallOpening", longT, longT, intT, longT, String::class.java, doubleT, doubleT, String::class.java)
+        verifyNative("nativeAddMindMapTopic", longT, longT, intT, longT, String::class.java, boolT)
+        verifyNative("nativeExportMindMapOutline", String::class.java, longT, intT)
+        verifyNative("nativeRecalculateVsmAndFtaJson", String::class.java, longT, intT)
     }
 
     @Test
@@ -337,9 +344,9 @@ class NativeBridgePacketTest {
         assertTrue(state.isStencilDrawerExpanded)
         assertTrue(state.isInspectorExpanded)
 
-        // All 21 drawing, vertex, connection point, text block, format painter & markup tools map 1:1 to engine tool codes 0..20
-        assertEquals(21, VexioTool.entries.size)
-        assertEquals((0..20).toSet(), VexioTool.entries.map { it.nativeCode }.toSet())
+        // All 23 drawing, wall, dimension, vertex, connection point, text block, format painter & markup tools map 1:1 to engine tool codes 0..22
+        assertEquals(23, VexioTool.entries.size)
+        assertEquals((0..22).toSet(), VexioTool.entries.map { it.nativeCode }.toSet())
 
         // All 33 Visio Professional & Awesome-Visio stencil categories are present
         assertEquals(33, BuiltInStencilCatalog.categories.size)
@@ -723,8 +730,8 @@ class NativeBridgePacketTest {
         assertEquals(33, vm.uiState.value.stencilCategories.size)
         assertTrue(vm.uiState.value.stencilMasters.isNotEmpty())
         assertTrue(
-            "Expected 0.8.0-beta in updateStatusMessage, got: ${vm.uiState.value.updateStatusMessage}",
-            vm.uiState.value.updateStatusMessage.contains("0.8.0-beta")
+            "Expected 0.9.0-beta in updateStatusMessage, got: ${vm.uiState.value.updateStatusMessage}",
+            vm.uiState.value.updateStatusMessage.contains("0.9.0-beta")
         )
 
         val sampleNativeJson = """
@@ -920,6 +927,41 @@ class NativeBridgePacketTest {
         assertTrue(vm.copySelectedShapeFormat().contains("FillForegnd"))
         assertEquals(1, vm.applyFormatPainter())
         assertTrue(vm.numberShapesOnPage("connected_flow", startNum = 10, interval = 5, prefix = "P-") >= 1)
+    }
+
+    @Test
+    fun v090Milestone4DimensionsWallsOpeningsWizardsAndVsmFtaWork() {
+        val vm = VexioSessionViewModel()
+
+        // 1. Ctrl+Shift+W Wall (21) & Ctrl+Shift+D Dimension (22) tools
+        vm.selectTool(VexioTool.WALL)
+        assertEquals(21, vm.uiState.value.activeTool.nativeCode)
+        assertEquals("Ctrl+Shift+W", VexioTool.WALL.shortcutHint)
+        vm.selectTool(VexioTool.DIMENSION)
+        assertEquals(22, vm.uiState.value.activeTool.nativeCode)
+        assertEquals("Ctrl+Shift+D", VexioTool.DIMENSION.shortcutHint)
+
+        // 2. Architectural Walls, Auto-Healing Miters/T-Joins, Door/Window Openings & Associative Dimensions
+        val wallA = vm.drawArchitecturalWall(2.0, 2.0, 6.0, 2.0, 0.25)
+        val wallB = vm.drawArchitecturalWall(6.0, 2.0, 6.0, 5.0, 0.25)
+        assertTrue(wallA > 0L && wallB > wallA)
+        assertTrue(vm.healWallIntersections(0.30) >= 1)
+        val doorId = vm.insertWallOpening("single_door", wallShapeId = wallA, offsetAlongIn = 1.5, openingWidthIn = 0.90)
+        assertTrue(doorId > wallB)
+        val dimId = vm.insertAssociativeDimension("aligned", targetShapeId = wallA, offsetIn = 0.55)
+        assertTrue(dimId > doorId)
+
+        // 3. Calendar, PivotDiagram, Brainstorming Mind Map, Lean VSM & Fault Tree Wizards + Calculators
+        for (slug in listOf("calendar", "pivot_diagram", "mind_map", "mind_map_radial", "vsm", "fta")) {
+            vm.selectDomainWizardPreset(slug)
+            assertTrue("Preset $slug should populate non-empty spec", vm.uiState.value.domainWizardSpec.isNotBlank())
+            assertTrue(vm.runDomainWizard().isNotBlank())
+        }
+        val topicId = vm.addMindMapTopic("Post-Launch Telemetry", asSibling = false)
+        assertTrue(topicId > 0L)
+        assertTrue(vm.exportMindMapOutline().contains("#"))
+        val calcJson = vm.recalculateVsmAndFta()
+        assertTrue(calcJson.contains("pce") || calcJson.contains("vsm") || calcJson.contains("fta"))
     }
 }
 

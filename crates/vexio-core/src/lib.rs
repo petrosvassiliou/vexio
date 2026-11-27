@@ -1,5 +1,6 @@
 //! `vexio-core` — Shared Deterministic High-Performance Core Engine for Vexio.
 
+pub mod aec_plan2_m4;
 pub mod autolayout;
 pub mod automation;
 pub mod boolean_ops;

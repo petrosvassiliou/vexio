@@ -670,7 +670,8 @@ void MainWindow::OnCanvasPointerReleased(IInspectable const&, PointerRoutedEvent
         m_activeTool != ActiveCanvasTool::EditVertices &&
         m_activeTool != ActiveCanvasTool::ConnectionPoint &&
         m_activeTool != ActiveCanvasTool::TextBlockTransform &&
-        m_activeTool != ActiveCanvasTool::FormatPainter)
+        m_activeTool != ActiveCanvasTool::FormatPainter &&
+        m_activeTool != ActiveCanvasTool::Wall)
     {
         SetActiveTool(ActiveCanvasTool::Pointer);
     } else if (m_viewport) {
@@ -2414,6 +2415,8 @@ void MainWindow::SetActiveTool(ActiveCanvasTool tool) {
     ConnectionPointToggle().IsChecked(tool == ActiveCanvasTool::ConnectionPoint);
     TextBlockToolToggle().IsChecked(tool == ActiveCanvasTool::TextBlockTransform);
     FormatPainterToggle().IsChecked(tool == ActiveCanvasTool::FormatPainter);
+    WallToolToggle().IsChecked(tool == ActiveCanvasTool::Wall);
+    DimensionToolToggle().IsChecked(tool == ActiveCanvasTool::Dimension);
 
     if (auto rail = DrawingToolRailPanel()) {
         for (auto const& child : rail.Children()) {
@@ -2492,13 +2495,21 @@ void MainWindow::SetActiveTool(ActiveCanvasTool tool) {
             CanvasOverlayHudText().Text(L"Format Painter (Ctrl+Shift+P) • Click Source Shape then Target Shape (Hold Shift to Multi-Paint)");
             ApplyCanvasCursor(static_cast<uint32_t>(vexio::win::ViewportCursor::Crosshair));
             break;
+        case ActiveCanvasTool::Wall:
+            CanvasOverlayHudText().Text(L"Architectural Wall Tool (Ctrl+Shift+W) • Drag Wall Segment with Auto-Healing L-Corner Miters & T-Joins");
+            ApplyCanvasCursor(static_cast<uint32_t>(vexio::win::ViewportCursor::Crosshair));
+            break;
+        case ActiveCanvasTool::Dimension:
+            CanvasOverlayHudText().Text(L"Associative Dimension Tool (Ctrl+Shift+D) • Click Shape or Drag Between Shapes for Live Measurement");
+            ApplyCanvasCursor(static_cast<uint32_t>(vexio::win::ViewportCursor::Crosshair));
+            break;
     }
 }
 
 void MainWindow::OnRailToolClick(IInspectable const& sender, RoutedEventArgs const&) {
     if (auto tb = sender.try_as<ToggleButton>()) {
         const hstring tagStr = unbox_value_or<hstring>(tb.Tag(), L"0");
-        const uint32_t code = std::min<uint32_t>(20u, static_cast<uint32_t>(std::wcstoul(tagStr.c_str(), nullptr, 10)));
+        const uint32_t code = std::min<uint32_t>(22u, static_cast<uint32_t>(std::wcstoul(tagStr.c_str(), nullptr, 10)));
         SetActiveTool(static_cast<ActiveCanvasTool>(code));
     }
 }
@@ -2529,6 +2540,105 @@ void MainWindow::OnFormatPainterToggleClick(IInspectable const&, RoutedEventArgs
         }
     }
     SetActiveTool(m_activeTool == ActiveCanvasTool::FormatPainter ? ActiveCanvasTool::Pointer : ActiveCanvasTool::FormatPainter);
+}
+void MainWindow::OnWallToolToggleClick(IInspectable const&, RoutedEventArgs const&) {
+    SetActiveTool(m_activeTool == ActiveCanvasTool::Wall ? ActiveCanvasTool::Pointer : ActiveCanvasTool::Wall);
+}
+void MainWindow::OnDimensionToolToggleClick(IInspectable const&, RoutedEventArgs const&) {
+    SetActiveTool(m_activeTool == ActiveCanvasTool::Dimension ? ActiveCanvasTool::Pointer : ActiveCanvasTool::Dimension);
+}
+void MainWindow::OnInsertDimensionMenuClick(IInspectable const& sender, RoutedEventArgs const&) {
+    if (!m_doc) return;
+    auto item = sender.try_as<MenuFlyoutItem>();
+    const std::string kindUtf8 = item ? vexio::win::ToUtf8(unbox_value_or<hstring>(item.Tag(), L"aligned")) : "aligned";
+    const auto ids = ResolveTargetSelectionIds();
+    if (ids.empty()) {
+        ShowBanner(InfoBarSeverity::Warning, L"Select 1 or 2 Shapes",
+                   L"Select one shape to dimension its geometry, or two shapes to bind an associative span dimension.");
+        return;
+    }
+    const uint64_t firstId = ids[0];
+    const uint64_t secondId = ids.size() >= 2 ? ids[1] : 0u;
+    const auto res = m_doc.InsertAssociativeDimension(m_activePageId, kindUtf8, firstId, secondId, 0.55, "auto");
+    if (res.ok() && *res.value > 0) {
+        m_previousSelectedShapeId = m_selectedShapeId;
+        m_selectedShapeId = *res.value;
+        m_selectedShapeIds = {*res.value};
+        if (m_viewport) (void)m_viewport.SetSelection(m_doc, m_selectedShapeIds);
+        MarkDocumentDirty(true);
+        PresentViewportFrame();
+        SyncInspectorFromShapeSheet();
+        RefreshShapeSheetSectionRows();
+        ShowBanner(InfoBarSeverity::Success, L"Associative Dimension Attached",
+                   std::format(L"Created live {} dimension (Sheet.{}) bound via cross-shape ShapeSheet formulas.",
+                               vexio::win::ToHString(kindUtf8).c_str(), *res.value));
+    } else {
+        ShowBanner(InfoBarSeverity::Error, L"Dimension Failed", res.message());
+    }
+}
+void MainWindow::OnInsertWallOpeningMenuClick(IInspectable const& sender, RoutedEventArgs const&) {
+    if (!m_doc || m_selectedShapeId == 0) {
+        ShowBanner(InfoBarSeverity::Warning, L"Select an Architectural Wall",
+                   L"Draw or select an Architectural Wall first, then insert a parametric Door or Window opening.");
+        return;
+    }
+    auto item = sender.try_as<MenuFlyoutItem>();
+    const std::string kindUtf8 = item ? vexio::win::ToUtf8(unbox_value_or<hstring>(item.Tag(), L"single_door")) : "single_door";
+    const double widthIn = (kindUtf8 == "double_door" || kindUtf8 == "sliding_door") ? 1.40 : 0.90;
+    const auto res = m_doc.InsertWallOpening(m_activePageId, m_selectedShapeId, kindUtf8, -1.0, widthIn, "in_left");
+    if (res.ok() && *res.value > 0) {
+        m_previousSelectedShapeId = m_selectedShapeId;
+        m_selectedShapeId = *res.value;
+        m_selectedShapeIds = {*res.value};
+        if (m_viewport) (void)m_viewport.SetSelection(m_doc, m_selectedShapeIds);
+        MarkDocumentDirty(true);
+        PresentViewportFrame();
+        SyncInspectorFromShapeSheet();
+        RefreshShapeSheetSectionRows();
+        ShowBanner(InfoBarSeverity::Success, L"Parametric Wall Opening Cut",
+                   std::format(L"Inserted {} (Sheet.{}) and split host wall solid geometry around opening.",
+                               vexio::win::ToHString(kindUtf8).c_str(), *res.value));
+    } else {
+        ShowBanner(InfoBarSeverity::Warning, L"Select an Architectural Wall", res.message());
+    }
+}
+void MainWindow::OnHealWallsClick(IInspectable const&, RoutedEventArgs const&) {
+    if (!m_doc) return;
+    const auto res = m_doc.HealWallIntersections(m_activePageId, 0.30);
+    if (res.ok()) {
+        MarkDocumentDirty(true);
+        PresentViewportFrame();
+        RefreshShapeSheetSectionRows();
+        ShowBanner(InfoBarSeverity::Informational, L"Wall Intersections Healed",
+                   std::format(L"Auto-healed {} L-corner miter and T-join wall junction(s) on active page.", *res.value));
+    }
+}
+void MainWindow::OnAddMindMapTopicClick(IInspectable const&, RoutedEventArgs const&) {
+    if (!m_doc) return;
+    const auto res = m_doc.AddMindMapTopic(m_activePageId, m_selectedShapeId, "New Subtopic", false);
+    if (res.ok() && *res.value > 0) {
+        m_previousSelectedShapeId = m_selectedShapeId;
+        m_selectedShapeId = *res.value;
+        m_selectedShapeIds = {*res.value};
+        if (m_viewport) (void)m_viewport.SetSelection(m_doc, m_selectedShapeIds);
+        MarkDocumentDirty(true);
+        PresentViewportFrame();
+        SyncInspectorFromShapeSheet();
+        RefreshShapeSheetSectionRows();
+        BeginInlineCanvasShapeTextEdit(*res.value, false);
+    }
+}
+void MainWindow::OnRecalculateVsmFtaClick(IInspectable const&, RoutedEventArgs const&) {
+    if (!m_doc) return;
+    const auto res = m_doc.RecalculateVsmAndFtaJson(m_activePageId);
+    if (res.ok()) {
+        MarkDocumentDirty(true);
+        PresentViewportFrame();
+        SyncInspectorFromShapeSheet();
+        RefreshShapeSheetSectionRows();
+        ShowBanner(InfoBarSeverity::Success, L"VSM & Fault Tree Recalculated",
+                   std::format(L"Updated Lean VSM PCE% & Fault Tree MOCUS Cut Sets: {}", res.value->c_str()));
+    }
 }
 void MainWindow::OnArrowheadPresetMenuClick(IInspectable const& sender, RoutedEventArgs const&) {
     if (!m_doc) return;
@@ -4654,6 +4764,16 @@ void MainWindow::OnFindReplaceAccelerator(KeyboardAccelerator const&, KeyboardAc
     args.Handled(true);
 }
 
+void MainWindow::OnWallToolAccelerator(KeyboardAccelerator const&, KeyboardAcceleratorInvokedEventArgs const& args) {
+    OnWallToolToggleClick(nullptr, nullptr);
+    args.Handled(true);
+}
+
+void MainWindow::OnDimensionToolAccelerator(KeyboardAccelerator const&, KeyboardAcceleratorInvokedEventArgs const& args) {
+    OnDimensionToolToggleClick(nullptr, nullptr);
+    args.Handled(true);
+}
+
 void MainWindow::OnUndoAccelerator(KeyboardAccelerator const&, KeyboardAcceleratorInvokedEventArgs const& args) {
     OnUndoClick(nullptr, nullptr);
     args.Handled(true);
@@ -5618,7 +5738,7 @@ fire_and_forget MainWindow::ShowOfficialStencilCatalogDialogAsync() {
     }
 
     Windows::Web::Http::HttpClient client{};
-    client.DefaultRequestHeaders().UserAgent().TryParseAdd(L"Vexio-Windows/0.8.0-beta");
+    client.DefaultRequestHeaders().UserAgent().TryParseAdd(L"Vexio-Windows/0.9.0-beta");
     uint32_t installedCount = 0;
 
     for (auto const& target : targets) {
@@ -5880,7 +6000,7 @@ void MainWindow::OnCheckUpdatesClick(IInspectable const&, RoutedEventArgs const&
 }
 
 fire_and_forget MainWindow::CheckForUpdatesAsync(bool userInitiated) {
-    constexpr std::wstring_view kCurrentVersion = L"0.8.0-beta";
+    constexpr std::wstring_view kCurrentVersion = L"0.9.0-beta";
     const auto weakSelf = get_weak();
 
     if (userInitiated) {
@@ -5894,7 +6014,7 @@ fire_and_forget MainWindow::CheckForUpdatesAsync(bool userInitiated) {
 
     try {
         Windows::Web::Http::HttpClient client{};
-        client.DefaultRequestHeaders().UserAgent().TryParseAdd(L"Vexio-Windows/0.8.0-beta");
+        client.DefaultRequestHeaders().UserAgent().TryParseAdd(L"Vexio-Windows/0.9.0-beta");
         client.DefaultRequestHeaders().Accept().TryParseAdd(L"application/vnd.github+json");
 
         const Uri apiUri{L"https://api.github.com/repos/petrosvassiliou/vexio/releases"};
@@ -5903,7 +6023,7 @@ fire_and_forget MainWindow::CheckForUpdatesAsync(bool userInitiated) {
         Windows::Data::Json::JsonArray releasesArr{nullptr};
         if (Windows::Data::Json::JsonArray::TryParse(body, releasesArr) && releasesArr.Size() > 0) {
             const auto relObj = releasesArr.GetObjectAt(0);
-            latestTag = relObj.GetNamedString(L"tag_name", L"v0.8.0-beta").c_str();
+            latestTag = relObj.GetNamedString(L"tag_name", L"v0.9.0-beta").c_str();
             releaseUrl = relObj.GetNamedString(L"html_url", releaseUrl).c_str();
             if (relObj.HasKey(L"assets")) {
                 const auto assets = relObj.GetNamedArray(L"assets");
@@ -5965,7 +6085,7 @@ fire_and_forget MainWindow::CheckForUpdatesAsync(bool userInitiated) {
         }
     } else {
         self->BackstageUpdateStatusText().Text(hstring{
-            std::format(L"Vexio is up to date ({}).", latestTag.empty() ? L"v0.8.0-beta" : latestTag)
+            std::format(L"Vexio is up to date ({}).", latestTag.empty() ? L"v0.9.0-beta" : latestTag)
         });
         if (userInitiated) {
             ContentDialog dlg{};
@@ -5973,7 +6093,7 @@ fire_and_forget MainWindow::CheckForUpdatesAsync(bool userInitiated) {
             dlg.Title(box_value(L"Vexio is Up to Date"));
             dlg.Content(box_value(hstring{std::format(
                 L"You are running the latest version of Vexio Professional ({}).",
-                latestTag.empty() ? L"v0.8.0-beta" : latestTag)}));
+                latestTag.empty() ? L"v0.9.0-beta" : latestTag)}));
             dlg.PrimaryButtonText(L"View Release Notes");
             dlg.CloseButtonText(L"OK");
             dlg.DefaultButton(ContentDialogButton::Close);
@@ -6431,7 +6551,14 @@ winrt::fire_and_forget MainWindow::ShowDomainWizardsDialogAsync() {
         {"sql_forward", L"Active ERD Page → Generate SQL DDL", L"postgres"},
         {"org_chart", L"Organization Chart Hierarchy", L"1,,Alex Rivera,Chief Executive Officer,Executive\n2,1,Priya Patel,VP Engineering,Engineering\n3,1,Marcus Chen,VP Product,Product\n4,2, Elena Rostova,Principal Systems Architect,Core"},
         {"rack_42u", L"42U Data Center Rack Elevation", L"41,2,Core Spine Switch,Switch,320,12\n37,4,GPU Compute Node A,Compute,1400,48\n33,4,NVMe Storage Array,Storage,850,38\n1,2,Dual Redundant UPS,UPS,1800,62"},
-        {"arch_room", L"Architectural Room Space (Live Area SqFt)", L"Conference Suite A,2.0,3.0,5.0,3.5"}
+        {"arch_room", L"Architectural Room Space (Live Area SqFt)", L"Conference Suite A,2.0,3.0,5.0,3.5"},
+        {"calendar", L"Monthly Calendar Grid (Gregorian + Events)", L"2026-11,monday\n2026-11-03|Architecture Freeze\n2026-11-12|Security Audit\n2026-11-27|v0.9.0-beta Release"},
+        {"pivot_diagram", L"PivotDiagram Multi-Level Rollup (SUM/AVG/Share%)", L"GROUP=Region>Service;METRIC=Cost;AGG=SUM\nRegion,Service,Cost\nEMEA,Compute,42000\nEMEA,Storage,18000\nAmericas,Compute,64000\nAmericas,AI_GPU,51000\nAPAC,Compute,29000"},
+        {"mind_map", L"Brainstorming / Mind Map (Hierarchical)", L"# Vexio 1.0 Launch\n## Core Engine\n### Associative Dimensions\n### Wall Auto-Healing\n## Native Apps\n### Windows WinUI 3\n### macOS Liquid Glass\n### Android Vulkan\n### ChromeOS Offline PWA"},
+        {"mind_map_radial", L"Brainstorming / Mind Map (Radial Starburst)", L"# Product Strategy\n## Enterprise CAD\n### DWG R2024\n### Scale Locking\n## Process Intelligence\n### Lean VSM\n### Fault Tree MOCUS"},
+        {"mind_map_export", L"Active Mind Map Page → Export Markdown Outline", L""},
+        {"vsm", L"Lean Value Stream Map (VSM + Sawtooth Ladder & PCE%)", L"CUSTOMER=Enterprise Accounts;SUPPLIER=Cloud Foundry\nStep,CycleSec,WaitMin,UptimePct,Operators,WIP\nOrder Intake,45,15,99.5,1,12\nCredit & Compliance,120,90,98.0,2,34\nProvision Tenant,60,25,99.9,1,8\nQA & Handover,90,40,97.5,2,15"},
+        {"fta", L"Fault Tree Analysis (FTA Gates + MOCUS Cut Sets)", L"TOP,Service Outage,OR,,\nG1,Primary Region Down,AND,TOP,\nG2,Failover Blocked,OR,TOP,\nE1,Power Feed A Lost,BASIC,G1,0.01\nE2,UPS Transfer Failure,BASIC,G1,0.02\nE3,DNS Stale TTL,BASIC,G2,0.005\nE4,Replica Lag > RPO,BASIC,G2,0.008"}
     };
 
     StackPanel panel{};
@@ -6489,21 +6616,27 @@ winrt::fire_and_forget MainWindow::ShowDomainWizardsDialogAsync() {
         co_return;
     }
 
-    if (chosen.slug == "sql_forward") {
-        std::wstring ddlOut = wizRes.value->c_str();
+    if (chosen.slug == "sql_forward" || chosen.slug == "mind_map_export") {
+        std::wstring textOut = wizRes.value->c_str();
         Windows::Data::Json::JsonObject obj{nullptr};
         if (Windows::Data::Json::JsonObject::TryParse(*wizRes.value, obj)) {
-            ddlOut = obj.GetNamedString(L"sql_ddl", *wizRes.value).c_str();
+            if (chosen.slug == "sql_forward") {
+                textOut = obj.GetNamedString(L"sql_ddl", *wizRes.value).c_str();
+            } else {
+                textOut = obj.GetNamedString(L"markdown", *wizRes.value).c_str();
+            }
         }
         TextBox outBox{};
         outBox.AcceptsReturn(true);
         outBox.IsReadOnly(true);
         outBox.Height(240.0);
         outBox.FontFamily(FontFamily{L"Consolas"});
-        outBox.Text(hstring{ddlOut});
+        outBox.Text(hstring{textOut});
         ContentDialog ddlDlg{};
         ddlDlg.XamlRoot(self->RootWorkstationGrid().XamlRoot());
-        ddlDlg.Title(box_value(L"Generated SQL DDL Schema"));
+        ddlDlg.Title(box_value(chosen.slug == "sql_forward"
+            ? L"Generated SQL DDL Schema"
+            : L"Exported Mind Map Markdown Outline"));
         ddlDlg.Content(outBox);
         ddlDlg.CloseButtonText(L"Close");
         (void)co_await ddlDlg.ShowAsync();
