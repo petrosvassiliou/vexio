@@ -1,6 +1,6 @@
 cask "vexio" do
-  version "0.9.2-beta"
-  sha256 "3007681e93ec9ffed301a4bfb2936ef95bf26cbbf8f23638defdcceb0de3df9c"
+  version "0.9.3-beta"
+  sha256 "259840e519fef0cdbd57b1edb21f3a084278a86dbc2d9e61ec8fa6e5900d6372"
 
   url "https://github.com/petrosvassiliou/vexio/releases/download/v#{version}/Vexio-v#{version}-Universal2.dmg"
   name "Vexio"
