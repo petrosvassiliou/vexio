@@ -106,7 +106,7 @@ object VexioIcons {
             arcTo(2.0f, 2.0f, 0f, true, true, 2.6f, 18.5f)
             arcTo(2.0f, 2.0f, 0f, true, true, 6.6f, 18.5f)
             moveTo(6.6f, 18.5f)
-            cubicTo(13.0f, 18.5f, 11.0f, 5.5f, 19.5f, 5.5f)
+            curveTo(13.0f, 18.5f, 11.0f, 5.5f, 19.5f, 5.5f)
             moveTo(16.6f, 3.1f)
             lineTo(19.8f, 5.5f)
             lineTo(16.6f, 7.9f)
@@ -145,7 +145,7 @@ object VexioIcons {
     val FreeformSpline: ImageVector by lazy {
         strokeIcon("VexioFreeformSpline") {
             moveTo(3.2f, 16.8f)
-            cubicTo(7.2f, 4.2f, 14.8f, 19.8f, 20.8f, 7.2f)
+            curveTo(7.2f, 4.2f, 14.8f, 19.8f, 20.8f, 7.2f)
         }
     }
 
@@ -601,8 +601,8 @@ object VexioIcons {
     val EyeVisible: ImageVector by lazy {
         strokeIcon("VexioEyeVisible", strokeWidth = 1.65f) {
             moveTo(2.5f, 12.0f)
-            cubicTo(5.5f, 6.2f, 18.5f, 6.2f, 21.5f, 12.0f)
-            cubicTo(18.5f, 17.8f, 5.5f, 17.8f, 2.5f, 12.0f)
+            curveTo(5.5f, 6.2f, 18.5f, 6.2f, 21.5f, 12.0f)
+            curveTo(18.5f, 17.8f, 5.5f, 17.8f, 2.5f, 12.0f)
             close()
             moveTo(14.5f, 12.0f)
             arcTo(2.5f, 2.5f, 0f, true, true, 9.5f, 12.0f)
@@ -614,8 +614,8 @@ object VexioIcons {
     val EyeHidden: ImageVector by lazy {
         strokeIcon("VexioEyeHidden", strokeWidth = 1.65f) {
             moveTo(2.5f, 12.0f)
-            cubicTo(5.5f, 6.2f, 18.5f, 6.2f, 21.5f, 12.0f)
-            cubicTo(18.5f, 17.8f, 5.5f, 17.8f, 2.5f, 12.0f)
+            curveTo(5.5f, 6.2f, 18.5f, 6.2f, 21.5f, 12.0f)
+            curveTo(18.5f, 17.8f, 5.5f, 17.8f, 2.5f, 12.0f)
             moveTo(4.0f, 4.0f)
             lineTo(20.0f, 20.0f)
         }
