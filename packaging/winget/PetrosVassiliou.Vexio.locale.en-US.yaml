@@ -1,6 +1,6 @@
 # yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.6.0.schema.json
 PackageIdentifier: PetrosVassiliou.Vexio
-PackageVersion: 0.5.0-beta
+PackageVersion: 0.6.0-beta
 PackageLocale: en-US
 Publisher: Petros Vassiliou
 PublisherUrl: https://github.com/petrosvassiliou
