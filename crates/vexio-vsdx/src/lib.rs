@@ -174,4 +174,43 @@ mod tests {
         assert_eq!(pack.masters.len(), 1);
         assert_eq!(pack.masters[0].name, "CoreSwitch");
     }
+
+    #[test]
+    fn vsdx_actions_and_connection_points_roundtrip_losslessly() {
+        let mut doc = VisioDocument::new_blank("ActionsRoundTrip");
+        let mut s = VisioShape::new_rect(1, "SmartValve", 4.0, 4.0, 2.0, 1.5);
+        s.sheet.set_user_cell("IsOpen", "1", "Valve state");
+        s.sheet.add_action(ActionRow {
+            name: "ToggleValve".into(),
+            action: "=SETF(GetRef(User.IsOpen), IF(User.IsOpen, 0, 1))".into(),
+            menu: "\"Toggle Valve\"".into(),
+            tag_name: "ValveToggle".into(),
+            checked: "=User.IsOpen".into(),
+            disabled: "0".into(),
+            invisible: "0".into(),
+            begin_group: true,
+        });
+        s.sheet.add_connection_point(ConnectionPointRow {
+            name: "X1".into(),
+            ix: 1,
+            x: "=Width*0".into(),
+            y: "=Height*0.5".into(),
+            dir_x: "-1".into(),
+            dir_y: "0".into(),
+            point_type: 0,
+        });
+        doc.page_mut(1).unwrap().shapes.push(s);
+        ReactiveEngine::recalculate_document(&mut doc);
+
+        let bytes = write_vsdx(&doc, VsdxPackageKind::Drawing).unwrap();
+        let (reloaded, _) = read_vsdx(&bytes).unwrap();
+        let sh = reloaded.page(1).unwrap().find_shape(1).unwrap();
+        assert_eq!(sh.sheet.actions.len(), 1);
+        let act = &sh.sheet.actions[0];
+        assert_eq!(act.name, "ToggleValve");
+        assert!(act.action.contains("SETF"));
+        assert!(act.checked.contains("User.IsOpen"));
+        assert!(act.begin_group);
+        assert!(!sh.sheet.connection_points.is_empty());
+    }
 }

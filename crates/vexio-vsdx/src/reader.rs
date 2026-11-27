@@ -1483,17 +1483,21 @@ fn parse_section_elem(
             loop {
                 match reader.read_event_into(&mut buf)? {
                     Event::Start(e) if e.local_name().as_ref() == b"Row" => {
-                        let rname = attr_str(&e, b"N").unwrap_or_else(|| "Row_1".into());
+                        let next_n = sheet.actions.len() + 1;
+                        let rname = attr_str(&e, b"N")
+                            .or_else(|| attr_str(&e, b"IX").map(|ix| format!("Row_{ix}")))
+                            .unwrap_or_else(|| format!("Row_{next_n}"));
                         let cells = read_row_cells(reader)?;
-                        sheet.actions.push(ActionRow {
+                        let menu_raw = cells.get("Menu").cloned().unwrap_or_default();
+                        let menu_val = if menu_raw.trim().starts_with('=') {
+                            menu_raw
+                        } else {
+                            menu_raw.trim_matches('"').to_string()
+                        };
+                        sheet.add_action(ActionRow {
                             name: rname,
                             action: cells.get("Action").cloned().unwrap_or_default(),
-                            menu: cells
-                                .get("Menu")
-                                .cloned()
-                                .unwrap_or_default()
-                                .trim_matches('"')
-                                .to_string(),
+                            menu: menu_val,
                             tag_name: cells
                                 .get("TagName")
                                 .cloned()

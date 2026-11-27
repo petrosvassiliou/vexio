@@ -25,6 +25,7 @@ enum class ActiveCanvasTool : uint32_t {
     Star           = 15,
     EditVertices   = 16,
     InkEraser      = 17,
+    ConnectionPoint = 18,
 };
 
 struct StencilMasterDescriptor {
@@ -114,6 +115,8 @@ struct MainWindow : MainWindowT<MainWindow> {
                             winrt::Microsoft::UI::Xaml::Input::KeyboardAcceleratorInvokedEventArgs const& args);
     void OnUngroupAccelerator(winrt::Microsoft::UI::Xaml::Input::KeyboardAccelerator const& sender,
                               winrt::Microsoft::UI::Xaml::Input::KeyboardAcceleratorInvokedEventArgs const& args);
+    void OnConnectionPointToolAccelerator(winrt::Microsoft::UI::Xaml::Input::KeyboardAccelerator const& sender,
+                                          winrt::Microsoft::UI::Xaml::Input::KeyboardAcceleratorInvokedEventArgs const& args);
 
     // Quick Access Toolbar & File Backstage Commands
     void OnSaveClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
@@ -338,6 +341,10 @@ struct MainWindow : MainWindowT<MainWindow> {
     void OnOpenDomainWizardsClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
     void OnEditVerticesToggleClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
     void OnInkEraserToggleClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
+    void OnConnectionPointToggleClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
+    void OnOpenSmartActionsClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
+    void OnAddToMyShapesClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
+    void OnExportMyShapesVssxClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
     void OnShapeFillColorPickerChanged(winrt::Microsoft::UI::Xaml::Controls::ColorPicker const& sender, winrt::Microsoft::UI::Xaml::Controls::ColorChangedEventArgs const& args);
     void OnShapeLineColorPickerChanged(winrt::Microsoft::UI::Xaml::Controls::ColorPicker const& sender, winrt::Microsoft::UI::Xaml::Controls::ColorChangedEventArgs const& args);
 
@@ -446,6 +453,8 @@ private:
     winrt::fire_and_forget ShowCommentsDialogAsync();
     winrt::fire_and_forget ShowHyperlinkDialogAsync();
     winrt::fire_and_forget ShowDomainWizardsDialogAsync();
+    winrt::fire_and_forget ShowSmartActionsDialogAsync();
+    winrt::fire_and_forget ExportMyShapesVssxPickerAsync();
     winrt::fire_and_forget RunAutomatedScreenshotIfRequestedAsync();
 
 private:

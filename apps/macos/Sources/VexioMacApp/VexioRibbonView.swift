@@ -1414,6 +1414,12 @@ public struct VexioHeaderAndRibbonBar: View {
                     ribbonCompactButton("point.3.connected.trianglepath.dotted", "Edit Vertices", tip: "Drag Vertices, Option-Click to Insert, Right-Click to Delete") {
                         session.activeTool = (session.activeTool == .editVertices) ? .pointer : .editVertices
                     }
+                    ribbonCompactButton("plus.circle.dashed", "Connection Points", tip: "Connection Point Authoring Tool (⌃⇧1) — Click Shape to Add, Drag to Move, Right-Click to Delete") {
+                        session.activeTool = (session.activeTool == .connectionPoint) ? .pointer : .connectionPoint
+                    }
+                    ribbonCompactButton("bolt.badge.checkmark", "Smart Actions…", tip: "Author Right-Click Smart-Shape Actions.* Context Menu Rows") {
+                        NotificationCenter.default.post(name: .vexioOpenSmartActionsSheet, object: nil)
+                    }
                 }
             }
             Divider().frame(height: 44)

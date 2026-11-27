@@ -436,7 +436,26 @@ impl DocumentSession {
             _ => return Err(CoreError::UnsupportedExtension(clean_ext)),
         }
         self.journal = CommandJournal::new();
+        self.sync_document_masters_to_stencil_shelf();
         Ok(())
+    }
+
+    pub(crate) fn sync_document_masters_to_stencil_shelf(&mut self) {
+        if self.doc.masters.is_empty() {
+            return;
+        }
+        let my_masters: Vec<vexio_shapesheet::VisioMaster> = self
+            .doc
+            .masters
+            .iter()
+            .filter(|m| m.prompt.starts_with("My Shapes:") || m.base_id.starts_with("{MYSHAPE-"))
+            .cloned()
+            .collect();
+        if !my_masters.is_empty() {
+            let styles = self.doc.styles.clone();
+            let themes = self.doc.themes.clone();
+            self.register_custom_masters_preserving_ports("My Shapes", my_masters, &styles, &themes);
+        }
     }
 
     pub fn save_format(&self, ext: &str) -> Result<Vec<u8>, CoreError> {
@@ -508,7 +527,7 @@ impl DocumentSession {
         x_in: f64,
         y_in: f64,
     ) -> Result<u64, CoreError> {
-        let template = self
+        let matched_master = self
             .builtin_stencils
             .iter()
             .find(|p| p.title.eq_ignore_ascii_case(category) || p.category.eq_ignore_ascii_case(category))
@@ -524,8 +543,30 @@ impl DocumentSession {
                         .find(|m| m.name.eq_ignore_ascii_case(master_name))
                 })
             })
-            .and_then(|m| m.shapes.first())
             .cloned();
+
+        let resolved_doc_master_id = if let Some(ref mm) = matched_master {
+            if let Some(existing_dm) = self
+                .doc
+                .masters
+                .iter()
+                .find(|dm| dm.name.eq_ignore_ascii_case(&mm.name) || (!mm.unique_id.is_empty() && dm.unique_id == mm.unique_id))
+            {
+                Some(existing_dm.id)
+            } else if category.eq_ignore_ascii_case("My Shapes") || mm.base_id.starts_with("{MYSHAPE-") {
+                let next_mid = self.doc.masters.iter().map(|m| m.id).max().unwrap_or(0) + 1;
+                let mut dm = mm.clone();
+                dm.id = next_mid;
+                self.doc.masters.push(dm);
+                Some(next_mid)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        let template = matched_master.and_then(|m| m.shapes.first().cloned());
 
         let next_id = self
             .doc
@@ -540,6 +581,9 @@ impl DocumentSession {
             fallback
         });
         let assigned_root_id = remap_dropped_shape_subtree(&mut shape, &mut alloc_id);
+        if let Some(mid) = resolved_doc_master_id {
+            shape.master_id = Some(mid);
+        }
         shape.name = format!("{master_name}.{assigned_root_id}");
         shape.name_u = shape.name.clone();
         let hide_txt = shape.sheet.get_bool("HideText").unwrap_or(false);
@@ -6181,6 +6225,839 @@ impl DocumentSession {
         );
         Ok(total)
     }
+
+    // =========================================================================
+    // Milestone 2 (`v0.7.0-beta`): Smart-Shape `Actions.*` Menus, Connection
+    // Point Tool (`Connections.*`), and `"My Shapes"` Custom `.vssx` Stencils
+    // =========================================================================
+
+    pub fn list_shapesheet_functions_json() -> String {
+        serde_json::to_string(&vexio_shapesheet::list_supported_shapesheet_functions())
+            .unwrap_or_else(|_| "[]".into())
+    }
+
+    pub fn list_shape_actions(&self, page_id: u32, shape_id: u64) -> Vec<ShapeActionItemDto> {
+        let Some(sh) = self.doc.page(page_id).and_then(|p| p.find_shape(shape_id)) else {
+            return Vec::new();
+        };
+        collect_shape_action_items(&self.doc, sh)
+    }
+
+    pub fn list_shape_actions_json(&self, page_id: u32, shape_id: u64) -> String {
+        serde_json::to_string(&self.list_shape_actions(page_id, shape_id))
+            .unwrap_or_else(|_| "[]".into())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn upsert_shape_action(
+        &mut self,
+        page_id: u32,
+        shape_id: u64,
+        row_name: &str,
+        menu: &str,
+        action_formula: &str,
+        checked_formula: &str,
+        disabled_formula: &str,
+        begin_group: bool,
+    ) -> Result<bool, CoreError> {
+        if self.doc.page(page_id).and_then(|p| p.find_shape(shape_id)).is_none() {
+            return Err(CoreError::Journal(JournalError::ShapeNotFound(shape_id)));
+        }
+        let clean_row = sanitize_action_row_name(row_name);
+        let menu_expr = normalize_string_or_formula_expr(menu, &clean_row);
+        let act_expr = normalize_formula_expr_or_zero(action_formula);
+        let chk_expr = normalize_bool_formula_expr(checked_formula);
+        let dis_expr = normalize_bool_formula_expr(disabled_formula);
+
+        let _ = self.journal.record_mutation(&mut self.doc, "Upsert Smart Action", |doc| {
+            let inherited = doc
+                .page(page_id)
+                .and_then(|p| p.find_shape(shape_id))
+                .and_then(|s| s.master_id)
+                .and_then(|mid| doc.masters.iter().find(|m| m.id == mid))
+                .and_then(|m| m.shapes.first())
+                .map(|ms| ms.sheet.actions.clone())
+                .unwrap_or_default();
+            if let Some(sh) = doc.page_mut(page_id).and_then(|p| p.find_shape_mut(shape_id)) {
+                if sh.sheet.actions.is_empty() && !inherited.is_empty() {
+                    for mr in inherited {
+                        sh.sheet.add_action(mr);
+                    }
+                }
+                sh.sheet.add_action(vexio_shapesheet::ActionRow {
+                    name: clean_row.clone(),
+                    action: act_expr.clone(),
+                    menu: menu_expr.clone(),
+                    tag_name: clean_row.clone(),
+                    checked: chk_expr.clone(),
+                    disabled: dis_expr.clone(),
+                    invisible: "FALSE".into(),
+                    begin_group,
+                });
+            }
+            ReactiveEngine::recalculate_document(doc);
+        });
+        Ok(true)
+    }
+
+    pub fn delete_shape_action(
+        &mut self,
+        page_id: u32,
+        shape_id: u64,
+        row_name: &str,
+    ) -> Result<bool, CoreError> {
+        let target = row_name.trim();
+        if target.is_empty() {
+            return Ok(false);
+        }
+        if self.doc.page(page_id).and_then(|p| p.find_shape(shape_id)).is_none() {
+            return Err(CoreError::Journal(JournalError::ShapeNotFound(shape_id)));
+        }
+        let mut removed = false;
+        let _ = self.journal.record_mutation(&mut self.doc, "Delete Smart Action", |doc| {
+            if let Some(sh) = doc.page_mut(page_id).and_then(|p| p.find_shape_mut(shape_id)) {
+                let before = sh.sheet.actions.len();
+                sh.sheet.actions.retain(|a| !a.name.eq_ignore_ascii_case(target));
+                removed = sh.sheet.actions.len() < before;
+                let prefix = format!("actions.{}.", target.to_ascii_lowercase());
+                let bare = format!("actions.{}", target.to_ascii_lowercase());
+                sh.sheet
+                    .cells
+                    .retain(|k, _| k != &bare && !k.starts_with(&prefix));
+            }
+            if removed {
+                ReactiveEngine::recalculate_document(doc);
+            }
+        });
+        Ok(removed)
+    }
+
+    pub fn execute_shape_action(
+        &mut self,
+        page_id: u32,
+        shape_id: u64,
+        row_name: &str,
+    ) -> Result<String, CoreError> {
+        let items = self.list_shape_actions(page_id, shape_id);
+        let target_name = row_name.trim();
+        let Some(act_item) = items
+            .iter()
+            .find(|a| a.name.eq_ignore_ascii_case(target_name) || a.menu.eq_ignore_ascii_case(target_name))
+            .cloned()
+        else {
+            return Err(CoreError::Journal(JournalError::ShapeNotFound(shape_id)));
+        };
+        if act_item.disabled {
+            let dto = ShapeActionExecResultDto {
+                executed: false,
+                row_name: act_item.name,
+                menu: act_item.menu,
+                target_page_id: None,
+                open_text_editor: false,
+                macro_ran: None,
+                summary: "Action is currently disabled".into(),
+            };
+            return Ok(serde_json::to_string(&dto).unwrap_or_else(|_| "{}".into()));
+        }
+
+        let raw_expr = act_item.action_formula.trim().to_string();
+        let eval_formula = if raw_expr.starts_with('=') {
+            raw_expr.clone()
+        } else {
+            format!("={raw_expr}")
+        };
+
+        let mut action_token = String::new();
+        let _ = self.journal.record_mutation(
+            &mut self.doc,
+            format!("Action: {}", act_item.menu),
+            |doc| {
+                let res_val = ReactiveEngine::execute_oneshot_action_formula(
+                    doc,
+                    page_id,
+                    shape_id,
+                    &eval_formula,
+                );
+                action_token = res_val.as_str_coerced().unwrap_or_default();
+                route_page_connectors(doc, page_id);
+            },
+        );
+
+        let mut target_page_id = None;
+        let mut open_text_editor = false;
+        let mut macro_ran = None;
+
+        if let Some(rest) = action_token.strip_prefix("__ACTION:GOTOPAGE:") {
+            let page_target = rest.trim();
+            target_page_id = self
+                .doc
+                .pages
+                .iter()
+                .find(|p| p.name.eq_ignore_ascii_case(page_target))
+                .map(|p| p.id)
+                .or_else(|| page_target.parse::<u32>().ok().filter(|&id| self.doc.page(id).is_some()));
+        } else if action_token.starts_with("__ACTION:OPENTEXTWIN")
+            || action_token.starts_with("__ACTION:DOCMD:1022")
+        {
+            open_text_editor = true;
+        } else if let Some(rest) = action_token
+            .strip_prefix("__ACTION:RUNMACRO:")
+            .or_else(|| action_token.strip_prefix("__ACTION:CALLTHIS:"))
+        {
+            let proc_name = rest.split(':').next().unwrap_or(rest).trim().to_string();
+            if !proc_name.is_empty() {
+                macro_ran = Some(proc_name);
+            }
+        }
+
+        let summary = if let Some(pid_dest) = target_page_id {
+            format!("Navigated to page #{pid_dest}")
+        } else if open_text_editor {
+            format!("Opened text editor via {}", act_item.menu)
+        } else if let Some(ref mname) = macro_ran {
+            format!("Triggered macro '{mname}'")
+        } else {
+            format!("Executed '{}'", act_item.menu)
+        };
+
+        let dto = ShapeActionExecResultDto {
+            executed: true,
+            row_name: act_item.name,
+            menu: act_item.menu,
+            target_page_id,
+            open_text_editor,
+            macro_ran,
+            summary,
+        };
+        Ok(serde_json::to_string(&dto).unwrap_or_else(|_| "{}".into()))
+    }
+
+    pub fn list_connection_points(&self, page_id: u32, shape_id: u64) -> Vec<ConnectionPointItemDto> {
+        let Some(sh) = self.doc.page(page_id).and_then(|p| p.find_shape(shape_id)) else {
+            return Vec::new();
+        };
+        let visuals = ReactiveEngine::evaluate_page_visuals(&self.doc, page_id);
+        let vis_opt = visuals.iter().find(|v| v.shape_id == shape_id);
+        collect_connection_point_items(&self.doc, sh, vis_opt)
+    }
+
+    pub fn list_connection_points_json(&self, page_id: u32, shape_id: u64) -> String {
+        serde_json::to_string(&self.list_connection_points(page_id, shape_id))
+            .unwrap_or_else(|_| "[]".into())
+    }
+
+    pub fn add_connection_point(
+        &mut self,
+        page_id: u32,
+        shape_id: u64,
+        page_x_in: f64,
+        page_y_in: f64,
+        point_type: u8,
+    ) -> Result<u32, CoreError> {
+        if self.doc.page(page_id).and_then(|p| p.find_shape(shape_id)).is_none() {
+            return Err(CoreError::Journal(JournalError::ShapeNotFound(shape_id)));
+        }
+        let visuals = ReactiveEngine::evaluate_page_visuals(&self.doc, page_id);
+        let Some(vis) = visuals.iter().find(|v| v.shape_id == shape_id) else {
+            return Err(CoreError::Journal(JournalError::ShapeNotFound(shape_id)));
+        };
+        let (x_expr, y_expr, dir_x_str, dir_y_str) =
+            compute_local_port_formulas(&vis.transform, page_x_in, page_y_in);
+        let pt_type = point_type.min(2);
+        let mut created_ix = 1u32;
+
+        let _ = self.journal.record_mutation(&mut self.doc, "Add Connection Point", |doc| {
+            materialize_inherited_connection_points_if_needed(doc, page_id, shape_id);
+            if let Some(sh) = doc.page_mut(page_id).and_then(|p| p.find_shape_mut(shape_id)) {
+                let next_ix = sh
+                    .sheet
+                    .connection_points
+                    .iter()
+                    .map(|cp| cp.ix)
+                    .max()
+                    .unwrap_or(0)
+                    + 1;
+                created_ix = next_ix;
+                sh.sheet.add_connection_point(ConnectionPointRow {
+                    name: format!("X{next_ix}"),
+                    ix: next_ix,
+                    x: x_expr.clone(),
+                    y: y_expr.clone(),
+                    dir_x: dir_x_str.clone(),
+                    dir_y: dir_y_str.clone(),
+                    point_type: pt_type,
+                });
+            }
+            ReactiveEngine::recalculate_document(doc);
+            route_page_connectors(doc, page_id);
+        });
+        Ok(created_ix)
+    }
+
+    pub fn move_connection_point(
+        &mut self,
+        page_id: u32,
+        shape_id: u64,
+        ix: u32,
+        page_x_in: f64,
+        page_y_in: f64,
+    ) -> Result<bool, CoreError> {
+        if self.doc.page(page_id).and_then(|p| p.find_shape(shape_id)).is_none() {
+            return Err(CoreError::Journal(JournalError::ShapeNotFound(shape_id)));
+        }
+        let visuals = ReactiveEngine::evaluate_page_visuals(&self.doc, page_id);
+        let Some(vis) = visuals.iter().find(|v| v.shape_id == shape_id) else {
+            return Ok(false);
+        };
+        let (x_expr, y_expr, dir_x_str, dir_y_str) =
+            compute_local_port_formulas(&vis.transform, page_x_in, page_y_in);
+        let mut updated = false;
+        let _ = self.journal.record_mutation(&mut self.doc, "Move Connection Point", |doc| {
+            materialize_inherited_connection_points_if_needed(doc, page_id, shape_id);
+            if let Some(sh) = doc.page_mut(page_id).and_then(|p| p.find_shape_mut(shape_id)) {
+                if let Some(cp) = sh.sheet.connection_points.iter_mut().find(|c| c.ix == ix) {
+                    cp.x = x_expr.clone();
+                    cp.y = y_expr.clone();
+                    cp.dir_x = dir_x_str.clone();
+                    cp.dir_y = dir_y_str.clone();
+                    updated = true;
+                }
+                if updated {
+                    sh.sheet.sync_all_sections_to_cells();
+                }
+            }
+            if updated {
+                ReactiveEngine::recalculate_document(doc);
+                route_page_connectors(doc, page_id);
+            }
+        });
+        Ok(updated)
+    }
+
+    pub fn delete_connection_point(
+        &mut self,
+        page_id: u32,
+        shape_id: u64,
+        ix: u32,
+    ) -> Result<bool, CoreError> {
+        if self.doc.page(page_id).and_then(|p| p.find_shape(shape_id)).is_none() {
+            return Err(CoreError::Journal(JournalError::ShapeNotFound(shape_id)));
+        }
+        let mut removed = false;
+        let _ = self.journal.record_mutation(&mut self.doc, "Delete Connection Point", |doc| {
+            materialize_inherited_connection_points_if_needed(doc, page_id, shape_id);
+            if let Some(sh) = doc.page_mut(page_id).and_then(|p| p.find_shape_mut(shape_id)) {
+                let before = sh.sheet.connection_points.len();
+                sh.sheet.connection_points.retain(|c| c.ix != ix);
+                removed = sh.sheet.connection_points.len() < before;
+                if removed {
+                    for prefix in ["connections.x", "connections.y", "connections.dirx", "connections.diry", "connections.type"] {
+                        sh.sheet.cells.remove(&format!("{prefix}{ix}"));
+                    }
+                    sh.sheet.sync_all_sections_to_cells();
+                }
+            }
+            if removed {
+                ReactiveEngine::recalculate_document(doc);
+                route_page_connectors(doc, page_id);
+            }
+        });
+        Ok(removed)
+    }
+
+    /// Add one or more selected canvas shapes into a custom stencil pack (defaulting to `"My Shapes"`),
+    /// generating vector SVG + PNG thumbnails and linking instances via `master_id`.
+    pub fn add_selection_to_custom_stencil(
+        &mut self,
+        page_id: u32,
+        shape_ids: &[u64],
+        stencil_title: &str,
+        master_name: &str,
+    ) -> Result<String, CoreError> {
+        let pack_title = if stencil_title.trim().is_empty() {
+            "My Shapes".to_string()
+        } else {
+            stencil_title.trim().to_string()
+        };
+        let Some(page) = self.doc.page(page_id) else {
+            return Err(CoreError::Journal(JournalError::PageNotFound(page_id)));
+        };
+        let selected_shapes: Vec<VisioShape> = shape_ids
+            .iter()
+            .filter_map(|&sid| page.find_shape(sid).cloned())
+            .collect();
+        if selected_shapes.is_empty() {
+            return Err(CoreError::Journal(JournalError::ShapeNotFound(
+                shape_ids.first().copied().unwrap_or(0),
+            )));
+        };
+
+        let tpl_shape = build_master_template_from_shapes(&self.doc, page_id, &selected_shapes);
+        let base_label = if !master_name.trim().is_empty() {
+            master_name.trim().to_string()
+        } else if !selected_shapes[0].text.trim().is_empty() {
+            selected_shapes[0]
+                .text
+                .lines()
+                .next()
+                .unwrap_or("Custom Shape")
+                .trim()
+                .chars()
+                .take(36)
+                .collect()
+        } else {
+            selected_shapes[0]
+                .name
+                .split('.')
+                .next()
+                .unwrap_or("Custom Shape")
+                .trim()
+                .to_string()
+        };
+
+        let existing_names: Vec<String> = self
+            .builtin_stencils
+            .iter()
+            .find(|p| p.title.eq_ignore_ascii_case(&pack_title))
+            .map(|p| p.masters.iter().map(|m| m.name.clone()).collect())
+            .unwrap_or_default();
+        let mut final_name = if base_label.is_empty() {
+            "Custom Shape".to_string()
+        } else {
+            base_label
+        };
+        if existing_names.iter().any(|n| n.eq_ignore_ascii_case(&final_name)) {
+            let mut suffix = 2u32;
+            loop {
+                let cand = format!("{final_name} {suffix}");
+                if !existing_names.iter().any(|n| n.eq_ignore_ascii_case(&cand)) {
+                    final_name = cand;
+                    break;
+                }
+                suffix += 1;
+            }
+        }
+
+        let next_mid = self.doc.masters.iter().map(|m| m.id).max().unwrap_or(0) + 1;
+        let new_master = vexio_shapesheet::VisioMaster {
+            id: next_mid,
+            name: final_name.clone(),
+            name_u: final_name.clone(),
+            base_id: format!("{{MYSHAPE-BASE-{next_mid:05}}}"),
+            unique_id: format!("{{MYSHAPE-UNIQ-{next_mid:05}}}"),
+            prompt: format!("{pack_title}: {final_name}"),
+            icon_bytes: None,
+            page_sheet: vexio_shapesheet::ShapeSheet::new(),
+            shapes: vec![tpl_shape],
+        };
+
+        let single_sid = if selected_shapes.len() == 1 {
+            Some(selected_shapes[0].id)
+        } else {
+            None
+        };
+        let master_for_doc = new_master.clone();
+        let _ = self.journal.record_mutation(&mut self.doc, "Add to My Shapes", |doc| {
+            doc.masters.push(master_for_doc.clone());
+            if let Some(sid) = single_sid {
+                if let Some(sh) = doc.page_mut(page_id).and_then(|p| p.find_shape_mut(sid)) {
+                    sh.master_id = Some(next_mid);
+                }
+            }
+        });
+
+        let mut pack_masters: Vec<vexio_shapesheet::VisioMaster> = self
+            .builtin_stencils
+            .iter()
+            .find(|p| p.title.eq_ignore_ascii_case(&pack_title))
+            .map(|p| p.masters.clone())
+            .unwrap_or_default();
+        pack_masters.push(new_master);
+
+        let styles = self.doc.styles.clone();
+        let themes = self.doc.themes.clone();
+        let previews =
+            self.register_custom_masters_preserving_ports(&pack_title, pack_masters, &styles, &themes);
+        let created_preview = previews.iter().find(|p| p.name == final_name).cloned();
+
+        let resp = serde_json::json!({
+            "masterId": next_mid,
+            "category": pack_title,
+            "name": final_name,
+            "masterCount": previews.len(),
+            "preview": created_preview,
+            "previews": previews,
+        });
+        Ok(serde_json::to_string(&resp).unwrap_or_else(|_| "{}".into()))
+    }
+
+    pub fn rename_custom_master(
+        &mut self,
+        stencil_title: &str,
+        old_name: &str,
+        new_name: &str,
+    ) -> Result<bool, CoreError> {
+        let pack_title = if stencil_title.trim().is_empty() {
+            "My Shapes"
+        } else {
+            stencil_title.trim()
+        };
+        let clean_new = new_name.trim();
+        if clean_new.is_empty() || old_name.trim().is_empty() {
+            return Ok(false);
+        }
+        let Some(pack_masters) = self
+            .builtin_stencils
+            .iter()
+            .find(|p| p.title.eq_ignore_ascii_case(pack_title))
+            .map(|p| p.masters.clone())
+        else {
+            return Ok(false);
+        };
+        let mut updated_masters = pack_masters;
+        let mut found_uid = None;
+        for m in &mut updated_masters {
+            if m.name.eq_ignore_ascii_case(old_name.trim()) {
+                found_uid = Some(m.unique_id.clone());
+                m.name = clean_new.to_string();
+                m.name_u = clean_new.to_string();
+                m.prompt = format!("{pack_title}: {clean_new}");
+                break;
+            }
+        }
+        let Some(uid) = found_uid else {
+            return Ok(false);
+        };
+        for dm in &mut self.doc.masters {
+            if (!uid.is_empty() && dm.unique_id == uid) || dm.name.eq_ignore_ascii_case(old_name.trim()) {
+                dm.name = clean_new.to_string();
+                dm.name_u = clean_new.to_string();
+                dm.prompt = format!("{pack_title}: {clean_new}");
+            }
+        }
+        let styles = self.doc.styles.clone();
+        let themes = self.doc.themes.clone();
+        self.register_custom_masters_preserving_ports(pack_title, updated_masters, &styles, &themes);
+        Ok(true)
+    }
+
+    pub fn delete_custom_master(
+        &mut self,
+        stencil_title: &str,
+        master_name: &str,
+    ) -> Result<bool, CoreError> {
+        let pack_title = if stencil_title.trim().is_empty() {
+            "My Shapes"
+        } else {
+            stencil_title.trim()
+        };
+        let target = master_name.trim();
+        if target.is_empty() {
+            return Ok(false);
+        }
+        let Some(pack_masters) = self
+            .builtin_stencils
+            .iter()
+            .find(|p| p.title.eq_ignore_ascii_case(pack_title))
+            .map(|p| p.masters.clone())
+        else {
+            return Ok(false);
+        };
+        let before = pack_masters.len();
+        let mut removed_uids = Vec::new();
+        let remaining: Vec<vexio_shapesheet::VisioMaster> = pack_masters
+            .into_iter()
+            .filter(|m| {
+                if m.name.eq_ignore_ascii_case(target) {
+                    removed_uids.push(m.unique_id.clone());
+                    false
+                } else {
+                    true
+                }
+            })
+            .collect();
+        if remaining.len() == before {
+            return Ok(false);
+        }
+        let mut removed_mids = Vec::new();
+        self.doc.masters.retain(|dm| {
+            let match_rm = (!dm.unique_id.is_empty() && removed_uids.contains(&dm.unique_id))
+                || (dm.name.eq_ignore_ascii_case(target) && dm.prompt.starts_with(pack_title));
+            if match_rm {
+                removed_mids.push(dm.id);
+                false
+            } else {
+                true
+            }
+        });
+        for p in &mut self.doc.pages {
+            for sh in &mut p.shapes {
+                if sh.master_id.is_some_and(|mid| removed_mids.contains(&mid)) {
+                    sh.master_id = None;
+                }
+            }
+        }
+        if remaining.is_empty() {
+            self.builtin_stencils
+                .retain(|p| !p.title.eq_ignore_ascii_case(pack_title));
+            self.imported_stencil_previews.remove(pack_title);
+        } else {
+            let styles = self.doc.styles.clone();
+            let themes = self.doc.themes.clone();
+            self.register_custom_masters_preserving_ports(pack_title, remaining, &styles, &themes);
+        }
+        Ok(true)
+    }
+
+    /// Update an existing Custom Master's geometry, smart actions, connection points, and visual styles
+    /// from `source_shape_id`, propagating changes across all inheriting instances on all pages!
+    pub fn update_custom_master_from_shape(
+        &mut self,
+        page_id: u32,
+        source_shape_id: u64,
+        stencil_title: &str,
+        master_name: &str,
+    ) -> Result<u32, CoreError> {
+        let pack_title = if stencil_title.trim().is_empty() {
+            "My Shapes"
+        } else {
+            stencil_title.trim()
+        };
+        let Some(src_shape) = self
+            .doc
+            .page(page_id)
+            .and_then(|p| p.find_shape(source_shape_id))
+            .cloned()
+        else {
+            return Err(CoreError::Journal(JournalError::ShapeNotFound(source_shape_id)));
+        };
+
+        let resolved_name = if !master_name.trim().is_empty() {
+            master_name.trim().to_string()
+        } else if let Some(mname) = resolve_shape_master_name(&self.doc, &src_shape) {
+            mname
+        } else {
+            return Err(CoreError::Journal(JournalError::ShapeNotFound(source_shape_id)));
+        };
+
+        let new_tpl = build_master_template_from_shapes(&self.doc, page_id, &[src_shape.clone()]);
+        let target_mid = self
+            .doc
+            .masters
+            .iter()
+            .find(|m| Some(m.id) == src_shape.master_id || m.name.eq_ignore_ascii_case(&resolved_name))
+            .map(|m| m.id)
+            .unwrap_or_else(|| self.doc.masters.iter().map(|m| m.id).max().unwrap_or(0) + 1);
+
+        let mut updated_instances = 0u32;
+        let tpl_for_doc = new_tpl.clone();
+        let name_for_doc = resolved_name.clone();
+        let pack_for_doc = pack_title.to_string();
+
+        let _ = self.journal.record_mutation(&mut self.doc, "Update Master & Instances", |doc| {
+            if let Some(dm) = doc.masters.iter_mut().find(|m| m.id == target_mid) {
+                dm.shapes = vec![tpl_for_doc.clone()];
+            } else {
+                doc.masters.push(vexio_shapesheet::VisioMaster {
+                    id: target_mid,
+                    name: name_for_doc.clone(),
+                    name_u: name_for_doc.clone(),
+                    base_id: format!("{{MYSHAPE-BASE-{target_mid:05}}}"),
+                    unique_id: format!("{{MYSHAPE-UNIQ-{target_mid:05}}}"),
+                    prompt: format!("{pack_for_doc}: {name_for_doc}"),
+                    icon_bytes: None,
+                    page_sheet: vexio_shapesheet::ShapeSheet::new(),
+                    shapes: vec![tpl_for_doc.clone()],
+                });
+            }
+
+            if let Some(src_mut) = doc.page_mut(page_id).and_then(|p| p.find_shape_mut(source_shape_id)) {
+                src_mut.master_id = Some(target_mid);
+            }
+
+            let all_pids: Vec<u32> = doc.pages.iter().map(|p| p.id).collect();
+            for pid_iter in &all_pids {
+                if let Some(pm) = doc.page_mut(*pid_iter) {
+                    for sh in &mut pm.shapes {
+                        if (*pid_iter == page_id && sh.id == source_shape_id)
+                            || sh.master_id != Some(target_mid)
+                        {
+                            continue;
+                        }
+                        propagate_master_template_to_instance(&tpl_for_doc, sh);
+                        updated_instances += 1;
+                    }
+                }
+            }
+            ReactiveEngine::recalculate_document(doc);
+            for pid_iter in all_pids {
+                route_page_connectors(doc, pid_iter);
+            }
+        });
+
+        let mut pack_masters: Vec<vexio_shapesheet::VisioMaster> = self
+            .builtin_stencils
+            .iter()
+            .find(|p| p.title.eq_ignore_ascii_case(pack_title))
+            .map(|p| p.masters.clone())
+            .unwrap_or_default();
+        if let Some(pm) = pack_masters
+            .iter_mut()
+            .find(|m| m.name.eq_ignore_ascii_case(&resolved_name) || m.id == target_mid)
+        {
+            pm.shapes = vec![new_tpl];
+        } else if let Some(dm) = self.doc.masters.iter().find(|m| m.id == target_mid) {
+            pack_masters.push(dm.clone());
+        }
+        if !pack_masters.is_empty() {
+            let styles = self.doc.styles.clone();
+            let themes = self.doc.themes.clone();
+            self.register_custom_masters_preserving_ports(pack_title, pack_masters, &styles, &themes);
+        }
+
+        Ok(updated_instances)
+    }
+
+    /// Export `"My Shapes"` (or any named stencil pack) as a valid standalone OpenXML `.vssx` stencil package.
+    pub fn export_custom_stencil_vssx(&self, stencil_title: &str) -> Result<Vec<u8>, CoreError> {
+        let pack_title = if stencil_title.trim().is_empty() {
+            "My Shapes"
+        } else {
+            stencil_title.trim()
+        };
+        let mut masters: Vec<vexio_shapesheet::VisioMaster> = self
+            .builtin_stencils
+            .iter()
+            .find(|p| p.title.eq_ignore_ascii_case(pack_title))
+            .map(|p| p.masters.clone())
+            .unwrap_or_default();
+        if masters.is_empty() && pack_title.eq_ignore_ascii_case("My Shapes") {
+            masters = self.doc.masters.clone();
+        }
+        let mut stencil_doc = VisioDocument::new_blank(pack_title);
+        stencil_doc.properties.title = pack_title.to_string();
+        stencil_doc.styles = self.doc.styles.clone();
+        stencil_doc.themes = self.doc.themes.clone();
+        for (idx, mut m) in masters.into_iter().enumerate() {
+            m.id = (idx as u32) + 1;
+            stencil_doc.masters.push(m);
+        }
+        Ok(write_vsdx(&stencil_doc, VsdxPackageKind::Stencil)?)
+    }
+
+    fn register_custom_masters_preserving_ports(
+        &mut self,
+        pack_title: &str,
+        masters: Vec<vexio_shapesheet::VisioMaster>,
+        imported_styles: &[vexio_shapesheet::StyleSheetDef],
+        imported_themes: &[vexio_shapesheet::ThemeDef],
+    ) -> Vec<crate::domains::StencilMasterPreview> {
+        let preview_w_in = 1.50;
+        let preview_h_in = 1.00;
+        let mut mini_doc = VisioDocument::new_blank("CustomStencilPreview");
+        if !imported_styles.is_empty() {
+            mini_doc.styles = imported_styles.to_vec();
+        }
+        if !imported_themes.is_empty() {
+            mini_doc.themes = imported_themes.to_vec();
+        }
+        if let Some(page) = mini_doc.page_mut(1) {
+            page.page_sheet.set_formula("PageWidth", "1.5 in", Some(Unit::Inch));
+            page.page_sheet.set_formula("PageHeight", "1 in", Some(Unit::Inch));
+            page.page_sheet
+                .set_formula("PageColor", "=RGB(255,255,255)", Some(Unit::Color));
+        }
+
+        let mut previews = Vec::with_capacity(masters.len());
+        for m in &masters {
+            let mut orig_w = 1.5;
+            let mut orig_h = 1.0;
+            let mut fill_formula = "=RGB(239,246,255)".to_string();
+            let mut line_formula = "=RGB(37,99,235)".to_string();
+            if let Some(page) = mini_doc.page_mut(1) {
+                page.shapes.clear();
+                if let Some(tpl) = m.shapes.first() {
+                    let mut sh = tpl.clone();
+                    sh.text.clear();
+                    clear_subtree_preview_text(&mut sh);
+                    orig_w = sh
+                        .sheet
+                        .get_f64("Width")
+                        .filter(|v| v.is_finite() && v.abs() > 0.05)
+                        .map(f64::abs)
+                        .unwrap_or(1.5)
+                        .max(0.15);
+                    orig_h = sh
+                        .sheet
+                        .get_f64("Height")
+                        .filter(|v| v.is_finite() && v.abs() > 0.05)
+                        .map(f64::abs)
+                        .unwrap_or(1.0)
+                        .max(0.15);
+                    if let Some(fc) = sh.sheet.get_cell("FillForegnd") {
+                        fill_formula = fc.formula.clone();
+                    }
+                    if let Some(lc) = sh.sheet.get_cell("LineColor") {
+                        line_formula = lc.formula.clone();
+                    }
+                    let scale = (1.24 / orig_w).min(0.80 / orig_h);
+                    sh.sheet.set_formula(
+                        "Width",
+                        format!("{} in", format_clean_f64((orig_w * scale).max(0.04))),
+                        Some(Unit::Inch),
+                    );
+                    sh.sheet.set_formula(
+                        "Height",
+                        format!("{} in", format_clean_f64((orig_h * scale).max(0.04))),
+                        Some(Unit::Inch),
+                    );
+                    sh.sheet.set_formula(
+                        "PinX",
+                        format!("{} in", format_clean_f64(preview_w_in * 0.5)),
+                        Some(Unit::Inch),
+                    );
+                    sh.sheet.set_formula(
+                        "PinY",
+                        format!("{} in", format_clean_f64(preview_h_in * 0.5)),
+                        Some(Unit::Inch),
+                    );
+                    page.shapes.push(sh);
+                }
+            }
+            ReactiveEngine::recalculate_document(&mut mini_doc);
+            let svg = export_page_svg(&mini_doc, 1);
+            let png_data_url = crate::domains::render_stencil_preview_png_data_url(&mini_doc, 1);
+            previews.push(crate::domains::StencilMasterPreview {
+                name: m.name.clone(),
+                prompt: m.prompt.clone(),
+                category: pack_title.to_string(),
+                width_in: orig_w,
+                height_in: orig_h,
+                fill_formula,
+                line_formula,
+                svg,
+                png_data_url,
+            });
+        }
+
+        let new_pack = StencilPack {
+            title: pack_title.to_string(),
+            category: pack_title.to_string(),
+            masters,
+        };
+        if let Some(existing) = self
+            .builtin_stencils
+            .iter_mut()
+            .find(|p| p.title.eq_ignore_ascii_case(pack_title))
+        {
+            *existing = new_pack;
+        } else {
+            self.builtin_stencils.insert(0, new_pack);
+        }
+        self.imported_stencil_previews
+            .insert(pack_title.to_string(), previews.clone());
+        previews
+    }
 }
 
 fn parse_gantt_wizard_spec(spec: &str) -> Vec<crate::domains::GanttTaskInput> {
@@ -6460,6 +7337,481 @@ pub struct PageDataLinkStateDto {
     pub data_graphics: DataGraphicConfigDto,
     pub recordsets: Vec<ExternalRecordsetDto>,
     pub available_prop_fields: Vec<String>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShapeActionItemDto {
+    pub name: String,
+    pub menu: String,
+    pub tag_name: String,
+    pub action_formula: String,
+    pub checked_formula: String,
+    pub disabled_formula: String,
+    pub invisible_formula: String,
+    pub checked: bool,
+    pub disabled: bool,
+    pub invisible: bool,
+    pub begin_group: bool,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShapeActionExecResultDto {
+    pub executed: bool,
+    pub row_name: String,
+    pub menu: String,
+    pub target_page_id: Option<u32>,
+    pub open_text_editor: bool,
+    pub macro_ran: Option<String>,
+    pub summary: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConnectionPointItemDto {
+    pub ix: u32,
+    pub name: String,
+    pub x_formula: String,
+    pub y_formula: String,
+    pub page_x_in: f64,
+    pub page_y_in: f64,
+    pub dir_x: f64,
+    pub dir_y: f64,
+    pub point_type: u8,
+}
+
+fn sanitize_action_row_name(raw: &str) -> String {
+    let cleaned: String = raw
+        .trim()
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() || c == '_' { c } else { '_' })
+        .collect();
+    if cleaned.is_empty() {
+        "Row_1".into()
+    } else if cleaned.chars().next().is_some_and(|c| c.is_ascii_digit()) {
+        format!("Action_{cleaned}")
+    } else {
+        cleaned
+    }
+}
+
+fn normalize_string_or_formula_expr(raw: &str, fallback: &str) -> String {
+    let t = raw.trim();
+    if t.is_empty() {
+        return format!("\"{}\"", fallback.replace('"', "\"\""));
+    }
+    if t.starts_with('=') || (t.starts_with('"') && t.ends_with('"') && t.len() >= 2) {
+        t.to_string()
+    } else {
+        format!("\"{}\"", t.replace('"', "\"\""))
+    }
+}
+
+fn normalize_formula_expr_or_zero(raw: &str) -> String {
+    let t = raw.trim();
+    if t.is_empty() {
+        "0".into()
+    } else if t.starts_with('=') {
+        t.to_string()
+    } else {
+        format!("={t}")
+    }
+}
+
+fn normalize_bool_formula_expr(raw: &str) -> String {
+    let t = raw.trim();
+    if t.is_empty() {
+        "FALSE".into()
+    } else if matches!(t.to_ascii_uppercase().as_str(), "0" | "1" | "TRUE" | "FALSE") || t.starts_with('=') {
+        t.to_string()
+    } else {
+        format!("={t}")
+    }
+}
+
+fn eval_action_bool_cell_or_literal(shape: &VisioShape, cell_key: &str, raw_formula: &str) -> bool {
+    if let Some(b) = shape.sheet.get_bool(cell_key) {
+        return b;
+    }
+    let up = raw_formula.trim().trim_start_matches('=').trim().to_ascii_uppercase();
+    matches!(up.as_str(), "1" | "TRUE")
+}
+
+pub(crate) fn collect_shape_action_items(
+    doc: &VisioDocument,
+    shape: &VisioShape,
+) -> Vec<ShapeActionItemDto> {
+    let source_rows: &[vexio_shapesheet::ActionRow] = if !shape.sheet.actions.is_empty() {
+        &shape.sheet.actions
+    } else if let Some(mid) = shape.master_id {
+        doc.masters
+            .iter()
+            .find(|m| m.id == mid)
+            .and_then(|m| m.shapes.first())
+            .map(|ms| ms.sheet.actions.as_slice())
+            .unwrap_or(&[])
+    } else {
+        &[]
+    };
+
+    source_rows
+        .iter()
+        .filter_map(|row| {
+            let prefix = format!("Actions.{}", row.name);
+            let invisible = eval_action_bool_cell_or_literal(
+                shape,
+                &format!("{prefix}.Invisible"),
+                &row.invisible,
+            );
+            if invisible {
+                return None;
+            }
+            let menu_val = shape
+                .sheet
+                .get_cell(&format!("{prefix}.Menu"))
+                .and_then(|c| c.value.as_str_coerced().ok())
+                .filter(|s| !s.trim().is_empty())
+                .unwrap_or_else(|| {
+                    let trimmed = row.menu.trim().trim_start_matches('=').trim().trim_matches('"');
+                    if trimmed.is_empty() {
+                        row.name.clone()
+                    } else {
+                        trimmed.replace("\"\"", "\"")
+                    }
+                });
+            let checked =
+                eval_action_bool_cell_or_literal(shape, &format!("{prefix}.Checked"), &row.checked);
+            let disabled = eval_action_bool_cell_or_literal(
+                shape,
+                &format!("{prefix}.Disabled"),
+                &row.disabled,
+            );
+            Some(ShapeActionItemDto {
+                name: row.name.clone(),
+                menu: menu_val,
+                tag_name: row.tag_name.clone(),
+                action_formula: row.action.clone(),
+                checked_formula: row.checked.clone(),
+                disabled_formula: row.disabled.clone(),
+                invisible_formula: row.invisible.clone(),
+                checked,
+                disabled,
+                invisible,
+                begin_group: row.begin_group,
+            })
+        })
+        .collect()
+}
+
+pub(crate) fn collect_connection_point_items(
+    doc: &VisioDocument,
+    shape: &VisioShape,
+    vis_opt: Option<&vexio_shapesheet::EvaluatedShapeVisual>,
+) -> Vec<ConnectionPointItemDto> {
+    let source_rows: &[ConnectionPointRow] = if !shape.sheet.connection_points.is_empty() {
+        &shape.sheet.connection_points
+    } else if let Some(mid) = shape.master_id {
+        doc.masters
+            .iter()
+            .find(|m| m.id == mid)
+            .and_then(|m| m.shapes.first())
+            .map(|ms| ms.sheet.connection_points.as_slice())
+            .unwrap_or(&[])
+    } else {
+        &[]
+    };
+    source_rows
+        .iter()
+        .map(|cp| {
+            let eval_port = vis_opt.and_then(|v| {
+                v.connection_points
+                    .iter()
+                    .find(|ep| ep.ix == cp.ix)
+            });
+            let [px, py] = eval_port.map(|ep| ep.pos_page_in).unwrap_or_else(|| {
+                let lx = shape.sheet.get_f64(&format!("Connections.X{}", cp.ix)).unwrap_or(0.0);
+                let ly = shape.sheet.get_f64(&format!("Connections.Y{}", cp.ix)).unwrap_or(0.0);
+                if let Some(v) = vis_opt {
+                    v.transform.local_to_parent(lx, ly).into()
+                } else {
+                    [lx, ly]
+                }
+            });
+            let dx = shape
+                .sheet
+                .get_f64(&format!("Connections.DirX{}", cp.ix))
+                .or_else(|| cp.dir_x.trim().parse::<f64>().ok())
+                .unwrap_or(0.0);
+            let dy = shape
+                .sheet
+                .get_f64(&format!("Connections.DirY{}", cp.ix))
+                .or_else(|| cp.dir_y.trim().parse::<f64>().ok())
+                .unwrap_or(0.0);
+            ConnectionPointItemDto {
+                ix: cp.ix,
+                name: cp.name.clone(),
+                x_formula: cp.x.clone(),
+                y_formula: cp.y.clone(),
+                page_x_in: px,
+                page_y_in: py,
+                dir_x: dx,
+                dir_y: dy,
+                point_type: cp.point_type,
+            }
+        })
+        .collect()
+}
+
+pub(crate) fn compute_local_port_formulas(
+    tf: &vexio_shapesheet::ShapeTransform2D,
+    page_x_in: f64,
+    page_y_in: f64,
+) -> (String, String, String, String) {
+    let (lx, ly) = tf.parent_to_local(page_x_in, page_y_in);
+    let w = tf.width.abs();
+    let h = tf.height.abs();
+    let x_expr = if w > 0.05 {
+        let fx = ((lx / w) * 10000.0).round() / 10000.0;
+        if fx.abs() < 1e-4 {
+            "0 in".into()
+        } else if (fx - 1.0).abs() < 1e-4 {
+            "=Width".into()
+        } else {
+            format!("=Width*{}", format_clean_f64(fx))
+        }
+    } else {
+        format!("{} in", format_clean_f64(lx))
+    };
+    let y_expr = if h > 0.05 {
+        let fy = ((ly / h) * 10000.0).round() / 10000.0;
+        if fy.abs() < 1e-4 {
+            "0 in".into()
+        } else if (fy - 1.0).abs() < 1e-4 {
+            "=Height".into()
+        } else {
+            format!("=Height*{}", format_clean_f64(fy))
+        }
+    } else {
+        format!("{} in", format_clean_f64(ly))
+    };
+    let vx = lx - w * 0.5;
+    let vy = ly - h * 0.5;
+    let len = vx.hypot(vy);
+    let (dx, dy) = if len > 1e-4 {
+        (vx / len, vy / len)
+    } else {
+        (0.0, 1.0)
+    };
+    (
+        x_expr,
+        y_expr,
+        format_clean_f64((dx * 1000.0).round() / 1000.0),
+        format_clean_f64((dy * 1000.0).round() / 1000.0),
+    )
+}
+
+pub(crate) fn materialize_inherited_connection_points_if_needed(
+    doc: &mut VisioDocument,
+    page_id: u32,
+    shape_id: u64,
+) {
+    let inherited = doc
+        .page(page_id)
+        .and_then(|p| p.find_shape(shape_id))
+        .filter(|s| s.sheet.connection_points.is_empty())
+        .and_then(|s| s.master_id)
+        .and_then(|mid| doc.masters.iter().find(|m| m.id == mid))
+        .and_then(|m| m.shapes.first())
+        .map(|ms| ms.sheet.connection_points.clone())
+        .unwrap_or_default();
+    if !inherited.is_empty() {
+        if let Some(sh) = doc.page_mut(page_id).and_then(|p| p.find_shape_mut(shape_id)) {
+            for cp in inherited {
+                sh.sheet.add_connection_point(cp);
+            }
+        }
+    }
+}
+
+pub(crate) fn move_connection_point_preview(
+    doc: &mut VisioDocument,
+    page_id: u32,
+    shape_id: u64,
+    ix: u32,
+    page_x_in: f64,
+    page_y_in: f64,
+) {
+    let visuals = ReactiveEngine::evaluate_page_visuals(doc, page_id);
+    let Some(vis) = visuals.iter().find(|v| v.shape_id == shape_id) else {
+        return;
+    };
+    let (x_expr, y_expr, dx_s, dy_s) =
+        compute_local_port_formulas(&vis.transform, page_x_in, page_y_in);
+    materialize_inherited_connection_points_if_needed(doc, page_id, shape_id);
+    if let Some(sh) = doc.page_mut(page_id).and_then(|p| p.find_shape_mut(shape_id)) {
+        if let Some(cp) = sh.sheet.connection_points.iter_mut().find(|c| c.ix == ix) {
+            cp.x = x_expr;
+            cp.y = y_expr;
+            cp.dir_x = dx_s;
+            cp.dir_y = dy_s;
+        }
+        sh.sheet.sync_all_sections_to_cells();
+    }
+    ReactiveEngine::recalculate_document(doc);
+    route_page_connectors(doc, page_id);
+}
+
+fn build_master_template_from_shapes(
+    doc: &VisioDocument,
+    page_id: u32,
+    shapes: &[VisioShape],
+) -> VisioShape {
+    if shapes.len() == 1 {
+        let mut s = shapes[0].clone();
+        s.id = 1;
+        s.master_id = None;
+        s.bound_data_row = None;
+        let w = s.sheet.get_f64("Width").unwrap_or(1.5).abs().max(0.15);
+        let h = s.sheet.get_f64("Height").unwrap_or(1.0).abs().max(0.15);
+        s.sheet.set_formula("Width", format!("{} in", format_clean_f64(w)), Some(Unit::Inch));
+        s.sheet.set_formula("Height", format!("{} in", format_clean_f64(h)), Some(Unit::Inch));
+        s.sheet.set_formula("LocPinX", "=Width*0.5", Some(Unit::Inch));
+        s.sheet.set_formula("LocPinY", "=Height*0.5", Some(Unit::Inch));
+        s.sheet.set_formula("PinX", format!("{} in", format_clean_f64(w * 0.5)), Some(Unit::Inch));
+        s.sheet.set_formula("PinY", format!("{} in", format_clean_f64(h * 0.5)), Some(Unit::Inch));
+        attach_cardinal_ports_to_shape(&mut s);
+        s.sheet.sync_all_sections_to_cells();
+        return s;
+    }
+
+    let visuals = ReactiveEngine::evaluate_page_visuals(doc, page_id);
+    let mut min_x = f64::INFINITY;
+    let mut min_y = f64::INFINITY;
+    let mut max_x = f64::NEG_INFINITY;
+    let mut max_y = f64::NEG_INFINITY;
+    for sh in shapes {
+        if let Some(v) = visuals.iter().find(|vv| vv.shape_id == sh.id) {
+            min_x = min_x.min(v.aabb_min[0]);
+            min_y = min_y.min(v.aabb_min[1]);
+            max_x = max_x.max(v.aabb_max[0]);
+            max_y = max_y.max(v.aabb_max[1]);
+        }
+    }
+    if !min_x.is_finite() {
+        min_x = 0.0;
+        min_y = 0.0;
+        max_x = 2.0;
+        max_y = 1.5;
+    }
+    let gw = (max_x - min_x).max(0.25);
+    let gh = (max_y - min_y).max(0.25);
+    let mut grp = VisioShape::new_rect(1, "CustomGroup", gw * 0.5, gh * 0.5, gw, gh);
+    grp.kind = ShapeKind::Group;
+    grp.text.clear();
+    grp.sheet.geometries.clear();
+    grp.sheet.set_formula("FillPattern", "0", Some(Unit::Number));
+    grp.sheet.set_formula("LinePattern", "0", Some(Unit::Number));
+    let mut next_cid = 2u64;
+    for orig in shapes {
+        let mut ch = orig.clone();
+        ch.master_id = None;
+        ch.bound_data_row = None;
+        let px = ch.sheet.get_f64("PinX").unwrap_or(min_x) - min_x;
+        let py = ch.sheet.get_f64("PinY").unwrap_or(min_y) - min_y;
+        ch.sheet.set_formula("PinX", format!("{} in", format_clean_f64(px)), Some(Unit::Inch));
+        ch.sheet.set_formula("PinY", format!("{} in", format_clean_f64(py)), Some(Unit::Inch));
+        let _ = remap_dropped_shape_subtree(&mut ch, &mut next_cid);
+        grp.children.push(ch);
+    }
+    attach_cardinal_ports_to_shape(&mut grp);
+    grp.sheet.sync_all_sections_to_cells();
+    grp
+}
+
+fn propagate_master_template_to_instance(tpl: &VisioShape, inst: &mut VisioShape) {
+    let keep_px = inst.sheet.get_cell("PinX").map(|c| c.formula.clone());
+    let keep_py = inst.sheet.get_cell("PinY").map(|c| c.formula.clone());
+    let keep_w = inst.sheet.get_cell("Width").map(|c| c.formula.clone());
+    let keep_h = inst.sheet.get_cell("Height").map(|c| c.formula.clone());
+    let keep_ang = inst.sheet.get_cell("Angle").map(|c| c.formula.clone());
+    let keep_props = inst.sheet.shape_data.clone();
+
+    inst.kind = tpl.kind;
+    inst.foreign_data = tpl.foreign_data.clone();
+    inst.sheet.geometries = tpl.sheet.geometries.clone();
+    inst.sheet.actions = tpl.sheet.actions.clone();
+    inst.sheet.connection_points = tpl.sheet.connection_points.clone();
+    inst.sheet.controls = tpl.sheet.controls.clone();
+    for (uk, uv) in &tpl.sheet.user_cells {
+        inst.sheet.user_cells.insert(uk.clone(), uv.clone());
+    }
+    for (pk, pv) in &tpl.sheet.shape_data {
+        inst.sheet
+            .shape_data
+            .entry(pk.clone())
+            .or_insert_with(|| pv.clone());
+    }
+    for (pk, pv) in keep_props {
+        inst.sheet.shape_data.insert(pk, pv);
+    }
+
+    for style_cell in [
+        "FillForegnd",
+        "FillBkgnd",
+        "FillPattern",
+        "FillForegndTrans",
+        "LineColor",
+        "LineWeight",
+        "LinePattern",
+        "LineColorTrans",
+        "Rounding",
+        "Char.Font",
+        "Char.Size",
+        "Char.Style",
+        "Char.Color",
+    ] {
+        if let Some(tc) = tpl.sheet.get_cell(style_cell) {
+            let is_guarded = inst
+                .sheet
+                .get_cell(style_cell)
+                .is_some_and(|c| c.is_guarded());
+            if !is_guarded {
+                inst.sheet
+                    .set_formula(style_cell, tc.formula.clone(), tc.unit_hint);
+            }
+        }
+    }
+
+    if !tpl.children.is_empty() {
+        let mut alloc = inst.id.saturating_mul(1000).max(10_000);
+        inst.children = tpl
+            .children
+            .iter()
+            .map(|c| {
+                let mut cloned = c.clone();
+                let _ = remap_dropped_shape_subtree(&mut cloned, &mut alloc);
+                cloned
+            })
+            .collect();
+    }
+
+    if let Some(f) = keep_px {
+        inst.sheet.set_formula("PinX", f, Some(Unit::Inch));
+    }
+    if let Some(f) = keep_py {
+        inst.sheet.set_formula("PinY", f, Some(Unit::Inch));
+    }
+    if let Some(f) = keep_w {
+        inst.sheet.set_formula("Width", f, Some(Unit::Inch));
+    }
+    if let Some(f) = keep_h {
+        inst.sheet.set_formula("Height", f, Some(Unit::Inch));
+    }
+    if let Some(f) = keep_ang {
+        inst.sheet.set_formula("Angle", f, Some(Unit::Degree));
+    }
+    inst.sheet.sync_all_sections_to_cells();
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

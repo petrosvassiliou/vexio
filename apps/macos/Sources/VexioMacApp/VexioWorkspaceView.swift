@@ -174,6 +174,7 @@ public struct VexioWorkspaceView: View {
     @State private var isDomainWizardsSheetPresented: Bool = false
     @State private var initialWizardSlug: String = "gantt"
     @State private var isCadToolsSheetPresented: Bool = false
+    @State private var isSmartActionsSheetPresented: Bool = false
 
     // ShapeSheet Editor State
     @State private var selectedShapeSheetSection: ShapeSheetSectionCategory?
@@ -297,8 +298,17 @@ public struct VexioWorkspaceView: View {
             }
     }
 
-    private var workspaceWithLifecycleNotifications: some View {
+    private var workspaceWithMilestone2Sheets: some View {
         workspaceWithMilestone1Sheets
+            .sheet(isPresented: $isSmartActionsSheetPresented) {
+                VexioSmartActionsSheet(session: session) {
+                    isSmartActionsSheetPresented = false
+                }
+            }
+    }
+
+    private var workspaceWithLifecycleNotifications: some View {
+        workspaceWithMilestone2Sheets
             .onAppear {
                 if let fileURL {
                     session.openLocalFile(from: fileURL)
@@ -382,6 +392,9 @@ public struct VexioWorkspaceView: View {
             }
             .onReceive(NotificationCenter.default.publisher(for: .vexioOpenCadToolsSheet)) { _ in
                 isCadToolsSheetPresented = true
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .vexioOpenSmartActionsSheet)) { _ in
+                isSmartActionsSheetPresented = true
             }
             .onReceive(NotificationCenter.default.publisher(for: .vexioOpenPageSetupSheet)) { note in
                 if let pid = note.object as? UInt32 {
@@ -1228,6 +1241,7 @@ public extension Notification.Name {
     static let vexioOpenHyperlinkSheet = Notification.Name("app.vexio.openHyperlinkSheet")
     static let vexioOpenDomainWizardsSheet = Notification.Name("app.vexio.openDomainWizardsSheet")
     static let vexioOpenCadToolsSheet = Notification.Name("app.vexio.openCadToolsSheet")
+    static let vexioOpenSmartActionsSheet = Notification.Name("app.vexio.openSmartActionsSheet")
     static let vexioExportFormatRequested = Notification.Name("app.vexio.exportFormatRequested")
     static let vexioOpenExternalURL = Notification.Name("app.vexio.openExternalURL")
 }
@@ -1297,6 +1311,38 @@ private struct VexioStencilNavigatorSidebar: View {
                     }
                     .buttonStyle(.plain)
                     .help("\(i18n.t("stencilCatalog")) — Download Official Microsoft 365, Azure & Awesome-Visio Packs")
+
+                    Button {
+                        session.addSelectionToMyShapes(undoManager: undoManager)
+                        expandedCategories.insert("My Shapes")
+                    } label: {
+                        Image(systemName: "star.square.on.square")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(.primary)
+                            .frame(width: 24, height: 24)
+                            .background(
+                                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                    .fill(Color.primary.opacity(0.06))
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(session.selectedShapeId == 0)
+                    .help("Add Selected Shape(s) to My Shapes Stencil")
+
+                    Button {
+                        exportMyShapesStencilSheet()
+                    } label: {
+                        Image(systemName: "square.and.arrow.up.on.square")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(.primary)
+                            .frame(width: 24, height: 24)
+                            .background(
+                                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                    .fill(Color.primary.opacity(0.06))
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .help("Export My Shapes Custom Stencil (.vssx)…")
 
                     Button {
                         onRequestImportStencil()
@@ -1560,12 +1606,43 @@ private struct VexioStencilNavigatorSidebar: View {
                 )
             }
             Divider()
+            if master.category == "My Shapes" {
+                Button("Delete '\(master.name)' from My Shapes", role: .destructive) {
+                    session.deleteCustomStencilMaster(stencilTitle: "My Shapes", masterName: master.name)
+                }
+                Button("Export My Shapes (.vssx)…") {
+                    exportMyShapesStencilSheet()
+                }
+                Divider()
+            }
             Button("Copy Shape Name") {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(master.name, forType: .string)
             }
         }
         .help(master.prompt.isEmpty ? "Click or drag '\(master.name)' onto canvas" : "\(master.name) — \(master.prompt)")
+    }
+
+    private func exportMyShapesStencilSheet() {
+        let panel = NSSavePanel()
+        panel.title = "Export My Shapes Stencil (.vssx)"
+        panel.allowedContentTypes = [.visioStencil]
+        panel.nameFieldStringValue = "My Shapes.vssx"
+        panel.canCreateDirectories = true
+        if let window = NSApp.keyWindow ?? NSApp.windows.first {
+            panel.beginSheetModal(for: window) { response in
+                guard response == .OK, let targetURL = panel.url else { return }
+                Task { @MainActor in
+                    do {
+                        let bytes = try session.exportCustomStencilVssxData(stencilTitle: "My Shapes")
+                        try bytes.write(to: targetURL)
+                        session.statusMessage = "Exported My Shapes stencil to \(targetURL.lastPathComponent)"
+                    } catch {
+                        session.statusMessage = error.localizedDescription
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -4805,6 +4882,103 @@ private struct VexioCadToolsSheet: View {
                 Text(statusNote)
                     .font(.system(size: 11.5))
                     .foregroundStyle(.secondary)
+            }
+        }
+        .padding(18)
+        .frame(width: 560)
+    }
+}
+
+private struct VexioSmartActionsSheet: View {
+    @ObservedObject var session: VexioDocumentSession
+    let onClose: () -> Void
+    @Environment(\.undoManager) private var undoManager
+
+    @State private var rowName: String = "ToggleState"
+    @State private var menuLabel: String = "Toggle Active Color"
+    @State private var actionFormula: String = "=SETF(GetRef(FillForegnd), \"RGB(34,197,94)\")"
+    @State private var checkedFormula: String = "FALSE"
+    @State private var disabledFormula: String = "FALSE"
+    @State private var beginGroup: Bool = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Label("Smart-Shape Context Menu Actions (Actions.*)", systemImage: "bolt.badge.checkmark")
+                    .font(.system(size: 14, weight: .semibold))
+                Spacer()
+                Button("Close", action: onClose)
+            }
+
+            if !session.selectedShapeActions.isEmpty {
+                ScrollView {
+                    VStack(spacing: 6) {
+                        ForEach(session.selectedShapeActions) { act in
+                            HStack {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("\(act.checked ? "✓ " : "")\(act.menu) (Actions.\(act.name))")
+                                        .font(.system(size: 12, weight: .semibold))
+                                    Text(act.actionFormula)
+                                        .font(.system(size: 11, design: .monospaced))
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                Button("Run") {
+                                    session.executeSmartAction(rowName: act.name, undoManager: undoManager)
+                                }
+                                Button("Delete", role: .destructive) {
+                                    session.deleteSmartAction(rowName: act.name, undoManager: undoManager)
+                                }
+                            }
+                            .padding(8)
+                            .background(RoundedRectangle(cornerRadius: 7).fill(Color.primary.opacity(0.05)))
+                        }
+                    }
+                }
+                .frame(maxHeight: 150)
+            }
+
+            Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 8) {
+                GridRow {
+                    Text("Row Name:").font(.system(size: 12))
+                    TextField("ToggleState", text: $rowName).textFieldStyle(.roundedBorder)
+                }
+                GridRow {
+                    Text("Menu Label:").font(.system(size: 12))
+                    TextField("Toggle Active Color", text: $menuLabel).textFieldStyle(.roundedBorder)
+                }
+                GridRow {
+                    Text("Action Formula:").font(.system(size: 12))
+                    TextField("=SETF(...)", text: $actionFormula).textFieldStyle(.roundedBorder)
+                }
+                GridRow {
+                    Text("Checked Expr:").font(.system(size: 12))
+                    TextField("=User.IsActive", text: $checkedFormula).textFieldStyle(.roundedBorder)
+                }
+                GridRow {
+                    Text("Disabled Expr:").font(.system(size: 12))
+                    TextField("FALSE", text: $disabledFormula).textFieldStyle(.roundedBorder)
+                }
+            }
+
+            Toggle("Begin Menu Separator Group", isOn: $beginGroup)
+                .font(.system(size: 12))
+
+            HStack {
+                Spacer()
+                Button("Save Smart Action Row") {
+                    session.upsertSmartAction(
+                        rowName: rowName,
+                        menu: menuLabel,
+                        actionFormula: actionFormula,
+                        checkedFormula: checkedFormula,
+                        disabledFormula: disabledFormula,
+                        beginGroup: beginGroup,
+                        undoManager: undoManager
+                    )
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(session.selectedShapeId == 0)
             }
         }
         .padding(18)

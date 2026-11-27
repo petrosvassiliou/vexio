@@ -2858,6 +2858,9 @@ pub struct InteractiveCanvasOverlay {
     /// Editable geometry vertices `(x_in, y_in)` for the active shape in `EditVertices` mode.
     #[serde(default)]
     pub editable_vertices: Vec<[f64; 2]>,
+    /// Editable connection point ports `(x_in, y_in)` in `ConnectionPoint` (`Shift+Ctrl+1`) mode.
+    #[serde(default)]
+    pub editable_connection_points: Vec<[f64; 2]>,
 }
 
 /// Tessellate transient interactive overlays (rubber-band marquee, smart alignment & equal-spacing
@@ -3054,6 +3057,51 @@ pub fn tessellate_interactive_overlay(
                 [cx + r_inner, cy + r_inner],
                 white,
                 [PRIM_FLAG_OVERLAY_UI, 0.0],
+            );
+        }
+    }
+
+    // 7. Interactive Connection Point Authoring Grips (`Shift+Ctrl+1` ConnectionPoint tool)
+    if !overlay.editable_connection_points.is_empty() {
+        let halo_r = 5.4 * inv_ppi;
+        let cross_d = 3.8 * inv_ppi;
+        let magenta = [0.859, 0.153, 0.467, 1.0]; // #DB2777 Visio Connection Point Magenta
+        let white_halo = [1.0, 1.0, 1.0, 0.94];
+        for cpt in &overlay.editable_connection_points {
+            let mut hb = Path::builder();
+            emit_rotated_ellipse(&mut hb, *cpt, halo_r, halo_r, 0.0);
+            let hp = hb.build();
+            let _ = fill_tess.tessellate_path(
+                &hp,
+                &FillOptions::tolerance(tol),
+                &mut BuffersBuilder::new(&mut lyon_buf, |v: FillVertex| {
+                    let pos = v.position();
+                    GpuVertex::new([pos.x, pos.y], white_halo, [PRIM_FLAG_OVERLAY_UI, 0.0])
+                }),
+            );
+            let _ = stroke_tess.tessellate_path(
+                &hp,
+                &StrokeOptions::tolerance(tol).with_line_width((1.4 * inv_ppi) as f32),
+                &mut BuffersBuilder::new(&mut lyon_buf, |v: StrokeVertex| {
+                    let pos = v.position();
+                    GpuVertex::new([pos.x, pos.y], magenta, [PRIM_FLAG_OVERLAY_UI, 0.0])
+                }),
+            );
+            let mut xb = Path::builder();
+            xb.begin(point((cpt[0] - cross_d) as f32, (cpt[1] - cross_d) as f32));
+            xb.line_to(point((cpt[0] + cross_d) as f32, (cpt[1] + cross_d) as f32));
+            xb.end(false);
+            xb.begin(point((cpt[0] - cross_d) as f32, (cpt[1] + cross_d) as f32));
+            xb.line_to(point((cpt[0] + cross_d) as f32, (cpt[1] - cross_d) as f32));
+            xb.end(false);
+            let xp = xb.build();
+            let _ = stroke_tess.tessellate_path(
+                &xp,
+                &StrokeOptions::tolerance(tol).with_line_width((1.85 * inv_ppi) as f32),
+                &mut BuffersBuilder::new(&mut lyon_buf, |v: StrokeVertex| {
+                    let pos = v.position();
+                    GpuVertex::new([pos.x, pos.y], magenta, [PRIM_FLAG_OVERLAY_UI, 0.0])
+                }),
             );
         }
     }

@@ -613,6 +613,7 @@ fn is_section_synthesized_cell(key_lower: &str) -> bool {
     key_lower.starts_with("geometry")
         || key_lower.starts_with("connections.")
         || key_lower.starts_with("controls.")
+        || key_lower.starts_with("actions.")
         || key_lower.starts_with("user.")
         || key_lower.starts_with("prop.")
         || key_lower.starts_with("fillgradient.")
@@ -804,11 +805,40 @@ fn write_sheet_contents(out: &mut String, sheet: &ShapeSheet, layers: &[LayerDef
         for act in &sheet.actions {
             let _ = writeln!(out, "<Row N=\"{}\">", xml_escape(&act.name));
             write_cell_tag(out, "Action", &act.action, None);
-            let _ = writeln!(out, "<Cell N=\"Menu\" V=\"{}\" U=\"STR\"/>", xml_escape(&act.menu));
+            if act.menu.trim().starts_with('=') {
+                write_cell_tag(
+                    out,
+                    "Menu",
+                    &act.menu,
+                    sheet.get_cell(&format!("Actions.{}.Menu", act.name)).map(|c| &c.value),
+                );
+            } else {
+                let _ = writeln!(out, "<Cell N=\"Menu\" V=\"{}\" U=\"STR\"/>", xml_escape(&act.menu));
+            }
             let _ = writeln!(out, "<Cell N=\"TagName\" V=\"{}\" U=\"STR\"/>", xml_escape(&act.tag_name));
-            write_cell_tag(out, "Checked", &act.checked, None);
-            write_cell_tag(out, "Disabled", &act.disabled, None);
-            write_cell_tag(out, "Invisible", &act.invisible, None);
+            write_cell_tag(
+                out,
+                "Checked",
+                &act.checked,
+                sheet.get_cell(&format!("Actions.{}.Checked", act.name)).map(|c| &c.value),
+            );
+            write_cell_tag(
+                out,
+                "Disabled",
+                &act.disabled,
+                sheet.get_cell(&format!("Actions.{}.Disabled", act.name)).map(|c| &c.value),
+            );
+            write_cell_tag(
+                out,
+                "Invisible",
+                &act.invisible,
+                sheet.get_cell(&format!("Actions.{}.Invisible", act.name)).map(|c| &c.value),
+            );
+            let _ = writeln!(
+                out,
+                "<Cell N=\"BeginGroup\" V=\"{}\" U=\"BOOL\"/>",
+                if act.begin_group { 1 } else { 0 }
+            );
             out.push_str("</Row>\n");
         }
         out.push_str("</Section>\n");

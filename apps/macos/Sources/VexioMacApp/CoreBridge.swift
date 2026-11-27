@@ -205,10 +205,11 @@ public enum VexioCanvasTool: String, CaseIterable, Identifiable, Sendable {
     case highlighter = "Highlighter"
     case editVertices = "Edit Vertices"
     case inkEraser = "Ink Eraser"
+    case connectionPoint = "Connection Points"
 
     public var id: String { rawValue }
 
-    /// Matches `NativeCanvasTool` C-ABI discriminant (`0..17`) in `vexio_viewport_set_tool`.
+    /// Matches `NativeCanvasTool` C-ABI discriminant (`0..18`) in `vexio_viewport_set_tool`.
     public var engineToolCode: UInt32 {
         switch self {
         case .pointer: return 0
@@ -229,6 +230,7 @@ public enum VexioCanvasTool: String, CaseIterable, Identifiable, Sendable {
         case .star: return 15
         case .editVertices: return 16
         case .inkEraser: return 17
+        case .connectionPoint: return 18
         }
     }
 
@@ -252,6 +254,7 @@ public enum VexioCanvasTool: String, CaseIterable, Identifiable, Sendable {
         case .highlighter: return "highlighter"
         case .editVertices: return "point.3.connected.trianglepath.dotted"
         case .inkEraser: return "eraser"
+        case .connectionPoint: return "plus.circle.dashed"
         }
     }
 
@@ -275,6 +278,7 @@ public enum VexioCanvasTool: String, CaseIterable, Identifiable, Sendable {
         case .highlighter: return "⇧⌘7"
         case .editVertices: return "⌥⌘E"
         case .inkEraser: return "⌥⌘7"
+        case .connectionPoint: return "⌃⇧1"
         }
     }
 
@@ -2745,7 +2749,7 @@ private final class NativeDocumentCore: @unchecked Sendable {
         return outRatio
     }
 
-    func convertCadLayers(pageId: UInt32, layerNameOrAll: String) throws -> UInt32 {
+        func convertCadLayers(pageId: UInt32, layerNameOrAll: String) throws -> UInt32 {
         lock.lock()
         defer { lock.unlock() }
         var outConverted: UInt32 = 0
@@ -2757,6 +2761,160 @@ private final class NativeDocumentCore: @unchecked Sendable {
         }
         return outConverted
     }
+
+    // MARK: - v0.7.0-beta C-ABI Wrappers (Smart Actions, Connection Points & "My Shapes" .vssx)
+
+    func upsertShapeAction(
+        pageId: UInt32,
+        shapeId: UInt64,
+        rowName: String,
+        menu: String,
+        actionFormula: String,
+        checkedFormula: String,
+        disabledFormula: String,
+        beginGroup: Bool
+    ) throws {
+        lock.lock()
+        defer { lock.unlock() }
+        let status = rowName.withCString { rCStr in
+            menu.withCString { mCStr in
+                actionFormula.withCString { aCStr in
+                    checkedFormula.withCString { cCStr in
+                        disabledFormula.withCString { dCStr in
+                            vexio_doc_upsert_shape_action(
+                                doc,
+                                pageId,
+                                shapeId,
+                                rCStr,
+                                mCStr,
+                                aCStr,
+                                cCStr,
+                                dCStr,
+                                beginGroup
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        if let err = VexioBridgeError.from(status: status, context: "upsert_shape_action") {
+            throw err
+        }
+    }
+
+    func deleteShapeAction(pageId: UInt32, shapeId: UInt64, rowName: String) throws {
+        lock.lock()
+        defer { lock.unlock() }
+        let status = rowName.withCString { rCStr in
+            vexio_doc_delete_shape_action(doc, pageId, shapeId, rCStr)
+        }
+        if let err = VexioBridgeError.from(status: status, context: "delete_shape_action") {
+            throw err
+        }
+    }
+
+    func executeShapeAction(pageId: UInt32, shapeId: UInt64, rowName: String) throws -> String {
+        lock.lock()
+        defer { lock.unlock() }
+        var outBuf = VexioOwnedBuffer(ptr: nil, len: 0, cap: 0)
+        let status = rowName.withCString { rCStr in
+            vexio_doc_execute_shape_action(doc, pageId, shapeId, rCStr, &outBuf)
+        }
+        if let err = VexioBridgeError.from(status: status, context: "execute_shape_action") {
+            vexio_buffer_free(outBuf)
+            throw err
+        }
+        return Self.consumeOwnedBufferAsUTF8(outBuf)
+    }
+
+    func addToCustomStencil(pageId: UInt32, shapeIds: [UInt64], stencilTitle: String, masterName: String) throws -> String {
+        lock.lock()
+        defer { lock.unlock() }
+        var outBuf = VexioOwnedBuffer(ptr: nil, len: 0, cap: 0)
+        let status = shapeIds.withUnsafeBufferPointer { idBuf in
+            stencilTitle.withCString { sCStr in
+                masterName.withCString { mCStr in
+                    vexio_doc_add_to_custom_stencil(doc, pageId, idBuf.baseAddress, idBuf.count, sCStr, mCStr, &outBuf)
+                }
+            }
+        }
+        if let err = VexioBridgeError.from(status: status, context: "add_to_custom_stencil") {
+            vexio_buffer_free(outBuf)
+            throw err
+        }
+        return Self.consumeOwnedBufferAsUTF8(outBuf)
+    }
+
+    func renameCustomMaster(stencilTitle: String, oldName: String, newName: String) throws {
+        lock.lock()
+        defer { lock.unlock() }
+        let status = stencilTitle.withCString { sCStr in
+            oldName.withCString { oCStr in
+                newName.withCString { nCStr in
+                    vexio_doc_rename_custom_master(doc, sCStr, oCStr, nCStr)
+                }
+            }
+        }
+        if let err = VexioBridgeError.from(status: status, context: "rename_custom_master") {
+            throw err
+        }
+    }
+
+    func deleteCustomMaster(stencilTitle: String, masterName: String) throws {
+        lock.lock()
+        defer { lock.unlock() }
+        let status = stencilTitle.withCString { sCStr in
+            masterName.withCString { mCStr in
+                vexio_doc_delete_custom_master(doc, sCStr, mCStr)
+            }
+        }
+        if let err = VexioBridgeError.from(status: status, context: "delete_custom_master") {
+            throw err
+        }
+    }
+
+    func updateCustomMaster(pageId: UInt32, sourceShapeId: UInt64, stencilTitle: String, masterName: String) throws -> UInt32 {
+        lock.lock()
+        defer { lock.unlock() }
+        var outCount: UInt32 = 0
+        let status = stencilTitle.withCString { sCStr in
+            masterName.withCString { mCStr in
+                vexio_doc_update_custom_master(doc, pageId, sourceShapeId, sCStr, mCStr, &outCount)
+            }
+        }
+        if let err = VexioBridgeError.from(status: status, context: "update_custom_master") {
+            throw err
+        }
+        return outCount
+    }
+
+    func exportCustomStencilVssx(stencilTitle: String) throws -> Data {
+        lock.lock()
+        defer { lock.unlock() }
+        var outBuf = VexioOwnedBuffer(ptr: nil, len: 0, cap: 0)
+        let status = stencilTitle.withCString { sCStr in
+            vexio_doc_export_custom_stencil_vssx(doc, sCStr, &outBuf)
+        }
+        if let err = VexioBridgeError.from(status: status, context: "export_custom_stencil_vssx") {
+            vexio_buffer_free(outBuf)
+            throw err
+        }
+        defer { vexio_buffer_free(outBuf) }
+        guard let ptr = outBuf.ptr, outBuf.len > 0 else { return Data() }
+        return Data(bytes: ptr, count: outBuf.len)
+    }
+}
+
+public struct ShapeSmartActionItem: Identifiable, Hashable, Sendable {
+    public var id: String { name }
+    public let name: String
+    public let menu: String
+    public let actionFormula: String
+    public let checkedFormula: String
+    public let disabledFormula: String
+    public let checked: Bool
+    public let disabled: Bool
+    public let beginGroup: Bool
 }
 
 public struct VexioReviewCommentItem: Identifiable, Equatable, Sendable, Decodable {
@@ -2927,6 +3085,8 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
     private var clipboardShapeIds: [UInt64] = []
 
     // Phase 7 Plan 2 Published State
+    @Published public var selectedShapeActions: [ShapeSmartActionItem] = []
+    @Published public var selectedShapeMasterName: String = ""
     @Published public var selectedThemeSlug: String = "modern"
     @Published public var selectedVariantIndex: UInt8 = 0
     @Published public var activeVisualPresetSlug: String = ""
@@ -3331,7 +3491,7 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
         switch activeTool {
         case .pan:
             return engineCursorCode == 3 ? .closedHand : .openHand
-        case .connector, .line, .arc, .freeform, .rectangle, .roundedRect, .ellipse, .diamond, .triangle, .hexagon, .star, .ink, .highlighter, .editVertices, .inkEraser:
+        case .connector, .line, .arc, .freeform, .rectangle, .roundedRect, .ellipse, .diamond, .triangle, .hexagon, .star, .ink, .highlighter, .editVertices, .inkEraser, .connectionPoint:
             if engineCursorCode == 0 || engineCursorCode == 2 {
                 return .crosshair
             }
@@ -4612,6 +4772,8 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
             selectedShapeIsGroup = false
             inspectedObject = nil
             shapeDataProperties = []
+            selectedShapeActions = []
+            selectedShapeMasterName = ""
             return
         }
         activePageShapeCount = shapes.count
@@ -4628,7 +4790,28 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
         else {
             inspectedObject = nil
             shapeDataProperties = []
+            selectedShapeActions = []
+            selectedShapeMasterName = ""
             return
+        }
+
+        selectedShapeMasterName = (matched["masterName"] as? String) ?? ""
+        if let rawActions = matched["actions"] as? [[String: Any]] {
+            selectedShapeActions = rawActions.compactMap { row in
+                guard let nm = row["name"] as? String, !nm.isEmpty else { return nil }
+                return ShapeSmartActionItem(
+                    name: nm,
+                    menu: (row["menu"] as? String) ?? nm,
+                    actionFormula: (row["actionFormula"] as? String) ?? "0",
+                    checkedFormula: (row["checkedFormula"] as? String) ?? "FALSE",
+                    disabledFormula: (row["disabledFormula"] as? String) ?? "FALSE",
+                    checked: (row["checked"] as? Bool) ?? false,
+                    disabled: (row["disabled"] as? Bool) ?? false,
+                    beginGroup: (row["beginGroup"] as? Bool) ?? false
+                )
+            }
+        } else {
+            selectedShapeActions = []
         }
 
         let sid: UInt64 = (matched["id"] as? UInt64) ?? UInt64(max((matched["id"] as? Int) ?? Int(selectedShapeId), 0))
@@ -6381,6 +6564,198 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
             statusMessage = error.localizedDescription
             return 0
         }
+    }
+
+    // MARK: - v0.7.0-beta Public Session Actions (Smart Actions, Connection Points & "My Shapes" .vssx)
+
+    public func reloadStencilsFromCore() {
+        guard let rawJSON = try? core.listStencilsJSON(),
+              let jsonData = rawJSON.data(using: .utf8),
+              let grouped = try? JSONDecoder().decode([String: [NativeStencilMasterPayload]].self, from: jsonData),
+              !grouped.isEmpty
+        else {
+            return
+        }
+        var orderedCategories: [String] = []
+        if grouped["My Shapes"] != nil {
+            orderedCategories.append("My Shapes")
+        }
+        for canonical in Self.canonicalCategoryOrder where grouped[canonical] != nil && !orderedCategories.contains(canonical) {
+            orderedCategories.append(canonical)
+        }
+        for extra in grouped.keys.sorted() where !orderedCategories.contains(extra) {
+            orderedCategories.append(extra)
+        }
+        var flatMasters: [VexioStencilMaster] = []
+        for cat in orderedCategories {
+            guard let list = grouped[cat] else { continue }
+            for item in list {
+                let fillClean = item.fillFormula.hasPrefix("=")
+                    ? String(item.fillFormula.dropFirst())
+                    : item.fillFormula
+                flatMasters.append(
+                    VexioStencilMaster(
+                        id: "\(cat)::\(item.name)",
+                        category: cat,
+                        name: item.name,
+                        prompt: item.prompt,
+                        symbolName: Self.symbolName(forCategory: cat, masterName: item.name),
+                        defaultWidthFormula: String(format: "%.3f in", item.widthIn),
+                        defaultHeightFormula: String(format: "%.3f in", item.heightIn),
+                        defaultFillFormula: fillClean,
+                        isGuardedAspect: false,
+                        svgPreview: item.svg,
+                        pngPreview: item.pngDataUrl ?? ""
+                    )
+                )
+            }
+        }
+        stencilCategories = orderedCategories
+        stencilCatalog = flatMasters
+    }
+
+    public func upsertSmartAction(
+        rowName: String,
+        menu: String,
+        actionFormula: String,
+        checkedFormula: String = "FALSE",
+        disabledFormula: String = "FALSE",
+        beginGroup: Bool = false,
+        undoManager: UndoManager? = nil
+    ) {
+        guard selectedShapeId > 0 else { return }
+        do {
+            try core.upsertShapeAction(
+                pageId: activePageId,
+                shapeId: selectedShapeId,
+                rowName: rowName,
+                menu: menu,
+                actionFormula: actionFormula,
+                checkedFormula: checkedFormula,
+                disabledFormula: disabledFormula,
+                beginGroup: beginGroup
+            )
+            registerJournalUndoStep(actionName: "Upsert Smart Action", undoManager: undoManager)
+            reloadSelectedShapeSheetCells()
+            syncSelectedShapeMetadataFromCore()
+            core.renderViewportFrame()
+            statusMessage = "Saved Actions.\(rowName) (\(menu))"
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    public func deleteSmartAction(rowName: String, undoManager: UndoManager? = nil) {
+        guard selectedShapeId > 0 else { return }
+        do {
+            try core.deleteShapeAction(pageId: activePageId, shapeId: selectedShapeId, rowName: rowName)
+            registerJournalUndoStep(actionName: "Delete Smart Action", undoManager: undoManager)
+            reloadSelectedShapeSheetCells()
+            syncSelectedShapeMetadataFromCore()
+            core.renderViewportFrame()
+            statusMessage = "Deleted Actions.\(rowName)"
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    public func executeSmartAction(rowName: String, backingScale: CGFloat = 2.0, undoManager: UndoManager? = nil) {
+        guard selectedShapeId > 0 else { return }
+        let sid = selectedShapeId
+        do {
+            let resJson = try core.executeShapeAction(pageId: activePageId, shapeId: sid, rowName: rowName)
+            registerJournalUndoStep(actionName: "Execute Smart Action", undoManager: undoManager)
+            if let data = resJson.data(using: .utf8),
+               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                if let destPid = obj["targetPageId"] as? Int, destPid > 0 {
+                    activePageId = UInt32(destPid)
+                }
+                if (obj["openTextEditor"] as? Bool) == true {
+                    beginInlineEditing(shapeId: sid, backingScale: backingScale)
+                }
+                if let summary = obj["summary"] as? String {
+                    statusMessage = summary
+                }
+            }
+            reloadSelectedShapeSheetCells()
+            syncSelectedShapeMetadataFromCore()
+            core.renderViewportFrame()
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    public func addSelectionToMyShapes(masterName: String = "", undoManager: UndoManager? = nil) {
+        let ids = selectedShapeIds.isEmpty ? (selectedShapeId != 0 ? [selectedShapeId] : []) : selectedShapeIds
+        guard !ids.isEmpty else {
+            statusMessage = "Select one or more shapes to save into My Shapes."
+            return
+        }
+        do {
+            let resJson = try core.addToCustomStencil(
+                pageId: activePageId,
+                shapeIds: ids,
+                stencilTitle: "My Shapes",
+                masterName: masterName
+            )
+            registerJournalUndoStep(actionName: "Add to My Shapes", undoManager: undoManager)
+            reloadStencilsFromCore()
+            syncSelectedShapeMetadataFromCore()
+            if let data = resJson.data(using: .utf8),
+               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let createdName = obj["name"] as? String {
+                statusMessage = "Added '\(createdName)' to My Shapes stencil"
+            } else {
+                statusMessage = "Added selection to My Shapes stencil"
+            }
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    public func renameCustomStencilMaster(stencilTitle: String = "My Shapes", oldName: String, newName: String) {
+        do {
+            try core.renameCustomMaster(stencilTitle: stencilTitle, oldName: oldName, newName: newName)
+            reloadStencilsFromCore()
+            syncSelectedShapeMetadataFromCore()
+            statusMessage = "Renamed master '\(oldName)' → '\(newName)'"
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    public func deleteCustomStencilMaster(stencilTitle: String = "My Shapes", masterName: String) {
+        do {
+            try core.deleteCustomMaster(stencilTitle: stencilTitle, masterName: masterName)
+            reloadStencilsFromCore()
+            syncSelectedShapeMetadataFromCore()
+            statusMessage = "Removed master '\(masterName)' from \(stencilTitle)"
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    public func updateCustomMasterFromSelection(undoManager: UndoManager? = nil) {
+        guard selectedShapeId > 0 else { return }
+        do {
+            let updated = try core.updateCustomMaster(
+                pageId: activePageId,
+                sourceShapeId: selectedShapeId,
+                stencilTitle: "My Shapes",
+                masterName: selectedShapeMasterName
+            )
+            registerJournalUndoStep(actionName: "Update Master & Instances", undoManager: undoManager)
+            reloadStencilsFromCore()
+            syncSelectedShapeMetadataFromCore()
+            core.renderViewportFrame()
+            statusMessage = "Updated Master & propagated to \(updated) linked instance(s)"
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    public func exportCustomStencilVssxData(stencilTitle: String = "My Shapes") throws -> Data {
+        try core.exportCustomStencilVssx(stencilTitle: stencilTitle)
     }
 }
 

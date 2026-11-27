@@ -338,6 +338,10 @@ class MainActivity : ComponentActivity() {
             return
         }
         pendingExportFormat = clean
+        if (clean == "vssx") {
+            exportFormatLauncher.launch("My_Shapes.vssx")
+            return
+        }
         val fileSuffix = when (clean) {
             "powerautomate" -> "flow.json"
             "powerbi" -> "pbi.json"

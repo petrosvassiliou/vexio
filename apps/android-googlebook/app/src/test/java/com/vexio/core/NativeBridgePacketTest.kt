@@ -277,6 +277,20 @@ class NativeBridgePacketTest {
         verifyNative("nativeRunDomainWizard", String::class.java, longT, intT, String::class.java, String::class.java)
         verifyNative("nativeApplyCadScale", doubleT, longT, intT, String::class.java, boolT)
         verifyNative("nativeConvertCadLayers", intT, longT, intT, String::class.java)
+        verifyNative("nativeListShapeSheetFunctionsJson", String::class.java)
+        verifyNative("nativeListShapeActionsJson", String::class.java, longT, intT, longT)
+        verifyNative("nativeUpsertShapeAction", boolT, longT, intT, longT, String::class.java, String::class.java, String::class.java, String::class.java, String::class.java, boolT)
+        verifyNative("nativeDeleteShapeAction", boolT, longT, intT, longT, String::class.java)
+        verifyNative("nativeExecuteShapeAction", String::class.java, longT, intT, longT, String::class.java)
+        verifyNative("nativeListConnectionPointsJson", String::class.java, longT, intT, longT)
+        verifyNative("nativeAddConnectionPoint", intT, longT, intT, longT, doubleT, doubleT, intT)
+        verifyNative("nativeMoveConnectionPoint", boolT, longT, intT, longT, intT, doubleT, doubleT)
+        verifyNative("nativeDeleteConnectionPoint", boolT, longT, intT, longT, intT)
+        verifyNative("nativeAddToCustomStencil", String::class.java, longT, intT, LongArray::class.java, String::class.java, String::class.java)
+        verifyNative("nativeRenameCustomMaster", boolT, longT, String::class.java, String::class.java, String::class.java)
+        verifyNative("nativeDeleteCustomMaster", boolT, longT, String::class.java, String::class.java)
+        verifyNative("nativeUpdateCustomMaster", intT, longT, intT, longT, String::class.java, String::class.java)
+        verifyNative("nativeExportCustomStencilVssx", ByteArray::class.java, longT, String::class.java)
     }
 
     @Test
@@ -305,9 +319,9 @@ class NativeBridgePacketTest {
         assertTrue(state.isStencilDrawerExpanded)
         assertTrue(state.isInspectorExpanded)
 
-        // All 18 drawing & markup tools map 1:1 to engine tool codes 0..17
-        assertEquals(18, VexioTool.entries.size)
-        assertEquals((0..17).toSet(), VexioTool.entries.map { it.nativeCode }.toSet())
+        // All 19 drawing, vertex, connection point & markup tools map 1:1 to engine tool codes 0..18
+        assertEquals(19, VexioTool.entries.size)
+        assertEquals((0..18).toSet(), VexioTool.entries.map { it.nativeCode }.toSet())
 
         // All 33 Visio Professional & Awesome-Visio stencil categories are present
         assertEquals(33, BuiltInStencilCatalog.categories.size)
@@ -691,8 +705,8 @@ class NativeBridgePacketTest {
         assertEquals(33, vm.uiState.value.stencilCategories.size)
         assertTrue(vm.uiState.value.stencilMasters.isNotEmpty())
         assertTrue(
-            "Expected 0.6.0-beta in updateStatusMessage, got: ${vm.uiState.value.updateStatusMessage}",
-            vm.uiState.value.updateStatusMessage.contains("0.6.0-beta")
+            "Expected 0.7.0-beta in updateStatusMessage, got: ${vm.uiState.value.updateStatusMessage}",
+            vm.uiState.value.updateStatusMessage.contains("0.7.0-beta")
         )
 
         val sampleNativeJson = """
@@ -812,6 +826,44 @@ class NativeBridgePacketTest {
         assertTrue(vm.convertCadLayersToShapeSheet("*") >= 1)
         val dwgBytes = vm.exportDocumentBytes("dwg")
         assertEquals("AC1018", String(dwgBytes, 0, 6, Charsets.ISO_8859_1))
+    }
+
+    @Test
+    fun v070Milestone2ConnectionPointSmartActionsAndMyShapesVssxWorkDeterministically() {
+        val vm = VexioSessionViewModel()
+
+        // 1. Shift+Ctrl+1 Connection Point tool (native code 18)
+        vm.selectTool(VexioTool.CONNECTION_POINT)
+        assertEquals(18, vm.uiState.value.activeTool.nativeCode)
+        assertEquals("Ctrl+Shift+1", VexioTool.CONNECTION_POINT.shortcutHint)
+
+        // 2. Smart-Shape Actions.* CRUD & one-shot toggle execution
+        assertTrue(
+            vm.upsertSmartAction(
+                rowName = "ToggleValve",
+                menu = "Toggle Valve Open",
+                actionFormula = "SETF(GetRef(FillForegnd),\"RGB(220,252,231)\")",
+                checkedFormula = "1",
+                beginGroup = true
+            )
+        )
+        assertEquals(1, vm.uiState.value.selectedShapeActions.size)
+        assertEquals("Toggle Valve Open", vm.uiState.value.selectedShapeActions.first().menu)
+        assertTrue(vm.executeSmartAction("ToggleValve"))
+        assertTrue(vm.deleteSmartAction("ToggleValve"))
+        assertTrue(vm.uiState.value.selectedShapeActions.isEmpty())
+
+        // 3. "My Shapes" Custom Stencil authoring, rename, update & standalone .vssx export
+        val savedMaster = vm.addSelectionToMyShapes("Custom Pump")
+        assertEquals("Custom Pump", savedMaster)
+        assertTrue(vm.uiState.value.stencilCategories.contains("My Shapes"))
+        assertTrue(vm.renameCustomStencilMaster("Custom Pump", "Redundant Pump"))
+        assertTrue(vm.updateCustomMasterFromSelection("Redundant Pump") >= 0)
+        val vssxBytes = vm.exportCustomStencilVssxBytes("My Shapes")
+        assertTrue(vssxBytes.size > 64)
+        assertEquals('P'.code.toByte(), vssxBytes[0])
+        assertEquals('K'.code.toByte(), vssxBytes[1])
+        assertTrue(vm.deleteCustomStencilMaster("Redundant Pump"))
     }
 }
 

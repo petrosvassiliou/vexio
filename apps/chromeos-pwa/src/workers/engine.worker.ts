@@ -30,6 +30,32 @@ export interface ShapeDataDto {
   value: string;
 }
 
+export interface ShapeActionDto {
+  name: string;
+  menu: string;
+  tagName: string;
+  actionFormula: string;
+  checkedFormula: string;
+  disabledFormula: string;
+  invisibleFormula: string;
+  checked: boolean;
+  disabled: boolean;
+  invisible: boolean;
+  beginGroup: boolean;
+}
+
+export interface ConnectionPointDto {
+  ix: number;
+  name: string;
+  xFormula: string;
+  yFormula: string;
+  pageXIn: number;
+  pageYIn: number;
+  dirX: number;
+  dirY: number;
+  pointType: number;
+}
+
 export interface DataGraphicConfigDto {
   enabled: boolean;
   iconSetField: string;
@@ -127,6 +153,8 @@ export interface EngineShapeSummary {
   controlHandles: ControlHandleDto[];
   boundRecordsetRow?: [number, number] | null;
   shapeData?: ShapeDataDto[];
+  actions?: ShapeActionDto[];
+  connectionPoints?: ConnectionPointDto[];
   cells: Array<{ name: string; formula: string; value: string; guarded: boolean }>;
 }
 
@@ -433,6 +461,51 @@ interface WasmSessionInstance {
   run_domain_wizard?(page_id: number, wizard_slug: string, spec_text: string): string;
   apply_cad_scale?(page_id: number, scale_slug: string, locked: boolean): number;
   convert_cad_layers?(page_id: number, layer_name_or_all: string): number;
+  list_shapesheet_functions_json?(): string;
+  list_shape_actions_json?(page_id: number, shape_id: number): string;
+  upsert_shape_action?(
+    page_id: number,
+    shape_id: number,
+    row_name: string,
+    menu: string,
+    action_formula: string,
+    checked_formula: string,
+    disabled_formula: string,
+    begin_group: boolean
+  ): boolean;
+  delete_shape_action?(page_id: number, shape_id: number, row_name: string): boolean;
+  execute_shape_action?(page_id: number, shape_id: number, row_name: string): string;
+  list_connection_points_json?(page_id: number, shape_id: number): string;
+  add_connection_point?(
+    page_id: number,
+    shape_id: number,
+    page_x_in: number,
+    page_y_in: number,
+    point_type: number
+  ): number;
+  move_connection_point?(
+    page_id: number,
+    shape_id: number,
+    ix: number,
+    page_x_in: number,
+    page_y_in: number
+  ): boolean;
+  delete_connection_point?(page_id: number, shape_id: number, ix: number): boolean;
+  add_to_custom_stencil?(
+    page_id: number,
+    shape_ids: Uint32Array,
+    stencil_title: string,
+    master_name: string
+  ): string;
+  rename_custom_master?(stencil_title: string, old_name: string, new_name: string): boolean;
+  delete_custom_master?(stencil_title: string, master_name: string): boolean;
+  update_custom_master?(
+    page_id: number,
+    source_shape_id: number,
+    stencil_title: string,
+    master_name: string
+  ): number;
+  export_custom_stencil_vssx?(stencil_title: string): Uint8Array;
   apply_title_block_border(page_id: number, project_code: string, author: string, revision: string): number;
   compare_with_vsdx_bytes(baseline_vsdx: Uint8Array): string;
   import_data_visualizer(page_id: number, bytes: Uint8Array): number;
@@ -1927,6 +2000,196 @@ self.onmessage = async (ev: MessageEvent) => {
             : 0;
         const wal = session.export_wal();
         self.postMessage({ id, ok: true, convertedCount, wal, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'listShapeSheetFunctions': {
+        const functions =
+          typeof session.list_shapesheet_functions_json === 'function'
+            ? (JSON.parse(session.list_shapesheet_functions_json()) as string[])
+            : [];
+        self.postMessage({ id, ok: true, functions });
+        break;
+      }
+      case 'upsertShapeAction': {
+        const applied =
+          typeof session.upsert_shape_action === 'function'
+            ? session.upsert_shape_action(
+                activePageId,
+                Number(payload.shapeId ?? 0),
+                String(payload.rowName ?? 'Row_1'),
+                String(payload.menu ?? 'Action'),
+                String(payload.actionFormula ?? '0'),
+                String(payload.checkedFormula ?? 'FALSE'),
+                String(payload.disabledFormula ?? 'FALSE'),
+                Boolean(payload.beginGroup ?? false)
+              )
+            : false;
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, applied, wal, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'deleteShapeAction': {
+        const deleted =
+          typeof session.delete_shape_action === 'function'
+            ? session.delete_shape_action(
+                activePageId,
+                Number(payload.shapeId ?? 0),
+                String(payload.rowName ?? '')
+              )
+            : false;
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, deleted, wal, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'executeShapeAction': {
+        const raw =
+          typeof session.execute_shape_action === 'function'
+            ? session.execute_shape_action(
+                activePageId,
+                Number(payload.shapeId ?? 0),
+                String(payload.rowName ?? '')
+              )
+            : '{"executed":false,"summary":"Action unavailable"}';
+        const result = JSON.parse(raw);
+        if (result && typeof result.targetPageId === 'number' && result.targetPageId > 0) {
+          activePageId = result.targetPageId;
+          selectedShapeIds = [];
+        }
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, result, wal, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'addConnectionPoint': {
+        const ix =
+          typeof session.add_connection_point === 'function'
+            ? session.add_connection_point(
+                activePageId,
+                Number(payload.shapeId ?? 0),
+                Number(payload.xIn ?? 0),
+                Number(payload.yIn ?? 0),
+                Number(payload.pointType ?? 2)
+              )
+            : 0;
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, ix, wal, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'moveConnectionPoint': {
+        const moved =
+          typeof session.move_connection_point === 'function'
+            ? session.move_connection_point(
+                activePageId,
+                Number(payload.shapeId ?? 0),
+                Number(payload.ix ?? 1),
+                Number(payload.xIn ?? 0),
+                Number(payload.yIn ?? 0)
+              )
+            : false;
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, moved, wal, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'deleteConnectionPoint': {
+        const deleted =
+          typeof session.delete_connection_point === 'function'
+            ? session.delete_connection_point(
+                activePageId,
+                Number(payload.shapeId ?? 0),
+                Number(payload.ix ?? 1)
+              )
+            : false;
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, deleted, wal, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'addToCustomStencil': {
+        const raw =
+          typeof session.add_to_custom_stencil === 'function'
+            ? session.add_to_custom_stencil(
+                activePageId,
+                new Uint32Array(payload.shapeIds ?? []),
+                String(payload.stencilTitle ?? 'My Shapes'),
+                String(payload.masterName ?? '')
+              )
+            : '{}';
+        const result = JSON.parse(raw);
+        const stencils = JSON.parse(session.list_builtin_stencils_json());
+        const previews = JSON.parse(session.list_builtin_stencil_previews_json());
+        const packOrder = JSON.parse(session.list_builtin_pack_order_json());
+        const wal = session.export_wal();
+        self.postMessage({
+          id,
+          ok: true,
+          result,
+          stencils,
+          previews,
+          packOrder,
+          wal,
+          snapshot: buildSnapshot(session),
+        });
+        break;
+      }
+      case 'renameCustomMaster': {
+        const renamed =
+          typeof session.rename_custom_master === 'function'
+            ? session.rename_custom_master(
+                String(payload.stencilTitle ?? 'My Shapes'),
+                String(payload.oldName ?? ''),
+                String(payload.newName ?? '')
+              )
+            : false;
+        const stencils = JSON.parse(session.list_builtin_stencils_json());
+        const previews = JSON.parse(session.list_builtin_stencil_previews_json());
+        const packOrder = JSON.parse(session.list_builtin_pack_order_json());
+        self.postMessage({ id, ok: true, renamed, stencils, previews, packOrder });
+        break;
+      }
+      case 'deleteCustomMaster': {
+        const deleted =
+          typeof session.delete_custom_master === 'function'
+            ? session.delete_custom_master(
+                String(payload.stencilTitle ?? 'My Shapes'),
+                String(payload.masterName ?? '')
+              )
+            : false;
+        const stencils = JSON.parse(session.list_builtin_stencils_json());
+        const previews = JSON.parse(session.list_builtin_stencil_previews_json());
+        const packOrder = JSON.parse(session.list_builtin_pack_order_json());
+        self.postMessage({ id, ok: true, deleted, stencils, previews, packOrder });
+        break;
+      }
+      case 'updateCustomMaster': {
+        const updatedCount =
+          typeof session.update_custom_master === 'function'
+            ? session.update_custom_master(
+                activePageId,
+                Number(payload.shapeId ?? 0),
+                String(payload.stencilTitle ?? 'My Shapes'),
+                String(payload.masterName ?? '')
+              )
+            : 0;
+        const stencils = JSON.parse(session.list_builtin_stencils_json());
+        const previews = JSON.parse(session.list_builtin_stencil_previews_json());
+        const packOrder = JSON.parse(session.list_builtin_pack_order_json());
+        const wal = session.export_wal();
+        self.postMessage({
+          id,
+          ok: true,
+          updatedCount,
+          stencils,
+          previews,
+          packOrder,
+          wal,
+          snapshot: buildSnapshot(session),
+        });
+        break;
+      }
+      case 'exportCustomStencilVssx': {
+        const bytes =
+          typeof session.export_custom_stencil_vssx === 'function'
+            ? session.export_custom_stencil_vssx(String(payload.stencilTitle ?? 'My Shapes'))
+            : new Uint8Array(0);
+        self.postMessage({ id, ok: true, bytes }, [bytes.buffer]);
         break;
       }
     }

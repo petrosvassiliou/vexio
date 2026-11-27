@@ -630,6 +630,16 @@ void MainWindow::OnCanvasPointerPressed(IInspectable const&, PointerRoutedEventA
     }
     const auto props = e.GetCurrentPoint(DiagramSwapChainPanel()).Properties();
     if (props.IsRightButtonPressed()) {
+        if (m_activeTool == ActiveCanvasTool::EditVertices ||
+            m_activeTool == ActiveCanvasTool::ConnectionPoint)
+        {
+            DispatchCanvasPointerEvent(static_cast<uint32_t>(vexio::win::PointerEventKind::Down), e);
+            MarkDocumentDirty(true);
+            PresentViewportFrame();
+            SyncInspectorFromShapeSheet();
+            RefreshShapeSheetSectionRows();
+            e.Handled(true);
+        }
         return;
     }
     DiagramSwapChainPanel().CapturePointer(e.Pointer());
@@ -655,7 +665,10 @@ void MainWindow::OnCanvasPointerReleased(IInspectable const&, PointerRoutedEvent
     if (m_activeTool != ActiveCanvasTool::Pointer &&
         m_activeTool != ActiveCanvasTool::Pan &&
         m_activeTool != ActiveCanvasTool::InkPen &&
-        m_activeTool != ActiveCanvasTool::InkHighlighter)
+        m_activeTool != ActiveCanvasTool::InkHighlighter &&
+        m_activeTool != ActiveCanvasTool::InkEraser &&
+        m_activeTool != ActiveCanvasTool::EditVertices &&
+        m_activeTool != ActiveCanvasTool::ConnectionPoint)
     {
         SetActiveTool(ActiveCanvasTool::Pointer);
     } else if (m_viewport) {
@@ -691,6 +704,12 @@ void MainWindow::OnCanvasPointerWheelChanged(IInspectable const&, PointerRoutedE
 }
 
 void MainWindow::OnCanvasRightTapped(IInspectable const&, RightTappedRoutedEventArgs const& e) {
+    if (m_activeTool == ActiveCanvasTool::EditVertices ||
+        m_activeTool == ActiveCanvasTool::ConnectionPoint)
+    {
+        e.Handled(true);
+        return;
+    }
     auto panel = DiagramSwapChainPanel();
     const Point pt = e.GetPosition(panel);
     const float scaleX = std::clamp(panel.CompositionScaleX(), 0.5f, 8.0f);
@@ -722,6 +741,71 @@ void MainWindow::OnCanvasRightTapped(IInspectable const&, RightTappedRoutedEvent
         item.Click(handler);
         menu.Items().Append(item);
     };
+
+    // Prepend dynamic Smart-Shape Actions.* rows evaluated from the ShapeSheet DAG
+    if (m_doc && m_selectedShapeId > 0) {
+        const auto actRes = m_doc.ListShapeActionsJson(m_activePageId, m_selectedShapeId);
+        if (actRes.ok() && !actRes.value->empty()) {
+            Windows::Data::Json::JsonArray actionsArr{nullptr};
+            if (Windows::Data::Json::JsonArray::TryParse(*actRes.value, actionsArr)) {
+                uint32_t addedSmartActions = 0;
+                for (uint32_t i = 0; i < actionsArr.Size(); ++i) {
+                    if (actionsArr.GetAt(i).ValueType() != Windows::Data::Json::JsonValueType::Object) continue;
+                    const auto obj = actionsArr.GetObjectAt(i);
+                    if (obj.GetNamedBoolean(L"invisible", false)) continue;
+                    const std::string rowNameUtf8 = vexio::win::ToUtf8(obj.GetNamedString(L"rowName", L""));
+                    if (rowNameUtf8.empty()) continue;
+                    const std::wstring menuLabel{obj.GetNamedString(L"menu", L"Action").c_str()};
+                    const bool checked = obj.GetNamedBoolean(L"checked", false);
+                    const bool disabled = obj.GetNamedBoolean(L"disabled", false);
+                    const bool beginGroup = obj.GetNamedBoolean(L"beginGroup", false);
+                    if (beginGroup && addedSmartActions > 0) {
+                        menu.Items().Append(MenuFlyoutSeparator{});
+                    }
+                    auto execHandler = [this, sid = m_selectedShapeId, rowNameUtf8](IInspectable const&, RoutedEventArgs const&) {
+                        if (!m_doc) return;
+                        const auto execRes = m_doc.ExecuteShapeAction(m_activePageId, sid, rowNameUtf8);
+                        if (execRes.ok() && !execRes.value->empty()) {
+                            Windows::Data::Json::JsonObject outObj{nullptr};
+                            if (Windows::Data::Json::JsonObject::TryParse(*execRes.value, outObj)) {
+                                const uint32_t targetPid = static_cast<uint32_t>(outObj.GetNamedNumber(L"targetPageId", 0.0));
+                                if (targetPid > 0 && targetPid != m_activePageId) {
+                                    m_activePageId = targetPid;
+                                    if (m_viewport) (void)m_viewport.SetPage(m_doc, m_activePageId);
+                                    RebuildPageTabsStrip();
+                                }
+                                if (outObj.GetNamedBoolean(L"openTextEdit", false)) {
+                                    BeginInlineCanvasShapeTextEdit(sid, false);
+                                }
+                            }
+                        }
+                        MarkDocumentDirty(true);
+                        PresentViewportFrame();
+                        SyncInspectorFromShapeSheet();
+                        RefreshShapeSheetSectionRows();
+                    };
+                    if (checked) {
+                        ToggleMenuFlyoutItem tItem{};
+                        tItem.Text(hstring{menuLabel});
+                        tItem.IsChecked(true);
+                        tItem.IsEnabled(!disabled);
+                        tItem.Click(execHandler);
+                        menu.Items().Append(tItem);
+                    } else {
+                        MenuFlyoutItem actItem{};
+                        actItem.Text(hstring{menuLabel});
+                        actItem.IsEnabled(!disabled);
+                        actItem.Click(execHandler);
+                        menu.Items().Append(actItem);
+                    }
+                    ++addedSmartActions;
+                }
+                if (addedSmartActions > 0) {
+                    menu.Items().Append(MenuFlyoutSeparator{});
+                }
+            }
+        }
+    }
 
     addItem(L"Edit Stencil / Shape Text Label (Double-Click)", [this](IInspectable const&, RoutedEventArgs const&) {
         if (m_selectedShapeId > 0) {
@@ -847,6 +931,25 @@ void MainWindow::OnCanvasRightTapped(IInspectable const&, RightTappedRoutedEvent
     addItem(L"Inspect ShapeSheet (Shift+F5)", [this](IInspectable const&, RoutedEventArgs const&) {
         if (!m_shapeSheetOpen) {
             OnToggleShapeSheetClick(nullptr, nullptr);
+        }
+    });
+    addItem(L"Smart-Shape Actions…", [this](IInspectable const&, RoutedEventArgs const&) {
+        ShowSmartActionsDialogAsync();
+    });
+    addItem(L"Add Selection to My Shapes", [this](IInspectable const&, RoutedEventArgs const&) {
+        OnAddToMyShapesClick(nullptr, nullptr);
+    });
+    addItem(L"Update Custom Master from Selection", [this](IInspectable const&, RoutedEventArgs const&) {
+        if (!m_doc || m_selectedShapeId == 0) return;
+        const auto upd = m_doc.UpdateCustomMaster(m_activePageId, m_selectedShapeId, "My Shapes", "");
+        if (upd.ok()) {
+            InitializeStencilCatalog();
+            RefreshStencilList();
+            MarkDocumentDirty(true);
+            PresentViewportFrame();
+            SyncInspectorFromShapeSheet();
+            ShowBanner(InfoBarSeverity::Success, L"Custom Master Updated",
+                       std::format(L"Updated master and propagated to {} inheriting shape instance(s).", *upd.value));
         }
     });
 
@@ -2306,6 +2409,7 @@ void MainWindow::SetActiveTool(ActiveCanvasTool tool) {
     InkHighlighterToggle().IsChecked(tool == ActiveCanvasTool::InkHighlighter);
     InkEraserToggle().IsChecked(tool == ActiveCanvasTool::InkEraser);
     EditVerticesToggle().IsChecked(tool == ActiveCanvasTool::EditVertices);
+    ConnectionPointToggle().IsChecked(tool == ActiveCanvasTool::ConnectionPoint);
 
     if (auto rail = DrawingToolRailPanel()) {
         for (auto const& child : rail.Children()) {
@@ -2372,13 +2476,17 @@ void MainWindow::SetActiveTool(ActiveCanvasTool tool) {
             CanvasOverlayHudText().Text(L"Markup Ink Eraser");
             ApplyCanvasCursor(static_cast<uint32_t>(vexio::win::ViewportCursor::Crosshair));
             break;
+        case ActiveCanvasTool::ConnectionPoint:
+            CanvasOverlayHudText().Text(L"Connection Point Tool (Ctrl+Shift+1) • Click Shape to Add • Drag × Port • Right-Click to Delete");
+            ApplyCanvasCursor(static_cast<uint32_t>(vexio::win::ViewportCursor::Crosshair));
+            break;
     }
 }
 
 void MainWindow::OnRailToolClick(IInspectable const& sender, RoutedEventArgs const&) {
     if (auto tb = sender.try_as<ToggleButton>()) {
         const hstring tagStr = unbox_value_or<hstring>(tb.Tag(), L"0");
-        const uint32_t code = std::min<uint32_t>(17u, static_cast<uint32_t>(std::wcstoul(tagStr.c_str(), nullptr, 10)));
+        const uint32_t code = std::min<uint32_t>(18u, static_cast<uint32_t>(std::wcstoul(tagStr.c_str(), nullptr, 10)));
         SetActiveTool(static_cast<ActiveCanvasTool>(code));
     }
 }
@@ -2394,6 +2502,9 @@ void MainWindow::OnEditVerticesToggleClick(IInspectable const&, RoutedEventArgs 
 }
 void MainWindow::OnInkEraserToggleClick(IInspectable const&, RoutedEventArgs const&) {
     SetActiveTool(m_activeTool == ActiveCanvasTool::InkEraser ? ActiveCanvasTool::Pointer : ActiveCanvasTool::InkEraser);
+}
+void MainWindow::OnConnectionPointToggleClick(IInspectable const&, RoutedEventArgs const&) {
+    SetActiveTool(m_activeTool == ActiveCanvasTool::ConnectionPoint ? ActiveCanvasTool::Pointer : ActiveCanvasTool::ConnectionPoint);
 }
 
 void MainWindow::OnTouchMouseModeToggle(IInspectable const&, RoutedEventArgs const&) {
@@ -4437,6 +4548,11 @@ void MainWindow::OnConnectorToolAccelerator(KeyboardAccelerator const&, Keyboard
     args.Handled(true);
 }
 
+void MainWindow::OnConnectionPointToolAccelerator(KeyboardAccelerator const&, KeyboardAcceleratorInvokedEventArgs const& args) {
+    SetActiveTool(m_activeTool == ActiveCanvasTool::ConnectionPoint ? ActiveCanvasTool::Pointer : ActiveCanvasTool::ConnectionPoint);
+    args.Handled(true);
+}
+
 void MainWindow::OnUndoAccelerator(KeyboardAccelerator const&, KeyboardAcceleratorInvokedEventArgs const& args) {
     OnUndoClick(nullptr, nullptr);
     args.Handled(true);
@@ -5401,7 +5517,7 @@ fire_and_forget MainWindow::ShowOfficialStencilCatalogDialogAsync() {
     }
 
     Windows::Web::Http::HttpClient client{};
-    client.DefaultRequestHeaders().UserAgent().TryParseAdd(L"Vexio-Windows/0.6.0-beta");
+    client.DefaultRequestHeaders().UserAgent().TryParseAdd(L"Vexio-Windows/0.7.0-beta");
     uint32_t installedCount = 0;
 
     for (auto const& target : targets) {
@@ -5663,7 +5779,7 @@ void MainWindow::OnCheckUpdatesClick(IInspectable const&, RoutedEventArgs const&
 }
 
 fire_and_forget MainWindow::CheckForUpdatesAsync(bool userInitiated) {
-    constexpr std::wstring_view kCurrentVersion = L"0.6.0-beta";
+    constexpr std::wstring_view kCurrentVersion = L"0.7.0-beta";
     const auto weakSelf = get_weak();
 
     if (userInitiated) {
@@ -5677,7 +5793,7 @@ fire_and_forget MainWindow::CheckForUpdatesAsync(bool userInitiated) {
 
     try {
         Windows::Web::Http::HttpClient client{};
-        client.DefaultRequestHeaders().UserAgent().TryParseAdd(L"Vexio-Windows/0.6.0-beta");
+        client.DefaultRequestHeaders().UserAgent().TryParseAdd(L"Vexio-Windows/0.7.0-beta");
         client.DefaultRequestHeaders().Accept().TryParseAdd(L"application/vnd.github+json");
 
         const Uri apiUri{L"https://api.github.com/repos/petrosvassiliou/vexio/releases"};
@@ -5686,7 +5802,7 @@ fire_and_forget MainWindow::CheckForUpdatesAsync(bool userInitiated) {
         Windows::Data::Json::JsonArray releasesArr{nullptr};
         if (Windows::Data::Json::JsonArray::TryParse(body, releasesArr) && releasesArr.Size() > 0) {
             const auto relObj = releasesArr.GetObjectAt(0);
-            latestTag = relObj.GetNamedString(L"tag_name", L"v0.6.0-beta").c_str();
+            latestTag = relObj.GetNamedString(L"tag_name", L"v0.7.0-beta").c_str();
             releaseUrl = relObj.GetNamedString(L"html_url", releaseUrl).c_str();
             if (relObj.HasKey(L"assets")) {
                 const auto assets = relObj.GetNamedArray(L"assets");
@@ -5748,7 +5864,7 @@ fire_and_forget MainWindow::CheckForUpdatesAsync(bool userInitiated) {
         }
     } else {
         self->BackstageUpdateStatusText().Text(hstring{
-            std::format(L"Vexio is up to date ({}).", latestTag.empty() ? L"v0.6.0-beta" : latestTag)
+            std::format(L"Vexio is up to date ({}).", latestTag.empty() ? L"v0.7.0-beta" : latestTag)
         });
         if (userInitiated) {
             ContentDialog dlg{};
@@ -5756,7 +5872,7 @@ fire_and_forget MainWindow::CheckForUpdatesAsync(bool userInitiated) {
             dlg.Title(box_value(L"Vexio is Up to Date"));
             dlg.Content(box_value(hstring{std::format(
                 L"You are running the latest version of Vexio Professional ({}).",
-                latestTag.empty() ? L"v0.6.0-beta" : latestTag)}));
+                latestTag.empty() ? L"v0.7.0-beta" : latestTag)}));
             dlg.PrimaryButtonText(L"View Release Notes");
             dlg.CloseButtonText(L"OK");
             dlg.DefaultButton(ContentDialogButton::Close);
@@ -6300,6 +6416,232 @@ winrt::fire_and_forget MainWindow::ShowDomainWizardsDialogAsync() {
             L"Domain Diagram Generated",
             std::format(L"Generated {} diagram on active page.", chosen.label));
     }
+}
+
+void MainWindow::OnOpenSmartActionsClick(IInspectable const&, RoutedEventArgs const&) {
+    ShowSmartActionsDialogAsync();
+}
+
+void MainWindow::OnAddToMyShapesClick(IInspectable const&, RoutedEventArgs const&) {
+    if (!m_doc) return;
+    const auto ids = ResolveTargetSelectionIds();
+    if (ids.empty()) {
+        ShowBanner(InfoBarSeverity::Warning, L"Select a Shape First",
+                   L"Select one or more shapes on the canvas to save into 'My Shapes'.");
+        return;
+    }
+    const auto res = m_doc.AddToCustomStencil(m_activePageId, ids, "My Shapes", "");
+    if (!res.ok()) {
+        ShowBanner(InfoBarSeverity::Error, L"Add to My Shapes Failed", res.message());
+        return;
+    }
+    InitializeStencilCatalog();
+    for (size_t i = 0; i < m_stencilPackNames.size(); ++i) {
+        if (m_stencilPackNames[i] == L"My Shapes") {
+            StencilPackCombo().SelectedIndex(static_cast<int32_t>(i + 1));
+            break;
+        }
+    }
+    RefreshStencilList();
+    MarkDocumentDirty(true);
+    ShowBanner(InfoBarSeverity::Success, L"Saved to My Shapes",
+               L"Created reusable Visio Master in 'My Shapes' with vector SVG & PNG previews.");
+}
+
+void MainWindow::OnExportMyShapesVssxClick(IInspectable const&, RoutedEventArgs const&) {
+    ExportMyShapesVssxPickerAsync();
+}
+
+winrt::fire_and_forget MainWindow::ExportMyShapesVssxPickerAsync() {
+    if (!m_doc) co_return;
+    const auto vssxRes = m_doc.ExportCustomStencilVssx("My Shapes");
+    if (!vssxRes.ok() || vssxRes.value->Bytes().empty()) {
+        ShowBanner(InfoBarSeverity::Warning, L"My Shapes Stencil Empty",
+                   L"Add at least one shape to 'My Shapes' before exporting a .vssx stencil package.");
+        co_return;
+    }
+    const HWND hwnd = GetNativeWindowHandle();
+    if (hwnd == nullptr) co_return;
+
+    FileSavePicker picker{};
+    if (auto initWithWin = picker.try_as<::IInitializeWithWindow>()) {
+        (void)initWithWin->Initialize(hwnd);
+    }
+    picker.SuggestedStartLocation(PickerLocationId::DocumentsLibrary);
+    picker.SuggestedFileName(L"My_Shapes");
+    picker.FileTypeChoices().Insert(L"Visio Stencil (.vssx)", single_threaded_vector<hstring>({L".vssx"}));
+
+    const auto weakSelf = get_weak();
+    StorageFile file = co_await picker.PickSaveFileAsync();
+    auto self = weakSelf.get();
+    if (!self || !file || !self->m_doc) co_return;
+
+    const auto freshRes = self->m_doc.ExportCustomStencilVssx("My Shapes");
+    if (!freshRes.ok()) co_return;
+    const auto span = freshRes.value->Bytes();
+    const std::vector<uint8_t> vec(span.begin(), span.end());
+    co_await FileIO::WriteBytesAsync(file, vec);
+    self->ShowBanner(InfoBarSeverity::Success, L"Exported Custom Stencil (.vssx)",
+                     std::format(L"Saved standalone Visio Stencil to {}.", file.Name().c_str()));
+}
+
+winrt::fire_and_forget MainWindow::ShowSmartActionsDialogAsync() {
+    if (!m_doc || m_selectedShapeId == 0 || !RootWorkstationGrid().XamlRoot()) {
+        ShowBanner(InfoBarSeverity::Warning, L"Select a Shape First",
+                   L"Select a shape on the canvas to author right-click Smart-Shape Actions.* rows.");
+        co_return;
+    }
+
+    struct ActionRowEntry {
+        std::string rowName;
+        std::wstring menu;
+        std::wstring actionFormula;
+        std::wstring checkedFormula;
+        bool beginGroup{false};
+    };
+    auto rowsVec = std::make_shared<std::vector<ActionRowEntry>>();
+
+    StackPanel panel{};
+    panel.Spacing(8.0);
+    panel.MinWidth(520.0);
+
+    ListView listView{};
+    listView.Height(150.0);
+
+    auto refreshRows = [this, listView, rowsVec]() {
+        listView.Items().Clear();
+        rowsVec->clear();
+        const auto res = m_doc.ListShapeActionsJson(m_activePageId, m_selectedShapeId);
+        if (!res.ok() || res.value->empty()) return;
+        Windows::Data::Json::JsonArray arr{nullptr};
+        if (Windows::Data::Json::JsonArray::TryParse(*res.value, arr)) {
+            for (uint32_t i = 0; i < arr.Size(); ++i) {
+                if (arr.GetAt(i).ValueType() != Windows::Data::Json::JsonValueType::Object) continue;
+                const auto obj = arr.GetObjectAt(i);
+                ActionRowEntry entry{};
+                entry.rowName = vexio::win::ToUtf8(obj.GetNamedString(L"rowName", L"Row_1"));
+                entry.menu = obj.GetNamedString(L"menu", L"Action").c_str();
+                entry.actionFormula = obj.GetNamedString(L"actionFormula", L"").c_str();
+                entry.checkedFormula = obj.GetNamedString(L"checkedFormula", L"0").c_str();
+                entry.beginGroup = obj.GetNamedBoolean(L"beginGroup", false);
+                const bool chk = obj.GetNamedBoolean(L"checked", false);
+                rowsVec->push_back(entry);
+                listView.Items().Append(box_value(hstring{
+                    std::format(L"{} Actions.{} — \"{}\"  [={}]",
+                                chk ? L"✓" : L"•",
+                                vexio::win::ToWinRtString(entry.rowName).c_str(),
+                                entry.menu,
+                                entry.actionFormula)
+                }));
+            }
+        }
+        if (listView.Items().Size() > 0) {
+            listView.SelectedIndex(0);
+        }
+    };
+    refreshRows();
+
+    TextBox rowNameBox{};
+    rowNameBox.Header(box_value(L"Row Name (Actions.<RowName>)"));
+    rowNameBox.Text(L"ToggleState");
+
+    TextBox menuBox{};
+    menuBox.Header(box_value(L"Right-Click Menu Label"));
+    menuBox.Text(L"Toggle Active Status");
+
+    TextBox actionBox{};
+    actionBox.Header(box_value(L"Action Formula (SETF / GOTOPAGE / OPENTEXTWIN / RUNMACRO)"));
+    actionBox.FontFamily(FontFamily{L"Consolas"});
+    actionBox.Text(L"SETF(GetRef(FillForegnd),\"RGB(220,252,231)\")");
+
+    TextBox checkedBox{};
+    checkedBox.Header(box_value(L"Checked Formula (0 / 1 / boolean cell reference)"));
+    checkedBox.FontFamily(FontFamily{L"Consolas"});
+    checkedBox.Text(L"0");
+
+    CheckBox groupCheck{};
+    groupCheck.Content(box_value(L"Begin separator group above menu item"));
+
+    listView.SelectionChanged([listView, rowsVec, rowNameBox, menuBox, actionBox, checkedBox, groupCheck](IInspectable const&, SelectionChangedEventArgs const&) {
+        const int32_t sel = listView.SelectedIndex();
+        if (sel >= 0 && static_cast<size_t>(sel) < rowsVec->size()) {
+            const auto& r = (*rowsVec)[static_cast<size_t>(sel)];
+            rowNameBox.Text(vexio::win::ToWinRtString(r.rowName));
+            menuBox.Text(hstring{r.menu});
+            actionBox.Text(hstring{r.actionFormula});
+            checkedBox.Text(hstring{r.checkedFormula});
+            groupCheck.IsChecked(r.beginGroup);
+        }
+    });
+
+    StackPanel btnRow{};
+    btnRow.Orientation(Orientation::Horizontal);
+    btnRow.Spacing(8.0);
+
+    Button saveBtn{};
+    saveBtn.Content(box_value(L"Add / Update Action"));
+    saveBtn.Click([this, rowNameBox, menuBox, actionBox, checkedBox, groupCheck, refreshRows](IInspectable const&, RoutedEventArgs const&) {
+        if (m_doc.UpsertShapeAction(
+                m_activePageId,
+                m_selectedShapeId,
+                vexio::win::ToUtf8(rowNameBox.Text()),
+                vexio::win::ToUtf8(menuBox.Text()),
+                vexio::win::ToUtf8(actionBox.Text()),
+                vexio::win::ToUtf8(checkedBox.Text()),
+                "0",
+                groupCheck.IsChecked().GetBoolean()) == VEXIO_OK)
+        {
+            MarkDocumentDirty(true);
+            RefreshShapeSheetSectionRows();
+            refreshRows();
+        }
+    });
+
+    Button runBtn{};
+    runBtn.Content(box_value(L"Run Selected"));
+    runBtn.Click([this, listView, rowsVec, refreshRows](IInspectable const&, RoutedEventArgs const&) {
+        const int32_t sel = listView.SelectedIndex();
+        if (sel >= 0 && static_cast<size_t>(sel) < rowsVec->size()) {
+            (void)m_doc.ExecuteShapeAction(m_activePageId, m_selectedShapeId, (*rowsVec)[static_cast<size_t>(sel)].rowName);
+            MarkDocumentDirty(true);
+            PresentViewportFrame();
+            SyncInspectorFromShapeSheet();
+            RefreshShapeSheetSectionRows();
+            refreshRows();
+        }
+    });
+
+    Button delBtn{};
+    delBtn.Content(box_value(L"Delete Selected"));
+    delBtn.Click([this, listView, rowsVec, refreshRows](IInspectable const&, RoutedEventArgs const&) {
+        const int32_t sel = listView.SelectedIndex();
+        if (sel >= 0 && static_cast<size_t>(sel) < rowsVec->size()) {
+            if (m_doc.DeleteShapeAction(m_activePageId, m_selectedShapeId, (*rowsVec)[static_cast<size_t>(sel)].rowName) == VEXIO_OK) {
+                MarkDocumentDirty(true);
+                RefreshShapeSheetSectionRows();
+                refreshRows();
+            }
+        }
+    });
+
+    btnRow.Children().Append(saveBtn);
+    btnRow.Children().Append(runBtn);
+    btnRow.Children().Append(delBtn);
+
+    panel.Children().Append(listView);
+    panel.Children().Append(rowNameBox);
+    panel.Children().Append(menuBox);
+    panel.Children().Append(actionBox);
+    panel.Children().Append(checkedBox);
+    panel.Children().Append(groupCheck);
+    panel.Children().Append(btnRow);
+
+    ContentDialog dlg{};
+    dlg.XamlRoot(RootWorkstationGrid().XamlRoot());
+    dlg.Title(box_value(hstring{std::format(L"Smart-Shape Context Actions (Actions.*) — Sheet.{}", m_selectedShapeId)}));
+    dlg.Content(panel);
+    dlg.CloseButtonText(L"Done");
+    (void)co_await dlg.ShowAsync();
 }
 
 } // namespace winrt::VexioWindows::implementation

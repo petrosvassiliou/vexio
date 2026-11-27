@@ -3476,3 +3476,483 @@ pub extern "system" fn Java_com_vexio_core_NativeBridge_nativeConvertCadLayers<'
     }))
     .unwrap_or(-1)
 }
+
+// ============================================================================
+// v0.7.0-beta JNI: 238-Function ShapeSheet Catalog, Smart-Shape Actions.*,
+// Shift+Ctrl+1 Connection Points & "My Shapes" Custom .vssx Stencil Authoring
+// ============================================================================
+
+#[no_mangle]
+pub extern "system" fn Java_com_vexio_core_NativeBridge_nativeListShapeSheetFunctionsJson<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+) -> jni::sys::jstring {
+    catch_unwind(AssertUnwindSafe(|| {
+        let json = crate::workspace::DocumentSession::list_shapesheet_functions_json();
+        env.new_string(json)
+            .map(|s| s.into_raw())
+            .unwrap_or(std::ptr::null_mut())
+    }))
+    .unwrap_or(std::ptr::null_mut())
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_vexio_core_NativeBridge_nativeListShapeActionsJson<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    doc_ptr: jlong,
+    page_id: jint,
+    shape_id: jlong,
+) -> jni::sys::jstring {
+    catch_unwind(AssertUnwindSafe(|| {
+        if doc_ptr == 0 || page_id <= 0 || shape_id <= 0 {
+            return std::ptr::null_mut();
+        }
+        // SAFETY: `doc_ptr` verified non-zero handle.
+        let doc = unsafe { &*(doc_ptr as *const VexioDoc) };
+        let json = doc
+            .session
+            .list_shape_actions_json(page_id as u32, shape_id as u64);
+        env.new_string(json)
+            .map(|s| s.into_raw())
+            .unwrap_or(std::ptr::null_mut())
+    }))
+    .unwrap_or(std::ptr::null_mut())
+}
+
+#[no_mangle]
+#[allow(clippy::too_many_arguments)]
+pub extern "system" fn Java_com_vexio_core_NativeBridge_nativeUpsertShapeAction<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    doc_ptr: jlong,
+    page_id: jint,
+    shape_id: jlong,
+    row_name: JString<'local>,
+    menu: JString<'local>,
+    action_formula: JString<'local>,
+    checked_formula: JString<'local>,
+    disabled_formula: JString<'local>,
+    begin_group: jboolean,
+) -> jboolean {
+    catch_unwind(AssertUnwindSafe(|| {
+        if doc_ptr == 0 || page_id <= 0 || shape_id <= 0 || row_name.is_null() {
+            return JNI_FALSE;
+        }
+        let read_s = |env: &mut JNIEnv<'local>, js: &JString<'local>| -> String {
+            if js.is_null() {
+                String::new()
+            } else {
+                env.get_string(js).map(String::from).unwrap_or_default()
+            }
+        };
+        let r_s = read_s(&mut env, &row_name);
+        let m_s = read_s(&mut env, &menu);
+        let a_s = read_s(&mut env, &action_formula);
+        let c_s = read_s(&mut env, &checked_formula);
+        let d_s = read_s(&mut env, &disabled_formula);
+        // SAFETY: `doc_ptr` verified non-zero handle.
+        let doc = unsafe { &mut *(doc_ptr as *mut VexioDoc) };
+        if doc
+            .session
+            .upsert_shape_action(
+                page_id as u32,
+                shape_id as u64,
+                &r_s,
+                &m_s,
+                &a_s,
+                &c_s,
+                &d_s,
+                begin_group == JNI_TRUE,
+            )
+            .unwrap_or(false)
+        {
+            JNI_TRUE
+        } else {
+            JNI_FALSE
+        }
+    }))
+    .unwrap_or(JNI_FALSE)
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_vexio_core_NativeBridge_nativeDeleteShapeAction<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    doc_ptr: jlong,
+    page_id: jint,
+    shape_id: jlong,
+    row_name: JString<'local>,
+) -> jboolean {
+    catch_unwind(AssertUnwindSafe(|| {
+        if doc_ptr == 0 || page_id <= 0 || shape_id <= 0 || row_name.is_null() {
+            return JNI_FALSE;
+        }
+        let Ok(r_s) = env.get_string(&row_name).map(String::from) else {
+            return JNI_FALSE;
+        };
+        // SAFETY: `doc_ptr` verified non-zero handle.
+        let doc = unsafe { &mut *(doc_ptr as *mut VexioDoc) };
+        if doc
+            .session
+            .delete_shape_action(page_id as u32, shape_id as u64, &r_s)
+            .unwrap_or(false)
+        {
+            JNI_TRUE
+        } else {
+            JNI_FALSE
+        }
+    }))
+    .unwrap_or(JNI_FALSE)
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_vexio_core_NativeBridge_nativeExecuteShapeAction<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    doc_ptr: jlong,
+    page_id: jint,
+    shape_id: jlong,
+    row_name: JString<'local>,
+) -> jni::sys::jstring {
+    catch_unwind(AssertUnwindSafe(|| {
+        if doc_ptr == 0 || page_id <= 0 || shape_id <= 0 || row_name.is_null() {
+            return std::ptr::null_mut();
+        }
+        let Ok(r_s) = env.get_string(&row_name).map(String::from) else {
+            return std::ptr::null_mut();
+        };
+        // SAFETY: `doc_ptr` verified non-zero handle.
+        let doc = unsafe { &mut *(doc_ptr as *mut VexioDoc) };
+        let json = match doc
+            .session
+            .execute_shape_action(page_id as u32, shape_id as u64, &r_s)
+        {
+            Ok(j) => j,
+            Err(e) => serde_json::json!({ "executed": false, "error": e.to_string() }).to_string(),
+        };
+        env.new_string(json)
+            .map(|s| s.into_raw())
+            .unwrap_or(std::ptr::null_mut())
+    }))
+    .unwrap_or(std::ptr::null_mut())
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_vexio_core_NativeBridge_nativeListConnectionPointsJson<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    doc_ptr: jlong,
+    page_id: jint,
+    shape_id: jlong,
+) -> jni::sys::jstring {
+    catch_unwind(AssertUnwindSafe(|| {
+        if doc_ptr == 0 || page_id <= 0 || shape_id <= 0 {
+            return std::ptr::null_mut();
+        }
+        // SAFETY: `doc_ptr` verified non-zero handle.
+        let doc = unsafe { &*(doc_ptr as *const VexioDoc) };
+        let json = doc
+            .session
+            .list_connection_points_json(page_id as u32, shape_id as u64);
+        env.new_string(json)
+            .map(|s| s.into_raw())
+            .unwrap_or(std::ptr::null_mut())
+    }))
+    .unwrap_or(std::ptr::null_mut())
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_vexio_core_NativeBridge_nativeAddConnectionPoint(
+    _env: JNIEnv<'_>,
+    _class: JClass<'_>,
+    doc_ptr: jlong,
+    page_id: jint,
+    shape_id: jlong,
+    page_x_in: jdouble,
+    page_y_in: jdouble,
+    point_type: jint,
+) -> jint {
+    catch_unwind(AssertUnwindSafe(|| {
+        if doc_ptr == 0 || page_id <= 0 || shape_id <= 0 {
+            return -1;
+        }
+        // SAFETY: `doc_ptr` verified non-zero handle.
+        let doc = unsafe { &mut *(doc_ptr as *mut VexioDoc) };
+        doc.session
+            .add_connection_point(
+                page_id as u32,
+                shape_id as u64,
+                page_x_in,
+                page_y_in,
+                point_type.clamp(0, 2) as u8,
+            )
+            .map(|ix| ix as jint)
+            .unwrap_or(-1)
+    }))
+    .unwrap_or(-1)
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_vexio_core_NativeBridge_nativeMoveConnectionPoint(
+    _env: JNIEnv<'_>,
+    _class: JClass<'_>,
+    doc_ptr: jlong,
+    page_id: jint,
+    shape_id: jlong,
+    ix: jint,
+    page_x_in: jdouble,
+    page_y_in: jdouble,
+) -> jboolean {
+    catch_unwind(AssertUnwindSafe(|| {
+        if doc_ptr == 0 || page_id <= 0 || shape_id <= 0 || ix <= 0 {
+            return JNI_FALSE;
+        }
+        // SAFETY: `doc_ptr` verified non-zero handle.
+        let doc = unsafe { &mut *(doc_ptr as *mut VexioDoc) };
+        if doc
+            .session
+            .move_connection_point(page_id as u32, shape_id as u64, ix as u32, page_x_in, page_y_in)
+            .unwrap_or(false)
+        {
+            JNI_TRUE
+        } else {
+            JNI_FALSE
+        }
+    }))
+    .unwrap_or(JNI_FALSE)
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_vexio_core_NativeBridge_nativeDeleteConnectionPoint(
+    _env: JNIEnv<'_>,
+    _class: JClass<'_>,
+    doc_ptr: jlong,
+    page_id: jint,
+    shape_id: jlong,
+    ix: jint,
+) -> jboolean {
+    catch_unwind(AssertUnwindSafe(|| {
+        if doc_ptr == 0 || page_id <= 0 || shape_id <= 0 || ix <= 0 {
+            return JNI_FALSE;
+        }
+        // SAFETY: `doc_ptr` verified non-zero handle.
+        let doc = unsafe { &mut *(doc_ptr as *mut VexioDoc) };
+        if doc
+            .session
+            .delete_connection_point(page_id as u32, shape_id as u64, ix as u32)
+            .unwrap_or(false)
+        {
+            JNI_TRUE
+        } else {
+            JNI_FALSE
+        }
+    }))
+    .unwrap_or(JNI_FALSE)
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_vexio_core_NativeBridge_nativeAddToCustomStencil<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    doc_ptr: jlong,
+    page_id: jint,
+    shape_ids: JLongArray<'local>,
+    stencil_title: JString<'local>,
+    master_name: JString<'local>,
+) -> jni::sys::jstring {
+    catch_unwind(AssertUnwindSafe(|| {
+        if doc_ptr == 0 || page_id <= 0 || shape_ids.is_null() {
+            return std::ptr::null_mut();
+        }
+        let Ok(len) = env.get_array_length(&shape_ids) else {
+            return std::ptr::null_mut();
+        };
+        let mut raw = vec![0i64; len as usize];
+        if env.get_long_array_region(&shape_ids, 0, &mut raw).is_err() {
+            return std::ptr::null_mut();
+        }
+        let ids: Vec<u64> = raw.into_iter().filter(|&x| x > 0).map(|x| x as u64).collect();
+        if ids.is_empty() {
+            return std::ptr::null_mut();
+        }
+        let st_s = if stencil_title.is_null() {
+            "My Shapes".to_string()
+        } else {
+            env.get_string(&stencil_title)
+                .map(String::from)
+                .unwrap_or_else(|_| "My Shapes".into())
+        };
+        let m_s = if master_name.is_null() {
+            String::new()
+        } else {
+            env.get_string(&master_name)
+                .map(String::from)
+                .unwrap_or_default()
+        };
+        // SAFETY: `doc_ptr` verified non-zero handle.
+        let doc = unsafe { &mut *(doc_ptr as *mut VexioDoc) };
+        let json = match doc
+            .session
+            .add_selection_to_custom_stencil(page_id as u32, &ids, &st_s, &m_s)
+        {
+            Ok(j) => j,
+            Err(e) => serde_json::json!({ "error": e.to_string() }).to_string(),
+        };
+        env.new_string(json)
+            .map(|s| s.into_raw())
+            .unwrap_or(std::ptr::null_mut())
+    }))
+    .unwrap_or(std::ptr::null_mut())
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_vexio_core_NativeBridge_nativeRenameCustomMaster<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    doc_ptr: jlong,
+    stencil_title: JString<'local>,
+    old_name: JString<'local>,
+    new_name: JString<'local>,
+) -> jboolean {
+    catch_unwind(AssertUnwindSafe(|| {
+        if doc_ptr == 0 || old_name.is_null() || new_name.is_null() {
+            return JNI_FALSE;
+        }
+        let st_s = if stencil_title.is_null() {
+            "My Shapes".to_string()
+        } else {
+            env.get_string(&stencil_title)
+                .map(String::from)
+                .unwrap_or_else(|_| "My Shapes".into())
+        };
+        let Ok(old_s) = env.get_string(&old_name).map(String::from) else {
+            return JNI_FALSE;
+        };
+        let Ok(new_s) = env.get_string(&new_name).map(String::from) else {
+            return JNI_FALSE;
+        };
+        // SAFETY: `doc_ptr` verified non-zero handle.
+        let doc = unsafe { &mut *(doc_ptr as *mut VexioDoc) };
+        if doc
+            .session
+            .rename_custom_master(&st_s, &old_s, &new_s)
+            .unwrap_or(false)
+        {
+            JNI_TRUE
+        } else {
+            JNI_FALSE
+        }
+    }))
+    .unwrap_or(JNI_FALSE)
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_vexio_core_NativeBridge_nativeDeleteCustomMaster<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    doc_ptr: jlong,
+    stencil_title: JString<'local>,
+    master_name: JString<'local>,
+) -> jboolean {
+    catch_unwind(AssertUnwindSafe(|| {
+        if doc_ptr == 0 || master_name.is_null() {
+            return JNI_FALSE;
+        }
+        let st_s = if stencil_title.is_null() {
+            "My Shapes".to_string()
+        } else {
+            env.get_string(&stencil_title)
+                .map(String::from)
+                .unwrap_or_else(|_| "My Shapes".into())
+        };
+        let Ok(m_s) = env.get_string(&master_name).map(String::from) else {
+            return JNI_FALSE;
+        };
+        // SAFETY: `doc_ptr` verified non-zero handle.
+        let doc = unsafe { &mut *(doc_ptr as *mut VexioDoc) };
+        if doc
+            .session
+            .delete_custom_master(&st_s, &m_s)
+            .unwrap_or(false)
+        {
+            JNI_TRUE
+        } else {
+            JNI_FALSE
+        }
+    }))
+    .unwrap_or(JNI_FALSE)
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_vexio_core_NativeBridge_nativeUpdateCustomMaster<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    doc_ptr: jlong,
+    page_id: jint,
+    source_shape_id: jlong,
+    stencil_title: JString<'local>,
+    master_name: JString<'local>,
+) -> jint {
+    catch_unwind(AssertUnwindSafe(|| {
+        if doc_ptr == 0 || page_id <= 0 || source_shape_id <= 0 {
+            return -1;
+        }
+        let st_s = if stencil_title.is_null() {
+            "My Shapes".to_string()
+        } else {
+            env.get_string(&stencil_title)
+                .map(String::from)
+                .unwrap_or_else(|_| "My Shapes".into())
+        };
+        let m_s = if master_name.is_null() {
+            String::new()
+        } else {
+            env.get_string(&master_name)
+                .map(String::from)
+                .unwrap_or_default()
+        };
+        // SAFETY: `doc_ptr` verified non-zero handle.
+        let doc = unsafe { &mut *(doc_ptr as *mut VexioDoc) };
+        doc.session
+            .update_custom_master_from_shape(
+                page_id as u32,
+                source_shape_id as u64,
+                &st_s,
+                &m_s,
+            )
+            .map(|c| c as jint)
+            .unwrap_or(-1)
+    }))
+    .unwrap_or(-1)
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_vexio_core_NativeBridge_nativeExportCustomStencilVssx<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    doc_ptr: jlong,
+    stencil_title: JString<'local>,
+) -> jni::sys::jbyteArray {
+    catch_unwind(AssertUnwindSafe(|| {
+        if doc_ptr == 0 {
+            return std::ptr::null_mut();
+        }
+        let st_s = if stencil_title.is_null() {
+            "My Shapes".to_string()
+        } else {
+            env.get_string(&stencil_title)
+                .map(String::from)
+                .unwrap_or_else(|_| "My Shapes".into())
+        };
+        // SAFETY: `doc_ptr` verified non-zero handle.
+        let doc = unsafe { &*(doc_ptr as *const VexioDoc) };
+        let Ok(bytes) = doc.session.export_custom_stencil_vssx(&st_s) else {
+            return std::ptr::null_mut();
+        };
+        env.byte_array_from_slice(&bytes)
+            .map(|arr| arr.into_raw())
+            .unwrap_or(std::ptr::null_mut())
+    }))
+    .unwrap_or(std::ptr::null_mut())
+}

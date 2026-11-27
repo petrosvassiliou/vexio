@@ -133,6 +133,7 @@ pub enum NativeCanvasTool {
     Star = 15,
     EditVertices = 16,
     InkEraser = 17,
+    ConnectionPoint = 18,
 }
 
 impl NativeCanvasTool {
@@ -155,6 +156,7 @@ impl NativeCanvasTool {
             15 => Self::Star,
             16 => Self::EditVertices,
             17 => Self::InkEraser,
+            18 => Self::ConnectionPoint,
             _ => Self::Select,
         }
     }
@@ -603,6 +605,15 @@ pub enum NativeDragState {
         orig_y: String,
         cur_page: [f64; 2],
     },
+    DragConnectionPoint {
+        shape_id: u64,
+        ix: u32,
+        orig_x: String,
+        orig_y: String,
+        orig_dx: String,
+        orig_dy: String,
+        cur_page: [f64; 2],
+    },
 }
 
 pub struct VexioEngine {
@@ -772,6 +783,25 @@ impl VexioViewport {
             }
         } else {
             self.overlay.editable_vertices.clear();
+        }
+        if self.active_tool == NativeCanvasTool::ConnectionPoint {
+            if let Some(&sid) = self.selected_ids.first() {
+                let visuals = ReactiveEngine::evaluate_page_visuals(doc, self.page_id);
+                let vis_opt = visuals.iter().find(|v| v.shape_id == sid);
+                if let Some(sh) = doc.page(self.page_id).and_then(|p| p.find_shape(sid)) {
+                    self.overlay.editable_connection_points =
+                        crate::workspace::collect_connection_point_items(doc, sh, vis_opt)
+                            .into_iter()
+                            .map(|cp| [cp.page_x_in, cp.page_y_in])
+                            .collect();
+                } else {
+                    self.overlay.editable_connection_points.clear();
+                }
+            } else {
+                self.overlay.editable_connection_points.clear();
+            }
+        } else {
+            self.overlay.editable_connection_points.clear();
         }
         let Some(r) = &mut self.gpu_renderer else {
             return false;
@@ -1187,6 +1217,81 @@ impl VexioViewport {
                         }
                         if let Some(sid) = top_hit {
                             self.selected_ids = vec![sid];
+                            self.present_if_attached(&session.doc);
+                        }
+                        return 2;
+                    }
+                    NativeCanvasTool::ConnectionPoint => {
+                        let cand_sid = self.selected_ids.first().copied().or(top_hit);
+                        let hit_tol = (11.0 / logical_ppi.max(12.0)).max(0.06);
+                        if let Some(sid) = cand_sid {
+                            let ports = session.list_connection_points(pid, sid);
+                            if let Some(hit_cp) = ports.iter().find(|cp| {
+                                (cp.page_x_in - page_pt[0]).hypot(cp.page_y_in - page_pt[1])
+                                    <= hit_tol
+                            }) {
+                                if (ev.buttons & 2) != 0 || (is_alt && is_shift) {
+                                    let _ =
+                                        session.delete_connection_point(pid, sid, hit_cp.ix);
+                                    self.present_if_attached(&session.doc);
+                                    return 2;
+                                }
+                                let (ox, oy, odx, ody) = session
+                                    .doc
+                                    .page(pid)
+                                    .and_then(|p| p.find_shape(sid))
+                                    .and_then(|sh| {
+                                        sh.sheet
+                                            .connection_points
+                                            .iter()
+                                            .find(|c| c.ix == hit_cp.ix)
+                                            .map(|c| {
+                                                (
+                                                    c.x.clone(),
+                                                    c.y.clone(),
+                                                    c.dir_x.clone(),
+                                                    c.dir_y.clone(),
+                                                )
+                                            })
+                                    })
+                                    .unwrap_or_else(|| {
+                                        (
+                                            hit_cp.x_formula.clone(),
+                                            hit_cp.y_formula.clone(),
+                                            "0".into(),
+                                            "1".into(),
+                                        )
+                                    });
+                                self.selected_ids = vec![sid];
+                                self.drag_state = Some(NativeDragState::DragConnectionPoint {
+                                    shape_id: sid,
+                                    ix: hit_cp.ix,
+                                    orig_x: ox,
+                                    orig_y: oy,
+                                    orig_dx: odx,
+                                    orig_dy: ody,
+                                    cur_page: [hit_cp.page_x_in, hit_cp.page_y_in],
+                                });
+                                self.present_if_attached(&session.doc);
+                                return 2;
+                            }
+                        }
+                        if let Some(sid) = top_hit {
+                            let is_2d = session
+                                .doc
+                                .page(pid)
+                                .and_then(|p| p.find_shape(sid))
+                                .is_some_and(|s| s.kind != ShapeKind::Connector1D);
+                            self.selected_ids = vec![sid];
+                            if is_2d && (ev.buttons & 2) == 0 {
+                                let _ = session.add_connection_point(
+                                    pid,
+                                    sid,
+                                    page_pt[0],
+                                    page_pt[1],
+                                    2,
+                                );
+                            }
                             self.present_if_attached(&session.doc);
                         }
                         return 2;
@@ -1637,6 +1742,26 @@ impl VexioViewport {
                                 sid,
                                 gidx,
                                 rix,
+                                page_pt[0],
+                                page_pt[1],
+                            );
+                            self.present_if_attached(&session.doc);
+                            return 2;
+                        }
+                        NativeDragState::DragConnectionPoint {
+                            shape_id,
+                            ix,
+                            cur_page,
+                            ..
+                        } => {
+                            *cur_page = page_pt;
+                            let sid = *shape_id;
+                            let port_ix = *ix;
+                            crate::workspace::move_connection_point_preview(
+                                &mut session.doc,
+                                pid,
+                                sid,
+                                port_ix,
                                 page_pt[0],
                                 page_pt[1],
                             );
@@ -2369,6 +2494,42 @@ impl VexioViewport {
                                 cur_page[1],
                             );
                         }
+                        NativeDragState::DragConnectionPoint {
+                            shape_id,
+                            ix,
+                            orig_x,
+                            orig_y,
+                            orig_dx,
+                            orig_dy,
+                            cur_page,
+                        } => {
+                            crate::workspace::materialize_inherited_connection_points_if_needed(
+                                &mut session.doc,
+                                pid,
+                                shape_id,
+                            );
+                            if let Some(sh) =
+                                session.doc.page_mut(pid).and_then(|p| p.find_shape_mut(shape_id))
+                            {
+                                if let Some(cp) =
+                                    sh.sheet.connection_points.iter_mut().find(|c| c.ix == ix)
+                                {
+                                    cp.x = orig_x;
+                                    cp.y = orig_y;
+                                    cp.dir_x = orig_dx;
+                                    cp.dir_y = orig_dy;
+                                }
+                                sh.sheet.sync_all_sections_to_cells();
+                            }
+                            ReactiveEngine::recalculate_document(&mut session.doc);
+                            let _ = session.move_connection_point(
+                                pid,
+                                shape_id,
+                                ix,
+                                cur_page[0],
+                                cur_page[1],
+                            );
+                        }
                     }
                     self.present_if_attached(&session.doc);
                 }
@@ -2515,6 +2676,8 @@ struct NativeShapeDto {
     hyperlink_description: Option<String>,
     bound_recordset_row: Option<[u64; 2]>,
     shape_data: Vec<crate::workspace::ShapeDataItemDto>,
+    actions: Vec<crate::workspace::ShapeActionItemDto>,
+    connection_points: Vec<crate::workspace::ConnectionPointItemDto>,
     cells: Vec<NativeCellDto>,
 }
 
@@ -2624,6 +2787,7 @@ pub(crate) fn build_native_state_json(session: &DocumentSession, active_page_id:
         })
         .unwrap_or_default();
 
+    let page_visuals = ReactiveEngine::evaluate_page_visuals(&session.doc, pid);
     let shapes = active_page
         .map(|page| {
             page.shapes
@@ -2750,6 +2914,12 @@ pub(crate) fn build_native_state_json(session: &DocumentSession, active_page_id:
                             .filter(|v| !v.trim().is_empty()),
                         bound_recordset_row: s.bound_data_row.map(|(rs_id, row_id)| [rs_id as u64, row_id]),
                         shape_data: crate::workspace::collect_shape_data_items(&session.doc, s),
+                        actions: crate::workspace::collect_shape_action_items(&session.doc, s),
+                        connection_points: crate::workspace::collect_connection_point_items(
+                            &session.doc,
+                            s,
+                            page_visuals.iter().find(|v| v.shape_id == s.id),
+                        ),
                         cells,
                     }
                 })
@@ -5364,6 +5534,425 @@ pub unsafe extern "C" fn vexio_doc_convert_cad_layers(
                 if !out_converted_count.is_null() {
                     unsafe { *out_converted_count = cnt as u32 };
                 }
+                VexioStatus::Ok
+            }
+            Err(e) => map_core_err(e),
+        }
+    })
+}
+
+// ============================================================================
+// v0.7.0-beta C-ABI: 238-Function ShapeSheet Catalog, Smart-Shape Actions.*,
+// Shift+Ctrl+1 Connection Points & "My Shapes" Custom .vssx Stencil Authoring
+// ============================================================================
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_list_shapesheet_functions_json(
+    out_json: *mut VexioOwnedBuffer,
+) -> VexioStatus {
+    catch_ffi_status(|| {
+        if out_json.is_null() {
+            return VexioStatus::ErrInvalidArg;
+        }
+        let json = DocumentSession::list_shapesheet_functions_json();
+        // SAFETY: `out_json` verified non-null above.
+        unsafe { *out_json = VexioOwnedBuffer::from_vec(json.into_bytes()) };
+        VexioStatus::Ok
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_doc_list_shape_actions_json(
+    doc: *const VexioDoc,
+    page_id: u32,
+    shape_id: u64,
+    out_json: *mut VexioOwnedBuffer,
+) -> VexioStatus {
+    catch_ffi_status(|| {
+        if doc.is_null() || out_json.is_null() {
+            return VexioStatus::ErrInvalidArg;
+        }
+        // SAFETY: `doc` and `out_json` verified non-null.
+        let d = unsafe { &*doc };
+        let json = d.session.list_shape_actions_json(page_id, shape_id);
+        unsafe { *out_json = VexioOwnedBuffer::from_vec(json.into_bytes()) };
+        VexioStatus::Ok
+    })
+}
+
+#[no_mangle]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn vexio_doc_upsert_shape_action(
+    doc: *mut VexioDoc,
+    page_id: u32,
+    shape_id: u64,
+    row_name_utf8: *const c_char,
+    menu_utf8: *const c_char,
+    action_formula_utf8: *const c_char,
+    checked_formula_utf8: *const c_char,
+    disabled_formula_utf8: *const c_char,
+    begin_group: bool,
+) -> VexioStatus {
+    catch_ffi_status(|| {
+        if doc.is_null() || row_name_utf8.is_null() || action_formula_utf8.is_null() {
+            return VexioStatus::ErrInvalidArg;
+        }
+        let cstr_or = |p: *const c_char| -> &str {
+            if p.is_null() {
+                ""
+            } else {
+                // SAFETY: Non-null NUL-terminated C string from caller.
+                unsafe { CStr::from_ptr(p) }.to_str().unwrap_or("")
+            }
+        };
+        let r_name = cstr_or(row_name_utf8);
+        let menu = cstr_or(menu_utf8);
+        let act = cstr_or(action_formula_utf8);
+        let chk = cstr_or(checked_formula_utf8);
+        let dis = cstr_or(disabled_formula_utf8);
+        // SAFETY: `doc` verified non-null.
+        let d = unsafe { &mut *doc };
+        match d
+            .session
+            .upsert_shape_action(page_id, shape_id, r_name, menu, act, chk, dis, begin_group)
+        {
+            Ok(true) => VexioStatus::Ok,
+            Ok(false) => VexioStatus::ErrInvalidArg,
+            Err(e) => map_core_err(e),
+        }
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_doc_delete_shape_action(
+    doc: *mut VexioDoc,
+    page_id: u32,
+    shape_id: u64,
+    row_name_utf8: *const c_char,
+) -> VexioStatus {
+    catch_ffi_status(|| {
+        if doc.is_null() || row_name_utf8.is_null() {
+            return VexioStatus::ErrInvalidArg;
+        }
+        // SAFETY: `doc` and `row_name_utf8` verified non-null.
+        let d = unsafe { &mut *doc };
+        let Ok(r_name) = unsafe { CStr::from_ptr(row_name_utf8) }.to_str() else {
+            return VexioStatus::ErrInvalidArg;
+        };
+        match d.session.delete_shape_action(page_id, shape_id, r_name) {
+            Ok(true) => VexioStatus::Ok,
+            Ok(false) => VexioStatus::ErrInvalidArg,
+            Err(e) => map_core_err(e),
+        }
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_doc_execute_shape_action(
+    doc: *mut VexioDoc,
+    page_id: u32,
+    shape_id: u64,
+    row_name_utf8: *const c_char,
+    out_result_json: *mut VexioOwnedBuffer,
+) -> VexioStatus {
+    catch_ffi_status(|| {
+        if doc.is_null() || row_name_utf8.is_null() {
+            return VexioStatus::ErrInvalidArg;
+        }
+        // SAFETY: `doc` and `row_name_utf8` verified non-null.
+        let d = unsafe { &mut *doc };
+        let Ok(r_name) = unsafe { CStr::from_ptr(row_name_utf8) }.to_str() else {
+            return VexioStatus::ErrInvalidArg;
+        };
+        match d.session.execute_shape_action(page_id, shape_id, r_name) {
+            Ok(json) => {
+                if !out_result_json.is_null() {
+                    // SAFETY: `out_result_json` verified non-null.
+                    unsafe { *out_result_json = VexioOwnedBuffer::from_vec(json.into_bytes()) };
+                }
+                VexioStatus::Ok
+            }
+            Err(e) => map_core_err(e),
+        }
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_doc_list_connection_points_json(
+    doc: *const VexioDoc,
+    page_id: u32,
+    shape_id: u64,
+    out_json: *mut VexioOwnedBuffer,
+) -> VexioStatus {
+    catch_ffi_status(|| {
+        if doc.is_null() || out_json.is_null() {
+            return VexioStatus::ErrInvalidArg;
+        }
+        // SAFETY: `doc` and `out_json` verified non-null.
+        let d = unsafe { &*doc };
+        let json = d.session.list_connection_points_json(page_id, shape_id);
+        unsafe { *out_json = VexioOwnedBuffer::from_vec(json.into_bytes()) };
+        VexioStatus::Ok
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_doc_add_connection_point(
+    doc: *mut VexioDoc,
+    page_id: u32,
+    shape_id: u64,
+    page_x_in: f64,
+    page_y_in: f64,
+    point_type: u8,
+    out_ix: *mut u32,
+) -> VexioStatus {
+    catch_ffi_status(|| {
+        if doc.is_null() || !page_x_in.is_finite() || !page_y_in.is_finite() {
+            return VexioStatus::ErrInvalidArg;
+        }
+        // SAFETY: `doc` verified non-null.
+        let d = unsafe { &mut *doc };
+        match d
+            .session
+            .add_connection_point(page_id, shape_id, page_x_in, page_y_in, point_type)
+        {
+            Ok(ix) => {
+                if !out_ix.is_null() {
+                    // SAFETY: `out_ix` verified non-null.
+                    unsafe { *out_ix = ix };
+                }
+                VexioStatus::Ok
+            }
+            Err(e) => map_core_err(e),
+        }
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_doc_move_connection_point(
+    doc: *mut VexioDoc,
+    page_id: u32,
+    shape_id: u64,
+    ix: u32,
+    page_x_in: f64,
+    page_y_in: f64,
+) -> VexioStatus {
+    catch_ffi_status(|| {
+        if doc.is_null() || !page_x_in.is_finite() || !page_y_in.is_finite() {
+            return VexioStatus::ErrInvalidArg;
+        }
+        // SAFETY: `doc` verified non-null.
+        let d = unsafe { &mut *doc };
+        match d
+            .session
+            .move_connection_point(page_id, shape_id, ix, page_x_in, page_y_in)
+        {
+            Ok(true) => VexioStatus::Ok,
+            Ok(false) => VexioStatus::ErrInvalidArg,
+            Err(e) => map_core_err(e),
+        }
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_doc_delete_connection_point(
+    doc: *mut VexioDoc,
+    page_id: u32,
+    shape_id: u64,
+    ix: u32,
+) -> VexioStatus {
+    catch_ffi_status(|| {
+        if doc.is_null() {
+            return VexioStatus::ErrInvalidArg;
+        }
+        // SAFETY: `doc` verified non-null.
+        let d = unsafe { &mut *doc };
+        match d.session.delete_connection_point(page_id, shape_id, ix) {
+            Ok(true) => VexioStatus::Ok,
+            Ok(false) => VexioStatus::ErrInvalidArg,
+            Err(e) => map_core_err(e),
+        }
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_doc_add_to_custom_stencil(
+    doc: *mut VexioDoc,
+    page_id: u32,
+    shape_ids_ptr: *const u64,
+    shape_ids_len: usize,
+    stencil_title_utf8: *const c_char,
+    master_name_utf8: *const c_char,
+    out_result_json: *mut VexioOwnedBuffer,
+) -> VexioStatus {
+    catch_ffi_status(|| {
+        if doc.is_null() || shape_ids_ptr.is_null() || shape_ids_len == 0 {
+            return VexioStatus::ErrInvalidArg;
+        }
+        // SAFETY: `doc` and `shape_ids_ptr[..shape_ids_len]` verified non-null.
+        let d = unsafe { &mut *doc };
+        let ids = unsafe { std::slice::from_raw_parts(shape_ids_ptr, shape_ids_len) };
+        let st_title = if stencil_title_utf8.is_null() {
+            "My Shapes"
+        } else {
+            unsafe { CStr::from_ptr(stencil_title_utf8) }
+                .to_str()
+                .unwrap_or("My Shapes")
+        };
+        let m_name = if master_name_utf8.is_null() {
+            ""
+        } else {
+            unsafe { CStr::from_ptr(master_name_utf8) }
+                .to_str()
+                .unwrap_or("")
+        };
+        match d
+            .session
+            .add_selection_to_custom_stencil(page_id, ids, st_title, m_name)
+        {
+            Ok(json) => {
+                if !out_result_json.is_null() {
+                    // SAFETY: `out_result_json` verified non-null.
+                    unsafe { *out_result_json = VexioOwnedBuffer::from_vec(json.into_bytes()) };
+                }
+                VexioStatus::Ok
+            }
+            Err(e) => map_core_err(e),
+        }
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_doc_rename_custom_master(
+    doc: *mut VexioDoc,
+    stencil_title_utf8: *const c_char,
+    old_name_utf8: *const c_char,
+    new_name_utf8: *const c_char,
+) -> VexioStatus {
+    catch_ffi_status(|| {
+        if doc.is_null() || old_name_utf8.is_null() || new_name_utf8.is_null() {
+            return VexioStatus::ErrInvalidArg;
+        }
+        // SAFETY: `doc`, `old_name_utf8`, `new_name_utf8` verified non-null.
+        let d = unsafe { &mut *doc };
+        let st_title = if stencil_title_utf8.is_null() {
+            "My Shapes"
+        } else {
+            unsafe { CStr::from_ptr(stencil_title_utf8) }
+                .to_str()
+                .unwrap_or("My Shapes")
+        };
+        let Ok(old_n) = unsafe { CStr::from_ptr(old_name_utf8) }.to_str() else {
+            return VexioStatus::ErrInvalidArg;
+        };
+        let Ok(new_n) = unsafe { CStr::from_ptr(new_name_utf8) }.to_str() else {
+            return VexioStatus::ErrInvalidArg;
+        };
+        match d.session.rename_custom_master(st_title, old_n, new_n) {
+            Ok(true) => VexioStatus::Ok,
+            Ok(false) => VexioStatus::ErrInvalidArg,
+            Err(e) => map_core_err(e),
+        }
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_doc_delete_custom_master(
+    doc: *mut VexioDoc,
+    stencil_title_utf8: *const c_char,
+    master_name_utf8: *const c_char,
+) -> VexioStatus {
+    catch_ffi_status(|| {
+        if doc.is_null() || master_name_utf8.is_null() {
+            return VexioStatus::ErrInvalidArg;
+        }
+        // SAFETY: `doc` and `master_name_utf8` verified non-null.
+        let d = unsafe { &mut *doc };
+        let st_title = if stencil_title_utf8.is_null() {
+            "My Shapes"
+        } else {
+            unsafe { CStr::from_ptr(stencil_title_utf8) }
+                .to_str()
+                .unwrap_or("My Shapes")
+        };
+        let Ok(m_name) = unsafe { CStr::from_ptr(master_name_utf8) }.to_str() else {
+            return VexioStatus::ErrInvalidArg;
+        };
+        match d.session.delete_custom_master(st_title, m_name) {
+            Ok(true) => VexioStatus::Ok,
+            Ok(false) => VexioStatus::ErrInvalidArg,
+            Err(e) => map_core_err(e),
+        }
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_doc_update_custom_master(
+    doc: *mut VexioDoc,
+    page_id: u32,
+    source_shape_id: u64,
+    stencil_title_utf8: *const c_char,
+    master_name_utf8: *const c_char,
+    out_updated_count: *mut u32,
+) -> VexioStatus {
+    catch_ffi_status(|| {
+        if doc.is_null() {
+            return VexioStatus::ErrInvalidArg;
+        }
+        // SAFETY: `doc` verified non-null.
+        let d = unsafe { &mut *doc };
+        let st_title = if stencil_title_utf8.is_null() {
+            "My Shapes"
+        } else {
+            unsafe { CStr::from_ptr(stencil_title_utf8) }
+                .to_str()
+                .unwrap_or("My Shapes")
+        };
+        let m_name = if master_name_utf8.is_null() {
+            ""
+        } else {
+            unsafe { CStr::from_ptr(master_name_utf8) }
+                .to_str()
+                .unwrap_or("")
+        };
+        match d
+            .session
+            .update_custom_master_from_shape(page_id, source_shape_id, st_title, m_name)
+        {
+            Ok(cnt) => {
+                if !out_updated_count.is_null() {
+                    // SAFETY: `out_updated_count` verified non-null.
+                    unsafe { *out_updated_count = cnt };
+                }
+                VexioStatus::Ok
+            }
+            Err(e) => map_core_err(e),
+        }
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_doc_export_custom_stencil_vssx(
+    doc: *const VexioDoc,
+    stencil_title_utf8: *const c_char,
+    out_vssx_bytes: *mut VexioOwnedBuffer,
+) -> VexioStatus {
+    catch_ffi_status(|| {
+        if doc.is_null() || out_vssx_bytes.is_null() {
+            return VexioStatus::ErrInvalidArg;
+        }
+        // SAFETY: `doc` and `out_vssx_bytes` verified non-null.
+        let d = unsafe { &*doc };
+        let st_title = if stencil_title_utf8.is_null() {
+            "My Shapes"
+        } else {
+            unsafe { CStr::from_ptr(stencil_title_utf8) }
+                .to_str()
+                .unwrap_or("My Shapes")
+        };
+        match d.session.export_custom_stencil_vssx(st_title) {
+            Ok(bytes) => {
+                unsafe { *out_vssx_bytes = VexioOwnedBuffer::from_vec(bytes) };
                 VexioStatus::Ok
             }
             Err(e) => map_core_err(e),

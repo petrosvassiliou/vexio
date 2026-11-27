@@ -845,6 +845,119 @@ object NativeBridge {
         pageId: Int,
         layerNameOrAll: String
     ): Int
+
+    @JvmStatic
+    external fun nativeListShapeSheetFunctionsJson(): String
+
+    @JvmStatic
+    external fun nativeListShapeActionsJson(
+        docPtr: Long,
+        pageId: Int,
+        shapeId: Long
+    ): String?
+
+    @JvmStatic
+    external fun nativeUpsertShapeAction(
+        docPtr: Long,
+        pageId: Int,
+        shapeId: Long,
+        rowName: String,
+        menu: String,
+        actionFormula: String,
+        checkedFormula: String,
+        disabledFormula: String,
+        beginGroup: Boolean
+    ): Boolean
+
+    @JvmStatic
+    external fun nativeDeleteShapeAction(
+        docPtr: Long,
+        pageId: Int,
+        shapeId: Long,
+        rowName: String
+    ): Boolean
+
+    @JvmStatic
+    external fun nativeExecuteShapeAction(
+        docPtr: Long,
+        pageId: Int,
+        shapeId: Long,
+        rowName: String
+    ): String?
+
+    @JvmStatic
+    external fun nativeListConnectionPointsJson(
+        docPtr: Long,
+        pageId: Int,
+        shapeId: Long
+    ): String?
+
+    @JvmStatic
+    external fun nativeAddConnectionPoint(
+        docPtr: Long,
+        pageId: Int,
+        shapeId: Long,
+        pageXIn: Double,
+        pageYIn: Double,
+        pointType: Int
+    ): Int
+
+    @JvmStatic
+    external fun nativeMoveConnectionPoint(
+        docPtr: Long,
+        pageId: Int,
+        shapeId: Long,
+        ix: Int,
+        pageXIn: Double,
+        pageYIn: Double
+    ): Boolean
+
+    @JvmStatic
+    external fun nativeDeleteConnectionPoint(
+        docPtr: Long,
+        pageId: Int,
+        shapeId: Long,
+        ix: Int
+    ): Boolean
+
+    @JvmStatic
+    external fun nativeAddToCustomStencil(
+        docPtr: Long,
+        pageId: Int,
+        shapeIds: LongArray,
+        stencilTitle: String,
+        masterName: String
+    ): String?
+
+    @JvmStatic
+    external fun nativeRenameCustomMaster(
+        docPtr: Long,
+        stencilTitle: String,
+        oldName: String,
+        newName: String
+    ): Boolean
+
+    @JvmStatic
+    external fun nativeDeleteCustomMaster(
+        docPtr: Long,
+        stencilTitle: String,
+        masterName: String
+    ): Boolean
+
+    @JvmStatic
+    external fun nativeUpdateCustomMaster(
+        docPtr: Long,
+        pageId: Int,
+        sourceShapeId: Long,
+        stencilTitle: String,
+        masterName: String
+    ): Int
+
+    @JvmStatic
+    external fun nativeExportCustomStencilVssx(
+        docPtr: Long,
+        stencilTitle: String
+    ): ByteArray?
 }
 
 /**
@@ -1077,7 +1190,8 @@ enum class VexioTool(val displayName: String, val shortcutHint: String, val nati
     STYLUS_INK("Pen Ink", "Ctrl+4", 12),
     HIGHLIGHTER("Highlighter", "Ctrl+7", 13),
     EDIT_VERTICES("Edit Vertices", "Ctrl+6", 16),
-    INK_ERASER("Ink Eraser", "Alt+E", 17)
+    INK_ERASER("Ink Eraser", "Alt+E", 17),
+    CONNECTION_POINT("Connection Point", "Ctrl+Shift+1", 18)
 }
 
 /**
@@ -1705,6 +1819,18 @@ data class ExternalRecordsetUiItem(
     val boundShapeIdsByRow: Map<Int, List<Long>> = emptyMap()
 )
 
+data class SmartActionUiItem(
+    val rowName: String,
+    val menu: String,
+    val actionFormula: String = "",
+    val checkedFormula: String = "0",
+    val disabledFormula: String = "0",
+    val checked: Boolean = false,
+    val disabled: Boolean = false,
+    val invisible: Boolean = false,
+    val beginGroup: Boolean = false
+)
+
 data class InspectedObjectUiState(
     val id: Long,
     val name: String,
@@ -1858,7 +1984,7 @@ data class WorkstationUiState(
     val inlineTextEditor: InlineCanvasEditorModel? = null,
     val smartGuidesEnabled: Boolean = true,
     val autoCheckUpdates: Boolean = true,
-    val updateStatusMessage: String = "Vexio v0.6.0-beta • Automatic update check enabled",
+    val updateStatusMessage: String = "Vexio v0.7.0-beta • Automatic update check enabled",
     val availableUpdateTag: String? = null,
     val availableUpdateUrl: String? = null,
     val showUpdateDialog: Boolean = false,
@@ -1921,6 +2047,8 @@ data class WorkstationUiState(
     val lastDomainWizardOutput: String? = null,
     val cadScaleSlug: String = "1:100",
     val cadScaleLocked: Boolean = true,
+    val selectedShapeActions: List<SmartActionUiItem> = emptyList(),
+    val showSmartActionsDialog: Boolean = false,
     val validationSummary: ValidationBadgeSummary = ValidationBadgeSummary(
         standard = "BPMN 2.0",
         errorCount = 0,
@@ -2721,7 +2849,8 @@ class VexioSessionViewModel(
                 VexioTool.STYLUS_INK,
                 VexioTool.HIGHLIGHTER,
                 VexioTool.EDIT_VERTICES,
-                VexioTool.INK_ERASER
+                VexioTool.INK_ERASER,
+                VexioTool.CONNECTION_POINT
             )
         if (shouldResetToPointer && NativeBridge.isNativeAvailable && viewportPtr != 0L) {
             NativeBridge.nativeSetViewportTool(viewportPtr, VexioTool.POINTER.nativeCode)
@@ -3332,6 +3461,7 @@ class VexioSessionViewModel(
         var parsedLayers = state.pageLayers
         var parsedInspected: InspectedObjectUiState? = if (state.selectedShapeId > 0L) state.inspectedObject else null
         var parsedShapeData: List<ShapeDataUiItem> = emptyList()
+        var parsedActions: List<SmartActionUiItem> = emptyList()
         var resolvedFillHex = state.shapeFillColorHex
         var resolvedLineHex = state.shapeLineColorHex
 
@@ -3436,6 +3566,26 @@ class VexioSessionViewModel(
                                 dataTypeLabel = dtLabel,
                                 formula = sdObj["formula"]?.jsonPrimitive?.contentOrNull.orEmpty(),
                                 value = sdObj["value"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                            )
+                        }
+                    }
+
+                    val rawActions = matched["actions"] as? JsonArray
+                    if (rawActions != null) {
+                        parsedActions = rawActions.mapNotNull { actEl ->
+                            val actObj = actEl as? JsonObject ?: return@mapNotNull null
+                            val rName = actObj["rowName"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotEmpty() }
+                                ?: return@mapNotNull null
+                            SmartActionUiItem(
+                                rowName = rName,
+                                menu = actObj["menu"]?.jsonPrimitive?.contentOrNull ?: rName,
+                                actionFormula = actObj["actionFormula"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                                checkedFormula = actObj["checkedFormula"]?.jsonPrimitive?.contentOrNull ?: "0",
+                                disabledFormula = actObj["disabledFormula"]?.jsonPrimitive?.contentOrNull ?: "0",
+                                checked = actObj["checked"]?.jsonPrimitive?.booleanOrNull ?: false,
+                                disabled = actObj["disabled"]?.jsonPrimitive?.booleanOrNull ?: false,
+                                invisible = actObj["invisible"]?.jsonPrimitive?.booleanOrNull ?: false,
+                                beginGroup = actObj["beginGroup"]?.jsonPrimitive?.booleanOrNull ?: false
                             )
                         }
                     }
@@ -3565,6 +3715,7 @@ class VexioSessionViewModel(
                 pageLayers = parsedLayers,
                 inspectedObject = parsedInspected,
                 shapeDataItems = parsedShapeData,
+                selectedShapeActions = parsedActions,
                 dataGraphics = parsedDataGraphics,
                 externalRecordsets = parsedRecordsets,
                 availablePropFields = parsedPropFields,
@@ -5800,6 +5951,244 @@ class VexioSessionViewModel(
         return converted
     }
 
+    fun setSmartActionsDialogVisible(visible: Boolean) {
+        _uiState.update { it.copy(showSmartActionsDialog = visible) }
+    }
+
+    @Synchronized
+    fun upsertSmartAction(
+        rowName: String,
+        menu: String,
+        actionFormula: String,
+        checkedFormula: String = "0",
+        disabledFormula: String = "0",
+        beginGroup: Boolean = false
+    ): Boolean {
+        val cleanRow = rowName.trim().ifBlank { "Row_1" }
+        val cleanMenu = menu.trim().ifBlank { cleanRow }
+        val pid = resolveNativePageId(_uiState.value.activePageId)
+        val sid = _uiState.value.selectedShapeId
+        if (sid <= 0L) return false
+        if (NativeBridge.isNativeAvailable && docPtr != 0L) {
+            val ok = NativeBridge.nativeUpsertShapeAction(
+                docPtr, pid, sid, cleanRow, cleanMenu, actionFormula, checkedFormula, disabledFormula, beginGroup
+            )
+            if (!ok) return false
+            refreshSelectedShapeFormulas()
+            presentViewportOrFallback()
+        } else {
+            val chk = checkedFormula.trim() in setOf("1", "TRUE", "true")
+            val dis = disabledFormula.trim() in setOf("1", "TRUE", "true")
+            val item = SmartActionUiItem(
+                rowName = cleanRow,
+                menu = cleanMenu,
+                actionFormula = actionFormula,
+                checkedFormula = checkedFormula,
+                disabledFormula = disabledFormula,
+                checked = chk,
+                disabled = dis,
+                invisible = false,
+                beginGroup = beginGroup
+            )
+            _uiState.update { st ->
+                val next = st.selectedShapeActions.filterNot { it.rowName.equals(cleanRow, ignoreCase = true) } + item
+                st.copy(selectedShapeActions = next)
+            }
+        }
+        _uiState.update {
+            it.copy(isDirty = true, canUndo = true, statusBanner = "Saved Smart Action Actions.$cleanRow")
+        }
+        return true
+    }
+
+    @Synchronized
+    fun deleteSmartAction(rowName: String): Boolean {
+        val cleanRow = rowName.trim()
+        val pid = resolveNativePageId(_uiState.value.activePageId)
+        val sid = _uiState.value.selectedShapeId
+        if (cleanRow.isEmpty() || sid <= 0L) return false
+        if (NativeBridge.isNativeAvailable && docPtr != 0L) {
+            val ok = NativeBridge.nativeDeleteShapeAction(docPtr, pid, sid, cleanRow)
+            if (!ok) return false
+            refreshSelectedShapeFormulas()
+        } else {
+            _uiState.update { st ->
+                st.copy(selectedShapeActions = st.selectedShapeActions.filterNot { it.rowName.equals(cleanRow, ignoreCase = true) })
+            }
+        }
+        _uiState.update {
+            it.copy(isDirty = true, canUndo = true, statusBanner = "Deleted Smart Action Actions.$cleanRow")
+        }
+        return true
+    }
+
+    @Synchronized
+    fun executeSmartAction(rowName: String): Boolean {
+        val cleanRow = rowName.trim()
+        val pid = resolveNativePageId(_uiState.value.activePageId)
+        val sid = _uiState.value.selectedShapeId
+        if (cleanRow.isEmpty() || sid <= 0L) return false
+        if (NativeBridge.isNativeAvailable && docPtr != 0L) {
+            val outJson = NativeBridge.nativeExecuteShapeAction(docPtr, pid, sid, cleanRow).orEmpty()
+            val outObj = runCatching { Json.parseToJsonElement(outJson).jsonObject }.getOrNull()
+            val targetPageId = outObj?.get("targetPageId")?.jsonPrimitive?.intOrNull ?: 0
+            val openTextEdit = outObj?.get("openTextEdit")?.jsonPrimitive?.booleanOrNull ?: false
+            if (targetPageId > 0 && targetPageId != _uiState.value.activePageId) {
+                selectPage(targetPageId)
+            }
+            refreshSelectedShapeFormulas()
+            presentViewportOrFallback()
+            if (openTextEdit) {
+                beginInlineTextEdit(sid, isNewTextShape = false)
+            }
+        }
+        _uiState.update {
+            it.copy(isDirty = true, canUndo = true, statusBanner = "Executed Smart Action Actions.$cleanRow")
+        }
+        return true
+    }
+
+    @Synchronized
+    fun addSelectionToMyShapes(masterName: String = "", stencilTitle: String = "My Shapes"): String {
+        val pid = resolveNativePageId(_uiState.value.activePageId)
+        val ids = _uiState.value.selectedShapeIds.ifEmpty { listOf(_uiState.value.selectedShapeId) }
+            .filter { it > 0L }
+            .toLongArray()
+        if (ids.isEmpty()) return ""
+        val cleanPack = stencilTitle.trim().ifBlank { "My Shapes" }
+        var createdName = masterName.trim().ifBlank { "Custom Shape ${ids.first()}" }
+        if (NativeBridge.isNativeAvailable && docPtr != 0L) {
+            val raw = NativeBridge.nativeAddToCustomStencil(docPtr, pid, ids, cleanPack, masterName).orEmpty()
+            val obj = runCatching { Json.parseToJsonElement(raw).jsonObject }.getOrNull()
+            createdName = obj?.get("masterName")?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() }
+                ?: createdName
+            loadDynamicStencilsFromNative()
+        } else {
+            val customItem = StencilMasterItem(
+                masterId = "$cleanPack::$createdName",
+                title = createdName,
+                category = cleanPack,
+                defaultWidthFormula = "1.50 in",
+                defaultHeightFormula = "1.00 in",
+                fillFormula = _uiState.value.shapeFillColorHex,
+                shapeKind = "custom_master",
+                prompt = "Custom reusable Visio Master",
+                svgPreview = "<svg viewBox=\"0 0 96 64\"><rect x=\"8\" y=\"8\" width=\"80\" height=\"48\" rx=\"6\" fill=\"#eff6ff\" stroke=\"#2563eb\"/></svg>"
+            )
+            _uiState.update { st ->
+                val cats = if (cleanPack in st.stencilCategories) st.stencilCategories else st.stencilCategories + cleanPack
+                val masters = st.stencilMasters.filterNot { it.category == cleanPack && it.title == createdName } + customItem
+                st.copy(stencilCategories = cats, stencilMasters = masters)
+            }
+        }
+        _uiState.update {
+            it.copy(
+                selectedStencilCategory = cleanPack,
+                isDirty = true,
+                canUndo = true,
+                statusBanner = "Saved '$createdName' to '$cleanPack'"
+            )
+        }
+        return createdName
+    }
+
+    @Synchronized
+    fun renameCustomStencilMaster(oldName: String, newName: String, stencilTitle: String = "My Shapes"): Boolean {
+        val cleanPack = stencilTitle.trim().ifBlank { "My Shapes" }
+        val cleanOld = oldName.trim()
+        val cleanNew = newName.trim()
+        if (cleanOld.isEmpty() || cleanNew.isEmpty()) return false
+        if (NativeBridge.isNativeAvailable && docPtr != 0L) {
+            if (!NativeBridge.nativeRenameCustomMaster(docPtr, cleanPack, cleanOld, cleanNew)) return false
+            loadDynamicStencilsFromNative()
+        } else {
+            _uiState.update { st ->
+                st.copy(
+                    stencilMasters = st.stencilMasters.map { m ->
+                        if (m.category == cleanPack && m.title == cleanOld) {
+                            m.copy(masterId = "$cleanPack::$cleanNew", title = cleanNew)
+                        } else {
+                            m
+                        }
+                    }
+                )
+            }
+        }
+        _uiState.update { it.copy(isDirty = true, statusBanner = "Renamed master '$cleanOld' to '$cleanNew'") }
+        return true
+    }
+
+    @Synchronized
+    fun deleteCustomStencilMaster(masterName: String, stencilTitle: String = "My Shapes"): Boolean {
+        val cleanPack = stencilTitle.trim().ifBlank { "My Shapes" }
+        val cleanName = masterName.trim()
+        if (cleanName.isEmpty()) return false
+        if (NativeBridge.isNativeAvailable && docPtr != 0L) {
+            if (!NativeBridge.nativeDeleteCustomMaster(docPtr, cleanPack, cleanName)) return false
+            loadDynamicStencilsFromNative()
+        } else {
+            _uiState.update { st ->
+                st.copy(stencilMasters = st.stencilMasters.filterNot { it.category == cleanPack && it.title == cleanName })
+            }
+        }
+        _uiState.update { it.copy(isDirty = true, statusBanner = "Deleted custom master '$cleanName'") }
+        return true
+    }
+
+    @Synchronized
+    fun updateCustomMasterFromSelection(masterName: String = "", stencilTitle: String = "My Shapes"): Int {
+        val pid = resolveNativePageId(_uiState.value.activePageId)
+        val sid = _uiState.value.selectedShapeId
+        if (sid <= 0L) return -1
+        val cleanPack = stencilTitle.trim().ifBlank { "My Shapes" }
+        val updated = if (NativeBridge.isNativeAvailable && docPtr != 0L) {
+            val c = NativeBridge.nativeUpdateCustomMaster(docPtr, pid, sid, cleanPack, masterName)
+            if (c >= 0) {
+                loadDynamicStencilsFromNative()
+                refreshSelectedShapeFormulas()
+                presentViewportOrFallback()
+            }
+            c
+        } else {
+            1
+        }
+        if (updated >= 0) {
+            _uiState.update {
+                it.copy(
+                    isDirty = true,
+                    canUndo = true,
+                    statusBanner = "Updated custom master and propagated to $updated instance(s)"
+                )
+            }
+        }
+        return updated
+    }
+
+    @Synchronized
+    fun exportCustomStencilVssxBytes(stencilTitle: String = "My Shapes"): ByteArray {
+        val cleanPack = stencilTitle.trim().ifBlank { "My Shapes" }
+        if (NativeBridge.isNativeAvailable && docPtr != 0L) {
+            val nativeBytes = NativeBridge.nativeExportCustomStencilVssx(docPtr, cleanPack)
+            if (nativeBytes != null && nativeBytes.isNotEmpty()) {
+                return nativeBytes
+            }
+        }
+        val baos = ByteArrayOutputStream()
+        ZipOutputStream(baos).use { zos ->
+            writeZipUtf8(
+                zos,
+                "[Content_Types].xml",
+                """<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/visio/document.xml" ContentType="application/vnd.ms-visio.stencil.main+xml"/><Override PartName="/visio/masters/masters.xml" ContentType="application/vnd.ms-visio.masters+xml"/></Types>"""
+            )
+            writeZipUtf8(
+                zos,
+                "visio/masters/masters.xml",
+                """<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Masters xmlns="http://schemas.microsoft.com/office/visio/2012/main"/>"""
+            )
+        }
+        return baos.toByteArray()
+    }
+
     @Synchronized
     fun focusSlideSnippet(index: Int, enterPresenter: Boolean = true) {
         var slides = _uiState.value.slideSnippets
@@ -6076,7 +6465,7 @@ class VexioSessionViewModel(
                     instanceFollowRedirects = true
                     connectTimeout = 20_000
                     readTimeout = 45_000
-                    setRequestProperty("User-Agent", "Vexio-Android-Workstation/0.6.0-beta")
+                    setRequestProperty("User-Agent", "Vexio-Android-Workstation/0.7.0-beta")
                 }
                 try {
                     val code = conn.responseCode
@@ -7038,7 +7427,7 @@ class VexioSessionViewModel(
             }
         }
         viewModelScope.launch(ioDispatcher) {
-            val currentVersion = "0.6.0-beta"
+            val currentVersion = "0.7.0-beta"
             var latestTag: String? = null
             var downloadUrl = "https://github.com/petrosvassiliou/vexio/releases"
             var ok = false
@@ -7049,7 +7438,7 @@ class VexioSessionViewModel(
                     requestMethod = "GET"
                     connectTimeout = 4500
                     readTimeout = 4500
-                    setRequestProperty("User-Agent", "Vexio-Android-Googlebook/0.6.0-beta")
+                    setRequestProperty("User-Agent", "Vexio-Android-Googlebook/0.7.0-beta")
                     setRequestProperty("Accept", "application/vnd.github+json")
                 }
                 if (conn.responseCode in 200..299) {
@@ -7131,6 +7520,9 @@ class VexioSessionViewModel(
     @Synchronized
     fun exportDocumentBytes(extension: String): ByteArray {
         val cleanExt = extension.trim().trimStart('.').lowercase(Locale.US)
+        if (cleanExt == "vssx") {
+            return exportCustomStencilVssxBytes("My Shapes")
+        }
         if (NativeBridge.isNativeAvailable && docPtr != 0L) {
             val nativeBytes = NativeBridge.nativeSaveDocument(docPtr, cleanExt)
             if (nativeBytes != null && nativeBytes.isNotEmpty()) {

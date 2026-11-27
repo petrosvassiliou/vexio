@@ -519,8 +519,15 @@ fun GooglebookWorkstationScreen(
                         }
                         true
                     }
+                    // Ctrl + Shift + 1 -> Connection Point Tool (Visio Shift+Ctrl+1 Parity)
+                    ctrlOrMeta && shift && keyEvent.key == Key.One -> {
+                        viewModel.selectTool(
+                            if (uiState.activeTool == VexioTool.CONNECTION_POINT) VexioTool.POINTER else VexioTool.CONNECTION_POINT
+                        )
+                        true
+                    }
                     // Ctrl + 1..9 -> Visio Authoring Tool Parity
-                    ctrlOrMeta && keyEvent.key == Key.One -> {
+                    ctrlOrMeta && !shift && keyEvent.key == Key.One -> {
                         viewModel.selectTool(VexioTool.POINTER)
                         true
                     }
@@ -717,6 +724,12 @@ fun GooglebookWorkstationScreen(
                         onImportStencilRequested = onImportStencilRequested,
                         onOpenOfficialCatalogRequested = {
                             viewModel.setOfficialStencilCatalogDialogVisible(true)
+                        },
+                        onAddToMyShapesRequested = {
+                            viewModel.addSelectionToMyShapes()
+                        },
+                        onExportMyShapesVssxRequested = {
+                            onExportFormatRequested("vssx")
                         },
                         onOpenNewWindowRequested = {
                             launchNewDocumentWindow(context, template = "blank")
@@ -1268,6 +1281,120 @@ fun GooglebookWorkstationScreen(
                         TextButton(onClick = { viewModel.setHyperlinkDialogVisible(false) }) {
                             Text("Cancel")
                         }
+                    }
+                }
+            )
+        }
+
+        // Smart-Shape Context Actions (Actions.*) Authoring Dialog
+        if (uiState.showSmartActionsDialog) {
+            var rowNameDraft by remember { mutableStateOf("ToggleState") }
+            var menuDraft by remember { mutableStateOf("Toggle Active Status") }
+            var actionFormulaDraft by remember { mutableStateOf("SETF(GetRef(FillForegnd),\"RGB(220,252,231)\")") }
+            var checkedFormulaDraft by remember { mutableStateOf("0") }
+            var beginGroupDraft by remember { mutableStateOf(false) }
+
+            AlertDialog(
+                onDismissRequest = { viewModel.setSmartActionsDialogVisible(false) },
+                title = { Text("Smart-Shape Context Actions (Actions.*) — Sheet.${uiState.selectedShapeId}") },
+                text = {
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 420.dp)
+                            .verticalScroll(rememberScrollState())
+                    ) {
+                        if (uiState.selectedShapeActions.isNotEmpty()) {
+                            uiState.selectedShapeActions.forEach { act ->
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = MaterialTheme.colorScheme.surfaceContainer,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            rowNameDraft = act.rowName
+                                            menuDraft = act.menu
+                                            actionFormulaDraft = act.actionFormula
+                                            checkedFormulaDraft = act.checkedFormula
+                                            beginGroupDraft = act.beginGroup
+                                        }
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                                    ) {
+                                        Text(
+                                            text = "${if (act.checked) "✓ " else "• "}${act.menu} (${act.rowName})",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                        TextButton(onClick = { viewModel.executeSmartAction(act.rowName) }) {
+                                            Text("Run")
+                                        }
+                                        TextButton(onClick = { viewModel.deleteSmartAction(act.rowName) }) {
+                                            Text("Delete")
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        OutlinedTextField(
+                            value = rowNameDraft,
+                            onValueChange = { rowNameDraft = it },
+                            singleLine = true,
+                            label = { Text("Row Name (Actions.<RowName>)") },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        OutlinedTextField(
+                            value = menuDraft,
+                            onValueChange = { menuDraft = it },
+                            singleLine = true,
+                            label = { Text("Right-Click Menu Label") },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        OutlinedTextField(
+                            value = actionFormulaDraft,
+                            onValueChange = { actionFormulaDraft = it },
+                            textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                            label = { Text("Action Formula (SETF / GOTOPAGE / OPENTEXTWIN / RUNMACRO)") },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        OutlinedTextField(
+                            value = checkedFormulaDraft,
+                            onValueChange = { checkedFormulaDraft = it },
+                            singleLine = true,
+                            textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                            label = { Text("Checked Formula (0 / 1 / cell ref)") },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.clickable { beginGroupDraft = !beginGroupDraft }
+                        ) {
+                            Checkbox(checked = beginGroupDraft, onCheckedChange = { beginGroupDraft = it })
+                            Text("Begin separator group above item", style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                },
+                confirmButton = {
+                    FilledTonalButton(
+                        onClick = {
+                            viewModel.upsertSmartAction(
+                                rowName = rowNameDraft,
+                                menu = menuDraft,
+                                actionFormula = actionFormulaDraft,
+                                checkedFormula = checkedFormulaDraft,
+                                beginGroup = beginGroupDraft
+                            )
+                        }
+                    ) {
+                        Text("Add / Update Action")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { viewModel.setSmartActionsDialogVisible(false) }) {
+                        Text("Done")
                     }
                 }
             )
@@ -2760,6 +2887,20 @@ private fun ClassicVisioM3Ribbon(
                                 }
                             )
                             ExpressivePlan2ActionPill(
+                                label = "Conn. Points (Ctrl+Shift+1)",
+                                selected = uiState.activeTool == VexioTool.CONNECTION_POINT,
+                                onClick = {
+                                    viewModel.selectTool(
+                                        if (uiState.activeTool == VexioTool.CONNECTION_POINT) VexioTool.POINTER else VexioTool.CONNECTION_POINT
+                                    )
+                                }
+                            )
+                            ExpressivePlan2ActionPill(
+                                label = "Smart Actions (${uiState.selectedShapeActions.size})",
+                                selected = uiState.showSmartActionsDialog,
+                                onClick = { viewModel.setSmartActionsDialogVisible(true) }
+                            )
+                            ExpressivePlan2ActionPill(
                                 label = "+ Control Handle",
                                 selected = false,
                                 onClick = { viewModel.ensureSelectedControlHandle() }
@@ -3484,6 +3625,7 @@ private fun resolveToolIcon(tool: VexioTool): ImageVector = when (tool) {
     VexioTool.HIGHLIGHTER -> Icons.Default.Edit
     VexioTool.EDIT_VERTICES -> Icons.Default.Tune
     VexioTool.INK_ERASER -> Icons.Default.DeleteOutline
+    VexioTool.CONNECTION_POINT -> Icons.Default.Add
 }
 
 /**
@@ -3500,6 +3642,8 @@ private fun StencilMasterDrawerPane(
     onMasterDoubleClicked: (StencilMasterItem) -> Unit,
     onImportStencilRequested: () -> Unit = {},
     onOpenOfficialCatalogRequested: () -> Unit = {},
+    onAddToMyShapesRequested: () -> Unit = {},
+    onExportMyShapesVssxRequested: () -> Unit = {},
     onOpenNewWindowRequested: () -> Unit
 ) {
     val lang = uiState.language
@@ -3614,6 +3758,39 @@ private fun StencilMasterDrawerPane(
                         style = MaterialTheme.typography.labelSmall,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+
+            // "My Shapes" Custom Stencil Authoring & .vssx Export Row
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 10.dp, vertical = 2.dp)
+            ) {
+                FilledTonalButton(
+                    onClick = onAddToMyShapesRequested,
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 5.dp),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text(
+                        text = "+ Add to My Shapes",
+                        style = MaterialTheme.typography.labelSmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                FilledTonalButton(
+                    onClick = onExportMyShapesVssxRequested,
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 5.dp),
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Text(
+                        text = ".vssx ↑",
+                        style = MaterialTheme.typography.labelSmall,
+                        maxLines = 1
                     )
                 }
             }
@@ -4694,8 +4871,13 @@ private fun VulkanCanvasDropZone(
                                 view.requestUnbufferedDispatch(motionEvent)
                             }
                             if ((motionEvent.buttonState and MotionEvent.BUTTON_SECONDARY) != 0) {
-                                showCanvasContextMenuAt(motionEvent.x, motionEvent.y)
-                                return@setOnTouchListener true
+                                val activeToolNow = viewModel.uiState.value.activeTool
+                                if (activeToolNow != VexioTool.EDIT_VERTICES &&
+                                    activeToolNow != VexioTool.CONNECTION_POINT
+                                ) {
+                                    showCanvasContextMenuAt(motionEvent.x, motionEvent.y)
+                                    return@setOnTouchListener true
+                                }
                             }
                         }
                         if (doubleTapDetector.onTouchEvent(motionEvent)) {
@@ -4713,8 +4895,13 @@ private fun VulkanCanvasDropZone(
                         if (motionEvent.actionMasked == MotionEvent.ACTION_BUTTON_PRESS &&
                             motionEvent.actionButton == MotionEvent.BUTTON_SECONDARY
                         ) {
-                            showCanvasContextMenuAt(motionEvent.x, motionEvent.y)
-                            return@setOnGenericMotionListener true
+                            val activeToolNow = viewModel.uiState.value.activeTool
+                            if (activeToolNow != VexioTool.EDIT_VERTICES &&
+                                activeToolNow != VexioTool.CONNECTION_POINT
+                            ) {
+                                showCanvasContextMenuAt(motionEvent.x, motionEvent.y)
+                                return@setOnGenericMotionListener true
+                            }
                         }
                         val handled = viewModel.dispatchMotionEvent(motionEvent, predictor)
                         view.pointerIcon = resolveHardwarePointerIcon(
@@ -4872,6 +5059,23 @@ private fun VulkanCanvasDropZone(
             onDismissRequest = { contextMenuVisible = false },
             offset = contextMenuOffsetDp
         ) {
+            val visibleSmartActions = uiState.selectedShapeActions.filter { !it.invisible }
+            if (visibleSmartActions.isNotEmpty()) {
+                visibleSmartActions.forEachIndexed { idx, act ->
+                    if (act.beginGroup && idx > 0) {
+                        HorizontalDivider()
+                    }
+                    DropdownMenuItem(
+                        text = { Text(if (act.checked) "✓ ${act.menu}" else act.menu) },
+                        enabled = !act.disabled,
+                        onClick = {
+                            contextMenuVisible = false
+                            viewModel.executeSmartAction(act.rowName)
+                        }
+                    )
+                }
+                HorizontalDivider()
+            }
             DropdownMenuItem(
                 text = { Text(VexioI18n.ctxEditShapeLabel(lang)) },
                 leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) },
@@ -5030,6 +5234,28 @@ private fun VulkanCanvasDropZone(
                     if (!uiState.isShapeSheetDrawerExpanded) {
                         viewModel.toggleShapeSheetDrawer()
                     }
+                }
+            )
+            DropdownMenuItem(
+                text = { Text("Smart-Shape Actions…") },
+                onClick = {
+                    contextMenuVisible = false
+                    viewModel.setSmartActionsDialogVisible(true)
+                }
+            )
+            DropdownMenuItem(
+                text = { Text("Add Selection to My Shapes") },
+                leadingIcon = { Icon(Icons.Default.Add, contentDescription = null) },
+                onClick = {
+                    contextMenuVisible = false
+                    viewModel.addSelectionToMyShapes()
+                }
+            )
+            DropdownMenuItem(
+                text = { Text("Update Custom Master from Selection") },
+                onClick = {
+                    contextMenuVisible = false
+                    viewModel.updateCustomMasterFromSelection()
                 }
             )
             DropdownMenuItem(

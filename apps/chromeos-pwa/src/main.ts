@@ -20,7 +20,13 @@ import {
   type VexioLangCode,
   type VexioStrings,
 } from './platform/localization';
-import type { EditableVertexDto, EngineSnapshot, SmartGuideLine } from './workers/engine.worker';
+import type {
+  ConnectionPointDto,
+  EditableVertexDto,
+  EngineSnapshot,
+  ShapeActionDto,
+  SmartGuideLine,
+} from './workers/engine.worker';
 import type { OpfsVersionMeta, OpfsWorkspaceMeta } from './workers/opfs-journal.worker';
 
 type ActiveTool =
@@ -39,7 +45,8 @@ type ActiveTool =
   | 'freeform'
   | 'text'
   | 'pen'
-  | 'highlighter';
+  | 'highlighter'
+  | 'connection_point';
 type InspectorTab = 'props' | 'sizepos' | 'data' | 'layers' | 'comments' | 'validate';
 type ActiveModal =
   | null
@@ -57,6 +64,7 @@ type ActiveModal =
   | 'slides'
   | 'wizards'
   | 'cadTools'
+  | 'smartActions'
   | 'stencilCatalog'
   | 'unsavedConfirm';
 type ResizeHandleDir = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w';
@@ -577,6 +585,7 @@ const UI_ICONS = {
   text: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M3 3.2 H13 M8 3.2 V13 M5.5 13 H10.5"/></svg>',
   pen: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11.2 2.2 L13.8 4.8 L5.5 13.1 L2.2 13.8 L2.9 10.5 Z"/></svg>',
   highlighter: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9.8 2.4 L13.6 6.2 L6.8 13 L3 9.2 Z"/><path d="M2 14 H7"/></svg>',
+  connection_point: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="8" cy="8" r="5.6" stroke-dasharray="2.4 2"/><path d="M5.6 5.6 L10.4 10.4 M10.4 5.6 L5.6 10.4"/></svg>',
   duplicate: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><rect x="5.2" y="5.2" width="8.5" height="8.5" rx="1.4"/><path d="M10.5 5.2 V3.3 A1 1 0 0 0 9.5 2.3 H3.3 A1 1 0 0 0 2.3 3.3 V9.5 A1 1 0 0 0 3.3 10.5 H5.2"/></svg>',
   trash: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M3 4.5 H13 M6 4.5 V2.8 H10 V4.5 M4.5 4.5 L5.2 13.5 H10.8 L11.5 4.5"/></svg>',
   open: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M2 4.2 H6.2 L7.6 5.8 H14 V12.8 H2 Z"/></svg>',
@@ -784,9 +793,16 @@ class VexioChromeOsApp {
       return true;
     }
   })();
-  private updateStatusText = 'Vexio v0.6.0-beta • Automatic updates enabled';
+  private updateStatusText = 'Vexio v0.7.0-beta • Automatic updates enabled';
   private latestReleaseTag: string | null = null;
   private latestReleaseUrl = 'https://github.com/petrosvassiliou/vexio/releases';
+
+  private actionRowDraft = 'ToggleState';
+  private actionMenuDraft = 'Toggle Active Color';
+  private actionFormulaDraft = '=SETF(GetRef(FillForegnd), "RGB(34,197,94)")';
+  private actionCheckedDraft = 'FALSE';
+  private actionDisabledDraft = 'FALSE';
+  private actionBeginGroupDraft = false;
 
   private activeWizardSlug: 'gantt' | 'timeline' | 'pert' | 'rack_42u' | 'arch_room' = 'gantt';
   private wizardDraftBySlug: Record<'gantt' | 'timeline' | 'pert' | 'rack_42u' | 'arch_room', string> = {
@@ -1304,7 +1320,7 @@ class VexioChromeOsApp {
       return;
     }
 
-    const currentVersion = '0.6.0-beta';
+    const currentVersion = '0.7.0-beta';
     try {
       const resp = await fetch('https://api.github.com/repos/petrosvassiliou/vexio/releases', {
         headers: { Accept: 'application/vnd.github+json' },
@@ -1356,6 +1372,7 @@ class VexioChromeOsApp {
           | 'ink'
           | 'control'
           | 'vertex'
+          | 'conn_point_edit'
           | 'open_text_edit';
         primitiveKind?: string;
         startPageIn: [number, number];
@@ -1363,6 +1380,7 @@ class VexioChromeOsApp {
         panStartClient?: [number, number];
         panStartScroll?: [number, number];
         shapeId?: number;
+        portIx?: number;
         connIsBegin?: boolean;
         segIndex?: number;
         segAxis?: 'x' | 'y';
@@ -2139,6 +2157,12 @@ class VexioChromeOsApp {
         this.render();
         return;
       }
+      if (!inInput && (e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === '1' || e.key === '!' || e.code === 'Digit1')) {
+        e.preventDefault();
+        this.activeTool = this.activeTool === 'connection_point' ? 'pointer' : 'connection_point';
+        this.render();
+        return;
+      }
       if (!inInput && (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'g') {
         e.preventDefault();
         if (e.shiftKey) {
@@ -2620,6 +2644,7 @@ class VexioChromeOsApp {
         ${btn('pan', UI_ICONS.pan, 'Pan', 'Pan Canvas (H / Hold Space)')}
         <div class="rail-divider"></div>
         ${btn('connector', UI_ICONS.connector, 'Connect', 'Dynamic Connector — Drag between shapes or ports (C / Ctrl+3)')}
+        ${btn('connection_point', UI_ICONS.connection_point, 'Ports', 'Connection Point Tool — Click shape to add port, drag to move, Right-Click to delete (Ctrl+Shift+1)')}
         ${btn('line', UI_ICONS.line, 'Line', 'Straight Line — Click and drag on canvas (L)')}
         ${btn('arc', UI_ICONS.arc, 'Arc', 'Curved Arc — Click and drag on canvas (A)')}
         ${btn('freeform', UI_ICONS.freeform, 'Curve', 'Freeform Bezier / Spline Curve (P)')}
@@ -2652,9 +2677,20 @@ class VexioChromeOsApp {
       const is1D = sh?.kind === 'Connector1D';
       const rs = sh?.routeStyle ?? 16;
       const ea = sh?.endArrow ?? 4;
+      const smartActions: ShapeActionDto[] = sh?.actions ?? [];
+      const smartActionsHtml =
+        smartActions.length > 0
+          ? `${smartActions
+              .map(
+                (act) =>
+                  `${act.beginGroup ? '<div class="ctx-sep"></div>' : ''}<button class="ctx-item" data-smart-action="${act.name.replace(/"/g, '&quot;')}" ${act.disabled ? 'disabled' : ''}><span>${act.checked ? '✓ ' : ''}⚡ ${act.menu}</span></button>`
+              )
+              .join('')}<div class="ctx-sep"></div>`
+          : '';
       return `
         <div id="vexio-context-menu" class="vexio-context-menu" style="left:${clampedLeft}px;top:${clampedTop}px">
           <div class="ctx-header">${sh ? `${sh.text || sh.name} (Sheet.${sh.id})` : `${this.selectedShapeIds.length} Shapes Selected`}</div>
+          ${smartActionsHtml}
           <button class="ctx-item" data-ctx="edit-text"><span>${t.editLabel}</span><span class="ctx-kbd">F2</span></button>
           <div class="ctx-sep"></div>
           <button class="ctx-item" data-ctx="rotate-left"><span>${t.rotateLeft90}</span><span class="ctx-kbd">Ctrl+L</span></button>
@@ -2689,6 +2725,10 @@ class VexioChromeOsApp {
                 <button class="ctx-item" data-ctx="add-callout"><span>Attach Callout Note</span></button>
                 <button class="ctx-item" data-ctx="link-subprocess"><span>Link Subprocess Page...</span></button>
                 <button class="ctx-item" data-ctx="open-hyperlink"><span>Hyperlink &amp; ScreenTip...</span></button>
+                <button class="ctx-item" data-ctx="open-smart-actions"><span>Smart Actions (Actions.*)...</span></button>
+                <div class="ctx-sep"></div>
+                <button class="ctx-item" data-ctx="add-to-my-shapes"><span>Add to My Shapes Stencil</span></button>
+                ${sh?.masterName ? `<button class="ctx-item" data-ctx="update-master-from-shape"><span>Update Master "${sh.masterName}" &amp; Instances</span></button>` : ''}
               `
           }
           <div class="ctx-sep"></div>
@@ -2720,11 +2760,23 @@ class VexioChromeOsApp {
     }
 
     if (cm.kind === 'stencil') {
+      const isCustom = cm.stencilPack === 'My Shapes';
       return `
         <div id="vexio-context-menu" class="vexio-context-menu" style="left:${clampedLeft}px;top:${clampedTop}px">
           <div class="ctx-header">${cm.stencilMaster ?? 'Stencil Shape'}</div>
           <button class="ctx-item" data-ctx="stencil-drop-center"><span>Place on Center of Page</span></button>
           <button class="ctx-item" data-ctx="stencil-drop-three"><span>Place 3 Connected Steps</span></button>
+          ${
+            isCustom
+              ? `
+                <div class="ctx-sep"></div>
+                <button class="ctx-item" data-ctx="stencil-rename-master"><span>Rename Custom Master…</span></button>
+                <button class="ctx-item danger" data-ctx="stencil-delete-master"><span>Delete Custom Master</span></button>
+                <div class="ctx-sep"></div>
+                <button class="ctx-item" data-ctx="stencil-export-vssx"><span>Export My Shapes (.vssx)…</span></button>
+              `
+              : ''
+          }
         </div>
       `;
     }
@@ -3070,6 +3122,8 @@ class VexioChromeOsApp {
           <button class="m3-btn" data-bool-op="subtract" ${multiDisabled}>Subtract</button>
           <button class="m3-btn" data-bool-op="offset" ${selDisabled}>Offset</button>
           <button class="m3-btn ${this.showVertexGrips ? 'active' : ''}" id="btn-toggle-vertices" ${this.primarySelectedId ? '' : 'disabled'}>Edit Vertices</button>
+          <button class="m3-btn ${this.activeTool === 'connection_point' ? 'active' : ''}" id="btn-dev-conn-pts" title="Interactive Connection Point Tool (Ctrl+Shift+1)">Connection Points</button>
+          <button class="m3-btn tonal" id="btn-open-smart-actions-modal" ${this.primarySelectedId ? '' : 'disabled'} title="Author Right-Click Smart-Shape Actions.* Rows">Smart Actions…</button>
           <div class="ribbon-divider"></div>
           <span class="ribbon-group-label">Studios</span>
           <button class="m3-btn active" id="btn-open-markup-modal" title="Bidirectional Mermaid (.mmd), PlantUML (.puml) &amp; Graphviz DOT (.dot) Interop">Mermaid / PlantUML / DOT...</button>
@@ -3240,6 +3294,17 @@ class VexioChromeOsApp {
                 .join('')
             : '';
 
+        const connPointGrips =
+          this.activeTool === 'connection_point' && this.primarySelectedId === sh.id
+            ? ((sh.connectionPoints ?? []) as ConnectionPointDto[])
+                .map((cp) => {
+                  const cxPx = cp.pageXIn * ppi;
+                  const cyPx = (snap.pageHeightIn - cp.pageYIn) * ppi;
+                  return `<div class="conn-point-edit-grip" data-cp-shape="${sh.id}" data-cp-ix="${cp.ix}" style="left:${cxPx.toFixed(1)}px;top:${cyPx.toFixed(1)}px" title="Connections.${cp.name || `X${cp.ix}`} (${cp.xFormula}, ${cp.yFormula}) — Drag to move • Right-Click to delete">×</div>`;
+                })
+                .join('')
+            : '';
+
         const subPill = sh.subprocessPage
           ? `<button class="subprocess-pill-btn" data-sub-pill="${sh.subprocessPage}" style="left:${(sh.pinX * ppi).toFixed(1)}px;top:${(topPx - 8).toFixed(1)}px">Open ${sh.subprocessPage} ↗</button>`
           : '';
@@ -3259,6 +3324,7 @@ class VexioChromeOsApp {
           </div>
           ${ctrlDiamonds}
           ${vertexDots}
+          ${connPointGrips}
           ${subPill}
         `;
       })
@@ -3669,6 +3735,14 @@ class VexioChromeOsApp {
               </button>
               <button class="m3-btn active" id="btn-open-stencil-catalog" style="flex:1;height:28px;font-size:11px;justify-content:center" title="1-Click Official Microsoft 365, Azure, Cisco & Rack Stencil Packs">
                 Official Packs ↓
+              </button>
+            </div>
+            <div style="display:flex;gap:4px">
+              <button class="m3-btn" id="btn-add-to-my-shapes" ${this.selectedShapeIds.length > 0 ? '' : 'disabled'} style="flex:1;height:26px;font-size:10.5px;justify-content:center" title="Save selected canvas shape(s) as a reusable Master in My Shapes">
+                ★ + My Shapes
+              </button>
+              <button class="m3-btn" id="btn-export-my-shapes-vssx" ${(this.stencilCatalog['My Shapes']?.length ?? 0) > 0 ? '' : 'disabled'} style="height:26px;padding:0 8px;font-size:10.5px;justify-content:center" title="Export My Shapes custom stencil as OpenXML .vssx">
+                .vssx ↓
               </button>
             </div>
             <input type="file" id="vssx-file-input" accept=".vssx,.vssm,.vss,.vsdx,.vstx,.vstm,.vsd,.vst,.vdx,.zip,.svg,.png" style="display:none" />
@@ -4677,7 +4751,7 @@ class VexioChromeOsApp {
             </div>
             <div class="list-row-card" style="flex-direction:column;align-items:flex-start;gap:6px">
               <strong>${this.updateStatusText}</strong>
-              <span style="font-size:11.5px;color:var(--m3-text-muted)">Installed build: Vexio v0.6.0-beta • Offline-First Workbox PWA + GitHub Releases channel</span>
+              <span style="font-size:11.5px;color:var(--m3-text-muted)">Installed build: Vexio v0.7.0-beta • Offline-First Workbox PWA + GitHub Releases channel</span>
             </div>
             <label style="display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer">
               <input type="checkbox" id="chk-auto-updates" ${this.autoCheckUpdates ? 'checked' : ''} />
@@ -5133,6 +5207,71 @@ class VexioChromeOsApp {
             <div style="display:flex;justify-content:flex-end;gap:8px">
               <button class="m3-btn" id="btn-build-org-entra-ldif">Import as Entra JSON / LDIF</button>
               <button class="m3-btn active" id="btn-build-org-chart">Generate Org Chart from CSV</button>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    if (this.activeModal === 'smartActions') {
+      const sh = this.primarySelectedId
+        ? this.snapshot?.shapes.find((s) => s.id === this.primarySelectedId) ?? null
+        : null;
+      const existingActions = sh?.actions ?? [];
+      return `
+        <div class="modal-backdrop">
+          <div class="modal-card">
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <strong>Smart-Shape Context Menu Actions (Actions.*) — ${sh ? `Sheet.${sh.id} (${sh.text || sh.name})` : 'No Shape Selected'}</strong>
+              <button class="m3-btn" id="btn-close-modal">Close</button>
+            </div>
+            <div style="font-size:12px;color:var(--m3-text-muted)">
+              Author Visio <code>Actions.*</code> right-click context menu commands using any of the 238 ShapeSheet functions (<code>SETF</code>, <code>GOTOPAGE</code>, <code>RUNMACRO</code>, <code>OPENTEXTWIN</code>).
+            </div>
+            ${
+              existingActions.length > 0
+                ? `<div style="display:flex;flex-direction:column;gap:6px;max-height:160px;overflow:auto">
+                    ${existingActions
+                      .map(
+                        (a) => `
+                          <div class="list-row-card" style="justify-content:space-between;gap:8px">
+                            <div style="font-size:11.5px">
+                              <strong>${a.checked ? '✓ ' : ''}${a.menu}</strong> <span style="color:var(--m3-text-muted)">(Actions.${a.name})</span>
+                              <div style="font-family:monospace;font-size:10.5px;color:var(--m3-text-muted)">${a.actionFormula}</div>
+                            </div>
+                            <div style="display:flex;gap:4px">
+                              <button class="m3-btn tonal" data-run-smart-action="${a.name.replace(/"/g, '&quot;')}" style="height:24px;padding:0 8px;font-size:11px">Run</button>
+                              <button class="m3-btn danger" data-del-smart-action="${a.name.replace(/"/g, '&quot;')}" style="height:24px;padding:0 8px;font-size:11px">Delete</button>
+                            </div>
+                          </div>`
+                      )
+                      .join('')}
+                  </div>`
+                : '<div style="font-size:11.5px;color:var(--m3-text-muted)">No custom Actions.* rows on this shape yet.</div>'
+            }
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+              <label style="font-size:11.5px;display:flex;flex-direction:column;gap:3px">Row Name
+                <input class="cell-input" id="act-row-input" value="${this.actionRowDraft.replace(/"/g, '&quot;')}" placeholder="ToggleState" />
+              </label>
+              <label style="font-size:11.5px;display:flex;flex-direction:column;gap:3px">Context Menu Label
+                <input class="cell-input" id="act-menu-input" value="${this.actionMenuDraft.replace(/"/g, '&quot;')}" placeholder="Toggle Active State" />
+              </label>
+              <label style="font-size:11.5px;display:flex;flex-direction:column;gap:3px;grid-column:span 2">Action Formula (SETF / GOTOPAGE / RUNMACRO)
+                <input class="cell-input" id="act-formula-input" value="${this.actionFormulaDraft.replace(/"/g, '&quot;')}" placeholder='=SETF(GetRef(FillForegnd), "RGB(34,197,94)")' />
+              </label>
+              <label style="font-size:11.5px;display:flex;flex-direction:column;gap:3px">Checked Formula
+                <input class="cell-input" id="act-checked-input" value="${this.actionCheckedDraft.replace(/"/g, '&quot;')}" placeholder="=User.IsActive" />
+              </label>
+              <label style="font-size:11.5px;display:flex;flex-direction:column;gap:3px">Disabled Formula
+                <input class="cell-input" id="act-disabled-input" value="${this.actionDisabledDraft.replace(/"/g, '&quot;')}" placeholder="FALSE" />
+              </label>
+            </div>
+            <label style="display:inline-flex;align-items:center;gap:6px;font-size:12px;cursor:pointer">
+              <input type="checkbox" id="act-begingroup-chk" ${this.actionBeginGroupDraft ? 'checked' : ''} /> Begin Menu Separator Group
+            </label>
+            ${this.modalOutputMessage ? `<div style="color:var(--m3-secondary);font-size:12px">${this.modalOutputMessage}</div>` : ''}
+            <div style="display:flex;justify-content:flex-end;gap:8px">
+              <button class="m3-btn active" id="btn-save-smart-action" ${sh ? '' : 'disabled'}>Save Smart Action Row</button>
             </div>
           </div>
         </div>
@@ -5939,6 +6078,135 @@ class VexioChromeOsApp {
         this.activeShapeVertices = [];
       }
       this.render();
+    });
+
+    document.getElementById('btn-dev-conn-pts')?.addEventListener('click', () => {
+      this.activeTool = this.activeTool === 'connection_point' ? 'pointer' : 'connection_point';
+      this.render();
+    });
+
+    document.getElementById('btn-open-smart-actions-modal')?.addEventListener('click', () => {
+      this.activeModal = 'smartActions';
+      this.modalOutputMessage = '';
+      this.render();
+    });
+
+    const addSelectedToMyShapes = async () => {
+      if (this.selectedShapeIds.length === 0) return;
+      const defaultName =
+        this.snapshot?.shapes.find((s) => s.id === this.selectedShapeIds[0])?.text?.split('\n')[0]?.trim() ||
+        'Custom Shape';
+      const chosen = window.prompt('Master Name in "My Shapes":', defaultName);
+      if (chosen === null) return;
+      const res = await this.callEngine('addToCustomStencil', {
+        shapeIds: this.selectedShapeIds,
+        stencilTitle: 'My Shapes',
+        masterName: chosen.trim() || defaultName,
+      });
+      if (res.stencils) this.stencilCatalog = res.stencils;
+      if (res.previews) this.stencilPreviews = res.previews;
+      if (res.packOrder) this.packOrder = res.packOrder;
+      this.expandedStencilPacks.add('My Shapes');
+      if (res.snapshot) this.snapshot = res.snapshot;
+      this.persistMutationSideEffects(res.wal);
+      this.showToast(`Saved "${res.result?.name ?? chosen}" to My Shapes stencil`, 'info');
+      this.render();
+    };
+
+    const exportMyShapesVssx = async () => {
+      const res = await this.callEngine('exportCustomStencilVssx', { stencilTitle: 'My Shapes' });
+      if (res.bytes && res.bytes.byteLength > 0) {
+        await saveLocalDiagramInPlace(null, 'My-Shapes.vssx', res.bytes);
+        this.showToast('Exported My Shapes (.vssx) stencil package', 'info');
+      }
+    };
+
+    document.getElementById('btn-add-to-my-shapes')?.addEventListener('click', () => {
+      void addSelectedToMyShapes();
+    });
+    document.getElementById('btn-export-my-shapes-vssx')?.addEventListener('click', () => {
+      void exportMyShapesVssx();
+    });
+
+    document.getElementById('act-row-input')?.addEventListener('input', (e) => {
+      this.actionRowDraft = (e.target as HTMLInputElement).value;
+    });
+    document.getElementById('act-menu-input')?.addEventListener('input', (e) => {
+      this.actionMenuDraft = (e.target as HTMLInputElement).value;
+    });
+    document.getElementById('act-formula-input')?.addEventListener('input', (e) => {
+      this.actionFormulaDraft = (e.target as HTMLInputElement).value;
+    });
+    document.getElementById('act-checked-input')?.addEventListener('input', (e) => {
+      this.actionCheckedDraft = (e.target as HTMLInputElement).value;
+    });
+    document.getElementById('act-disabled-input')?.addEventListener('input', (e) => {
+      this.actionDisabledDraft = (e.target as HTMLInputElement).value;
+    });
+    document.getElementById('act-begingroup-chk')?.addEventListener('change', (e) => {
+      this.actionBeginGroupDraft = (e.target as HTMLInputElement).checked;
+    });
+    document.getElementById('btn-save-smart-action')?.addEventListener('click', async () => {
+      if (!this.primarySelectedId) return;
+      const res = await this.callEngine('upsertShapeAction', {
+        shapeId: this.primarySelectedId,
+        rowName: this.actionRowDraft,
+        menu: this.actionMenuDraft,
+        actionFormula: this.actionFormulaDraft,
+        checkedFormula: this.actionCheckedDraft,
+        disabledFormula: this.actionDisabledDraft,
+        beginGroup: this.actionBeginGroupDraft,
+      });
+      this.snapshot = res.snapshot;
+      this.persistMutationSideEffects(res.wal);
+      this.modalOutputMessage = `Saved Actions.${this.actionRowDraft} ("${this.actionMenuDraft}").`;
+      this.render();
+    });
+    document.querySelectorAll('[data-del-smart-action]').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        if (!this.primarySelectedId) return;
+        const rowName = (btn as HTMLElement).dataset.delSmartAction ?? '';
+        const res = await this.callEngine('deleteShapeAction', {
+          shapeId: this.primarySelectedId,
+          rowName,
+        });
+        this.snapshot = res.snapshot;
+        this.persistMutationSideEffects(res.wal);
+        this.render();
+      });
+    });
+
+    const triggerSmartActionOnSelected = async (rowName: string) => {
+      if (!this.primarySelectedId || !rowName) return;
+      const sid = this.primarySelectedId;
+      const res = await this.callEngine('executeShapeAction', { shapeId: sid, rowName });
+      this.snapshot = res.snapshot;
+      this.persistMutationSideEffects(res.wal);
+      if (res.result?.targetPageId) {
+        this.selectedShapeIds = [];
+      } else if (res.result?.openTextEditor) {
+        this.openInlineShapeTextEditor(sid);
+        return;
+      }
+      if (res.result?.summary) {
+        this.showToast(res.result.summary, 'info');
+      }
+      this.render();
+    };
+
+    document.querySelectorAll('[data-run-smart-action]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        void triggerSmartActionOnSelected((btn as HTMLElement).dataset.runSmartAction ?? '');
+      });
+    });
+
+    document.querySelectorAll('[data-smart-action]').forEach((item) => {
+      item.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        const rowName = (item as HTMLElement).dataset.smartAction ?? '';
+        this.contextMenu = null;
+        void triggerSmartActionOnSelected(rowName);
+      });
     });
 
     document.querySelectorAll('[data-insp]').forEach((btn) => {
@@ -7898,6 +8166,19 @@ class VexioChromeOsApp {
           return;
         }
 
+        if (ev.button === 2 && targetEl?.dataset.cpShape) {
+          ev.preventDefault();
+          ev.stopPropagation();
+          const shapeId = Number(targetEl.dataset.cpShape);
+          const ix = Number(targetEl.dataset.cpIx ?? 1);
+          void this.callEngine('deleteConnectionPoint', { shapeId, ix }).then((res) => {
+            this.snapshot = res.snapshot;
+            this.persistMutationSideEffects(res.wal);
+            this.render();
+          });
+          return;
+        }
+
         if (ev.button === 2 && targetEl?.dataset.vtxShape) {
           ev.preventDefault();
           ev.stopPropagation();
@@ -7915,6 +8196,55 @@ class VexioChromeOsApp {
 
         if (ev.button !== 0) return;
         const ptIn = this.clientToPageInches(host, ev.clientX, ev.clientY);
+
+        // 0. Check Interactive Connection Point Grip (`Shift+Ctrl+1` ConnectionPoint tool)
+        const cpShapeAttr = targetEl?.dataset.cpShape;
+        if (cpShapeAttr) {
+          ev.stopPropagation();
+          const shapeId = Number(cpShapeAttr);
+          const ix = Number(targetEl?.dataset.cpIx ?? 1);
+          if (ev.altKey && ev.shiftKey) {
+            ev.preventDefault();
+            void this.callEngine('deleteConnectionPoint', { shapeId, ix }).then((res) => {
+              this.snapshot = res.snapshot;
+              this.persistMutationSideEffects(res.wal);
+              this.render();
+            });
+            return;
+          }
+          host.setPointerCapture(ev.pointerId);
+          this.dragState = {
+            mode: 'conn_point_edit',
+            startPageIn: ptIn,
+            curPageIn: ptIn,
+            shapeId,
+            portIx: ix,
+          };
+          return;
+        }
+
+        if (this.activeTool === 'connection_point') {
+          const hit2D = this.hitTestSnapshotSync(ptIn[0], ptIn[1], true);
+          if (hit2D > 0) {
+            ev.stopPropagation();
+            this.setSingleSelection(hit2D);
+            void this.callEngine('addConnectionPoint', {
+              shapeId: hit2D,
+              xIn: ptIn[0],
+              yIn: ptIn[1],
+              pointType: 2,
+            }).then((res) => {
+              this.snapshot = res.snapshot;
+              this.persistMutationSideEffects(res.wal);
+              this.showToast(`Added Connection Point #${res.ix} on Sheet.${hit2D}`, 'info');
+              this.render();
+            });
+          } else {
+            this.setSingleSelection(null);
+            this.render();
+          }
+          return;
+        }
 
         // 0A. Check Draggable Yellow Control Handle Diamond
         const ctrlShapeAttr = targetEl?.dataset.ctrlShape;
@@ -8702,6 +9032,16 @@ class VexioChromeOsApp {
           this.snapshot = res.snapshot;
           this.persistMutationSideEffects(res.wal);
           this.render();
+        } else if (st.mode === 'conn_point_edit' && st.shapeId && st.portIx) {
+          const res = await this.callEngine('moveConnectionPoint', {
+            shapeId: st.shapeId,
+            ix: st.portIx,
+            xIn: ptIn[0],
+            yIn: ptIn[1],
+          });
+          this.snapshot = res.snapshot;
+          this.persistMutationSideEffects(res.wal);
+          this.render();
         } else if (st.mode === 'vertex' && st.shapeId !== undefined) {
           const res = await this.callEngine('moveShapeVertex', {
             shapeId: st.shapeId,
@@ -9153,6 +9493,66 @@ class VexioChromeOsApp {
           case 'open-hyperlink':
             this.activeModal = 'link';
             this.modalOutputMessage = '';
+            this.render();
+            break;
+          case 'open-smart-actions':
+            this.activeModal = 'smartActions';
+            this.modalOutputMessage = '';
+            this.render();
+            break;
+          case 'add-to-my-shapes':
+            await addSelectedToMyShapes();
+            break;
+          case 'update-master-from-shape': {
+            if (this.primarySelectedId) {
+              const sh = this.snapshot?.shapes.find((s) => s.id === this.primarySelectedId);
+              const res = await this.callEngine('updateCustomMaster', {
+                shapeId: this.primarySelectedId,
+                stencilTitle: 'My Shapes',
+                masterName: sh?.masterName ?? '',
+              });
+              if (res.stencils) this.stencilCatalog = res.stencils;
+              if (res.previews) this.stencilPreviews = res.previews;
+              if (res.packOrder) this.packOrder = res.packOrder;
+              if (res.snapshot) this.snapshot = res.snapshot;
+              this.persistMutationSideEffects(res.wal);
+              this.showToast(`Updated Master & ${res.updatedCount ?? 0} linked instance(s)`, 'info');
+            }
+            this.render();
+            break;
+          }
+          case 'stencil-rename-master': {
+            const pack = cm?.stencilPack ?? 'My Shapes';
+            const oldName = cm?.stencilMaster ?? '';
+            const nextName = window.prompt('Rename Custom Master:', oldName);
+            if (nextName && nextName.trim() && nextName.trim() !== oldName) {
+              const res = await this.callEngine('renameCustomMaster', {
+                stencilTitle: pack,
+                oldName,
+                newName: nextName.trim(),
+              });
+              if (res.stencils) this.stencilCatalog = res.stencils;
+              if (res.previews) this.stencilPreviews = res.previews;
+              if (res.packOrder) this.packOrder = res.packOrder;
+            }
+            this.render();
+            break;
+          }
+          case 'stencil-delete-master': {
+            const pack = cm?.stencilPack ?? 'My Shapes';
+            const masterName = cm?.stencilMaster ?? '';
+            const res = await this.callEngine('deleteCustomMaster', {
+              stencilTitle: pack,
+              masterName,
+            });
+            if (res.stencils) this.stencilCatalog = res.stencils;
+            if (res.previews) this.stencilPreviews = res.previews;
+            if (res.packOrder) this.packOrder = res.packOrder;
+            this.render();
+            break;
+          }
+          case 'stencil-export-vssx':
+            await exportMyShapesVssx();
             this.render();
             break;
           case 'show-shapesheet':

@@ -25,6 +25,7 @@
             <KeyboardAccelerator Key="K" Modifiers="Control" Invoked="OnHyperlinkAccelerator" />
             <KeyboardAccelerator Key="G" Modifiers="Control" Invoked="OnGroupAccelerator" />
             <KeyboardAccelerator Key="G" Modifiers="Control,Shift" Invoked="OnUngroupAccelerator" />
+            <KeyboardAccelerator Key="Number1" Modifiers="Control,Shift" Invoked="OnConnectionPointToolAccelerator" />
         </Grid.KeyboardAccelerators>
 
         <Grid.RowDefinitions>
@@ -783,6 +784,8 @@
                                     <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnGuardSelectedCellClick" Content="Wrap in GUARD()" />
                                     <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnEnsureControlHandleClick" Content="+ Control Handle" ToolTipService.ToolTip="Attach Yellow Parametric Controls.Row_1 Diamond Handle" />
                                     <ToggleButton x:Name="EditVerticesToggle" Style="{StaticResource VexioRibbonToggleButtonStyle}" Click="OnEditVerticesToggleClick" Content="Edit Vertices" ToolTipService.ToolTip="Drag, Insert, or Delete Sub-Shape Geometry Vertices" />
+                                    <ToggleButton x:Name="ConnectionPointToggle" Style="{StaticResource VexioRibbonToggleButtonStyle}" Click="OnConnectionPointToggleClick" Content="Conn. Points (Ctrl+Shift+1)" ToolTipService.ToolTip="Author Shape Connection Ports (Click to Add, Drag to Move, Right-Click to Delete)" />
+                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnOpenSmartActionsClick" FontWeight="SemiBold" Content="Smart Actions…" ToolTipService.ToolTip="Author Right-Click Smart-Shape Actions.* Context Menu Commands" />
                                     <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnResetConnectorRoutingClick" Content="Reset Route" ToolTipService.ToolTip="Restore Automatic A* Orthogonal Routing on Selected Connector" />
                                 </StackPanel>
                                 <TextBlock Text="Shape Design" Style="{StaticResource VexioRibbonGroupLabelStyle}" />
@@ -852,6 +855,7 @@
                         <RowDefinition Height="*" />
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
 
                     <!-- Header + Collapse Button -->
@@ -897,8 +901,26 @@
                         </Button>
                     </Grid>
 
+                    <!-- "My Shapes" Custom Stencil Authoring & .vssx Export -->
+                    <Grid Grid.Row="5" ColumnSpacing="4">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <Button Grid.Column="0" HorizontalAlignment="Stretch" Padding="6,4"
+                                Click="OnAddToMyShapesClick"
+                                ToolTipService.ToolTip="Save Selected Canvas Shape(s) into 'My Shapes' Custom Stencil">
+                            <TextBlock Text="+ Add to My Shapes" FontSize="11" />
+                        </Button>
+                        <Button Grid.Column="1" Padding="8,4"
+                                Click="OnExportMyShapesVssxClick"
+                                ToolTipService.ToolTip="Export 'My Shapes' Custom Stencil as Standalone OpenXML .vssx">
+                            <TextBlock Text=".vssx ↑" FontSize="11" />
+                        </Button>
+                    </Grid>
+
                     <!-- Quick Drop Hint -->
-                    <TextBlock Grid.Row="5" Text="Click, drag onto canvas, or drop .vssx/.vss/.zip files here."
+                    <TextBlock Grid.Row="6" Text="Click, drag onto canvas, or drop .vssx/.vss/.zip files here."
                                FontSize="11" Opacity="0.7" TextWrapping="Wrap" />
                 </Grid>
             </Border>
@@ -966,6 +988,9 @@
                         </ToggleButton>
                         <ToggleButton Tag="16" Click="OnRailToolClick" HorizontalAlignment="Stretch" Padding="2,4" ToolTipService.ToolTip="Edit Sub-Shape Vertices">
                             <StackPanel Spacing="1"><PathIcon Width="13" Height="13" Data="M 3,3 L 13,5 L 11,13 L 3,11 Z" /><TextBlock Text="Vertices" FontSize="9.5" HorizontalAlignment="Center" /></StackPanel>
+                        </ToggleButton>
+                        <ToggleButton Tag="18" Click="OnRailToolClick" HorizontalAlignment="Stretch" Padding="2,4" ToolTipService.ToolTip="Connection Point Tool (Ctrl+Shift+1)">
+                            <StackPanel Spacing="1"><PathIcon Width="13" Height="13" Data="M 4,4 L 12,12 M 12,4 L 4,12 M 8,1 L 8,15 M 1,8 L 15,8" /><TextBlock Text="Ports" FontSize="9.5" HorizontalAlignment="Center" /></StackPanel>
                         </ToggleButton>
                     </StackPanel>
                 </ScrollViewer>
@@ -1533,7 +1558,7 @@
                                 </StackPanel>
                                 <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
                                     <Button Click="OnCheckUpdatesClick" Content="Check for Updates Now" />
-                                    <TextBlock x:Name="BackstageUpdateStatusText" Text="Vexio v0.6.0-beta • Automatic background update check enabled."
+                                    <TextBlock x:Name="BackstageUpdateStatusText" Text="Vexio v0.7.0-beta • Automatic background update check enabled."
                                                FontSize="12" Opacity="0.8" VerticalAlignment="Center" />
                                 </StackPanel>
                             </StackPanel>

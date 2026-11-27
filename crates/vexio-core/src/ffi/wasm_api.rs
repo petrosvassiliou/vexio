@@ -228,6 +228,8 @@ struct WasmShapeInfo {
     control_handles: Vec<ControlHandleInfo>,
     bound_recordset_row: Option<[u64; 2]>,
     shape_data: Vec<crate::workspace::ShapeDataItemDto>,
+    actions: Vec<crate::workspace::ShapeActionItemDto>,
+    connection_points: Vec<crate::workspace::ConnectionPointItemDto>,
     cells: Vec<WasmCellInfo>,
 }
 
@@ -1810,6 +1812,12 @@ impl WasmVexioSession {
                             control_handles,
                             bound_recordset_row: s.bound_data_row.map(|(rs_id, row_id)| [rs_id as u64, row_id]),
                             shape_data: crate::workspace::collect_shape_data_items(&self.inner.doc, s),
+                            actions: crate::workspace::collect_shape_action_items(&self.inner.doc, s),
+                            connection_points: crate::workspace::collect_connection_point_items(
+                                &self.inner.doc,
+                                s,
+                                vis_by_id.get(&s.id).copied(),
+                            ),
                             cells,
                         }
                     })
@@ -2749,6 +2757,149 @@ impl WasmVexioSession {
         self.inner
             .convert_cad_layers(page_id, layer_name_or_all)
             .map(|c| c as u32)
+            .map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
+    // --- v0.7.0-beta: 238-Function Catalog, Smart Actions, Connection Points & "My Shapes" Custom .vssx ---
+
+    pub fn list_shapesheet_functions_json(&self) -> String {
+        DocumentSession::list_shapesheet_functions_json()
+    }
+
+    pub fn list_shape_actions_json(&self, page_id: u32, shape_id: u32) -> String {
+        self.inner.list_shape_actions_json(page_id, shape_id as u64)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn upsert_shape_action(
+        &mut self,
+        page_id: u32,
+        shape_id: u32,
+        row_name: &str,
+        menu: &str,
+        action_formula: &str,
+        checked_formula: &str,
+        disabled_formula: &str,
+        begin_group: bool,
+    ) -> bool {
+        self.inner
+            .upsert_shape_action(
+                page_id,
+                shape_id as u64,
+                row_name,
+                menu,
+                action_formula,
+                checked_formula,
+                disabled_formula,
+                begin_group,
+            )
+            .unwrap_or(false)
+    }
+
+    pub fn delete_shape_action(&mut self, page_id: u32, shape_id: u32, row_name: &str) -> bool {
+        self.inner
+            .delete_shape_action(page_id, shape_id as u64, row_name)
+            .unwrap_or(false)
+    }
+
+    pub fn execute_shape_action(
+        &mut self,
+        page_id: u32,
+        shape_id: u32,
+        row_name: &str,
+    ) -> Result<String, JsValue> {
+        self.inner
+            .execute_shape_action(page_id, shape_id as u64, row_name)
+            .map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
+    pub fn list_connection_points_json(&self, page_id: u32, shape_id: u32) -> String {
+        self.inner
+            .list_connection_points_json(page_id, shape_id as u64)
+    }
+
+    pub fn add_connection_point(
+        &mut self,
+        page_id: u32,
+        shape_id: u32,
+        page_x_in: f64,
+        page_y_in: f64,
+        point_type: u8,
+    ) -> Result<u32, JsValue> {
+        self.inner
+            .add_connection_point(page_id, shape_id as u64, page_x_in, page_y_in, point_type)
+            .map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
+    pub fn move_connection_point(
+        &mut self,
+        page_id: u32,
+        shape_id: u32,
+        ix: u32,
+        page_x_in: f64,
+        page_y_in: f64,
+    ) -> bool {
+        self.inner
+            .move_connection_point(page_id, shape_id as u64, ix, page_x_in, page_y_in)
+            .unwrap_or(false)
+    }
+
+    pub fn delete_connection_point(&mut self, page_id: u32, shape_id: u32, ix: u32) -> bool {
+        self.inner
+            .delete_connection_point(page_id, shape_id as u64, ix)
+            .unwrap_or(false)
+    }
+
+    pub fn add_to_custom_stencil(
+        &mut self,
+        page_id: u32,
+        shape_ids: &[u32],
+        stencil_title: &str,
+        master_name: &str,
+    ) -> Result<String, JsValue> {
+        let ids: Vec<u64> = shape_ids.iter().map(|&id| id as u64).collect();
+        self.inner
+            .add_selection_to_custom_stencil(page_id, &ids, stencil_title, master_name)
+            .map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
+    pub fn rename_custom_master(
+        &mut self,
+        stencil_title: &str,
+        old_name: &str,
+        new_name: &str,
+    ) -> bool {
+        self.inner
+            .rename_custom_master(stencil_title, old_name, new_name)
+            .unwrap_or(false)
+    }
+
+    pub fn delete_custom_master(&mut self, stencil_title: &str, master_name: &str) -> bool {
+        self.inner
+            .delete_custom_master(stencil_title, master_name)
+            .unwrap_or(false)
+    }
+
+    pub fn update_custom_master(
+        &mut self,
+        page_id: u32,
+        source_shape_id: u32,
+        stencil_title: &str,
+        master_name: &str,
+    ) -> Result<u32, JsValue> {
+        self.inner
+            .update_custom_master_from_shape(
+                page_id,
+                source_shape_id as u64,
+                stencil_title,
+                master_name,
+            )
+            .map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
+    pub fn export_custom_stencil_vssx(&self, stencil_title: &str) -> Result<Vec<u8>, JsValue> {
+        self.inner
+            .export_custom_stencil_vssx(stencil_title)
             .map_err(|e| JsValue::from_str(&e.to_string()))
     }
 }

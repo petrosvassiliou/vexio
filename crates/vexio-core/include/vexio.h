@@ -201,6 +201,22 @@ VexioStatus vexio_doc_run_domain_wizard(VexioDoc* doc, uint32_t page_id, const c
 VexioStatus vexio_doc_apply_cad_scale(VexioDoc* doc, uint32_t page_id, const char* scale_slug_utf8, bool locked, double* out_ratio);
 VexioStatus vexio_doc_convert_cad_layers(VexioDoc* doc, uint32_t page_id, const char* layer_name_or_all_utf8, uint32_t* out_converted_count);
 
+/* v0.7.0-beta: 238-Function ShapeSheet Catalog, Smart-Shape Actions.*, Shift+Ctrl+1 Connection Points & "My Shapes" Custom .vssx Stencil Authoring */
+VexioStatus vexio_list_shapesheet_functions_json(VexioOwnedBuffer* out_json);
+VexioStatus vexio_doc_list_shape_actions_json(const VexioDoc* doc, uint32_t page_id, uint64_t shape_id, VexioOwnedBuffer* out_json);
+VexioStatus vexio_doc_upsert_shape_action(VexioDoc* doc, uint32_t page_id, uint64_t shape_id, const char* row_name_utf8, const char* menu_utf8, const char* action_formula_utf8, const char* checked_formula_utf8, const char* disabled_formula_utf8, bool begin_group);
+VexioStatus vexio_doc_delete_shape_action(VexioDoc* doc, uint32_t page_id, uint64_t shape_id, const char* row_name_utf8);
+VexioStatus vexio_doc_execute_shape_action(VexioDoc* doc, uint32_t page_id, uint64_t shape_id, const char* row_name_utf8, VexioOwnedBuffer* out_result_json);
+VexioStatus vexio_doc_list_connection_points_json(const VexioDoc* doc, uint32_t page_id, uint64_t shape_id, VexioOwnedBuffer* out_json);
+VexioStatus vexio_doc_add_connection_point(VexioDoc* doc, uint32_t page_id, uint64_t shape_id, double page_x_in, double page_y_in, uint8_t point_type, uint32_t* out_ix);
+VexioStatus vexio_doc_move_connection_point(VexioDoc* doc, uint32_t page_id, uint64_t shape_id, uint32_t ix, double page_x_in, double page_y_in);
+VexioStatus vexio_doc_delete_connection_point(VexioDoc* doc, uint32_t page_id, uint64_t shape_id, uint32_t ix);
+VexioStatus vexio_doc_add_to_custom_stencil(VexioDoc* doc, uint32_t page_id, const uint64_t* shape_ids_ptr, size_t shape_ids_len, const char* stencil_title_utf8, const char* master_name_utf8, VexioOwnedBuffer* out_result_json);
+VexioStatus vexio_doc_rename_custom_master(VexioDoc* doc, const char* stencil_title_utf8, const char* old_name_utf8, const char* new_name_utf8);
+VexioStatus vexio_doc_delete_custom_master(VexioDoc* doc, const char* stencil_title_utf8, const char* master_name_utf8);
+VexioStatus vexio_doc_update_custom_master(VexioDoc* doc, uint32_t page_id, uint64_t source_shape_id, const char* stencil_title_utf8, const char* master_name_utf8, uint32_t* out_updated_count);
+VexioStatus vexio_doc_export_custom_stencil_vssx(const VexioDoc* doc, const char* stencil_title_utf8, VexioOwnedBuffer* out_vssx_bytes);
+
 #ifdef __cplusplus
 }
 #endif

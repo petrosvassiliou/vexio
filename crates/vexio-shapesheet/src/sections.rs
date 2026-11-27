@@ -524,6 +524,68 @@ impl ShapeSheet {
                     _ => {}
                 }
             }
+        } else if let Some(act_rest) = key.strip_prefix("actions.") {
+            if let Some((row_key, sub)) = act_rest.split_once('.') {
+                if let Some(act) = self
+                    .actions
+                    .iter_mut()
+                    .find(|a| a.name.eq_ignore_ascii_case(row_key))
+                {
+                    match sub {
+                        "action" => act.action = formula_str.to_string(),
+                        "menu" => act.menu = formula_str.trim_matches('"').to_string(),
+                        "tagname" => act.tag_name = formula_str.trim_matches('"').to_string(),
+                        "checked" => act.checked = formula_str.to_string(),
+                        "disabled" => act.disabled = formula_str.to_string(),
+                        "invisible" => act.invisible = formula_str.to_string(),
+                        "begingroup" => {
+                            act.begin_group = formula_str.trim() == "1"
+                                || formula_str.trim().eq_ignore_ascii_case("true");
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        } else if let Some(conn_rest) = key.strip_prefix("connections.") {
+            if let Some(ix_str) = conn_rest.strip_prefix('x') {
+                if let Ok(ix) = ix_str.parse::<u32>() {
+                    if let Some(cp) = self.connection_points.iter_mut().find(|c| c.ix == ix) {
+                        cp.x = formula_str.to_string();
+                    }
+                }
+            } else if let Some(ix_str) = conn_rest.strip_prefix('y') {
+                if let Ok(ix) = ix_str.parse::<u32>() {
+                    if let Some(cp) = self.connection_points.iter_mut().find(|c| c.ix == ix) {
+                        cp.y = formula_str.to_string();
+                    }
+                }
+            } else if let Some(ix_str) = conn_rest.strip_prefix("dirx") {
+                if let Ok(ix) = ix_str.parse::<u32>() {
+                    if let Some(cp) = self.connection_points.iter_mut().find(|c| c.ix == ix) {
+                        cp.dir_x = formula_str.to_string();
+                    }
+                }
+            } else if let Some(ix_str) = conn_rest.strip_prefix("diry") {
+                if let Ok(ix) = ix_str.parse::<u32>() {
+                    if let Some(cp) = self.connection_points.iter_mut().find(|c| c.ix == ix) {
+                        cp.dir_y = formula_str.to_string();
+                    }
+                }
+            } else if let Some((row_name, sub)) = conn_rest.split_once('.') {
+                if let Some(cp) = self
+                    .connection_points
+                    .iter_mut()
+                    .find(|c| c.name.eq_ignore_ascii_case(row_name))
+                {
+                    match sub {
+                        "x" => cp.x = formula_str.to_string(),
+                        "y" => cp.y = formula_str.to_string(),
+                        "dirx" => cp.dir_x = formula_str.to_string(),
+                        "diry" => cp.dir_y = formula_str.to_string(),
+                        _ => {}
+                    }
+                }
+            }
         }
     }
 
@@ -618,6 +680,10 @@ impl ShapeSheet {
         let ctrls = self.controls.clone();
         for c in &ctrls {
             self.sync_control_to_cells(c);
+        }
+        let acts = self.actions.clone();
+        for a in &acts {
+            self.sync_action_to_cells(a);
         }
         let users: Vec<UserCellRow> = self.user_cells.values().cloned().collect();
         for u in &users {
@@ -777,6 +843,45 @@ impl ShapeSheet {
         self.controls.push(ctrl);
     }
 
+    pub fn add_action(&mut self, act: ActionRow) {
+        self.sync_action_to_cells(&act);
+        if let Some(ex) = self
+            .actions
+            .iter_mut()
+            .find(|a| a.name.eq_ignore_ascii_case(&act.name))
+        {
+            *ex = act;
+        } else {
+            self.actions.push(act);
+        }
+    }
+
+    fn sync_action_to_cells(&mut self, act: &ActionRow) {
+        let n = &act.name;
+        let act_f = if act.action.trim().is_empty() {
+            "0".to_string()
+        } else {
+            act.action.clone()
+        };
+        let menu_f = if act.menu.trim().starts_with('=') {
+            act.menu.clone()
+        } else {
+            format!("\"{}\"", act.menu.trim_matches('"').replace('"', "\"\""))
+        };
+        let tag_f = format!("\"{}\"", act.tag_name.trim_matches('"').replace('"', "\"\""));
+        let chk_f = if act.checked.trim().is_empty() { "FALSE".into() } else { act.checked.clone() };
+        let dis_f = if act.disabled.trim().is_empty() { "FALSE".into() } else { act.disabled.clone() };
+        let inv_f = if act.invisible.trim().is_empty() { "FALSE".into() } else { act.invisible.clone() };
+        let bg_f = if act.begin_group { "TRUE" } else { "FALSE" };
+        self.set_formula(format!("Actions.{n}.Action"), act_f, None);
+        self.set_formula(format!("Actions.{n}.Menu"), menu_f, Some(Unit::String));
+        self.set_formula(format!("Actions.{n}.TagName"), tag_f, Some(Unit::String));
+        self.set_formula(format!("Actions.{n}.Checked"), chk_f, Some(Unit::Boolean));
+        self.set_formula(format!("Actions.{n}.Disabled"), dis_f, Some(Unit::Boolean));
+        self.set_formula(format!("Actions.{n}.Invisible"), inv_f, Some(Unit::Boolean));
+        self.set_formula(format!("Actions.{n}.BeginGroup"), bg_f, Some(Unit::Boolean));
+    }
+
     fn sync_control_to_cells(&mut self, ctrl: &ControlRow) {
         let n = &ctrl.name;
         // In Visio, `Controls.Row_1` evaluates to `Controls.Row_1.X`!
@@ -886,6 +991,25 @@ pub fn default_unit_for_cell(canonical_key: &str) -> Option<Unit> {
                 || k.ends_with(".ydyn")) =>
         {
             Some(Unit::Inch)
+        }
+        k if k.starts_with("connections.")
+            && (k["connections.".len()..].starts_with('x')
+                || k["connections.".len()..].starts_with('y')
+                || k.ends_with(".x")
+                || k.ends_with(".y")) =>
+        {
+            Some(Unit::Inch)
+        }
+        k if k.starts_with("actions.")
+            && (k.ends_with(".checked")
+                || k.ends_with(".disabled")
+                || k.ends_with(".invisible")
+                || k.ends_with(".begingroup")) =>
+        {
+            Some(Unit::Boolean)
+        }
+        k if k.starts_with("actions.") && (k.ends_with(".menu") || k.ends_with(".tagname")) => {
+            Some(Unit::String)
         }
         _ => None,
     }

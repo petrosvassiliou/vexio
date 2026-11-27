@@ -413,6 +413,21 @@ public final class VexioMetalNSView: NSView {
         let menu = NSMenu(title: "Canvas Context Menu")
         menu.autoenablesItems = false
 
+        if session.selectedShapeId != 0 && !session.selectedShapeActions.isEmpty {
+            for act in session.selectedShapeActions {
+                if act.beginGroup {
+                    menu.addItem(.separator())
+                }
+                let actItem = NSMenuItem(title: act.menu, action: #selector(ctxRunSmartAction(_:)), keyEquivalent: "")
+                actItem.representedObject = act.name
+                actItem.state = act.checked ? .on : .off
+                actItem.isEnabled = !act.disabled
+                actItem.target = self
+                menu.addItem(actItem)
+            }
+            menu.addItem(.separator())
+        }
+
         let editLabelItem = NSMenuItem(title: "Edit Text Label…", action: #selector(ctxEditSelectedLabel(_:)), keyEquivalent: "\r")
         editLabelItem.keyEquivalentModifierMask = []
         editLabelItem.target = self
@@ -533,6 +548,24 @@ public final class VexioMetalNSView: NSView {
         inspectItem.target = self
         menu.addItem(inspectItem)
 
+        if session.selectedShapeId != 0 {
+            let smartActEditorItem = NSMenuItem(title: "Smart Actions (Actions.*)…", action: #selector(ctxOpenSmartActions(_:)), keyEquivalent: "")
+            smartActEditorItem.target = self
+            menu.addItem(smartActEditorItem)
+
+            menu.addItem(.separator())
+
+            let addMyShapesItem = NSMenuItem(title: "Add Selection to My Shapes", action: #selector(ctxAddToMyShapes(_:)), keyEquivalent: "")
+            addMyShapesItem.target = self
+            menu.addItem(addMyShapesItem)
+
+            if !session.selectedShapeMasterName.isEmpty {
+                let updMasterItem = NSMenuItem(title: "Update Master '\(session.selectedShapeMasterName)' & All Instances", action: #selector(ctxUpdateCustomMaster(_:)), keyEquivalent: "")
+                updMasterItem.target = self
+                menu.addItem(updMasterItem)
+            }
+        }
+
         return menu
     }
 
@@ -613,9 +646,33 @@ public final class VexioMetalNSView: NSView {
         }
     }
 
+    @objc private func ctxRunSmartAction(_ sender: NSMenuItem) {
+        guard let rowName = sender.representedObject as? String else { return }
+        let scale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2.0
+        session?.executeSmartAction(rowName: rowName, backingScale: scale, undoManager: activeUndoManager)
+    }
+
+    @objc private func ctxOpenSmartActions(_ sender: NSMenuItem) {
+        NotificationCenter.default.post(name: .vexioOpenSmartActionsSheet, object: nil)
+    }
+
+    @objc private func ctxAddToMyShapes(_ sender: NSMenuItem) {
+        session?.addSelectionToMyShapes(undoManager: activeUndoManager)
+    }
+
+    @objc private func ctxUpdateCustomMaster(_ sender: NSMenuItem) {
+        session?.updateCustomMasterFromSelection(undoManager: activeUndoManager)
+    }
+
     override public func keyDown(with event: NSEvent) {
         guard let session else {
             super.keyDown(with: event)
+            return
+        }
+        let flags = event.modifierFlags
+        if flags.contains(.control) && flags.contains(.shift) && (event.charactersIgnoringModifiers == "1" || event.charactersIgnoringModifiers == "!") {
+            session.activeTool = (session.activeTool == .connectionPoint) ? .pointer : .connectionPoint
+            refreshActiveCursor()
             return
         }
         // Delete (51) or Forward Delete (117)

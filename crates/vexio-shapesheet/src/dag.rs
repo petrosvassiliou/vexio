@@ -298,6 +298,11 @@ impl ReactiveEngine {
             };
             let all_cells = eval.collect_all_cell_ids();
             for cid in all_cells {
+                if (cid.cell.starts_with("actions.") && cid.cell.ends_with(".action"))
+                    || cid.cell.starts_with("events.")
+                {
+                    continue;
+                }
                 let _ = eval.eval_cell_id(&cid);
             }
             let computed = eval.cache;
@@ -331,6 +336,11 @@ impl ReactiveEngine {
             };
             let all_cells = eval.collect_all_cell_ids();
             for cid in all_cells {
+                if (cid.cell.starts_with("actions.") && cid.cell.ends_with(".action"))
+                    || cid.cell.starts_with("events.")
+                {
+                    continue;
+                }
                 let _ = eval.eval_cell_id(&cid);
             }
             let computed = eval.cache;
@@ -350,6 +360,36 @@ impl ReactiveEngine {
         }
         out
     }
+
+    /// Evaluate a one-shot Smart-Shape `Actions.<Row>.Action` or `Events.*` trigger formula
+    /// exactly once against `doc`, apply any queued `SETF`/`SETATREF` mutations once, and
+    /// recalculate dependent cells across the document without oscillating toggle expressions.
+    pub fn execute_oneshot_action_formula(
+        doc: &mut VisioDocument,
+        page_id: u32,
+        shape_id: u64,
+        action_formula: &str,
+    ) -> CellValue {
+        let Ok(expr) = crate::parser::parse_formula(action_formula) else {
+            return CellValue::Err(CellError::Name);
+        };
+        let ctx_sheet = SheetKey::Shape { page_id, shape_id };
+        let (result, side_effects) = {
+            let mut eval = EvalSession {
+                doc,
+                cache: BTreeMap::new(),
+                visiting: HashSet::new(),
+                pending_setf: Vec::new(),
+            };
+            let v = eval.eval_expr(&ctx_sheet, "__action_oneshot", &expr);
+            (v, eval.pending_setf)
+        };
+        for se in side_effects {
+            let _ = apply_setf_mutation(doc, &se);
+        }
+        Self::recalculate_document(doc);
+        result
+    }
 }
 
 fn sync_shape_tree(shape: &mut VisioShape) {
@@ -359,8 +399,8 @@ fn sync_shape_tree(shape: &mut VisioShape) {
     }
 }
 
-struct EvalSession<'a> {
-    doc: &'a VisioDocument,
+pub(crate) struct EvalSession<'a> {
+    pub(crate) doc: &'a VisioDocument,
     cache: BTreeMap<GlobalCellId, CellValue>,
     visiting: HashSet<GlobalCellId>,
     pending_setf: Vec<PendingSetf>,
@@ -417,7 +457,7 @@ impl<'a> EvalSession<'a> {
             .map(|v| v.round() as i32)
     }
 
-    fn eval_cell_id(&mut self, id: &GlobalCellId) -> CellValue {
+    pub(crate) fn eval_cell_id(&mut self, id: &GlobalCellId) -> CellValue {
         if let Some(v) = self.cache.get(id) {
             return v.clone();
         }
@@ -631,7 +671,11 @@ impl<'a> EvalSession<'a> {
         }
     }
 
-    fn resolve_ref_path(&self, ctx_sheet: &SheetKey, path: &CellRefPath) -> Option<GlobalCellId> {
+    pub(crate) fn lookup_cell_exists(&self, id: &GlobalCellId) -> bool {
+        self.lookup_cell_with_inheritance(id).is_some()
+    }
+
+    pub(crate) fn resolve_ref_path(&self, ctx_sheet: &SheetKey, path: &CellRefPath) -> Option<GlobalCellId> {
         let cell_key = path.canonical_cell_key();
         let sheet = self.resolve_target(ctx_sheet, &path.target)?;
         Some(GlobalCellId {
@@ -710,7 +754,7 @@ impl<'a> EvalSession<'a> {
         }
     }
 
-    fn eval_expr(&mut self, ctx_sheet: &SheetKey, ctx_cell: &str, expr: &Expr) -> CellValue {
+    pub(crate) fn eval_expr(&mut self, ctx_sheet: &SheetKey, ctx_cell: &str, expr: &Expr) -> CellValue {
         match expr {
             Expr::Number { value, unit } => CellValue::with_unit(*value, *unit),
             Expr::Bool(b) => CellValue::Bool(*b),
@@ -775,10 +819,26 @@ impl<'a> EvalSession<'a> {
                 CellValue::number(0.0)
             }
             "GETREF" => {
-                if let Some(Expr::CellRef(path)) = args.first() {
-                    if let Some(cid) = self.resolve_ref_path(ctx_sheet, path) {
-                        return CellValue::Ref(encode_global_cell_ref(&cid));
+                match args.first() {
+                    Some(Expr::CellRef(path)) => {
+                        if let Some(cid) = self.resolve_ref_path(ctx_sheet, path) {
+                            return CellValue::Ref(encode_global_cell_ref(&cid));
+                        }
                     }
+                    Some(Expr::Call { name, args: sub_args })
+                        if name == "__DYN_SHEET_CELL" && sub_args.len() >= 2 =>
+                    {
+                        if let (CellValue::Ref(encoded), Ok(cell_name)) = (
+                            self.eval_expr(ctx_sheet, ctx_cell, &sub_args[0]),
+                            self.eval_expr(ctx_sheet, ctx_cell, &sub_args[1]).as_str_coerced(),
+                        ) {
+                            if let Some(mut cid) = decode_global_cell_ref(&encoded) {
+                                cid.cell = canonical_cell_name(&cell_name);
+                                return CellValue::Ref(encode_global_cell_ref(&cid));
+                            }
+                        }
+                    }
+                    _ => {}
                 }
                 CellValue::Err(CellError::Ref)
             }
@@ -1939,11 +1999,11 @@ impl<'a> EvalSession<'a> {
                 CellValue::Str(format!("{}({})", upper, nums.join(",")))
             }
             "DOCMD" => CellValue::number(0.0),
-            _ => CellValue::Err(CellError::Name),
+            _ => self.eval_extended_builtin(ctx_sheet, ctx_cell, &upper, args),
         }
     }
 
-    fn unary_num<F>(
+    pub(crate) fn unary_num<F>(
         &mut self,
         ctx_sheet: &SheetKey,
         ctx_cell: &str,
@@ -1962,7 +2022,7 @@ impl<'a> EvalSession<'a> {
         }
     }
 
-    fn eval_sheet_f64(&mut self, sheet: &SheetKey, cell_name: &str, default: f64) -> f64 {
+    pub(crate) fn eval_sheet_f64(&mut self, sheet: &SheetKey, cell_name: &str, default: f64) -> f64 {
         let cid = GlobalCellId {
             sheet: sheet.clone(),
             cell: canonical_cell_name(cell_name),
@@ -1970,7 +2030,7 @@ impl<'a> EvalSession<'a> {
         self.eval_cell_id(&cid).as_internal_f64().unwrap_or(default)
     }
 
-    fn eval_sheet_bool(&mut self, sheet: &SheetKey, cell_name: &str) -> bool {
+    pub(crate) fn eval_sheet_bool(&mut self, sheet: &SheetKey, cell_name: &str) -> bool {
         let cid = GlobalCellId {
             sheet: sheet.clone(),
             cell: canonical_cell_name(cell_name),
@@ -1978,7 +2038,7 @@ impl<'a> EvalSession<'a> {
         self.eval_cell_id(&cid).as_bool().unwrap_or(false)
     }
 
-    fn eval_shape_transform(&mut self, sheet: &SheetKey) -> Option<ShapeTransform2D> {
+    pub(crate) fn eval_shape_transform(&mut self, sheet: &SheetKey) -> Option<ShapeTransform2D> {
         if !matches!(sheet, SheetKey::Shape { .. } | SheetKey::Master { .. }) {
             return None;
         }
@@ -2126,7 +2186,7 @@ fn infer_point_source_sheet(
     ctx_sheet.clone()
 }
 
-fn encode_global_cell_ref(cid: &GlobalCellId) -> String {
+pub(crate) fn encode_global_cell_ref(cid: &GlobalCellId) -> String {
     match &cid.sheet {
         SheetKey::Doc => format!("DOC|{}", cid.cell),
         SheetKey::Page(p) => format!("PAGE|{p}|{}", cid.cell),
@@ -2137,6 +2197,10 @@ fn encode_global_cell_ref(cid: &GlobalCellId) -> String {
         } => format!("MASTER|{master_id}|{shape_id}|{}", cid.cell),
         SheetKey::Shape { page_id, shape_id } => format!("SHAPE|{page_id}|{shape_id}|{}", cid.cell),
     }
+}
+
+pub(crate) fn decode_global_cell_ref_pub(encoded: &str) -> Option<GlobalCellId> {
+    decode_global_cell_ref(encoded)
 }
 
 fn decode_global_cell_ref(encoded: &str) -> Option<GlobalCellId> {

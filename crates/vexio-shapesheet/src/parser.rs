@@ -736,7 +736,16 @@ impl Parser {
                         });
                     }
                     self.bump();
-                    return Ok(Expr::Call { name, args });
+                    let call_expr = Expr::Call { name, args };
+                    if matches!(self.peek().kind, TokenKind::Bang) {
+                        self.bump(); // !
+                        let cell = self.read_dotted_segment()?;
+                        return Ok(Expr::Call {
+                            name: "__DYN_SHEET_CELL".into(),
+                            args: vec![call_expr, Expr::Str(cell)],
+                        });
+                    }
+                    return Ok(call_expr);
                 }
 
                 // Otherwise parse a Visio cell reference path (`Pages[Page-1]!Sheet.5!Controls.Row_1.Y`, `Prop.Cost`, `Width`).

@@ -1709,6 +1709,197 @@ public:
         return VexioResult<uint32_t>{VEXIO_OK, converted};
     }
 
+    // v0.7.0-beta: 238-Function ShapeSheet Catalog, Smart-Shape Actions.*,
+    // Shift+Ctrl+1 Connection Points & "My Shapes" Custom .vssx Stencil Authoring
+    [[nodiscard]] static VexioResult<winrt::hstring> ListShapeSheetFunctionsJson() {
+        OwnedBufferGuard buf;
+        const VexioStatus status = vexio_list_shapesheet_functions_json(buf.OutPtr());
+        if (status != VEXIO_OK) {
+            return VexioResult<winrt::hstring>{status, std::nullopt};
+        }
+        return VexioResult<winrt::hstring>{VEXIO_OK, buf.ToWinRtString()};
+    }
+
+    [[nodiscard]] VexioResult<winrt::hstring> ListShapeActionsJson(uint32_t pageId, uint64_t shapeId) const {
+        if (m_ptr == nullptr || shapeId == 0) {
+            return VexioResult<winrt::hstring>{VEXIO_ERR_INVALID_ARG, std::nullopt};
+        }
+        OwnedBufferGuard buf;
+        const VexioStatus status = vexio_doc_list_shape_actions_json(m_ptr, pageId, shapeId, buf.OutPtr());
+        if (status != VEXIO_OK) {
+            return VexioResult<winrt::hstring>{status, std::nullopt};
+        }
+        return VexioResult<winrt::hstring>{VEXIO_OK, buf.ToWinRtString()};
+    }
+
+    [[nodiscard]] VexioStatus UpsertShapeAction(
+        uint32_t pageId,
+        uint64_t shapeId,
+        std::string_view rowNameUtf8,
+        std::string_view menuUtf8,
+        std::string_view actionFormulaUtf8,
+        std::string_view checkedFormulaUtf8 = "0",
+        std::string_view disabledFormulaUtf8 = "0",
+        bool beginGroup = false)
+    {
+        if (m_ptr == nullptr || shapeId == 0 || rowNameUtf8.empty()) {
+            return VEXIO_ERR_INVALID_ARG;
+        }
+        const std::string row{rowNameUtf8};
+        const std::string menu{menuUtf8};
+        const std::string act{actionFormulaUtf8};
+        const std::string chk{checkedFormulaUtf8};
+        const std::string dis{disabledFormulaUtf8};
+        return vexio_doc_upsert_shape_action(
+            m_ptr, pageId, shapeId, row.c_str(), menu.c_str(), act.c_str(), chk.c_str(), dis.c_str(), beginGroup);
+    }
+
+    [[nodiscard]] VexioStatus DeleteShapeAction(
+        uint32_t pageId,
+        uint64_t shapeId,
+        std::string_view rowNameUtf8)
+    {
+        if (m_ptr == nullptr || shapeId == 0 || rowNameUtf8.empty()) {
+            return VEXIO_ERR_INVALID_ARG;
+        }
+        const std::string row{rowNameUtf8};
+        return vexio_doc_delete_shape_action(m_ptr, pageId, shapeId, row.c_str());
+    }
+
+    [[nodiscard]] VexioResult<winrt::hstring> ExecuteShapeAction(
+        uint32_t pageId,
+        uint64_t shapeId,
+        std::string_view rowNameUtf8)
+    {
+        if (m_ptr == nullptr || shapeId == 0 || rowNameUtf8.empty()) {
+            return VexioResult<winrt::hstring>{VEXIO_ERR_INVALID_ARG, std::nullopt};
+        }
+        const std::string row{rowNameUtf8};
+        OwnedBufferGuard buf;
+        const VexioStatus status = vexio_doc_execute_shape_action(m_ptr, pageId, shapeId, row.c_str(), buf.OutPtr());
+        if (status != VEXIO_OK) {
+            return VexioResult<winrt::hstring>{status, std::nullopt};
+        }
+        return VexioResult<winrt::hstring>{VEXIO_OK, buf.ToWinRtString()};
+    }
+
+    [[nodiscard]] VexioResult<winrt::hstring> ListConnectionPointsJson(uint32_t pageId, uint64_t shapeId) const {
+        if (m_ptr == nullptr || shapeId == 0) {
+            return VexioResult<winrt::hstring>{VEXIO_ERR_INVALID_ARG, std::nullopt};
+        }
+        OwnedBufferGuard buf;
+        const VexioStatus status = vexio_doc_list_connection_points_json(m_ptr, pageId, shapeId, buf.OutPtr());
+        if (status != VEXIO_OK) {
+            return VexioResult<winrt::hstring>{status, std::nullopt};
+        }
+        return VexioResult<winrt::hstring>{VEXIO_OK, buf.ToWinRtString()};
+    }
+
+    [[nodiscard]] VexioResult<uint32_t> AddConnectionPoint(
+        uint32_t pageId,
+        uint64_t shapeId,
+        double pageXIn,
+        double pageYIn,
+        uint8_t pointType = 0)
+    {
+        if (m_ptr == nullptr || shapeId == 0) {
+            return VexioResult<uint32_t>{VEXIO_ERR_INVALID_ARG, std::nullopt};
+        }
+        uint32_t outIx = 0;
+        const VexioStatus status = vexio_doc_add_connection_point(m_ptr, pageId, shapeId, pageXIn, pageYIn, pointType, &outIx);
+        if (status != VEXIO_OK) {
+            return VexioResult<uint32_t>{status, std::nullopt};
+        }
+        return VexioResult<uint32_t>{VEXIO_OK, outIx};
+    }
+
+    [[nodiscard]] VexioStatus MoveConnectionPoint(uint32_t pageId, uint64_t shapeId, uint32_t ix, double pageXIn, double pageYIn) {
+        if (m_ptr == nullptr || shapeId == 0 || ix == 0) return VEXIO_ERR_INVALID_ARG;
+        return vexio_doc_move_connection_point(m_ptr, pageId, shapeId, ix, pageXIn, pageYIn);
+    }
+
+    [[nodiscard]] VexioStatus DeleteConnectionPoint(uint32_t pageId, uint64_t shapeId, uint32_t ix) {
+        if (m_ptr == nullptr || shapeId == 0 || ix == 0) return VEXIO_ERR_INVALID_ARG;
+        return vexio_doc_delete_connection_point(m_ptr, pageId, shapeId, ix);
+    }
+
+    [[nodiscard]] VexioResult<winrt::hstring> AddToCustomStencil(
+        uint32_t pageId,
+        std::span<const uint64_t> shapeIds,
+        std::string_view stencilTitleUtf8 = "My Shapes",
+        std::string_view masterNameUtf8 = "")
+    {
+        if (m_ptr == nullptr || shapeIds.empty()) {
+            return VexioResult<winrt::hstring>{VEXIO_ERR_INVALID_ARG, std::nullopt};
+        }
+        const std::string st{stencilTitleUtf8.empty() ? "My Shapes" : stencilTitleUtf8};
+        const std::string mn{masterNameUtf8};
+        OwnedBufferGuard buf;
+        const VexioStatus status = vexio_doc_add_to_custom_stencil(
+            m_ptr, pageId, shapeIds.data(), shapeIds.size(), st.c_str(), mn.c_str(), buf.OutPtr());
+        if (status != VEXIO_OK) {
+            return VexioResult<winrt::hstring>{status, std::nullopt};
+        }
+        return VexioResult<winrt::hstring>{VEXIO_OK, buf.ToWinRtString()};
+    }
+
+    [[nodiscard]] VexioStatus RenameCustomMaster(
+        std::string_view stencilTitleUtf8,
+        std::string_view oldNameUtf8,
+        std::string_view newNameUtf8)
+    {
+        if (m_ptr == nullptr || oldNameUtf8.empty() || newNameUtf8.empty()) return VEXIO_ERR_INVALID_ARG;
+        const std::string st{stencilTitleUtf8.empty() ? "My Shapes" : stencilTitleUtf8};
+        const std::string oldN{oldNameUtf8};
+        const std::string newN{newNameUtf8};
+        return vexio_doc_rename_custom_master(m_ptr, st.c_str(), oldN.c_str(), newN.c_str());
+    }
+
+    [[nodiscard]] VexioStatus DeleteCustomMaster(
+        std::string_view stencilTitleUtf8,
+        std::string_view masterNameUtf8)
+    {
+        if (m_ptr == nullptr || masterNameUtf8.empty()) return VEXIO_ERR_INVALID_ARG;
+        const std::string st{stencilTitleUtf8.empty() ? "My Shapes" : stencilTitleUtf8};
+        const std::string mn{masterNameUtf8};
+        return vexio_doc_delete_custom_master(m_ptr, st.c_str(), mn.c_str());
+    }
+
+    [[nodiscard]] VexioResult<uint32_t> UpdateCustomMaster(
+        uint32_t pageId,
+        uint64_t sourceShapeId,
+        std::string_view stencilTitleUtf8 = "My Shapes",
+        std::string_view masterNameUtf8 = "")
+    {
+        if (m_ptr == nullptr || sourceShapeId == 0) {
+            return VexioResult<uint32_t>{VEXIO_ERR_INVALID_ARG, std::nullopt};
+        }
+        const std::string st{stencilTitleUtf8.empty() ? "My Shapes" : stencilTitleUtf8};
+        const std::string mn{masterNameUtf8};
+        uint32_t updated = 0;
+        const VexioStatus status = vexio_doc_update_custom_master(
+            m_ptr, pageId, sourceShapeId, st.c_str(), mn.c_str(), &updated);
+        if (status != VEXIO_OK) {
+            return VexioResult<uint32_t>{status, std::nullopt};
+        }
+        return VexioResult<uint32_t>{VEXIO_OK, updated};
+    }
+
+    [[nodiscard]] VexioResult<OwnedBufferGuard> ExportCustomStencilVssx(
+        std::string_view stencilTitleUtf8 = "My Shapes") const
+    {
+        if (m_ptr == nullptr) {
+            return VexioResult<OwnedBufferGuard>{VEXIO_ERR_INVALID_ARG, std::nullopt};
+        }
+        const std::string st{stencilTitleUtf8.empty() ? "My Shapes" : stencilTitleUtf8};
+        OwnedBufferGuard buf;
+        const VexioStatus status = vexio_doc_export_custom_stencil_vssx(m_ptr, st.c_str(), buf.OutPtr());
+        if (status != VEXIO_OK) {
+            return VexioResult<OwnedBufferGuard>{status, std::nullopt};
+        }
+        return VexioResult<OwnedBufferGuard>{VEXIO_OK, std::move(buf)};
+    }
+
 private:
     VexioDoc* m_ptr{nullptr};
 };
