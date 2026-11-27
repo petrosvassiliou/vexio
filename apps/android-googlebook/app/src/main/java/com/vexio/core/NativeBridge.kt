@@ -6418,7 +6418,7 @@ class VexioSessionViewModel(
                 else -> cleanPreset.removePrefix("=")
             }
             _uiState.update { st ->
-                val ix = st.shapeSheetCells.count { it.sectionName == "Text Fields" }
+                val ix = st.shapeSheetCells.count { it.section == "Text Fields" }
                 val newCell = ShapeSheetCellEntry("Text Fields", "Fields.Row_${ix + 1}", formulaStr, isGuarded = false)
                 st.copy(shapeSheetCells = st.shapeSheetCells + newCell)
             }
@@ -6754,7 +6754,7 @@ class VexioSessionViewModel(
             _uiState.update { st ->
                 st.copy(
                     shapeDataItems = st.shapeDataItems.filterNot { it.rowName == "ShapeNumber" } +
-                        ShapeDataUiItem("ShapeNumber", "Shape Number", numStr)
+                        ShapeDataUiItem(rowName = "ShapeNumber", label = "Shape Number", formula = "\"$numStr\"", value = numStr)
                 )
             }
             _uiState.value.pageShapeCount.coerceAtLeast(1)

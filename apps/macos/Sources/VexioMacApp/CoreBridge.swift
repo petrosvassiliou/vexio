@@ -6967,7 +6967,7 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
     }
 
     public func addPageRulerGuide(isVertical: Bool, coordIn: Double? = nil, undoManager: UndoManager? = nil) {
-        let resolvedCoord = coordIn ?? (isVertical ? pageWidthIn * 0.5 : pageHeightIn * 0.5)
+        let resolvedCoord = coordIn ?? (isVertical ? pageWidthInches * 0.5 : pageHeightInches * 0.5)
         do {
             let gid = try core.addRulerGuide(pageId: activePageId, isVertical: isVertical, coordIn: resolvedCoord)
             registerJournalUndoStep(actionName: "Add Ruler Guide", undoManager: undoManager)
