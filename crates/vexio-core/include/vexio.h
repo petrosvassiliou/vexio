@@ -184,6 +184,23 @@ VexioStatus vexio_doc_auto_slide_snippets(VexioDoc* doc, uint32_t page_id, uint3
 VexioStatus vexio_doc_reset_connector_routing(VexioDoc* doc, uint32_t page_id, uint64_t shape_id);
 VexioStatus vexio_doc_ensure_control_handle(VexioDoc* doc, uint32_t page_id, uint64_t shape_id);
 
+/* v0.6.0-beta: VBA Macro IDE, Vertex/Freeform Editing, Threaded Comments & Ink, Hyperlinks/ScreenTips, Domain Wizards & CAD Tools */
+VexioStatus vexio_doc_run_vba_macro(VexioDoc* doc, const uint64_t* selection_ptr, size_t selection_len, const char* script_utf8, VexioOwnedBuffer* out_report_json);
+VexioStatus vexio_doc_list_vertices_json(const VexioDoc* doc, uint32_t page_id, uint64_t shape_id, VexioOwnedBuffer* out_json);
+VexioStatus vexio_doc_move_vertex(VexioDoc* doc, uint32_t page_id, uint64_t shape_id, uint32_t geom_index, uint32_t row_ix, double page_x_in, double page_y_in);
+VexioStatus vexio_doc_insert_vertex(VexioDoc* doc, uint32_t page_id, uint64_t shape_id, uint32_t geom_index, uint32_t after_row_ix, double page_x_in, double page_y_in);
+VexioStatus vexio_doc_delete_vertex(VexioDoc* doc, uint32_t page_id, uint64_t shape_id, uint32_t geom_index, uint32_t row_ix);
+VexioStatus vexio_doc_draw_freeform_json(VexioDoc* doc, uint32_t page_id, const char* points_json_utf8, bool closed, uint64_t* out_shape_id);
+VexioStatus vexio_doc_list_comments_json(const VexioDoc* doc, uint32_t page_id, VexioOwnedBuffer* out_json);
+VexioStatus vexio_doc_add_comment(VexioDoc* doc, uint32_t page_id, uint64_t shape_id, const char* author_utf8, const char* text_utf8, double x_in, double y_in, uint32_t* out_comment_id);
+VexioStatus vexio_doc_resolve_comment(VexioDoc* doc, uint32_t comment_id, bool resolved);
+VexioStatus vexio_doc_delete_comment(VexioDoc* doc, uint32_t comment_id);
+VexioStatus vexio_doc_clear_page_ink(VexioDoc* doc, uint32_t page_id, uint32_t* out_removed_count);
+VexioStatus vexio_doc_set_hyperlink_and_screentip(VexioDoc* doc, uint32_t page_id, uint64_t shape_id, const char* description_utf8, const char* address_utf8, const char* sub_address_utf8, const char* screentip_utf8);
+VexioStatus vexio_doc_run_domain_wizard(VexioDoc* doc, uint32_t page_id, const char* wizard_slug_utf8, const char* spec_utf8, VexioOwnedBuffer* out_result_json);
+VexioStatus vexio_doc_apply_cad_scale(VexioDoc* doc, uint32_t page_id, const char* scale_slug_utf8, bool locked, double* out_ratio);
+VexioStatus vexio_doc_convert_cad_layers(VexioDoc* doc, uint32_t page_id, const char* layer_name_or_all_utf8, uint32_t* out_converted_count);
+
 #ifdef __cplusplus
 }
 #endif

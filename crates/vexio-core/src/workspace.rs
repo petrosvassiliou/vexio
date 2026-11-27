@@ -5624,6 +5624,776 @@ impl DocumentSession {
         let report = crate::data_link::generate_bom_shape_report(&self.doc, &[]);
         Ok(report.export_bytes(format_ext, "bom_shape_report")?)
     }
+
+    // ========================================================================
+    // v0.6.0-beta: VBA Macro IDE, Sub-Shape Vertices, Comments/Ink, Hyperlinks,
+    //              Parameterized Enterprise Domain Wizards & CAD Layer Tools
+    // ========================================================================
+
+    pub fn run_vba_macro_with_selection(
+        &mut self,
+        selection: &[u64],
+        script: &str,
+    ) -> Result<String, CoreError> {
+        let mut exec_res: Option<Result<crate::automation::AutomationExecutionReport, crate::automation::AutomationError>> = None;
+        let _ = self.journal.record_mutation(&mut self.doc, "Run VBA Macro", |doc| {
+            exec_res = Some(crate::automation::execute_vba_macro_with_selection(
+                doc,
+                script,
+                selection,
+                None,
+                crate::automation::SandboxLimits::default(),
+            ));
+        });
+        let report = exec_res
+            .unwrap_or_else(|| {
+                Err(crate::automation::AutomationError::Syntax {
+                    line: 1,
+                    message: "empty macro invocation".into(),
+                })
+            })?;
+        serde_json::to_string(&report)
+            .map_err(|e| CoreError::UnsupportedExtension(e.to_string()))
+    }
+
+    pub fn list_shape_vertices_json(&self, page_id: u32, shape_id: u64) -> String {
+        let verts = crate::boolean_ops::list_shape_vertices(&self.doc, page_id, shape_id);
+        serde_json::to_string(&verts).unwrap_or_else(|_| "[]".into())
+    }
+
+    pub fn move_shape_vertex(
+        &mut self,
+        page_id: u32,
+        shape_id: u64,
+        geom_index: u32,
+        row_ix: u32,
+        page_x_in: f64,
+        page_y_in: f64,
+    ) -> Result<bool, CoreError> {
+        if self.doc.page(page_id).is_none() {
+            return Err(CoreError::Journal(JournalError::PageNotFound(page_id)));
+        }
+        let mut ok = false;
+        let _ = self.journal.record_mutation(&mut self.doc, "Move Shape Vertex", |doc| {
+            ok = crate::boolean_ops::move_shape_vertex(
+                doc,
+                page_id,
+                shape_id,
+                geom_index,
+                row_ix,
+                page_x_in,
+                page_y_in,
+            );
+        });
+        Ok(ok)
+    }
+
+    pub fn insert_shape_vertex(
+        &mut self,
+        page_id: u32,
+        shape_id: u64,
+        geom_index: u32,
+        after_row_ix: u32,
+        page_x_in: f64,
+        page_y_in: f64,
+    ) -> Result<bool, CoreError> {
+        if self.doc.page(page_id).is_none() {
+            return Err(CoreError::Journal(JournalError::PageNotFound(page_id)));
+        }
+        let mut ok = false;
+        let _ = self.journal.record_mutation(&mut self.doc, "Insert Shape Vertex", |doc| {
+            ok = crate::boolean_ops::insert_shape_vertex(
+                doc,
+                page_id,
+                shape_id,
+                geom_index,
+                after_row_ix,
+                page_x_in,
+                page_y_in,
+            );
+        });
+        Ok(ok)
+    }
+
+    pub fn delete_shape_vertex(
+        &mut self,
+        page_id: u32,
+        shape_id: u64,
+        geom_index: u32,
+        row_ix: u32,
+    ) -> Result<bool, CoreError> {
+        if self.doc.page(page_id).is_none() {
+            return Err(CoreError::Journal(JournalError::PageNotFound(page_id)));
+        }
+        let mut ok = false;
+        let _ = self.journal.record_mutation(&mut self.doc, "Delete Shape Vertex", |doc| {
+            ok = crate::boolean_ops::delete_shape_vertex(doc, page_id, shape_id, geom_index, row_ix);
+        });
+        Ok(ok)
+    }
+
+    pub fn draw_freeform_curve_json(
+        &mut self,
+        page_id: u32,
+        points_json: &str,
+        closed: bool,
+    ) -> Result<u64, CoreError> {
+        if self.doc.page(page_id).is_none() {
+            return Err(CoreError::Journal(JournalError::PageNotFound(page_id)));
+        }
+        let pts: Vec<[f64; 2]> = serde_json::from_str(points_json)
+            .map_err(|e| CoreError::UnsupportedExtension(format!("invalid freeform JSON: {e}")))?;
+        let mut sid = 0u64;
+        let _ = self.journal.record_mutation(&mut self.doc, "Draw Freeform Curve", |doc| {
+            sid = crate::boolean_ops::draw_freeform_curve(doc, page_id, &pts, closed).unwrap_or(0);
+        });
+        if sid == 0 {
+            return Err(CoreError::UnsupportedExtension(
+                "freeform curve requires at least 2 points".into(),
+            ));
+        }
+        Ok(sid)
+    }
+
+    pub fn list_comments_json(&self, page_id: u32) -> String {
+        let filtered: Vec<&vexio_shapesheet::CommentAnnotation> = self
+            .doc
+            .comments
+            .iter()
+            .filter(|c| page_id == 0 || c.page_id == page_id)
+            .collect();
+        serde_json::to_string(&filtered).unwrap_or_else(|_| "[]".into())
+    }
+
+    pub fn add_comment(
+        &mut self,
+        page_id: u32,
+        shape_id: u64,
+        author: &str,
+        text: &str,
+        x_in: f64,
+        y_in: f64,
+    ) -> Result<u32, CoreError> {
+        if self.doc.page(page_id).is_none() {
+            return Err(CoreError::Journal(JournalError::PageNotFound(page_id)));
+        }
+        let clean_text = text.trim();
+        if clean_text.is_empty() {
+            return Err(CoreError::UnsupportedExtension("comment text cannot be empty".into()));
+        }
+        let clean_author = if author.trim().is_empty() {
+            "Reviewer"
+        } else {
+            author.trim()
+        };
+        let initials: String = clean_author
+            .split_whitespace()
+            .filter_map(|w| w.chars().next())
+            .take(2)
+            .collect::<String>()
+            .to_uppercase();
+        let mut created_id = 0u32;
+        let _ = self.journal.record_mutation(&mut self.doc, "Add Review Comment", |doc| {
+            let next_id = doc.comments.iter().map(|c| c.id).max().unwrap_or(0) + 1;
+            let (rx, ry) = if x_in.is_finite() && y_in.is_finite() && (x_in > 0.0 || y_in > 0.0) {
+                (x_in, y_in)
+            } else if shape_id > 0 {
+                doc.page(page_id)
+                    .and_then(|p| p.find_shape(shape_id))
+                    .map(|s| {
+                        (
+                            s.sheet.get_f64("PinX").unwrap_or(2.0),
+                            s.sheet.get_f64("PinY").unwrap_or(2.0),
+                        )
+                    })
+                    .unwrap_or((1.5, 1.5))
+            } else {
+                (1.5, 1.5)
+            };
+            doc.comments.push(vexio_shapesheet::CommentAnnotation {
+                id: next_id,
+                author: clean_author.to_string(),
+                initials: if initials.is_empty() { "RV".into() } else { initials.clone() },
+                timestamp_iso: "2026-11-27T00:00:00Z".into(),
+                page_id,
+                shape_id: if shape_id == 0 { None } else { Some(shape_id) },
+                x_in: rx,
+                y_in: ry,
+                text: clean_text.to_string(),
+                resolved: false,
+            });
+            created_id = next_id;
+        });
+        Ok(created_id)
+    }
+
+    pub fn set_comment_resolved(&mut self, comment_id: u32, resolved: bool) -> Result<bool, CoreError> {
+        if !self.doc.comments.iter().any(|c| c.id == comment_id) {
+            return Ok(false);
+        }
+        let mut updated = false;
+        let _ = self.journal.record_mutation(&mut self.doc, "Resolve Review Comment", |doc| {
+            if let Some(c) = doc.comments.iter_mut().find(|c| c.id == comment_id) {
+                c.resolved = resolved;
+                updated = true;
+            }
+        });
+        Ok(updated)
+    }
+
+    pub fn delete_comment(&mut self, comment_id: u32) -> Result<bool, CoreError> {
+        if !self.doc.comments.iter().any(|c| c.id == comment_id) {
+            return Ok(false);
+        }
+        let mut removed = false;
+        let _ = self.journal.record_mutation(&mut self.doc, "Delete Review Comment", |doc| {
+            let before = doc.comments.len();
+            doc.comments.retain(|c| c.id != comment_id);
+            removed = doc.comments.len() < before;
+        });
+        Ok(removed)
+    }
+
+    pub fn clear_page_ink(&mut self, page_id: u32) -> Result<usize, CoreError> {
+        let Some(p) = self.doc.page(page_id) else {
+            return Err(CoreError::Journal(JournalError::PageNotFound(page_id)));
+        };
+        if p.ink_strokes.is_empty() {
+            return Ok(0);
+        }
+        let mut count = 0usize;
+        let _ = self.journal.record_mutation(&mut self.doc, "Clear Page Ink", |doc| {
+            if let Some(pm) = doc.page_mut(page_id) {
+                count = pm.ink_strokes.len();
+                pm.ink_strokes.clear();
+            }
+        });
+        Ok(count)
+    }
+
+    pub fn erase_ink_at(
+        &mut self,
+        page_id: u32,
+        x_in: f64,
+        y_in: f64,
+        radius_in: f64,
+    ) -> Result<usize, CoreError> {
+        let Some(p) = self.doc.page(page_id) else {
+            return Err(CoreError::Journal(JournalError::PageNotFound(page_id)));
+        };
+        let r = radius_in.max(0.05);
+        let hit_any = p.ink_strokes.iter().any(|st| {
+            st.points
+                .iter()
+                .any(|pt| (pt.x_in - x_in).hypot(pt.y_in - y_in) <= r)
+        });
+        if !hit_any {
+            return Ok(0);
+        }
+        let mut removed = 0usize;
+        let _ = self.journal.record_mutation(&mut self.doc, "Erase Markup Ink", |doc| {
+            if let Some(pm) = doc.page_mut(page_id) {
+                let before = pm.ink_strokes.len();
+                pm.ink_strokes.retain(|st| {
+                    !st.points
+                        .iter()
+                        .any(|pt| (pt.x_in - x_in).hypot(pt.y_in - y_in) <= r)
+                });
+                removed = before.saturating_sub(pm.ink_strokes.len());
+            }
+        });
+        Ok(removed)
+    }
+
+    pub fn set_shape_hyperlink_and_screentip(
+        &mut self,
+        page_id: u32,
+        shape_id: u64,
+        description: &str,
+        address: &str,
+        sub_address: &str,
+        screentip: &str,
+    ) -> Result<bool, CoreError> {
+        let Some(page) = self.doc.page(page_id) else {
+            return Err(CoreError::Journal(JournalError::PageNotFound(page_id)));
+        };
+        if page.find_shape(shape_id).is_none() {
+            return Err(CoreError::Journal(JournalError::ShapeNotFound(shape_id)));
+        }
+        let mut ok = false;
+        let _ = self.journal.record_mutation(
+            &mut self.doc,
+            "Set Shape Hyperlink & ScreenTip",
+            |doc| {
+                if let Some(sh) = doc.page_mut(page_id).and_then(|p| p.find_shape_mut(shape_id)) {
+                    // Replace existing primary/non-subprocess links cleanly so editing in UI updates in place
+                    sh.sheet.hyperlinks.clear();
+                    sh.sheet
+                        .cells
+                        .retain(|k, _| !k.starts_with("hyperlink."));
+                }
+                if !address.trim().is_empty() || !sub_address.trim().is_empty() {
+                    let desc = if description.trim().is_empty() {
+                        if !sub_address.trim().is_empty() {
+                            sub_address.trim()
+                        } else {
+                            address.trim()
+                        }
+                    } else {
+                        description.trim()
+                    };
+                    let _ = crate::enterprise_plan2::add_shape_hyperlink(
+                        doc,
+                        page_id,
+                        shape_id,
+                        desc,
+                        address.trim(),
+                        sub_address.trim(),
+                        true,
+                    );
+                }
+                ok = crate::enterprise_plan2::set_shape_screentip(
+                    doc,
+                    page_id,
+                    shape_id,
+                    screentip.trim(),
+                );
+            },
+        );
+        Ok(ok)
+    }
+
+    pub fn run_domain_wizard(
+        &mut self,
+        page_id: u32,
+        wizard_slug: &str,
+        spec_text: &str,
+    ) -> Result<String, CoreError> {
+        if self.doc.page(page_id).is_none() {
+            return Err(CoreError::Journal(JournalError::PageNotFound(page_id)));
+        }
+        let slug = wizard_slug.trim().to_ascii_lowercase();
+        if slug == "sql_forward" || slug == "erd_to_sql" {
+            let ddl = crate::domains::forward_engineer_sql_ddl(&self.doc, page_id);
+            let res = serde_json::json!({
+                "wizard": "sql_forward",
+                "createdCount": 0,
+                "exportedText": ddl,
+                "summary": format!("Forward-engineered SQL DDL ({} bytes)", ddl.len())
+            });
+            return Ok(res.to_string());
+        }
+
+        let mut created_count = 0usize;
+        let mut summary = String::new();
+        let mut parse_err: Option<String> = None;
+
+        let _ = self.journal.record_mutation(
+            &mut self.doc,
+            format!("Domain Wizard ({slug})"),
+            |doc| match slug.as_str() {
+                "sql_reverse" | "sql_to_erd" | "sql" => {
+                    let tables = crate::domains::reverse_engineer_sql_ddl(doc, page_id, spec_text, true);
+                    created_count = tables.len();
+                    summary = format!("Reverse-engineered {} Crow's Foot ERD table(s)", created_count);
+                }
+                "org_chart" | "org" => {
+                    created_count = crate::domains::build_org_chart_from_csv(doc, page_id, spec_text);
+                    summary = format!("Generated Organization Chart with {} role card(s)", created_count);
+                }
+                "gantt" => {
+                    let tasks = parse_gantt_wizard_spec(spec_text);
+                    if tasks.is_empty() {
+                        parse_err = Some("Gantt spec requires at least 1 task row (ID,Name,StartDay,DurationDays,PercentComplete,DependsOn)".into());
+                    } else {
+                        created_count = crate::domains::build_gantt_chart(doc, page_id, &tasks);
+                        summary = format!("Generated Gantt Chart with {} scheduled task(s)", created_count);
+                    }
+                }
+                "timeline" => {
+                    let (title, total_days, milestones) = parse_timeline_wizard_spec(spec_text);
+                    if milestones.is_empty() {
+                        parse_err = Some("Timeline spec requires at least 1 milestone row (Day,Label,Major)".into());
+                    } else {
+                        created_count = crate::domains::build_project_timeline(
+                            doc,
+                            page_id,
+                            &title,
+                            total_days,
+                            &milestones,
+                        );
+                        summary = format!("Generated Project Timeline '{}' ({} milestone(s))", title, created_count);
+                    }
+                }
+                "pert" | "cpm" => {
+                    let tasks = parse_pert_wizard_spec(spec_text);
+                    if tasks.is_empty() {
+                        parse_err = Some("PERT/CPM spec requires at least 1 task row (ID,Name,DurationDays,Predecessors)".into());
+                    } else {
+                        let computed = crate::domains::build_pert_critical_path_diagram(doc, page_id, &tasks);
+                        created_count = computed.len();
+                        let crit_names: Vec<String> = computed
+                            .iter()
+                            .filter(|n| n.is_critical)
+                            .map(|n| n.id.clone())
+                            .collect();
+                        let project_days = computed.iter().map(|n| n.early_finish).fold(0.0, f64::max);
+                        summary = format!(
+                            "Generated PERT/CPM ({} node(s), duration {:.1}d, critical path: {})",
+                            created_count,
+                            project_days,
+                            crit_names.join(" -> ")
+                        );
+                    }
+                }
+                "rack" | "rack_42u" => {
+                    let devices = parse_rack_wizard_spec(spec_text);
+                    let rack_id = if let Some(page) = doc.page_mut(page_id) {
+                        let rid = page.next_shape_id();
+                        let mut rack = VisioShape::new_rect(rid, "Rack42U", 5.0, 4.3, 2.4, 7.35);
+                        rack.text = "42U EIA-310 Cabinet".into();
+                        rack.sheet.set_formula("FillForegnd", "=RGB(226,232,240)", Some(Unit::Color));
+                        rack.sheet.set_formula("VerticalAlign", "0", Some(Unit::Number));
+                        page.shapes.push(rack);
+                        rid
+                    } else {
+                        0
+                    };
+                    if rack_id > 0 {
+                        created_count = 1;
+                        for (name, u_start, u_h) in devices {
+                            if crate::domains::mount_rack_equipment(doc, page_id, rack_id, &name, u_start, u_h).is_some() {
+                                created_count += 1;
+                            }
+                        }
+                        summary = format!("Built 42U Rack Cabinet with {} mounted appliance(s)", created_count.saturating_sub(1));
+                    }
+                }
+                "arch_room" | "room" => {
+                    let rooms = parse_room_wizard_spec(spec_text);
+                    for (idx, (name, px, py, w_in, h_in)) in rooms.into_iter().enumerate() {
+                        let rx = if px > 0.0 { px } else { 3.0 + (idx % 3) as f64 * 2.8 };
+                        let ry = if py > 0.0 { py } else { 5.2 - (idx / 3) as f64 * 2.4 };
+                        if crate::domains::create_architectural_room_space(doc, page_id, &name, rx, ry, w_in, h_in).is_some() {
+                            created_count += 1;
+                        }
+                    }
+                    summary = format!("Created {} Architectural Room space(s) with reactive AreaSqFt", created_count);
+                }
+                other => {
+                    parse_err = Some(format!("unsupported domain wizard '{other}'"));
+                }
+            },
+        );
+
+        if let Some(err_msg) = parse_err {
+            let _ = self.journal.undo(&mut self.doc);
+            return Err(CoreError::UnsupportedExtension(err_msg));
+        }
+        let res = serde_json::json!({
+            "wizard": slug,
+            "createdCount": created_count,
+            "exportedText": "",
+            "summary": summary
+        });
+        Ok(res.to_string())
+    }
+
+    pub fn apply_cad_scale(
+        &mut self,
+        page_id: u32,
+        scale_slug: &str,
+        locked: bool,
+    ) -> Result<f64, CoreError> {
+        if self.doc.page(page_id).is_none() {
+            return Err(CoreError::Journal(JournalError::PageNotFound(page_id)));
+        }
+        let preset = match scale_slug.trim().to_ascii_lowercase().as_str() {
+            "1/4_in_ft" | "quarter_inch" | "1:48" | "imperial_quarter" => {
+                vexio_cad::CadScalePreset::ArchitecturalQuarterInchPerFoot
+            }
+            "1/8_in_ft" | "eighth_inch" | "1:96" | "imperial_eighth" => {
+                vexio_cad::CadScalePreset::ArchitecturalEighthInchPerFoot
+            }
+            "1:50" | "metric_50" => vexio_cad::CadScalePreset::Metric1To50,
+            "1:100" | "metric_100" => vexio_cad::CadScalePreset::Metric1To100,
+            "1:200" | "metric_200" => vexio_cad::CadScalePreset::Metric1To200,
+            "1:1" | "unscaled" => vexio_cad::CadScalePreset::Custom {
+                page_in: 1.0,
+                drawing_in: 1.0,
+            },
+            custom => {
+                if let Some((a, b)) = custom.split_once(':') {
+                    let pa = a.trim().parse::<f64>().unwrap_or(1.0).max(1e-6);
+                    let pb = b.trim().parse::<f64>().unwrap_or(1.0).max(1e-6);
+                    vexio_cad::CadScalePreset::Custom {
+                        page_in: pa,
+                        drawing_in: pb,
+                    }
+                } else {
+                    vexio_cad::CadScalePreset::Metric1To100
+                }
+            }
+        };
+        let ratio = preset.ratio();
+        let _ = self.journal.record_mutation(
+            &mut self.doc,
+            format!("Apply CAD Scale ({scale_slug})"),
+            |doc| {
+                if let Some(p) = doc.page_mut(page_id) {
+                    vexio_cad::apply_cad_scale_lock(p, preset, locked);
+                }
+                ReactiveEngine::recalculate_document(doc);
+            },
+        );
+        Ok(ratio)
+    }
+
+    pub fn convert_cad_layers(
+        &mut self,
+        page_id: u32,
+        layer_name_or_all: &str,
+    ) -> Result<usize, CoreError> {
+        let Some(p) = self.doc.page(page_id) else {
+            return Err(CoreError::Journal(JournalError::PageNotFound(page_id)));
+        };
+        let trimmed = layer_name_or_all.trim();
+        let layer_names: Vec<String> = if trimmed.is_empty()
+            || trimmed == "*"
+            || trimmed.eq_ignore_ascii_case("all")
+        {
+            p.layers.iter().map(|l| l.name.clone()).collect()
+        } else {
+            vec![trimmed.to_string()]
+        };
+        let mut total = 0usize;
+        let _ = self.journal.record_mutation(
+            &mut self.doc,
+            "Convert CAD Layers to Visio Shapes",
+            |doc| {
+                if let Some(pm) = doc.page_mut(page_id) {
+                    for lname in &layer_names {
+                        total += vexio_cad::convert_cad_layer_to_visio_shapes(pm, lname).len();
+                    }
+                }
+                ReactiveEngine::recalculate_document(doc);
+            },
+        );
+        Ok(total)
+    }
+}
+
+fn parse_gantt_wizard_spec(spec: &str) -> Vec<crate::domains::GanttTaskInput> {
+    let trimmed = spec.trim();
+    if trimmed.starts_with('[') {
+        if let Ok(v) = serde_json::from_str::<Vec<crate::domains::GanttTaskInput>>(trimmed) {
+            return v;
+        }
+    }
+    let mut out = Vec::new();
+    for (idx, raw_line) in trimmed.lines().enumerate() {
+        let line = raw_line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let cols: Vec<&str> = line.split(',').map(|s| s.trim()).collect();
+        if idx == 0
+            && cols
+                .first()
+                .is_some_and(|c| c.eq_ignore_ascii_case("id") || c.eq_ignore_ascii_case("task"))
+        {
+            continue;
+        }
+        if cols.len() < 4 {
+            continue;
+        }
+        let id = cols[0].to_string();
+        let name = cols[1].to_string();
+        let start_day = cols[2].parse::<f64>().unwrap_or(0.0).max(0.0);
+        let duration_days = cols[3].parse::<f64>().unwrap_or(1.0).max(0.25);
+        let percent_complete = cols
+            .get(4)
+            .and_then(|s| s.trim_end_matches('%').parse::<f64>().ok())
+            .unwrap_or(0.0)
+            .clamp(0.0, 100.0);
+        let depends_on = cols
+            .get(5)
+            .map(|d| {
+                d.split([';', '|'])
+                    .map(|x| x.trim().to_string())
+                    .filter(|x| !x.is_empty())
+                    .collect()
+            })
+            .unwrap_or_default();
+        out.push(crate::domains::GanttTaskInput {
+            id,
+            name,
+            start_day,
+            duration_days,
+            percent_complete,
+            depends_on,
+        });
+    }
+    out
+}
+
+fn parse_timeline_wizard_spec(spec: &str) -> (String, f64, Vec<crate::domains::TimelineMilestone>) {
+    let mut title = "Project Release Timeline".to_string();
+    let mut explicit_horizon: Option<f64> = None;
+    let mut milestones = Vec::new();
+    for (idx, raw_line) in spec.trim().lines().enumerate() {
+        let line = raw_line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        if let Some(rest) = line.strip_prefix('#') {
+            for seg in rest.split('|') {
+                if let Some((k, v)) = seg.split_once(':') {
+                    let key = k.trim().to_ascii_lowercase();
+                    if key == "title" && !v.trim().is_empty() {
+                        title = v.trim().to_string();
+                    } else if key == "horizon" || key == "days" {
+                        explicit_horizon = v.trim().parse::<f64>().ok();
+                    }
+                }
+            }
+            continue;
+        }
+        let cols: Vec<&str> = line.split(',').map(|s| s.trim()).collect();
+        if idx == 0 && cols.first().is_some_and(|c| c.eq_ignore_ascii_case("day")) {
+            continue;
+        }
+        if cols.len() < 2 {
+            continue;
+        }
+        let Ok(day) = cols[0].parse::<f64>() else {
+            continue;
+        };
+        let label = cols[1].to_string();
+        let is_major = cols
+            .get(2)
+            .map(|s| matches!(s.to_ascii_lowercase().as_str(), "true" | "1" | "yes" | "major"))
+            .unwrap_or(true);
+        milestones.push(crate::domains::TimelineMilestone {
+            day: day.max(0.0),
+            label,
+            is_major,
+        });
+    }
+    let max_day = milestones.iter().map(|m| m.day).fold(30.0, f64::max);
+    let horizon = explicit_horizon.unwrap_or((max_day * 1.1).max(10.0));
+    (title, horizon, milestones)
+}
+
+fn parse_pert_wizard_spec(spec: &str) -> Vec<crate::domains::PertTaskInput> {
+    let trimmed = spec.trim();
+    if trimmed.starts_with('[') {
+        if let Ok(v) = serde_json::from_str::<Vec<crate::domains::PertTaskInput>>(trimmed) {
+            return v;
+        }
+    }
+    let mut out = Vec::new();
+    for (idx, raw_line) in trimmed.lines().enumerate() {
+        let line = raw_line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let cols: Vec<&str> = line.split(',').map(|s| s.trim()).collect();
+        if idx == 0 && cols.first().is_some_and(|c| c.eq_ignore_ascii_case("id")) {
+            continue;
+        }
+        if cols.len() < 3 {
+            continue;
+        }
+        let id = cols[0].to_string();
+        let name = cols[1].to_string();
+        let duration_days = cols[2].parse::<f64>().unwrap_or(1.0).max(0.1);
+        let predecessors = cols
+            .get(3)
+            .map(|p| {
+                p.split([';', '|'])
+                    .map(|x| x.trim().to_string())
+                    .filter(|x| !x.is_empty())
+                    .collect()
+            })
+            .unwrap_or_default();
+        out.push(crate::domains::PertTaskInput {
+            id,
+            name,
+            duration_days,
+            predecessors,
+        });
+    }
+    out
+}
+
+fn parse_rack_wizard_spec(spec: &str) -> Vec<(String, u32, u32)> {
+    let mut out = Vec::new();
+    for (idx, raw_line) in spec.trim().lines().enumerate() {
+        let line = raw_line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let cols: Vec<&str> = line.split(',').map(|s| s.trim()).collect();
+        if idx == 0
+            && cols
+                .first()
+                .is_some_and(|c| c.eq_ignore_ascii_case("device") || c.eq_ignore_ascii_case("name"))
+        {
+            continue;
+        }
+        if cols.len() < 3 {
+            continue;
+        }
+        let name = cols[0].to_string();
+        let u_start = cols[1]
+            .trim_start_matches(['U', 'u'])
+            .parse::<u32>()
+            .unwrap_or(1)
+            .clamp(1, 42);
+        let u_height = cols[2]
+            .trim_end_matches(['U', 'u'])
+            .parse::<u32>()
+            .unwrap_or(1)
+            .clamp(1, 42);
+        out.push((name, u_start, u_height));
+    }
+    out
+}
+
+fn parse_room_wizard_spec(spec: &str) -> Vec<(String, f64, f64, f64, f64)> {
+    let mut out = Vec::new();
+    for (idx, raw_line) in spec.trim().lines().enumerate() {
+        let line = raw_line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let cols: Vec<&str> = line.split(',').map(|s| s.trim()).collect();
+        if idx == 0
+            && cols
+                .first()
+                .is_some_and(|c| c.eq_ignore_ascii_case("room") || c.eq_ignore_ascii_case("name"))
+        {
+            continue;
+        }
+        if cols.len() >= 5 {
+            let name = cols[0].to_string();
+            let px = cols[1].parse::<f64>().unwrap_or(0.0);
+            let py = cols[2].parse::<f64>().unwrap_or(0.0);
+            let w = cols[3].parse::<f64>().unwrap_or(2.5).max(0.4);
+            let h = cols[4].parse::<f64>().unwrap_or(2.0).max(0.4);
+            out.push((name, px, py, w, h));
+        } else if cols.len() >= 3 {
+            let name = cols[0].to_string();
+            let w = cols[1].parse::<f64>().unwrap_or(2.5).max(0.4);
+            let h = cols[2].parse::<f64>().unwrap_or(2.0).max(0.4);
+            out.push((name, 0.0, 0.0, w, h));
+        }
+    }
+    if out.is_empty() && !spec.trim().is_empty() {
+        out.push((spec.trim().lines().next().unwrap_or("Conference Room").trim().to_string(), 4.5, 4.2, 2.8, 2.1));
+    }
+    out
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

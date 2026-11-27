@@ -212,6 +212,7 @@ import com.vexio.core.ExternalRecordsetUiItem
 import com.vexio.core.FormulaCommitStatus
 import com.vexio.core.InspectedObjectUiState
 import com.vexio.core.Plan2SamplePayloads
+import com.vexio.core.ReviewCommentUiItem
 import com.vexio.core.ShapeDataUiItem
 import com.vexio.core.ShapeSheetCellEntry
 import com.vexio.core.StencilMasterItem
@@ -427,6 +428,21 @@ fun GooglebookWorkstationScreen(
                         if (navBackStack.lastOrNull() != WorkstationNavKey.ShapeSheetStudio) {
                             navBackStack.add(WorkstationNavKey.ShapeSheetStudio)
                         }
+                        true
+                    }
+                    // Alt + F9 -> Sandboxed VBA Macro Studio
+                    alt && !ctrlOrMeta && keyEvent.key == Key.F9 -> {
+                        viewModel.setVbaMacroDialogVisible(true)
+                        true
+                    }
+                    // Ctrl + K -> Shape Hyperlink & ScreenTip
+                    ctrlOrMeta && !shift && keyEvent.key == Key.K -> {
+                        viewModel.setHyperlinkDialogVisible(true)
+                        true
+                    }
+                    // Ctrl + 6 -> Edit Sub-Shape Vertices
+                    ctrlOrMeta && keyEvent.key == Key.Six -> {
+                        viewModel.selectTool(VexioTool.EDIT_VERTICES)
                         true
                     }
                     // Delete / ForwardDelete -> Delete selected shape
@@ -1059,6 +1075,276 @@ fun GooglebookWorkstationScreen(
             )
         }
 
+        // Sandboxed VBA Macro Studio Dialog (Alt+F9)
+        if (uiState.showVbaMacroDialog) {
+            AlertDialog(
+                onDismissRequest = { viewModel.setVbaMacroDialogVisible(false) },
+                title = { Text("Sandboxed VBA Macro Studio (Alt+F9)") },
+                text = {
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = "Deterministic zero-I/O gas-metered VBA execution with full Undo/Redo support.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        OutlinedTextField(
+                            value = uiState.vbaMacroScript,
+                            onValueChange = viewModel::setVbaMacroScript,
+                            textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                            minLines = 7,
+                            maxLines = 12,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        uiState.lastVbaReportSummary?.let { msg ->
+                            Text(msg, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                        }
+                    }
+                },
+                confirmButton = {
+                    FilledTonalButton(onClick = { viewModel.runVbaMacro() }) {
+                        Text("Execute in Sandbox")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { viewModel.setVbaMacroDialogVisible(false) }) {
+                        Text("Close")
+                    }
+                }
+            )
+        }
+
+        // Review — Threaded Diagram Comments Dialog
+        if (uiState.showCommentsDialog) {
+            var commentAuthor by remember { mutableStateOf("Reviewer") }
+            var commentDraft by remember { mutableStateOf("") }
+            AlertDialog(
+                onDismissRequest = { viewModel.setCommentsDialogVisible(false) },
+                title = { Text("Review — Threaded Comments") },
+                text = {
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 380.dp)
+                            .verticalScroll(rememberScrollState())
+                    ) {
+                        if (uiState.reviewComments.isEmpty()) {
+                            Text(
+                                text = "No comments on this page yet. Add a review note attached to Sheet.${uiState.selectedShapeId}.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        } else {
+                            uiState.reviewComments.forEach { c ->
+                                Surface(
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = MaterialTheme.colorScheme.surfaceContainerLow,
+                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = "${if (c.resolved) "✓ " else "● "}#${c.id} · ${c.author} (Sheet.${c.shapeId})",
+                                                style = MaterialTheme.typography.labelLarge,
+                                                fontWeight = FontWeight.SemiBold
+                                            )
+                                            Text(c.text, style = MaterialTheme.typography.bodySmall)
+                                        }
+                                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                            TextButton(onClick = { viewModel.toggleResolveComment(c.id, !c.resolved) }) {
+                                                Text(if (c.resolved) "Reopen" else "Resolve")
+                                            }
+                                            TextButton(onClick = { viewModel.deleteReviewComment(c.id) }) {
+                                                Text("Delete", color = MaterialTheme.colorScheme.error)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        OutlinedTextField(
+                            value = commentAuthor,
+                            onValueChange = { commentAuthor = it },
+                            singleLine = true,
+                            label = { Text("Author") },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        OutlinedTextField(
+                            value = commentDraft,
+                            onValueChange = { commentDraft = it },
+                            minLines = 2,
+                            maxLines = 4,
+                            label = { Text("Comment on Sheet.${uiState.selectedShapeId}") },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                },
+                confirmButton = {
+                    FilledTonalButton(
+                        onClick = {
+                            if (commentDraft.isNotBlank()) {
+                                viewModel.addReviewComment(commentAuthor, commentDraft)
+                                commentDraft = ""
+                            }
+                        }
+                    ) {
+                        Text("Post Comment")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { viewModel.setCommentsDialogVisible(false) }) {
+                        Text("Done")
+                    }
+                }
+            )
+        }
+
+        // Insert — Shape Hyperlink & ScreenTip Dialog (Ctrl+K)
+        if (uiState.showHyperlinkDialog) {
+            var addrDraft by remember(uiState.hyperlinkAddress) { mutableStateOf(uiState.hyperlinkAddress) }
+            var subDraft by remember(uiState.hyperlinkSubAddress) { mutableStateOf(uiState.hyperlinkSubAddress) }
+            var descDraft by remember(uiState.hyperlinkDescription) { mutableStateOf(uiState.hyperlinkDescription) }
+            var tipDraft by remember(uiState.shapeScreentip) { mutableStateOf(uiState.shapeScreentip) }
+            AlertDialog(
+                onDismissRequest = { viewModel.setHyperlinkDialogVisible(false) },
+                title = { Text("Hyperlink & ScreenTip — Sheet.${uiState.selectedShapeId}") },
+                text = {
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        OutlinedTextField(
+                            value = addrDraft,
+                            onValueChange = { addrDraft = it },
+                            singleLine = true,
+                            label = { Text("Address (URL or File)") },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        OutlinedTextField(
+                            value = subDraft,
+                            onValueChange = { subDraft = it },
+                            singleLine = true,
+                            label = { Text("Sub-Address (Target Page Name)") },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        OutlinedTextField(
+                            value = descDraft,
+                            onValueChange = { descDraft = it },
+                            singleLine = true,
+                            label = { Text("Description") },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        OutlinedTextField(
+                            value = tipDraft,
+                            onValueChange = { tipDraft = it },
+                            singleLine = true,
+                            label = { Text("ScreenTip (Hover Tooltip)") },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                },
+                confirmButton = {
+                    FilledTonalButton(
+                        onClick = {
+                            viewModel.saveHyperlinkAndScreentip(descDraft, addrDraft, subDraft, tipDraft)
+                        }
+                    ) {
+                        Text("Save")
+                    }
+                },
+                dismissButton = {
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        TextButton(onClick = { viewModel.saveHyperlinkAndScreentip("", "", "", "") }) {
+                            Text("Clear")
+                        }
+                        TextButton(onClick = { viewModel.setHyperlinkDialogVisible(false) }) {
+                            Text("Cancel")
+                        }
+                    }
+                }
+            )
+        }
+
+        // Enterprise Domain Diagram Wizards Dialog
+        if (uiState.showDomainWizardsDialog) {
+            val wizardChoices = listOf(
+                "gantt" to "Gantt",
+                "timeline" to "Timeline",
+                "pert" to "PERT",
+                "sql_reverse" to "SQL → ERD",
+                "sql_forward" to "ERD → SQL",
+                "org_chart" to "Org Chart",
+                "rack_42u" to "42U Rack",
+                "arch_room" to "Room SqFt"
+            )
+            AlertDialog(
+                onDismissRequest = { viewModel.setDomainWizardsDialogVisible(false) },
+                title = { Text("Enterprise Domain Diagram Wizards") },
+                text = {
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .verticalScroll(rememberScrollState())
+                    ) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState())
+                        ) {
+                            wizardChoices.forEach { (slug, label) ->
+                                FilterChip(
+                                    selected = uiState.domainWizardSlug == slug,
+                                    onClick = { viewModel.selectDomainWizardPreset(slug) },
+                                    label = { Text(label) }
+                                )
+                            }
+                        }
+                        OutlinedTextField(
+                            value = uiState.domainWizardSpec,
+                            onValueChange = viewModel::setDomainWizardSpec,
+                            textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                            minLines = 6,
+                            maxLines = 10,
+                            label = { Text("Wizard Specification (CSV / SQL DDL / Dialect)") },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        if (uiState.domainWizardSlug == "sql_forward" && !uiState.lastDomainWizardOutput.isNullOrBlank()) {
+                            OutlinedTextField(
+                                value = uiState.lastDomainWizardOutput.orEmpty(),
+                                onValueChange = {},
+                                readOnly = true,
+                                textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                                minLines = 4,
+                                maxLines = 8,
+                                label = { Text("Generated SQL DDL") },
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                    }
+                },
+                confirmButton = {
+                    FilledTonalButton(onClick = { viewModel.runDomainWizard() }) {
+                        Text("Run Wizard")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { viewModel.setDomainWizardsDialogVisible(false) }) {
+                        Text("Close")
+                    }
+                }
+            )
+        }
+
         // Presentation Mode Slide Snippets Dialog
         if (uiState.showSlideSnippetsDialog) {
             AlertDialog(
@@ -1624,6 +1910,10 @@ private fun WorkstationHeaderBar(
                     DropdownMenuItem(
                         text = { Text(VexioI18n.exportDxfItem(lang)) },
                         onClick = { openSiblingMenuId = null; onExportFormat("dxf") }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Export AutoCAD DWG (.dwg)") },
+                        onClick = { openSiblingMenuId = null; onExportFormat("dwg") }
                     )
                 }
             }
@@ -2208,6 +2498,29 @@ private fun ClassicVisioM3Ribbon(
                                 selected = false,
                                 onClick = { viewModel.createOrLinkSubprocess() }
                             )
+                            ExpressivePlan2ActionPill(
+                                label = "Hyperlink & Tip…",
+                                selected = uiState.showHyperlinkDialog || uiState.hyperlinkAddress.isNotBlank(),
+                                onClick = { viewModel.setHyperlinkDialogVisible(true) }
+                            )
+                            ExpressivePlan2ActionPill(
+                                label = "Diagram Wizards…",
+                                selected = uiState.showDomainWizardsDialog,
+                                onClick = { viewModel.setDomainWizardsDialogVisible(true) }
+                            )
+                            ExpressivePlan2ActionPill(
+                                label = if (uiState.cadScaleLocked) "CAD Scale Locked (${uiState.cadScaleSlug})" else "Lock CAD Scale",
+                                selected = uiState.cadScaleLocked,
+                                onClick = {
+                                    val slug = if (uiState.metricUnits) "1:100" else "1/4_in_ft"
+                                    viewModel.applyCadArchitecturalScale(slug, !uiState.cadScaleLocked)
+                                }
+                            )
+                            ExpressivePlan2ActionPill(
+                                label = "Convert CAD Layers",
+                                selected = false,
+                                onClick = { viewModel.convertCadLayersToShapeSheet("*") }
+                            )
                         }
 
                         "Design" -> {
@@ -2362,6 +2675,21 @@ private fun ClassicVisioM3Ribbon(
                                 onClick = { viewModel.selectTool(VexioTool.HIGHLIGHTER) }
                             )
                             ExpressivePlan2ActionPill(
+                                label = "Ink Eraser",
+                                selected = uiState.activeTool == VexioTool.INK_ERASER,
+                                onClick = { viewModel.selectTool(VexioTool.INK_ERASER) }
+                            )
+                            ExpressivePlan2ActionPill(
+                                label = "Clear Ink",
+                                selected = false,
+                                onClick = { viewModel.clearActivePageInk() }
+                            )
+                            ExpressivePlan2ActionPill(
+                                label = "Comments (${uiState.reviewComments.size})",
+                                selected = uiState.showCommentsDialog,
+                                onClick = { viewModel.setCommentsDialogVisible(true) }
+                            )
+                            ExpressivePlan2ActionPill(
                                 label = VexioI18n.diagramComparePill(lang),
                                 selected = uiState.lastCompareSummary != null,
                                 onClick = { viewModel.compareWithBaseline() }
@@ -2416,6 +2744,20 @@ private fun ClassicVisioM3Ribbon(
                                 label = "Mermaid / PlantUML / DOT…",
                                 selected = uiState.showMarkupStudioDialog,
                                 onClick = { viewModel.setMarkupStudioDialogVisible(true) }
+                            )
+                            ExpressivePlan2ActionPill(
+                                label = "VBA Macros (Alt+F9)",
+                                selected = uiState.showVbaMacroDialog,
+                                onClick = { viewModel.setVbaMacroDialogVisible(true) }
+                            )
+                            ExpressivePlan2ActionPill(
+                                label = "Edit Vertices",
+                                selected = uiState.activeTool == VexioTool.EDIT_VERTICES,
+                                onClick = {
+                                    viewModel.selectTool(
+                                        if (uiState.activeTool == VexioTool.EDIT_VERTICES) VexioTool.POINTER else VexioTool.EDIT_VERTICES
+                                    )
+                                }
                             )
                             ExpressivePlan2ActionPill(
                                 label = "+ Control Handle",
@@ -3140,6 +3482,8 @@ private fun resolveToolIcon(tool: VexioTool): ImageVector = when (tool) {
     VexioTool.TEXT_BLOCK -> Icons.Default.TextFields
     VexioTool.STYLUS_INK -> Icons.Default.Brush
     VexioTool.HIGHLIGHTER -> Icons.Default.Edit
+    VexioTool.EDIT_VERTICES -> Icons.Default.Tune
+    VexioTool.INK_ERASER -> Icons.Default.DeleteOutline
 }
 
 /**

@@ -2849,6 +2849,15 @@ pub struct InteractiveCanvasOverlay {
     /// Target Container or Swimlane bounding box `(min_in, max_in)` illuminated while dragging shapes into it.
     #[serde(default)]
     pub container_drop_target_in: Option<([f64; 2], [f64; 2])>,
+    /// Live stroke points `(x_in, y_in)` while actively drawing Freeform, Ink Pen, or Highlighter paths.
+    #[serde(default)]
+    pub live_stroke_points: Vec<[f64; 2]>,
+    /// Whether `live_stroke_points` uses translucent highlighter styling.
+    #[serde(default)]
+    pub live_stroke_highlighter: bool,
+    /// Editable geometry vertices `(x_in, y_in)` for the active shape in `EditVertices` mode.
+    #[serde(default)]
+    pub editable_vertices: Vec<[f64; 2]>,
 }
 
 /// Tessellate transient interactive overlays (rubber-band marquee, smart alignment & equal-spacing
@@ -2996,6 +3005,57 @@ pub fn tessellate_interactive_overlay(
                 GpuVertex::new([pos.x, pos.y], x_col, [PRIM_FLAG_OVERLAY_UI, 0.0])
             }),
         );
+    }
+
+    // 5. Live Freeform / Ink Pen / Highlighter Stroke Preview
+    if overlay.live_stroke_points.len() >= 2 {
+        let mut sb = Path::builder();
+        sb.begin(point(
+            overlay.live_stroke_points[0][0] as f32,
+            overlay.live_stroke_points[0][1] as f32,
+        ));
+        for pt in &overlay.live_stroke_points[1..] {
+            sb.line_to(point(pt[0] as f32, pt[1] as f32));
+        }
+        sb.end(false);
+        let sp = sb.build();
+        let (sw, scol) = if overlay.live_stroke_highlighter {
+            ((12.0 * inv_ppi) as f32, [0.980, 0.800, 0.082, 0.45])
+        } else {
+            ((2.2 * inv_ppi) as f32, [0.145, 0.388, 0.922, 0.95])
+        };
+        let _ = stroke_tess.tessellate_path(
+            &sp,
+            &StrokeOptions::tolerance(tol).with_line_width(sw),
+            &mut BuffersBuilder::new(&mut lyon_buf, |v: StrokeVertex| {
+                let pos = v.position();
+                GpuVertex::new([pos.x, pos.y], scol, [PRIM_FLAG_OVERLAY_UI, 0.0])
+            }),
+        );
+    }
+
+    // 6. Sub-Shape Editable Geometry Vertex Grips (`EditVertices` mode)
+    if !overlay.editable_vertices.is_empty() {
+        let r_outer = (4.8 * inv_ppi) as f32;
+        let r_inner = (3.1 * inv_ppi) as f32;
+        let violet = [0.576, 0.200, 0.918, 0.98]; // #9333EA Visio Vertex Grip
+        let white = [1.0, 1.0, 1.0, 1.0];
+        for vpt in &overlay.editable_vertices {
+            let cx = vpt[0] as f32;
+            let cy = vpt[1] as f32;
+            mesh.push_quad(
+                [cx - r_outer, cy - r_outer],
+                [cx + r_outer, cy + r_outer],
+                violet,
+                [PRIM_FLAG_OVERLAY_UI, 0.0],
+            );
+            mesh.push_quad(
+                [cx - r_inner, cy - r_inner],
+                [cx + r_inner, cy + r_inner],
+                white,
+                [PRIM_FLAG_OVERLAY_UI, 0.0],
+            );
+        }
     }
 
     mesh.append(&TessellatedMesh {

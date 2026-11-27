@@ -168,6 +168,12 @@ public struct VexioWorkspaceView: View {
     @State private var isBordersAndTitlesSheetPresented: Bool = false
     @State private var isMarkupStudioSheetPresented: Bool = false
     @State private var isSlideSnippetsSheetPresented: Bool = false
+    @State private var isVbaStudioSheetPresented: Bool = false
+    @State private var isCommentsSheetPresented: Bool = false
+    @State private var isHyperlinkSheetPresented: Bool = false
+    @State private var isDomainWizardsSheetPresented: Bool = false
+    @State private var initialWizardSlug: String = "gantt"
+    @State private var isCadToolsSheetPresented: Bool = false
 
     // ShapeSheet Editor State
     @State private var selectedShapeSheetSection: ShapeSheetSectionCategory?
@@ -241,6 +247,34 @@ public struct VexioWorkspaceView: View {
                     NotificationCenter.default.post(name: .vexioExportFormatRequested, object: "pptx")
                 }) {
                     isSlideSnippetsSheetPresented = false
+                }
+            }
+            .sheet(isPresented: $isVbaStudioSheetPresented) {
+                VexioVbaMacroStudioSheet(session: session) {
+                    isVbaStudioSheetPresented = false
+                }
+            }
+            .sheet(isPresented: $isCommentsSheetPresented) {
+                VexioReviewCommentsSheet(session: session) {
+                    isCommentsSheetPresented = false
+                }
+            }
+            .sheet(isPresented: $isHyperlinkSheetPresented) {
+                VexioHyperlinkScreentipSheet(session: session) {
+                    isHyperlinkSheetPresented = false
+                }
+            }
+            .sheet(isPresented: $isDomainWizardsSheetPresented) {
+                VexioDomainWizardsSheet(session: session, initialSlug: initialWizardSlug) {
+                    isDomainWizardsSheetPresented = false
+                }
+            }
+            .sheet(isPresented: $isCadToolsSheetPresented) {
+                VexioCadToolsSheet(session: session, onExportDwg: {
+                    isCadToolsSheetPresented = false
+                    NotificationCenter.default.post(name: .vexioExportFormatRequested, object: "dwg")
+                }) {
+                    isCadToolsSheetPresented = false
                 }
             }
             .sheet(
@@ -322,6 +356,24 @@ public struct VexioWorkspaceView: View {
             .onReceive(NotificationCenter.default.publisher(for: .vexioOpenSlideSnippetsSheet)) { _ in
                 session.refreshSlideSnippets()
                 isSlideSnippetsSheetPresented = true
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .vexioOpenVbaStudioSheet)) { _ in
+                isVbaStudioSheetPresented = true
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .vexioOpenCommentsSheet)) { _ in
+                isCommentsSheetPresented = true
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .vexioOpenHyperlinkSheet)) { _ in
+                isHyperlinkSheetPresented = true
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .vexioOpenDomainWizardsSheet)) { note in
+                if let slug = note.object as? String, !slug.isEmpty {
+                    initialWizardSlug = slug
+                }
+                isDomainWizardsSheetPresented = true
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .vexioOpenCadToolsSheet)) { _ in
+                isCadToolsSheetPresented = true
             }
             .onReceive(NotificationCenter.default.publisher(for: .vexioOpenPageSetupSheet)) { note in
                 if let pid = note.object as? UInt32 {
@@ -1163,6 +1215,11 @@ public extension Notification.Name {
     static let vexioOpenBordersAndTitlesSheet = Notification.Name("app.vexio.openBordersAndTitlesSheet")
     static let vexioOpenMarkupStudioSheet = Notification.Name("app.vexio.openMarkupStudioSheet")
     static let vexioOpenSlideSnippetsSheet = Notification.Name("app.vexio.openSlideSnippetsSheet")
+    static let vexioOpenVbaStudioSheet = Notification.Name("app.vexio.openVbaStudioSheet")
+    static let vexioOpenCommentsSheet = Notification.Name("app.vexio.openCommentsSheet")
+    static let vexioOpenHyperlinkSheet = Notification.Name("app.vexio.openHyperlinkSheet")
+    static let vexioOpenDomainWizardsSheet = Notification.Name("app.vexio.openDomainWizardsSheet")
+    static let vexioOpenCadToolsSheet = Notification.Name("app.vexio.openCadToolsSheet")
     static let vexioExportFormatRequested = Notification.Name("app.vexio.exportFormatRequested")
     static let vexioOpenExternalURL = Notification.Name("app.vexio.openExternalURL")
 }
@@ -4423,5 +4480,326 @@ private struct VexioSlideSnippetsSheet: View {
         .onAppear {
             session.refreshSlideSnippets()
         }
+    }
+}
+
+// MARK: - v0.6.0-beta Sheets (VBA Macro IDE, Review Comments, Hyperlinks/ScreenTips, Domain Wizards & CAD Tools)
+
+private struct VexioVbaMacroStudioSheet: View {
+    @ObservedObject var session: VexioDocumentSession
+    let onClose: () -> Void
+    @Environment(\.undoManager) private var undoManager
+
+    @State private var vbaScript: String = """
+    Sub BuildArchitectureCluster()
+        For i = 1 To 3
+            Set shp = ActivePage.DrawRectangle(1.0 + i * 2.3, 4.2, 2.7 + i * 2.3, 5.2)
+            shp.Text = "Service Node " & i
+        Next i
+    End Sub
+    """
+    @State private var executionOutput: String = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Label("Sandboxed VBA Automation Studio", systemImage: "terminal")
+                    .font(.system(size: 14, weight: .semibold))
+                Spacer()
+                Button("Close", action: onClose)
+            }
+            TextEditor(text: $vbaScript)
+                .font(.system(size: 12, design: .monospaced))
+                .frame(minHeight: 200)
+                .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.primary.opacity(0.14), lineWidth: 1))
+            if !executionOutput.isEmpty {
+                Text(executionOutput)
+                    .font(.system(size: 11.5, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .padding(8)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(RoundedRectangle(cornerRadius: 6).fill(Color.primary.opacity(0.05)))
+            }
+            HStack {
+                Spacer()
+                Button("Cancel", action: onClose)
+                Button("Execute in Bounded Sandbox ▶") {
+                    executionOutput = session.executeVbaMacroScript(vbaScript, undoManager: undoManager)
+                }
+                .buttonStyle(.borderedProminent)
+            }
+        }
+        .padding(18)
+        .frame(width: 600, height: 400)
+    }
+}
+
+private struct VexioReviewCommentsSheet: View {
+    @ObservedObject var session: VexioDocumentSession
+    let onClose: () -> Void
+    @Environment(\.undoManager) private var undoManager
+
+    @State private var comments: [VexioReviewCommentItem] = []
+    @State private var authorDraft: String = NSFullUserName()
+    @State private var textDraft: String = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Label("Review Comments & Annotations", systemImage: "text.bubble")
+                    .font(.system(size: 14, weight: .semibold))
+                Spacer()
+                Button("Done", action: onClose)
+            }
+            HStack(spacing: 8) {
+                TextField("Reviewer", text: $authorDraft)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 140)
+                TextField("Add review note on selected shape or active page…", text: $textDraft)
+                    .textFieldStyle(.roundedBorder)
+                Button("Post") {
+                    guard !textDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+                    session.addReviewComment(author: authorDraft, text: textDraft, undoManager: undoManager)
+                    textDraft = ""
+                    comments = session.fetchReviewComments()
+                }
+                .buttonStyle(.borderedProminent)
+            }
+            ScrollView {
+                VStack(alignment: .leading, spacing: 6) {
+                    if comments.isEmpty {
+                        Text("No review comments on this page yet.")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                            .padding(.vertical, 12)
+                    } else {
+                        ForEach(comments) { c in
+                            HStack {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("\(c.author)\(c.shape_id != nil ? " · Sheet.\(c.shape_id!)" : "")\(c.resolved ? " ✓ Resolved" : "")")
+                                        .font(.system(size: 11.5, weight: .semibold))
+                                    Text(c.text)
+                                        .font(.system(size: 12))
+                                        .strikethrough(c.resolved)
+                                }
+                                Spacer()
+                                Button(c.resolved ? "Reopen" : "Resolve") {
+                                    session.toggleReviewCommentResolved(commentId: c.id, resolved: !c.resolved, undoManager: undoManager)
+                                    comments = session.fetchReviewComments()
+                                }
+                                .controlSize(.small)
+                                Button(role: .destructive) {
+                                    session.deleteReviewComment(commentId: c.id, undoManager: undoManager)
+                                    comments = session.fetchReviewComments()
+                                } label: {
+                                    Image(systemName: "trash")
+                                }
+                                .controlSize(.small)
+                            }
+                            .padding(8)
+                            .background(RoundedRectangle(cornerRadius: 8).fill(Color.primary.opacity(0.045)))
+                        }
+                    }
+                }
+            }
+            .frame(minHeight: 200)
+        }
+        .padding(18)
+        .frame(width: 560, height: 370)
+        .onAppear {
+            comments = session.fetchReviewComments()
+        }
+    }
+}
+
+private struct VexioHyperlinkScreentipSheet: View {
+    @ObservedObject var session: VexioDocumentSession
+    let onClose: () -> Void
+    @Environment(\.undoManager) private var undoManager
+
+    @State private var descriptionDraft: String = "Documentation Runbook"
+    @State private var addressDraft: String = "https://vexio-chromeos.web.app"
+    @State private var subAddressDraft: String = ""
+    @State private var screentipDraft: String = "Click or hover to inspect architecture SLA"
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Label("Shape Hyperlink & ScreenTip (⌘K)", systemImage: "link")
+                    .font(.system(size: 14, weight: .semibold))
+                Spacer()
+                Button("Cancel", action: onClose)
+            }
+            TextField("Description / Label", text: $descriptionDraft)
+                .textFieldStyle(.roundedBorder)
+            TextField("External URL (https://…)", text: $addressDraft)
+                .textFieldStyle(.roundedBorder)
+            TextField("Internal Page SubAddress (e.g. Page-2, optional)", text: $subAddressDraft)
+                .textFieldStyle(.roundedBorder)
+            TextField("Hover ScreenTip Comment", text: $screentipDraft)
+                .textFieldStyle(.roundedBorder)
+            HStack {
+                if let url = URL(string: addressDraft), !addressDraft.isEmpty {
+                    Button("Open URL in Browser ↗") {
+                        NSWorkspace.shared.open(url)
+                    }
+                }
+                Spacer()
+                Button("Apply to Selected Shape") {
+                    session.applyHyperlinkAndScreentip(
+                        description: descriptionDraft,
+                        address: addressDraft,
+                        subAddress: subAddressDraft,
+                        screentip: screentipDraft,
+                        undoManager: undoManager
+                    )
+                    onClose()
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(session.selectedShapeId == 0)
+            }
+        }
+        .padding(18)
+        .frame(width: 480)
+    }
+}
+
+private struct VexioDomainWizardsSheet: View {
+    @ObservedObject var session: VexioDocumentSession
+    let initialSlug: String
+    let onClose: () -> Void
+    @Environment(\.undoManager) private var undoManager
+
+    @State private var wizardSlug: String = "gantt"
+    @State private var specDraft: String = ""
+    @State private var outputMessage: String = ""
+
+    private static let defaultsBySlug: [String: String] = [
+        "gantt": "ID,Task Name,StartDay,DurationDays,PercentComplete,DependsOn\n1,Architecture Spec,0,4,100,\n2,Rust ShapeSheet & CAD Core,4,7,100,1\n3,Multi-OS Native Viewport,10,6,85,2\n4,Enterprise QA & GA Ship,16,4,50,3",
+        "timeline": "# Title: Product Release Roadmap | Horizon: 100\n10,Core Engine Lock,true\n35,CAD & Legacy VSD Parity,false\n65,Multi-OS Public Beta,true\n95,Enterprise v1.0 GA,true",
+        "pert": "ID,Task Name,DurationDays,Predecessors\nA,System Architecture,3,\nB,Rust Core & DAG,6,A\nC,Stencil Library,3,A\nD,Multi-OS Shells,5,B;C\nE,Release Signoff,2,D",
+        "sql_reverse": "CREATE TABLE customers (\n  id INT PRIMARY KEY,\n  email VARCHAR NOT NULL,\n  tier VARCHAR\n);\nCREATE TABLE orders (\n  id INT PRIMARY KEY,\n  customer_id INT NOT NULL REFERENCES customers(id),\n  total DECIMAL NOT NULL\n);",
+        "org_chart": "Name,Title,Manager,Department\nAda Lovelace,CEO,,Executive\nGrace Hopper,VP Engineering,Ada Lovelace,Platform\nAlan Turing,Principal Architect,Grace Hopper,Core Engine",
+        "rack_42u": "Device,StartU,HeightU\nTop-of-Rack Leaf Switch,41,2\nPerimeter Firewall Pair,38,2\nK8s Compute Blade Chassis,26,8\nNVMe SAN Storage Array,14,6\nRedundant UPS Battery,1,4",
+        "arch_room": "Room,WidthIn,HeightIn\nMain Server Hall,3.4,2.4\nNOC Operations Suite,2.6,2.0\nMDF Telecom Closet,1.8,1.6",
+    ]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Label("Enterprise Diagram Wizards — Parameterized Builders", systemImage: "wand.and.stars")
+                    .font(.system(size: 14, weight: .semibold))
+                Spacer()
+                Button("Close", action: onClose)
+            }
+            Picker("Wizard", selection: $wizardSlug) {
+                Text("Gantt").tag("gantt")
+                Text("Timeline").tag("timeline")
+                Text("PERT / CPM").tag("pert")
+                Text("SQL ⇄ ERD").tag("sql_reverse")
+                Text("Org Chart").tag("org_chart")
+                Text("42U Rack").tag("rack_42u")
+                Text("Arch Rooms").tag("arch_room")
+            }
+            .pickerStyle(.segmented)
+            .onChange(of: wizardSlug) { _, next in
+                specDraft = Self.defaultsBySlug[next] ?? ""
+                outputMessage = ""
+            }
+
+            TextEditor(text: $specDraft)
+                .font(.system(size: 12, design: .monospaced))
+                .frame(minHeight: 220)
+                .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.primary.opacity(0.14), lineWidth: 1))
+
+            if !outputMessage.isEmpty {
+                Text(outputMessage)
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(.secondary)
+            }
+
+            HStack {
+                if wizardSlug == "sql_reverse" {
+                    Button("← Forward-Engineer Page to SQL DDL") {
+                        let res = session.runEnterpriseDomainWizard(wizardSlug: "sql_forward", specText: "", createNewPage: false, undoManager: undoManager)
+                        if !res.exportedText.isEmpty {
+                            specDraft = res.exportedText
+                        }
+                        outputMessage = res.summary
+                    }
+                }
+                Spacer()
+                Button("Build on Active Page") {
+                    let res = session.runEnterpriseDomainWizard(wizardSlug: wizardSlug, specText: specDraft, createNewPage: false, undoManager: undoManager)
+                    outputMessage = res.summary
+                    onClose()
+                }
+                Button("+ Build on New Page") {
+                    let res = session.runEnterpriseDomainWizard(wizardSlug: wizardSlug, specText: specDraft, createNewPage: true, undoManager: undoManager)
+                    outputMessage = res.summary
+                    onClose()
+                }
+                .buttonStyle(.borderedProminent)
+            }
+        }
+        .padding(18)
+        .frame(width: 650, height: 430)
+        .onAppear {
+            let clean = Self.defaultsBySlug.keys.contains(initialSlug) ? initialSlug : "gantt"
+            wizardSlug = clean
+            specDraft = Self.defaultsBySlug[clean] ?? ""
+        }
+    }
+}
+
+private struct VexioCadToolsSheet: View {
+    @ObservedObject var session: VexioDocumentSession
+    let onExportDwg: () -> Void
+    let onClose: () -> Void
+    @Environment(\.undoManager) private var undoManager
+
+    @State private var scaleSlug: String = "1/4_in_ft"
+    @State private var lockScale: Bool = true
+    @State private var statusNote: String = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Label("AutoCAD Interop — Scale Lock, Layer Convert & Binary .DWG", systemImage: "ruler")
+                    .font(.system(size: 14, weight: .semibold))
+                Spacer()
+                Button("Close", action: onClose)
+            }
+            Picker("Drawing Scale", selection: $scaleSlug) {
+                Text("Architectural 1/4\" = 1'-0\" (1:48)").tag("1/4_in_ft")
+                Text("Architectural 1/8\" = 1'-0\" (1:96)").tag("1/8_in_ft")
+                Text("Metric Engineering 1:50").tag("1:50")
+                Text("Metric Floorplan 1:100").tag("1:100")
+                Text("Metric Site Plan 1:200").tag("1:200")
+                Text("Unscaled 1:1").tag("1:1")
+            }
+            Toggle("Protect PageScale & DrawingScale with GUARD() and lock CAD Background", isOn: $lockScale)
+                .font(.system(size: 12))
+            HStack {
+                Button("Apply CAD Scale Lock") {
+                    let ratio = session.applyCadScalePreset(scaleSlug: scaleSlug, locked: lockScale, undoManager: undoManager)
+                    statusNote = String(format: "Applied scale %@ (ratio 1:%.0f).", scaleSlug, ratio)
+                }
+                Spacer()
+                Button("Export Binary .DWG…", action: onExportDwg)
+                Button("Convert All CAD Layers → Visio Shapes") {
+                    let count = session.convertCadLayersToVisioShapes(layerNameOrAll: "*", undoManager: undoManager)
+                    statusNote = "Converted \(count) CAD entity shape(s) to unlocked Visio shapes."
+                }
+                .buttonStyle(.borderedProminent)
+            }
+            if !statusNote.isEmpty {
+                Text(statusNote)
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(18)
+        .frame(width: 560)
     }
 }

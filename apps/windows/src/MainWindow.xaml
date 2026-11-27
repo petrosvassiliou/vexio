@@ -22,6 +22,7 @@
             <KeyboardAccelerator Key="F4" Modifiers="Shift" Invoked="OnPageSetupAccelerator" />
             <KeyboardAccelerator Key="F5" Modifiers="Shift" Invoked="OnToggleShapeSheetAccelerator" />
             <KeyboardAccelerator Key="F9" Modifiers="Menu" Invoked="OnMacroEditorAccelerator" />
+            <KeyboardAccelerator Key="K" Modifiers="Control" Invoked="OnHyperlinkAccelerator" />
             <KeyboardAccelerator Key="G" Modifiers="Control" Invoked="OnGroupAccelerator" />
             <KeyboardAccelerator Key="G" Modifiers="Control,Shift" Invoked="OnUngroupAccelerator" />
         </Grid.KeyboardAccelerators>
@@ -196,6 +197,7 @@
                                     <MenuFlyoutItem Text="Export High-DPI PNG (.png)" Click="OnExportPngClick" />
                                     <MenuFlyoutItem Text="Export JPEG (.jpg)" Click="OnExportJpgClick" />
                                     <MenuFlyoutItem Text="Export AutoCAD DXF (.dxf)" Click="OnExportDxfClick" />
+                                    <MenuFlyoutItem Text="Export AutoCAD DWG (.dwg)" Click="OnExportDwgClick" />
                                     <MenuFlyoutSeparator />
                                     <MenuFlyoutItem Text="PowerPoint Deck (.pptx)" Click="OnExportPptxClick" />
                                     <MenuFlyoutItem Text="Word Process Spec (.docx)" Click="OnExportDocxClick" />
@@ -510,8 +512,10 @@
                                     <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnInsertSwimlaneClick" Content="Swimlane" />
                                     <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnInsertCalloutClick" Content="Callout" />
                                     <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnInsertLegendClick" Content="Data Legend" />
+                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnInsertHyperlinkClick" Content="Hyperlink &amp; Tip… (Ctrl+K)" />
+                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnOpenDomainWizardsClick" FontWeight="SemiBold" Content="Diagram Wizards…" />
                                 </StackPanel>
-                                <TextBlock Text="Diagram Parts" Style="{StaticResource VexioRibbonGroupLabelStyle}" />
+                                <TextBlock Text="Diagram Parts &amp; Wizards" Style="{StaticResource VexioRibbonGroupLabelStyle}" />
                             </StackPanel>
                             <AppBarSeparator />
                             <StackPanel>
@@ -520,6 +524,7 @@
                                     <ToggleButton x:Name="LockCadScaleToggle" Style="{StaticResource VexioRibbonToggleButtonStyle}" IsChecked="True"
                                                   Click="OnLockCadScaleClick" Content="Lock CAD Architectural Scale" />
                                     <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnConvertCadToShapeSheetClick" Content="Convert CAD to ShapeSheet" />
+                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnExportDwgClick" Content="Export .DWG" />
                                 </StackPanel>
                                 <TextBlock Text="Offline CAD Interop" Style="{StaticResource VexioRibbonGroupLabelStyle}" />
                             </StackPanel>
@@ -702,6 +707,8 @@
                                 <StackPanel Orientation="Horizontal" Spacing="4" Height="56">
                                     <ToggleButton x:Name="InkPenToggle" Style="{StaticResource VexioRibbonToggleButtonStyle}" Click="OnInkPenToggleClick" Content="Markup Pen" />
                                     <ToggleButton x:Name="InkHighlighterToggle" Style="{StaticResource VexioRibbonToggleButtonStyle}" Click="OnInkHighlighterToggleClick" Content="Highlighter" />
+                                    <ToggleButton x:Name="InkEraserToggle" Style="{StaticResource VexioRibbonToggleButtonStyle}" Click="OnInkEraserToggleClick" Content="Ink Eraser" />
+                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnClearPageInkClick" Content="Clear Ink" />
                                     <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnConvertInkToShapesClick" Content="Ink to Geometry" />
                                 </StackPanel>
                                 <TextBlock Text="Stylus &amp; Markup Ink" Style="{StaticResource VexioRibbonGroupLabelStyle}" />
@@ -709,7 +716,7 @@
                             <AppBarSeparator />
                             <StackPanel>
                                 <StackPanel Orientation="Horizontal" Spacing="4" Height="56">
-                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnNewCommentClick" Content="New Comment" />
+                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnNewCommentClick" FontWeight="SemiBold" Content="Comments Thread…" />
                                     <ToggleButton x:Name="ShowMarkupOverlayToggle" Style="{StaticResource VexioRibbonToggleButtonStyle}" IsChecked="True"
                                                   Click="OnToggleMarkupOverlayClick" Content="Show Markup Overlay" />
                                 </StackPanel>
@@ -775,6 +782,7 @@
                                     <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnToggleShapeSheetClick" FontWeight="SemiBold" Content="Show ShapeSheet (Shift+F5)" />
                                     <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnGuardSelectedCellClick" Content="Wrap in GUARD()" />
                                     <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnEnsureControlHandleClick" Content="+ Control Handle" ToolTipService.ToolTip="Attach Yellow Parametric Controls.Row_1 Diamond Handle" />
+                                    <ToggleButton x:Name="EditVerticesToggle" Style="{StaticResource VexioRibbonToggleButtonStyle}" Click="OnEditVerticesToggleClick" Content="Edit Vertices" ToolTipService.ToolTip="Drag, Insert, or Delete Sub-Shape Geometry Vertices" />
                                     <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnResetConnectorRoutingClick" Content="Reset Route" ToolTipService.ToolTip="Restore Automatic A* Orthogonal Routing on Selected Connector" />
                                 </StackPanel>
                                 <TextBlock Text="Shape Design" Style="{StaticResource VexioRibbonGroupLabelStyle}" />
@@ -952,6 +960,12 @@
                         </ToggleButton>
                         <ToggleButton Tag="13" Click="OnRailToolClick" HorizontalAlignment="Stretch" Padding="2,4" ToolTipService.ToolTip="Markup Highlighter">
                             <StackPanel Spacing="1"><PathIcon Width="13" Height="13" Data="M 9,2 L 14,7 L 7,14 L 2,14 L 2,9 Z" /><TextBlock Text="Marker" FontSize="9.5" HorizontalAlignment="Center" /></StackPanel>
+                        </ToggleButton>
+                        <ToggleButton Tag="17" Click="OnRailToolClick" HorizontalAlignment="Stretch" Padding="2,4" ToolTipService.ToolTip="Markup Ink Eraser">
+                            <StackPanel Spacing="1"><PathIcon Width="13" Height="13" Data="M 10,2 L 15,7 L 7,15 L 2,10 Z" /><TextBlock Text="Eraser" FontSize="9.5" HorizontalAlignment="Center" /></StackPanel>
+                        </ToggleButton>
+                        <ToggleButton Tag="16" Click="OnRailToolClick" HorizontalAlignment="Stretch" Padding="2,4" ToolTipService.ToolTip="Edit Sub-Shape Vertices">
+                            <StackPanel Spacing="1"><PathIcon Width="13" Height="13" Data="M 3,3 L 13,5 L 11,13 L 3,11 Z" /><TextBlock Text="Vertices" FontSize="9.5" HorizontalAlignment="Center" /></StackPanel>
                         </ToggleButton>
                     </StackPanel>
                 </ScrollViewer>
@@ -1519,7 +1533,7 @@
                                 </StackPanel>
                                 <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
                                     <Button Click="OnCheckUpdatesClick" Content="Check for Updates Now" />
-                                    <TextBlock x:Name="BackstageUpdateStatusText" Text="Vexio v0.5.0-beta • Automatic background update check enabled."
+                                    <TextBlock x:Name="BackstageUpdateStatusText" Text="Vexio v0.6.0-beta • Automatic background update check enabled."
                                                FontSize="12" Opacity="0.8" VerticalAlignment="Center" />
                                 </StackPanel>
                             </StackPanel>

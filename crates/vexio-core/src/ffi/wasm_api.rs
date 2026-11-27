@@ -2685,4 +2685,70 @@ impl WasmVexioSession {
             .reset_connector_routing(page_id, shape_id as u64)
             .unwrap_or(false)
     }
+
+    // --- v0.6.0-beta: Vertex Insert/Delete, Comment Resolve/Delete, Ink Clear, Domain Wizards & CAD Tools ---
+
+    pub fn insert_shape_vertex(
+        &mut self,
+        page_id: u32,
+        shape_id: u32,
+        geom_index: u32,
+        after_row_ix: u32,
+        x_in: f64,
+        y_in: f64,
+    ) -> bool {
+        self.inner
+            .insert_shape_vertex(page_id, shape_id as u64, geom_index, after_row_ix, x_in, y_in)
+            .unwrap_or(false)
+    }
+
+    pub fn delete_shape_vertex(
+        &mut self,
+        page_id: u32,
+        shape_id: u32,
+        geom_index: u32,
+        row_ix: u32,
+    ) -> bool {
+        self.inner
+            .delete_shape_vertex(page_id, shape_id as u64, geom_index, row_ix)
+            .unwrap_or(false)
+    }
+
+    pub fn resolve_comment(&mut self, comment_id: u32, resolved: bool) -> bool {
+        self.inner
+            .set_comment_resolved(comment_id, resolved)
+            .unwrap_or(false)
+    }
+
+    pub fn delete_comment(&mut self, comment_id: u32) -> bool {
+        self.inner.delete_comment(comment_id).unwrap_or(false)
+    }
+
+    pub fn clear_page_ink(&mut self, page_id: u32) -> u32 {
+        self.inner.clear_page_ink(page_id).unwrap_or(0) as u32
+    }
+
+    pub fn run_domain_wizard(
+        &mut self,
+        page_id: u32,
+        wizard_slug: &str,
+        spec_text: &str,
+    ) -> Result<String, JsValue> {
+        self.inner
+            .run_domain_wizard(page_id, wizard_slug, spec_text)
+            .map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
+    pub fn apply_cad_scale(&mut self, page_id: u32, scale_slug: &str, locked: bool) -> Result<f64, JsValue> {
+        self.inner
+            .apply_cad_scale(page_id, scale_slug, locked)
+            .map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
+    pub fn convert_cad_layers(&mut self, page_id: u32, layer_name_or_all: &str) -> Result<u32, JsValue> {
+        self.inner
+            .convert_cad_layers(page_id, layer_name_or_all)
+            .map(|c| c as u32)
+            .map_err(|e| JsValue::from_str(&e.to_string()))
+    }
 }

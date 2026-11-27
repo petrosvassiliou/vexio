@@ -177,7 +177,7 @@ object VexioI18n {
             }
         }
         if ("Automatic update check enabled" in raw) {
-            val ver = raw.substringAfter("Vexio ", "").substringBefore(" •").ifBlank { "v0.5.0-beta" }
+            val ver = raw.substringAfter("Vexio ", "").substringBefore(" •").ifBlank { "v0.6.0-beta" }
             return when (lang) {
                 EN -> "Vexio $ver • Automatic update check enabled"
                 DE -> "Vexio $ver • Automatische Update-Prüfung aktiviert"
@@ -823,6 +823,8 @@ object VexioI18n {
         VexioTool.TEXT_BLOCK -> when (lang) { EN -> "Text"; DE -> "Text"; IT -> "Testo"; FR -> "Texte"; ES -> "Texto"; GR -> "Κείμενο" }
         VexioTool.STYLUS_INK -> when (lang) { EN -> "Pen Ink"; DE -> "Freihand"; IT -> "Inchiostro"; FR -> "Encre"; ES -> "Tinta"; GR -> "Μελάνι" }
         VexioTool.HIGHLIGHTER -> highlighterPill(lang)
+        VexioTool.EDIT_VERTICES -> when (lang) { EN -> "Edit Vertices"; DE -> "Scheitelpunkte"; IT -> "Modifica vertici"; FR -> "Modifier sommets"; ES -> "Editar vértices"; GR -> "Κορυφές" }
+        VexioTool.INK_ERASER -> when (lang) { EN -> "Ink Eraser"; DE -> "Radierer"; IT -> "Gomma"; FR -> "Gomme"; ES -> "Borrador"; GR -> "Γόμα" }
     }
 
     fun booleanOpName(op: VexioBooleanOp, lang: VexioAppLanguage): String = when (op) {

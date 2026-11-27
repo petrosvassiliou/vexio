@@ -267,6 +267,16 @@ class NativeBridgePacketTest {
         verifyNative("nativeAutoSlideSnippets", intT, longT, intT)
         verifyNative("nativeResetConnectorRouting", boolT, longT, intT, longT)
         verifyNative("nativeEnsureControlHandle", boolT, longT, intT, longT)
+        verifyNative("nativeRunVbaMacro", String::class.java, longT, LongArray::class.java, String::class.java)
+        verifyNative("nativeListCommentsJson", String::class.java, longT, intT)
+        verifyNative("nativeAddComment", intT, longT, intT, longT, String::class.java, String::class.java)
+        verifyNative("nativeResolveComment", boolT, longT, intT, boolT)
+        verifyNative("nativeDeleteComment", boolT, longT, intT)
+        verifyNative("nativeClearPageInk", intT, longT, intT)
+        verifyNative("nativeSetHyperlinkAndScreentip", boolT, longT, intT, longT, String::class.java, String::class.java, String::class.java, String::class.java)
+        verifyNative("nativeRunDomainWizard", String::class.java, longT, intT, String::class.java, String::class.java)
+        verifyNative("nativeApplyCadScale", doubleT, longT, intT, String::class.java, boolT)
+        verifyNative("nativeConvertCadLayers", intT, longT, intT, String::class.java)
     }
 
     @Test
@@ -295,9 +305,9 @@ class NativeBridgePacketTest {
         assertTrue(state.isStencilDrawerExpanded)
         assertTrue(state.isInspectorExpanded)
 
-        // All 16 drawing tools map 1:1 to engine tool codes 0..15
-        assertEquals(16, VexioTool.entries.size)
-        assertEquals((0..15).toSet(), VexioTool.entries.map { it.nativeCode }.toSet())
+        // All 18 drawing & markup tools map 1:1 to engine tool codes 0..17
+        assertEquals(18, VexioTool.entries.size)
+        assertEquals((0..17).toSet(), VexioTool.entries.map { it.nativeCode }.toSet())
 
         // All 33 Visio Professional & Awesome-Visio stencil categories are present
         assertEquals(33, BuiltInStencilCatalog.categories.size)
@@ -681,8 +691,8 @@ class NativeBridgePacketTest {
         assertEquals(33, vm.uiState.value.stencilCategories.size)
         assertTrue(vm.uiState.value.stencilMasters.isNotEmpty())
         assertTrue(
-            "Expected 0.5.0-beta in updateStatusMessage, got: ${vm.uiState.value.updateStatusMessage}",
-            vm.uiState.value.updateStatusMessage.contains("0.5.0-beta")
+            "Expected 0.6.0-beta in updateStatusMessage, got: ${vm.uiState.value.updateStatusMessage}",
+            vm.uiState.value.updateStatusMessage.contains("0.6.0-beta")
         )
 
         val sampleNativeJson = """
@@ -761,6 +771,47 @@ class NativeBridgePacketTest {
         assertTrue(id2 != id1)
         val pinX2 = vm.uiState.value.shapeSheetCells.first { it.cellName == "PinX" }.formula
         assertTrue("Expected cascaded PinX on consecutive double-click drops: $pinX1 vs $pinX2", pinX1 != pinX2)
+    }
+
+    @Test
+    fun v060Milestone1VbaCommentsHyperlinksWizardsAndCadToolsWorkDeterministically() {
+        val vm = VexioSessionViewModel()
+
+        // 1. Edit Vertices (16) and Ink Eraser (17) tools
+        vm.selectTool(VexioTool.EDIT_VERTICES)
+        assertEquals(16, vm.uiState.value.activeTool.nativeCode)
+        vm.selectTool(VexioTool.INK_ERASER)
+        assertEquals(17, vm.uiState.value.activeTool.nativeCode)
+
+        // 2. VBA Sandbox execution
+        val vbaSummary = vm.runVbaMacro(
+            """
+            Sub ResizeHero()
+                ActivePage.Shapes(1).Cells("Width").FormulaU = "3.75 in"
+            End Sub
+            """.trimIndent()
+        )
+        assertTrue(vbaSummary.isNotBlank())
+        assertEquals("3.75 in", vm.uiState.value.shapeSheetCells.first { it.cellName == "Width" }.formula)
+
+        // 3. Threaded Review Comments
+        val cid = vm.addReviewComment("Alice", "Verify failover SLA")
+        assertTrue(cid > 0)
+        assertEquals(1, vm.uiState.value.reviewComments.size)
+        vm.toggleResolveComment(cid, true)
+        assertTrue(vm.uiState.value.reviewComments.first().resolved)
+        vm.deleteReviewComment(cid)
+        assertTrue(vm.uiState.value.reviewComments.isEmpty())
+
+        // 4. Hyperlink & ScreenTip + Domain Wizards + CAD Scale & Binary DWG export
+        assertTrue(vm.saveHyperlinkAndScreentip("Runbook", "https://example.com/runbook", "Page-2", "99.99% SLA"))
+        assertEquals("https://example.com/runbook", vm.uiState.value.hyperlinkAddress)
+        vm.selectDomainWizardPreset("pert")
+        assertTrue(vm.runDomainWizard().isNotBlank())
+        assertEquals(48.0, vm.applyCadArchitecturalScale("1/4_in_ft", true), 1e-6)
+        assertTrue(vm.convertCadLayersToShapeSheet("*") >= 1)
+        val dwgBytes = vm.exportDocumentBytes("dwg")
+        assertEquals("AC1018", String(dwgBytes, 0, 6, Charsets.ISO_8859_1))
     }
 }
 

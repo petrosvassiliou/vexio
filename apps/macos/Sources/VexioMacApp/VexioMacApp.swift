@@ -404,6 +404,20 @@ public struct VexioGlobalMenuCommands: Commands {
                     NotificationCenter.default.post(name: .vexioOpenSlideSnippetsSheet, object: nil)
                 }
                 .keyboardShortcut("p", modifiers: [.command, .option])
+                Button("VBA Macro Automation Studio…") {
+                    NotificationCenter.default.post(name: .vexioOpenVbaStudioSheet, object: nil)
+                }
+                .keyboardShortcut("v", modifiers: [.command, .option])
+                Button("Hyperlink & ScreenTip…") {
+                    NotificationCenter.default.post(name: .vexioOpenHyperlinkSheet, object: nil)
+                }
+                .keyboardShortcut("k", modifiers: [.command])
+                Button("Enterprise Diagram Wizards…") {
+                    NotificationCenter.default.post(name: .vexioOpenDomainWizardsSheet, object: "gantt")
+                }
+                Button("AutoCAD Scale Lock & Layer Convert…") {
+                    NotificationCenter.default.post(name: .vexioOpenCadToolsSheet, object: nil)
+                }
             }
             .disabled(session == nil)
 

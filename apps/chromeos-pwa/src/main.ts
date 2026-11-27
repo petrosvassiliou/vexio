@@ -55,6 +55,8 @@ type ActiveModal =
   | 'link'
   | 'markup'
   | 'slides'
+  | 'wizards'
+  | 'cadTools'
   | 'stencilCatalog'
   | 'unsavedConfirm';
 type ResizeHandleDir = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w';
@@ -782,9 +784,21 @@ class VexioChromeOsApp {
       return true;
     }
   })();
-  private updateStatusText = 'Vexio v0.5.0-beta • Automatic updates enabled';
+  private updateStatusText = 'Vexio v0.6.0-beta • Automatic updates enabled';
   private latestReleaseTag: string | null = null;
   private latestReleaseUrl = 'https://github.com/petrosvassiliou/vexio/releases';
+
+  private activeWizardSlug: 'gantt' | 'timeline' | 'pert' | 'rack_42u' | 'arch_room' = 'gantt';
+  private wizardDraftBySlug: Record<'gantt' | 'timeline' | 'pert' | 'rack_42u' | 'arch_room', string> = {
+    gantt: `ID,Task Name,StartDay,DurationDays,PercentComplete,DependsOn\n1,Architecture Spec,0,4,100,\n2,Rust ShapeSheet & CAD Core,4,7,100,1\n3,Multi-OS Native Viewport,10,6,85,2\n4,Enterprise QA & GA Ship,16,4,50,3`,
+    timeline: `# Title: Product Release Roadmap | Horizon: 100\n10,Core Engine Lock,true\n35,CAD & Legacy VSD Parity,false\n65,Multi-OS Public Beta,true\n95,Enterprise v1.0 GA,true`,
+    pert: `ID,Task Name,DurationDays,Predecessors\nA,System Architecture,3,\nB,Rust Core & DAG,6,A\nC,Stencil Library,3,A\nD,Multi-OS Shells,5,B;C\nE,Release Signoff,2,D`,
+    rack_42u: `Device,StartU,HeightU\nTop-of-Rack Leaf Switch,41,2\nPerimeter Firewall Pair,38,2\nK8s Compute Blade Chassis,26,8\nNVMe SAN Storage Array,14,6\nRedundant UPS Battery,1,4`,
+    arch_room: `Room,WidthIn,HeightIn\nMain Server Hall,3.4,2.4\nNOC Operations Suite,2.6,2.0\nMDF Telecom Closet,1.8,1.6`,
+  };
+  private cadScaleSlug = '1/4_in_ft';
+  private cadScaleLocked = true;
+  private cadConvertTargetLayer = '*';
 
   private activeRibbonTab = 'Home';
   private activeTool: ActiveTool = 'pointer';
@@ -1290,7 +1304,7 @@ class VexioChromeOsApp {
       return;
     }
 
-    const currentVersion = '0.5.0-beta';
+    const currentVersion = '0.6.0-beta';
     try {
       const resp = await fetch('https://api.github.com/repos/petrosvassiliou/vexio/releases', {
         headers: { Accept: 'application/vnd.github+json' },
@@ -2111,6 +2125,20 @@ class VexioChromeOsApp {
         await this.rotateOrFlipSelected(90);
         return;
       }
+      if (!inInput && (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k' && this.primarySelectedId) {
+        e.preventDefault();
+        this.activeModal = 'link';
+        this.modalOutputMessage = '';
+        this.render();
+        return;
+      }
+      if (!inInput && e.altKey && e.key === 'F9') {
+        e.preventDefault();
+        this.activeModal = 'vba';
+        this.modalOutputMessage = '';
+        this.render();
+        return;
+      }
       if (!inInput && (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'g') {
         e.preventDefault();
         if (e.shiftKey) {
@@ -2901,9 +2929,11 @@ class VexioChromeOsApp {
           <button class="m3-btn" id="btn-open-link-modal" ${this.primarySelectedId ? '' : 'disabled'}>Hyperlink...</button>
           <div class="ribbon-divider"></div>
           <span class="ribbon-group-label">Engineering &amp; CAD</span>
-          <button class="m3-btn" id="btn-ins-room">Room (Live SqFt)</button>
-          <button class="m3-btn" id="btn-ins-rack">42U Server Rack</button>
+          <button class="m3-btn" id="btn-ins-room">Room Wizard...</button>
+          <button class="m3-btn" id="btn-ins-rack">42U Rack Wizard...</button>
           <button class="m3-btn tonal" id="btn-ins-cad">Import DWG / DXF...</button>
+          <button class="m3-btn tonal" id="btn-open-cad-tools">CAD Scale &amp; Convert...</button>
+          <button class="m3-btn" id="btn-export-dwg">Export .DWG</button>
           <button class="m3-btn" id="btn-export-docx">Export Word Spec (.docx)</button>
           <button class="m3-btn" id="btn-export-vsd">Export Legacy .VSD</button>
         `;
@@ -2997,6 +3027,7 @@ class VexioChromeOsApp {
           <span class="ribbon-group-label">Markup Ink</span>
           <button class="m3-btn ${this.activeTool === 'pen' ? 'active' : ''}" data-tool="pen">Pen Ink</button>
           <button class="m3-btn ${this.activeTool === 'highlighter' ? 'active' : ''}" data-tool="highlighter">Highlighter</button>
+          <button class="m3-btn" id="btn-clear-page-ink">Clear Ink</button>
           <div class="ribbon-divider"></div>
           <span class="ribbon-group-label">Compare &amp; Review (${snap.comments.length} notes)</span>
           <button class="m3-btn tonal" id="btn-open-compare-modal">Compare Diagrams...</button>
@@ -4224,9 +4255,9 @@ class VexioChromeOsApp {
     if (this.activeInspectorTab === 'comments') {
       return `
         <div class="insp-card">
-          <div class="insp-card-title">Review Notes</div>
+          <div class="insp-card-title">Review Notes (${snap.comments.length})</div>
           <div style="display:flex;gap:6px">
-            <input class="cell-input" id="new-comment-input" placeholder="Add note on selected shape..." />
+            <input class="cell-input" id="new-comment-input" placeholder="Add note on selected shape or page..." />
             <button class="m3-btn file-backstage-btn" id="btn-post-comment">Post</button>
           </div>
           ${
@@ -4235,9 +4266,15 @@ class VexioChromeOsApp {
               : snap.comments
                   .map(
                     (c) => `
-                <div class="list-row-card" style="flex-direction:column;align-items:flex-start;gap:3px">
-                  <div style="font-weight:600;color:var(--m3-primary);font-size:11px">${c.author} ${c.shapeId ? `• Sheet.${c.shapeId}` : ''}</div>
-                  <div>${c.text}</div>
+                <div class="list-row-card" style="flex-direction:column;align-items:stretch;gap:4px;opacity:${c.resolved ? '0.68' : '1'}">
+                  <div style="display:flex;justify-content:space-between;align-items:center;gap:6px">
+                    <span style="font-weight:600;color:var(--m3-primary);font-size:11px">${c.author} ${c.shapeId ? `• Sheet.${c.shapeId}` : ''}${c.resolved ? ' ✓ Resolved' : ''}</span>
+                    <div style="display:flex;gap:4px">
+                      <button class="fmt-btn" data-resolve-comment="${c.id}" data-comment-resolved="${c.resolved ? '1' : '0'}" title="${c.resolved ? 'Reopen Comment' : 'Mark Resolved'}">✓</button>
+                      <button class="fmt-btn" data-delete-comment="${c.id}" title="Delete Comment">✕</button>
+                    </div>
+                  </div>
+                  <div style="${c.resolved ? 'text-decoration:line-through' : ''}">${c.text}</div>
                 </div>`
                   )
                   .join('')
@@ -4640,7 +4677,7 @@ class VexioChromeOsApp {
             </div>
             <div class="list-row-card" style="flex-direction:column;align-items:flex-start;gap:6px">
               <strong>${this.updateStatusText}</strong>
-              <span style="font-size:11.5px;color:var(--m3-text-muted)">Installed build: Vexio v0.5.0-beta • Offline-First Workbox PWA + GitHub Releases channel</span>
+              <span style="font-size:11.5px;color:var(--m3-text-muted)">Installed build: Vexio v0.6.0-beta • Offline-First Workbox PWA + GitHub Releases channel</span>
             </div>
             <label style="display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer">
               <input type="checkbox" id="chk-auto-updates" ${this.autoCheckUpdates ? 'checked' : ''} />
@@ -4808,6 +4845,90 @@ class VexioChromeOsApp {
             </div>
 
             ${this.modalOutputMessage ? `<div style="color:var(--m3-secondary);font-size:12px">${this.modalOutputMessage}</div>` : ''}
+          </div>
+        </div>
+      `;
+    }
+
+    if (this.activeModal === 'wizards') {
+      const slug = this.activeWizardSlug;
+      const draft = this.wizardDraftBySlug[slug];
+      return `
+        <div class="modal-backdrop">
+          <div class="modal-card wide">
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <strong>Enterprise Diagram Wizards — Gantt · Timeline · PERT/CPM · 42U Rack · Architectural Rooms</strong>
+              <button class="m3-btn" id="btn-close-modal">Close</button>
+            </div>
+            <div style="display:flex;gap:6px;flex-wrap:wrap">
+              ${(
+                [
+                  ['gantt', 'Gantt Schedule'],
+                  ['timeline', 'Project Timeline'],
+                  ['pert', 'PERT / Critical Path'],
+                  ['rack_42u', '42U Rack Elevation'],
+                  ['arch_room', 'Architectural Rooms'],
+                ] as const
+              )
+                .map(
+                  ([id, lbl]) =>
+                    `<button class="m3-btn ${slug === id ? 'active' : 'tonal'}" data-wizard-slug="${id}">${lbl}</button>`
+                )
+                .join('')}
+            </div>
+            <textarea class="studio-textarea" id="domain-wizard-editor" style="min-height:210px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace">${draft.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</textarea>
+            ${this.modalOutputMessage ? `<div style="color:var(--m3-secondary);font-size:12px">${this.modalOutputMessage}</div>` : ''}
+            <div style="display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap">
+              <button class="m3-btn tonal" id="btn-wizard-run-cur">Build on Active Page</button>
+              <button class="m3-btn active" id="btn-wizard-run-new">+ Build on New Page</button>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    if (this.activeModal === 'cadTools') {
+      const layers = this.snapshot?.layers ?? [];
+      return `
+        <div class="modal-backdrop">
+          <div class="modal-card">
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <strong>AutoCAD Interop — Architectural Scale Lock &amp; Layer Conversion</strong>
+              <button class="m3-btn" id="btn-close-modal">Close</button>
+            </div>
+            <label class="pane-header">Drawing Scale Preset</label>
+            <select class="cell-input" id="cad-scale-select">
+              ${[
+                ['1/4_in_ft', 'Architectural 1/4" = 1\'-0" (1:48)'],
+                ['1/8_in_ft', 'Architectural 1/8" = 1\'-0" (1:96)'],
+                ['1:50', 'Metric Engineering 1:50'],
+                ['1:100', 'Metric Floorplan 1:100'],
+                ['1:200', 'Metric Site Plan 1:200'],
+                ['1:1', 'Unscaled 1:1'],
+              ]
+                .map(
+                  ([val, lbl]) =>
+                    `<option value="${val}" ${this.cadScaleSlug === val ? 'selected' : ''}>${lbl}</option>`
+                )
+                .join('')}
+            </select>
+            <label style="display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer">
+              <input type="checkbox" id="chk-cad-scale-lock" ${this.cadScaleLocked ? 'checked' : ''} />
+              Protect PageScale &amp; DrawingScale with GUARD() and lock CAD Background
+            </label>
+            <div style="display:flex;justify-content:flex-end">
+              <button class="m3-btn tonal" id="btn-apply-cad-scale">Apply Scale Lock</button>
+            </div>
+            <div class="pane-header" style="margin-top:6px">Convert Imported CAD Entities to Editable Visio Shapes</div>
+            <select class="cell-input" id="cad-convert-layer-select">
+              <option value="*">All CAD Layers on Page (${layers.length})</option>
+              ${layers.map((l) => `<option value="${l.name.replace(/"/g, '&quot;')}">${l.name} (${l.memberCount ?? 0} shapes)</option>`).join('')}
+            </select>
+            ${this.modalOutputMessage ? `<div style="color:var(--m3-secondary);font-size:12px">${this.modalOutputMessage}</div>` : ''}
+            <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap">
+              <button class="m3-btn" id="btn-modal-export-dwg">Export Binary .DWG</button>
+              <button class="m3-btn active" id="btn-convert-cad-layers">Convert CAD Layer(s) → Visio Shapes</button>
+            </div>
           </div>
         </div>
       `;
@@ -5193,6 +5314,8 @@ class VexioChromeOsApp {
     document.getElementById('btn-export-pptx')?.addEventListener('click', () => this.handleSaveInPlace('pptx'));
     document.getElementById('btn-export-docx')?.addEventListener('click', () => this.handleSaveInPlace('docx'));
     document.getElementById('btn-export-dxf')?.addEventListener('click', () => this.handleSaveInPlace('dxf'));
+    document.getElementById('btn-export-dwg')?.addEventListener('click', () => this.handleSaveInPlace('dwg'));
+    document.getElementById('btn-modal-export-dwg')?.addEventListener('click', () => this.handleSaveInPlace('dwg'));
     document.getElementById('btn-export-vsd')?.addEventListener('click', () => this.handleSaveInPlace('vsd'));
     document.querySelectorAll('[data-export-ext]').forEach((btn) => {
       btn.addEventListener('click', async () => {
@@ -6248,19 +6371,94 @@ class VexioChromeOsApp {
       this.render();
     });
 
-    document.getElementById('btn-ins-room')?.addEventListener('click', async () => {
-      const res = await this.callEngine('insertRoom', { roomName: 'Main Data Hall' });
-      this.persistMutationSideEffects(res.wal);
+    const openWizardModal = (slug: 'gantt' | 'timeline' | 'pert' | 'rack_42u' | 'arch_room') => {
+      this.activeWizardSlug = slug;
+      this.activeModal = 'wizards';
+      this.modalOutputMessage = '';
+      this.render();
+    };
+
+    document.getElementById('btn-ins-room')?.addEventListener('click', () => openWizardModal('arch_room'));
+    document.getElementById('btn-ins-rack')?.addEventListener('click', () => openWizardModal('rack_42u'));
+    document.getElementById('btn-gen-pert')?.addEventListener('click', () => openWizardModal('pert'));
+    document.getElementById('btn-gen-gantt')?.addEventListener('click', () => openWizardModal('gantt'));
+    document.getElementById('btn-gen-timeline')?.addEventListener('click', () => openWizardModal('timeline'));
+
+    document.querySelectorAll('[data-wizard-slug]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const ed = document.getElementById('domain-wizard-editor') as HTMLTextAreaElement | null;
+        if (ed) this.wizardDraftBySlug[this.activeWizardSlug] = ed.value;
+        const nextSlug = (btn as HTMLElement).dataset.wizardSlug as typeof this.activeWizardSlug;
+        if (nextSlug) this.activeWizardSlug = nextSlug;
+        this.modalOutputMessage = '';
+        this.render();
+      });
+    });
+
+    const executeDomainWizard = async (createNewPage: boolean) => {
+      const ed = document.getElementById('domain-wizard-editor') as HTMLTextAreaElement | null;
+      if (ed) this.wizardDraftBySlug[this.activeWizardSlug] = ed.value;
+      const specText = this.wizardDraftBySlug[this.activeWizardSlug];
+      const pageTitles: Record<typeof this.activeWizardSlug, string> = {
+        gantt: 'Gantt-Schedule',
+        timeline: 'Project-Timeline',
+        pert: 'PERT-CriticalPath',
+        rack_42u: 'Rack-Elevation',
+        arch_room: 'Floor-Rooms',
+      };
+      const res = await this.callEngine('runDomainWizard', {
+        wizardSlug: this.activeWizardSlug,
+        specText,
+        newPageName: createNewPage ? pageTitles[this.activeWizardSlug] : '',
+      });
       this.snapshot = res.snapshot;
-      this.setSingleSelection(res.roomId);
+      this.persistMutationSideEffects(res.wal);
+      this.activeModal = null;
+      this.showToast(res.result?.summary || 'Generated diagram from wizard', 'info');
+      this.render();
+    };
+
+    document.getElementById('btn-wizard-run-cur')?.addEventListener('click', () => void executeDomainWizard(false));
+    document.getElementById('btn-wizard-run-new')?.addEventListener('click', () => void executeDomainWizard(true));
+
+    document.getElementById('btn-open-cad-tools')?.addEventListener('click', () => {
+      this.activeModal = 'cadTools';
+      this.modalOutputMessage = '';
       this.render();
     });
 
-    document.getElementById('btn-ins-rack')?.addEventListener('click', async () => {
-      const res = await this.callEngine('insertRack');
-      this.persistMutationSideEffects(res.wal);
+    document.getElementById('btn-apply-cad-scale')?.addEventListener('click', async () => {
+      const sel = document.getElementById('cad-scale-select') as HTMLSelectElement | null;
+      const chk = document.getElementById('chk-cad-scale-lock') as HTMLInputElement | null;
+      if (sel) this.cadScaleSlug = sel.value;
+      if (chk) this.cadScaleLocked = chk.checked;
+      const res = await this.callEngine('applyCadScale', {
+        scaleSlug: this.cadScaleSlug,
+        locked: this.cadScaleLocked,
+      });
       this.snapshot = res.snapshot;
-      this.setSingleSelection(res.rackId);
+      this.persistMutationSideEffects(res.wal);
+      this.modalOutputMessage = `Applied CAD scale (${this.cadScaleSlug}, ratio 1:${Math.round(res.ratio ?? 1)}).`;
+      this.render();
+    });
+
+    document.getElementById('btn-convert-cad-layers')?.addEventListener('click', async () => {
+      const sel = document.getElementById('cad-convert-layer-select') as HTMLSelectElement | null;
+      const layerName = sel?.value ?? '*';
+      this.cadConvertTargetLayer = layerName;
+      const res = await this.callEngine('convertCadLayers', { layerName });
+      this.snapshot = res.snapshot;
+      this.persistMutationSideEffects(res.wal);
+      this.modalOutputMessage = `Converted ${res.convertedCount} CAD entity shape(s) to unlocked Visio shapes with connection ports.`;
+      this.showToast(this.modalOutputMessage, 'info');
+      this.render();
+    });
+
+    document.getElementById('btn-clear-page-ink')?.addEventListener('click', async () => {
+      const res = await this.callEngine('clearPageInk');
+      this.snapshot = res.snapshot;
+      this.persistMutationSideEffects(res.wal);
+      this.showToast(`Cleared ${res.cleared ?? 0} markup ink stroke(s)`, 'info');
       this.render();
     });
 
@@ -6303,29 +6501,7 @@ class VexioChromeOsApp {
       });
     });
 
-    document.getElementById('btn-gen-pert')?.addEventListener('click', async () => {
-      await this.callEngine('addPage', { name: 'PERT-CriticalPath' });
-      const res = await this.callEngine('generatePert');
-      this.snapshot = res.snapshot;
-      this.persistMutationSideEffects(res.wal);
-      this.render();
-    });
-
-    document.getElementById('btn-gen-gantt')?.addEventListener('click', async () => {
-      await this.callEngine('addPage', { name: 'Gantt-Schedule' });
-      const res = await this.callEngine('generateGanttDemo');
-      this.snapshot = res.snapshot;
-      this.persistMutationSideEffects(res.wal);
-      this.render();
-    });
-
-    document.getElementById('btn-gen-timeline')?.addEventListener('click', async () => {
-      await this.callEngine('addPage', { name: 'Project-Timeline' });
-      const res = await this.callEngine('generateTimelineDemo');
-      this.snapshot = res.snapshot;
-      this.persistMutationSideEffects(res.wal);
-      this.render();
-    });
+    // Parameterized PERT, Gantt, and Timeline buttons are wired above via `openWizardModal(...)`
 
     document.getElementById('btn-export-bom')?.addEventListener('click', async () => {
       const { bytes } = await this.callEngine('exportBomReport', { formatExt: 'xlsx' });
@@ -7722,6 +7898,21 @@ class VexioChromeOsApp {
           return;
         }
 
+        if (ev.button === 2 && targetEl?.dataset.vtxShape) {
+          ev.preventDefault();
+          ev.stopPropagation();
+          const shapeId = Number(targetEl.dataset.vtxShape);
+          const geomIndex = Number(targetEl.dataset.vtxGeom ?? 1);
+          const rowIx = Number(targetEl.dataset.vtxRow ?? 1);
+          void this.callEngine('deleteShapeVertex', { shapeId, geomIndex, rowIx }).then((res) => {
+            this.activeShapeVertices = res.vertices ?? [];
+            this.snapshot = res.snapshot;
+            this.persistMutationSideEffects(res.wal);
+            this.render();
+          });
+          return;
+        }
+
         if (ev.button !== 0) return;
         const ptIn = this.clientToPageInches(host, ev.clientX, ev.clientY);
 
@@ -7740,18 +7931,47 @@ class VexioChromeOsApp {
           return;
         }
 
-        // 0B. Check Vertex / NURBS Edit Grip
+        // 0B. Check Vertex / NURBS Edit Grip (`Right-Click` or `Alt+Shift+Click` = Delete, `Alt+Click` = Insert, `Drag` = Move)
         const vtxShapeAttr = targetEl?.dataset.vtxShape;
         if (vtxShapeAttr) {
           ev.stopPropagation();
+          const shapeId = Number(vtxShapeAttr);
+          const geomIndex = Number(targetEl?.dataset.vtxGeom ?? 1);
+          const rowIx = Number(targetEl?.dataset.vtxRow ?? 1);
+          if (ev.altKey && ev.shiftKey) {
+            ev.preventDefault();
+            void this.callEngine('deleteShapeVertex', { shapeId, geomIndex, rowIx }).then((res) => {
+              this.activeShapeVertices = res.vertices ?? [];
+              this.snapshot = res.snapshot;
+              this.persistMutationSideEffects(res.wal);
+              this.render();
+            });
+            return;
+          }
+          if (ev.altKey) {
+            ev.preventDefault();
+            void this.callEngine('insertShapeVertex', {
+              shapeId,
+              geomIndex,
+              afterRowIx: rowIx,
+              xIn: ptIn[0] + 0.15,
+              yIn: ptIn[1] + 0.15,
+            }).then((res) => {
+              this.activeShapeVertices = res.vertices ?? [];
+              this.snapshot = res.snapshot;
+              this.persistMutationSideEffects(res.wal);
+              this.render();
+            });
+            return;
+          }
           host.setPointerCapture(ev.pointerId);
           this.dragState = {
             mode: 'vertex',
             startPageIn: ptIn,
             curPageIn: ptIn,
-            shapeId: Number(vtxShapeAttr),
-            geomIndex: Number(targetEl?.dataset.vtxGeom ?? 0),
-            vertexRowIx: Number(targetEl?.dataset.vtxRow ?? 1),
+            shapeId,
+            geomIndex,
+            vertexRowIx: rowIx,
           };
           return;
         }
@@ -8671,6 +8891,31 @@ class VexioChromeOsApp {
       this.snapshot = res.snapshot;
       this.persistMutationSideEffects(res.wal);
       this.render();
+    });
+
+    document.querySelectorAll('[data-resolve-comment]').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const el = btn as HTMLElement;
+        const commentId = Number(el.dataset.resolveComment ?? 0);
+        const curResolved = el.dataset.commentResolved === '1';
+        const res = await this.callEngine('resolveComment', {
+          commentId,
+          resolved: !curResolved,
+        });
+        this.snapshot = res.snapshot;
+        this.persistMutationSideEffects(res.wal);
+        this.render();
+      });
+    });
+
+    document.querySelectorAll('[data-delete-comment]').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const commentId = Number((btn as HTMLElement).dataset.deleteComment ?? 0);
+        const res = await this.callEngine('deleteComment', { commentId });
+        this.snapshot = res.snapshot;
+        this.persistMutationSideEffects(res.wal);
+        this.render();
+      });
     });
 
     document.getElementById('btn-apply-formula')?.addEventListener('click', () => {

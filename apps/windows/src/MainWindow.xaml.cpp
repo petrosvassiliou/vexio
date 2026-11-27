@@ -2304,6 +2304,8 @@ void MainWindow::SetActiveTool(ActiveCanvasTool tool) {
     RectToolToggle().IsChecked(tool == ActiveCanvasTool::Rectangle);
     InkPenToggle().IsChecked(tool == ActiveCanvasTool::InkPen);
     InkHighlighterToggle().IsChecked(tool == ActiveCanvasTool::InkHighlighter);
+    InkEraserToggle().IsChecked(tool == ActiveCanvasTool::InkEraser);
+    EditVerticesToggle().IsChecked(tool == ActiveCanvasTool::EditVertices);
 
     if (auto rail = DrawingToolRailPanel()) {
         for (auto const& child : rail.Children()) {
@@ -2362,13 +2364,21 @@ void MainWindow::SetActiveTool(ActiveCanvasTool tool) {
             CanvasOverlayHudText().Text(L"Markup Highlighter Overlay");
             ApplyCanvasCursor(static_cast<uint32_t>(vexio::win::ViewportCursor::Crosshair));
             break;
+        case ActiveCanvasTool::EditVertices:
+            CanvasOverlayHudText().Text(L"Edit Sub-Shape Vertices (Drag Grip • Alt+Click Insert • Right-Click Delete)");
+            ApplyCanvasCursor(static_cast<uint32_t>(vexio::win::ViewportCursor::Crosshair));
+            break;
+        case ActiveCanvasTool::InkEraser:
+            CanvasOverlayHudText().Text(L"Markup Ink Eraser");
+            ApplyCanvasCursor(static_cast<uint32_t>(vexio::win::ViewportCursor::Crosshair));
+            break;
     }
 }
 
 void MainWindow::OnRailToolClick(IInspectable const& sender, RoutedEventArgs const&) {
     if (auto tb = sender.try_as<ToggleButton>()) {
         const hstring tagStr = unbox_value_or<hstring>(tb.Tag(), L"0");
-        const uint32_t code = std::min<uint32_t>(15u, static_cast<uint32_t>(std::wcstoul(tagStr.c_str(), nullptr, 10)));
+        const uint32_t code = std::min<uint32_t>(17u, static_cast<uint32_t>(std::wcstoul(tagStr.c_str(), nullptr, 10)));
         SetActiveTool(static_cast<ActiveCanvasTool>(code));
     }
 }
@@ -2379,6 +2389,12 @@ void MainWindow::OnConnectorToolClick(IInspectable const&, RoutedEventArgs const
 void MainWindow::OnRectToolClick(IInspectable const&, RoutedEventArgs const&)      { SetActiveTool(ActiveCanvasTool::Rectangle); }
 void MainWindow::OnInkPenToggleClick(IInspectable const&, RoutedEventArgs const&)  { SetActiveTool(ActiveCanvasTool::InkPen); }
 void MainWindow::OnInkHighlighterToggleClick(IInspectable const&, RoutedEventArgs const&) { SetActiveTool(ActiveCanvasTool::InkHighlighter); }
+void MainWindow::OnEditVerticesToggleClick(IInspectable const&, RoutedEventArgs const&) {
+    SetActiveTool(m_activeTool == ActiveCanvasTool::EditVertices ? ActiveCanvasTool::Pointer : ActiveCanvasTool::EditVertices);
+}
+void MainWindow::OnInkEraserToggleClick(IInspectable const&, RoutedEventArgs const&) {
+    SetActiveTool(m_activeTool == ActiveCanvasTool::InkEraser ? ActiveCanvasTool::Pointer : ActiveCanvasTool::InkEraser);
+}
 
 void MainWindow::OnTouchMouseModeToggle(IInspectable const&, RoutedEventArgs const&) {
     m_touchMode = QatTouchMouseToggle().IsChecked().GetBoolean();
@@ -2752,16 +2768,44 @@ void MainWindow::OnInsertCadDrawingClick(IInspectable const&, RoutedEventArgs co
 }
 
 void MainWindow::OnLockCadScaleClick(IInspectable const&, RoutedEventArgs const&) {
+    if (!m_doc) return;
     const bool locked = LockCadScaleToggle().IsChecked().GetBoolean();
-    (void)m_doc.SetCellFormula(m_activePageId, m_selectedShapeId, "LockAspect", locked ? "1" : "0", true);
-    ShowBanner(InfoBarSeverity::Informational, L"CAD Architectural Scale Lock",
-               locked ? L"CAD layer scale locked against accidental resize." : L"CAD layer scale unlocked.");
+    const std::string_view slug = m_metricUnits ? "1:100" : "1/4_in_ft";
+    const auto res = m_doc.ApplyCadScale(m_activePageId, slug, locked);
+    if (res.ok()) {
+        MarkDocumentDirty(true);
+        PresentViewportFrame();
+        RefreshShapeSheetSectionRows();
+        ShowBanner(
+            InfoBarSeverity::Informational,
+            L"CAD Architectural Scale Lock",
+            locked
+                ? std::format(L"Locked CAD architectural scale ({}, ratio 1:{:.0f}) with GUARD().", m_metricUnits ? L"1:100" : L"1/4\" = 1'0\"", *res.value)
+                : L"CAD architectural scale unlocked for interactive resizing.");
+    }
 }
 
 void MainWindow::OnConvertCadToShapeSheetClick(IInspectable const&, RoutedEventArgs const&) {
-    ShowBanner(InfoBarSeverity::Success, L"CAD Entities Converted",
-               L"Converted selected DWG/DXF polylines and arcs into editable ShapeSheet Geometry1 rows.");
-    RefreshShapeSheetSectionRows();
+    if (!m_doc) return;
+    const auto res = m_doc.ConvertCadLayers(m_activePageId, "*");
+    if (res.ok()) {
+        MarkDocumentDirty(true);
+        PresentViewportFrame();
+        SyncInspectorFromShapeSheet();
+        RefreshShapeSheetSectionRows();
+        ShowBanner(
+            InfoBarSeverity::Success,
+            L"CAD Layers Converted to ShapeSheet",
+            std::format(L"Converted {} CAD entity shape(s) into native unlocked ShapeSheet Geometry1 vectors.", *res.value));
+    }
+}
+
+void MainWindow::OnInsertHyperlinkClick(IInspectable const&, RoutedEventArgs const&) {
+    ShowHyperlinkDialogAsync();
+}
+
+void MainWindow::OnOpenDomainWizardsClick(IInspectable const&, RoutedEventArgs const&) {
+    ShowDomainWizardsDialogAsync();
 }
 
 void MainWindow::OnPageSetupClick(IInspectable const&, RoutedEventArgs const&) {
@@ -3229,10 +3273,20 @@ void MainWindow::OnConvertInkToShapesClick(IInspectable const&, RoutedEventArgs 
 }
 
 void MainWindow::OnNewCommentClick(IInspectable const&, RoutedEventArgs const&) {
-    (void)m_doc.SetCellFormula(m_activePageId, m_selectedShapeId, "Comment", "\"Reviewed in Windows Native Workstation\"", true);
-    MarkDocumentDirty(true);
-    ShowBanner(InfoBarSeverity::Informational, L"Markup Comment Attached",
-               std::format(L"Attached review thread annotation to Sheet.{}.", m_selectedShapeId));
+    ShowCommentsDialogAsync();
+}
+
+void MainWindow::OnClearPageInkClick(IInspectable const&, RoutedEventArgs const&) {
+    if (!m_doc) return;
+    const auto res = m_doc.ClearPageInk(m_activePageId);
+    if (res.ok()) {
+        MarkDocumentDirty(true);
+        PresentViewportFrame();
+        ShowBanner(
+            InfoBarSeverity::Informational,
+            L"Page Markup Ink Cleared",
+            std::format(L"Removed {} markup ink stroke(s) from the active page.", *res.value));
+    }
 }
 
 void MainWindow::OnToggleMarkupOverlayClick(IInspectable const&, RoutedEventArgs const&) {
@@ -3458,6 +3512,11 @@ void MainWindow::OnExportDxfClick(IInspectable const&, RoutedEventArgs const&) {
     SaveDocumentAsync(true, "dxf");
 }
 
+void MainWindow::OnExportDwgClick(IInspectable const&, RoutedEventArgs const&) {
+    CloseBackstageOverlay();
+    SaveDocumentAsync(true, "dwg");
+}
+
 void MainWindow::OnTiledPrintClick(IInspectable const&, RoutedEventArgs const&) {
     CloseBackstageOverlay();
     ShowTiledPrintDialogAsync();
@@ -3594,6 +3653,9 @@ IAsyncOperation<bool> MainWindow::SaveDocumentCoreAsync(bool forceSaveAs, std::s
         } else if (forcedExtensionUtf8 == "dxf") {
             picker.FileTypeChoices().Insert(L"AutoCAD DXF Exchange", single_threaded_vector<hstring>({L".dxf"}));
             picker.SuggestedFileName(L"Diagram_CAD");
+        } else if (forcedExtensionUtf8 == "dwg") {
+            picker.FileTypeChoices().Insert(L"AutoCAD Binary Drawing (.dwg)", single_threaded_vector<hstring>({L".dwg"}));
+            picker.SuggestedFileName(hstring{stemName + L"_CAD"});
         } else if (forcedExtensionUtf8 == "pptx") {
             picker.FileTypeChoices().Insert(L"PowerPoint Presentation (.pptx)", single_threaded_vector<hstring>({L".pptx"}));
             picker.SuggestedFileName(hstring{stemName + L"_Deck"});
@@ -3615,6 +3677,7 @@ IAsyncOperation<bool> MainWindow::SaveDocumentCoreAsync(bool forceSaveAs, std::s
             picker.FileTypeChoices().Insert(L"DatadiagramML XML (.vdx)", single_threaded_vector<hstring>({L".vdx"}));
             picker.FileTypeChoices().Insert(L"Archival Vector PDF/A (.pdf)", single_threaded_vector<hstring>({L".pdf"}));
             picker.FileTypeChoices().Insert(L"Scalable Vector Graphics (.svg)", single_threaded_vector<hstring>({L".svg"}));
+            picker.FileTypeChoices().Insert(L"AutoCAD Binary Drawing (.dwg)", single_threaded_vector<hstring>({L".dwg"}));
             picker.FileTypeChoices().Insert(L"AutoCAD DXF (.dxf)", single_threaded_vector<hstring>({L".dxf"}));
             picker.FileTypeChoices().Insert(L"JPEG Image (.jpg)", single_threaded_vector<hstring>({L".jpg"}));
             picker.FileTypeChoices().Insert(L"PNG Image (.png)", single_threaded_vector<hstring>({L".png"}));
@@ -4040,16 +4103,33 @@ fire_and_forget MainWindow::ShowMacroEditorDialogAsync() {
     const auto weakSelf = get_weak();
     const ContentDialogResult res = co_await dlg.ShowAsync();
     if (res == ContentDialogResult::Primary) {
-        if (auto self = weakSelf.get()) {
-            (void)self->m_doc.SetCellFormula(self->m_activePageId, self->m_selectedShapeId, "Width", "2.50 in", true);
-            (void)self->m_doc.SetCellFormula(self->m_activePageId, self->m_selectedShapeId, "Height", "1.20 in", true);
-            (void)self->m_doc.SetCellFormula(self->m_activePageId, self->m_selectedShapeId, "Prop.Status", "\"Approved\"", true);
+        if (auto self = weakSelf.get(); self && self->m_doc) {
+            const auto selIds = self->ResolveTargetSelectionIds();
+            const std::string scriptUtf8 = vexio::win::ToUtf8(scriptBox.Text());
+            const auto runRes = self->m_doc.RunVbaMacro(selIds, scriptUtf8);
+            if (!runRes.ok()) {
+                self->ShowBanner(InfoBarSeverity::Error, L"VBA Sandbox Execution Error", runRes.message());
+                co_return;
+            }
+            uint32_t stmtCount = 0;
+            uint32_t gasUsed = 0;
+            Windows::Data::Json::JsonObject reportObj{nullptr};
+            if (Windows::Data::Json::JsonObject::TryParse(*runRes.value, reportObj)) {
+                stmtCount = static_cast<uint32_t>(reportObj.GetNamedNumber(L"executed_statements", 0.0));
+                gasUsed = static_cast<uint32_t>(reportObj.GetNamedNumber(L"gas_used", 0.0));
+            }
             self->MarkDocumentDirty(true);
+            self->SyncPagesFromCoreState(false);
+            self->PresentViewportFrame();
             self->SyncInspectorFromShapeSheet();
             self->RefreshShapeSheetSectionRows();
-            self->StatusAutomationText().Text(L"VBA Sandbox: Executed 0.4 ms (Gas-Metered)");
-            self->ShowBanner(InfoBarSeverity::Success, L"Automation Routine Executed",
-                             L"Executed StandardizeProcessShapes() inside zero-I/O gas-metered sandbox.");
+            self->StatusAutomationText().Text(hstring{
+                std::format(L"VBA Sandbox: {} stmts • {} gas", stmtCount, gasUsed)
+            });
+            self->ShowBanner(
+                InfoBarSeverity::Success,
+                L"Sandboxed VBA Macro Executed",
+                std::format(L"Executed {} statement(s) ({} gas) inside deterministic zero-I/O sandbox (Undo supported).", stmtCount, gasUsed));
         }
     }
 }
@@ -4399,6 +4479,11 @@ void MainWindow::OnToggleShapeSheetAccelerator(KeyboardAccelerator const&, Keybo
 
 void MainWindow::OnMacroEditorAccelerator(KeyboardAccelerator const&, KeyboardAcceleratorInvokedEventArgs const& args) {
     OnOpenMacroEditorClick(nullptr, nullptr);
+    args.Handled(true);
+}
+
+void MainWindow::OnHyperlinkAccelerator(KeyboardAccelerator const&, KeyboardAcceleratorInvokedEventArgs const& args) {
+    OnInsertHyperlinkClick(nullptr, nullptr);
     args.Handled(true);
 }
 
@@ -5316,7 +5401,7 @@ fire_and_forget MainWindow::ShowOfficialStencilCatalogDialogAsync() {
     }
 
     Windows::Web::Http::HttpClient client{};
-    client.DefaultRequestHeaders().UserAgent().TryParseAdd(L"Vexio-Windows/0.5.0-beta");
+    client.DefaultRequestHeaders().UserAgent().TryParseAdd(L"Vexio-Windows/0.6.0-beta");
     uint32_t installedCount = 0;
 
     for (auto const& target : targets) {
@@ -5578,7 +5663,7 @@ void MainWindow::OnCheckUpdatesClick(IInspectable const&, RoutedEventArgs const&
 }
 
 fire_and_forget MainWindow::CheckForUpdatesAsync(bool userInitiated) {
-    constexpr std::wstring_view kCurrentVersion = L"0.5.0-beta";
+    constexpr std::wstring_view kCurrentVersion = L"0.6.0-beta";
     const auto weakSelf = get_weak();
 
     if (userInitiated) {
@@ -5592,7 +5677,7 @@ fire_and_forget MainWindow::CheckForUpdatesAsync(bool userInitiated) {
 
     try {
         Windows::Web::Http::HttpClient client{};
-        client.DefaultRequestHeaders().UserAgent().TryParseAdd(L"Vexio-Windows/0.5.0-beta");
+        client.DefaultRequestHeaders().UserAgent().TryParseAdd(L"Vexio-Windows/0.6.0-beta");
         client.DefaultRequestHeaders().Accept().TryParseAdd(L"application/vnd.github+json");
 
         const Uri apiUri{L"https://api.github.com/repos/petrosvassiliou/vexio/releases"};
@@ -5601,7 +5686,7 @@ fire_and_forget MainWindow::CheckForUpdatesAsync(bool userInitiated) {
         Windows::Data::Json::JsonArray releasesArr{nullptr};
         if (Windows::Data::Json::JsonArray::TryParse(body, releasesArr) && releasesArr.Size() > 0) {
             const auto relObj = releasesArr.GetObjectAt(0);
-            latestTag = relObj.GetNamedString(L"tag_name", L"v0.5.0-beta").c_str();
+            latestTag = relObj.GetNamedString(L"tag_name", L"v0.6.0-beta").c_str();
             releaseUrl = relObj.GetNamedString(L"html_url", releaseUrl).c_str();
             if (relObj.HasKey(L"assets")) {
                 const auto assets = relObj.GetNamedArray(L"assets");
@@ -5663,7 +5748,7 @@ fire_and_forget MainWindow::CheckForUpdatesAsync(bool userInitiated) {
         }
     } else {
         self->BackstageUpdateStatusText().Text(hstring{
-            std::format(L"Vexio is up to date ({}).", latestTag.empty() ? L"v0.5.0-beta" : latestTag)
+            std::format(L"Vexio is up to date ({}).", latestTag.empty() ? L"v0.6.0-beta" : latestTag)
         });
         if (userInitiated) {
             ContentDialog dlg{};
@@ -5671,7 +5756,7 @@ fire_and_forget MainWindow::CheckForUpdatesAsync(bool userInitiated) {
             dlg.Title(box_value(L"Vexio is Up to Date"));
             dlg.Content(box_value(hstring{std::format(
                 L"You are running the latest version of Vexio Professional ({}).",
-                latestTag.empty() ? L"v0.5.0-beta" : latestTag)}));
+                latestTag.empty() ? L"v0.6.0-beta" : latestTag)}));
             dlg.PrimaryButtonText(L"View Release Notes");
             dlg.CloseButtonText(L"OK");
             dlg.DefaultButton(ContentDialogButton::Close);
@@ -5895,6 +5980,325 @@ winrt::fire_and_forget MainWindow::ShowSlideSnippetsDialogAsync() {
                 target.yIn + target.hIn * 0.5);
             self->PresentViewportFrame();
         }
+    }
+}
+
+winrt::fire_and_forget MainWindow::ShowCommentsDialogAsync() {
+    if (!m_doc) co_return;
+    const auto weakSelf = get_weak();
+
+    struct CommentRow {
+        uint32_t id{0};
+        bool resolved{false};
+    };
+    auto rowsVec = std::make_shared<std::vector<CommentRow>>();
+
+    StackPanel panel{};
+    panel.Spacing(10.0);
+    panel.MinWidth(500.0);
+
+    ListView listView{};
+    listView.Height(210.0);
+
+    auto refreshComments = [this, listView, rowsVec]() {
+        listView.Items().Clear();
+        rowsVec->clear();
+        const auto res = m_doc.ListCommentsJson(m_activePageId);
+        if (!res.ok() || res.value->empty()) return;
+        Windows::Data::Json::JsonArray arr{nullptr};
+        if (Windows::Data::Json::JsonArray::TryParse(*res.value, arr)) {
+            for (uint32_t i = 0; i < arr.Size(); ++i) {
+                const auto obj = arr.GetObjectAt(i);
+                const uint32_t cid = static_cast<uint32_t>(obj.GetNamedNumber(L"id", 0.0));
+                const uint64_t sid = static_cast<uint64_t>(obj.GetNamedNumber(L"shape_id", 0.0));
+                const std::wstring author{obj.GetNamedString(L"author", L"Reviewer").c_str()};
+                const std::wstring text{obj.GetNamedString(L"text", L"").c_str()};
+                const bool resolved = obj.GetNamedBoolean(L"resolved", false);
+                rowsVec->push_back(CommentRow{cid, resolved});
+                const std::wstring scope = sid > 0 ? std::format(L"Sheet.{}", sid) : L"Page";
+                listView.Items().Append(box_value(hstring{
+                    std::format(L"{} #{} [{} • {}]: {}", resolved ? L"✓" : L"●", cid, author, scope, text)
+                }));
+            }
+        }
+        if (listView.Items().Size() > 0) {
+            listView.SelectedIndex(0);
+        }
+    };
+    refreshComments();
+
+    TextBox authorBox{};
+    authorBox.Header(box_value(L"Author"));
+    authorBox.Text(L"Reviewer");
+
+    TextBox commentBox{};
+    commentBox.Header(box_value(hstring{std::format(L"New Comment (attaches to Sheet.{})", m_selectedShapeId)}));
+    commentBox.PlaceholderText(L"Enter review note or approval feedback...");
+    commentBox.AcceptsReturn(true);
+    commentBox.Height(76.0);
+
+    StackPanel actionRow{};
+    actionRow.Orientation(Orientation::Horizontal);
+    actionRow.Spacing(8.0);
+
+    Button postBtn{};
+    postBtn.Content(box_value(L"Post Comment"));
+    postBtn.Click([this, authorBox, commentBox, refreshComments](IInspectable const&, RoutedEventArgs const&) {
+        const std::string textUtf8 = vexio::win::ToUtf8(commentBox.Text());
+        if (textUtf8.empty()) return;
+        const std::string authorUtf8 = vexio::win::ToUtf8(authorBox.Text());
+        if (m_doc.AddComment(m_activePageId, m_selectedShapeId, authorUtf8.empty() ? "Reviewer" : authorUtf8, textUtf8, 2.5, 2.5).ok()) {
+            commentBox.Text(L"");
+            MarkDocumentDirty(true);
+            PresentViewportFrame();
+            refreshComments();
+        }
+    });
+
+    Button resolveBtn{};
+    resolveBtn.Content(box_value(L"Toggle Resolved"));
+    resolveBtn.Click([this, listView, rowsVec, refreshComments](IInspectable const&, RoutedEventArgs const&) {
+        const int32_t sel = listView.SelectedIndex();
+        if (sel >= 0 && static_cast<size_t>(sel) < rowsVec->size()) {
+            const auto target = (*rowsVec)[static_cast<size_t>(sel)];
+            if (m_doc.ResolveComment(target.id, !target.resolved) == VEXIO_OK) {
+                MarkDocumentDirty(true);
+                PresentViewportFrame();
+                refreshComments();
+            }
+        }
+    });
+
+    Button deleteBtn{};
+    deleteBtn.Content(box_value(L"Delete Selected"));
+    deleteBtn.Click([this, listView, rowsVec, refreshComments](IInspectable const&, RoutedEventArgs const&) {
+        const int32_t sel = listView.SelectedIndex();
+        if (sel >= 0 && static_cast<size_t>(sel) < rowsVec->size()) {
+            const auto target = (*rowsVec)[static_cast<size_t>(sel)];
+            if (m_doc.DeleteComment(target.id) == VEXIO_OK) {
+                MarkDocumentDirty(true);
+                PresentViewportFrame();
+                refreshComments();
+            }
+        }
+    });
+
+    actionRow.Children().Append(postBtn);
+    actionRow.Children().Append(resolveBtn);
+    actionRow.Children().Append(deleteBtn);
+
+    panel.Children().Append(listView);
+    panel.Children().Append(authorBox);
+    panel.Children().Append(commentBox);
+    panel.Children().Append(actionRow);
+
+    ContentDialog dlg{};
+    dlg.XamlRoot(RootWorkstationGrid().XamlRoot());
+    dlg.Title(box_value(L"Review — Threaded Diagram Comments"));
+    dlg.Content(panel);
+    dlg.CloseButtonText(L"Done");
+    (void)co_await dlg.ShowAsync();
+    if (auto self = weakSelf.get()) {
+        self->PresentViewportFrame();
+    }
+}
+
+winrt::fire_and_forget MainWindow::ShowHyperlinkDialogAsync() {
+    if (!m_doc || m_selectedShapeId == 0) {
+        ShowBanner(InfoBarSeverity::Warning, L"Select a Shape First", L"Select a shape on the canvas to attach a Hyperlink or ScreenTip.");
+        co_return;
+    }
+
+    std::wstring existingDesc{};
+    std::wstring existingAddr{};
+    std::wstring existingSub{};
+    std::wstring existingTip{};
+
+    const auto stateRes = m_doc.GetStateJson(m_activePageId);
+    if (stateRes.ok() && !stateRes.value->empty()) {
+        Windows::Data::Json::JsonObject root{nullptr};
+        if (Windows::Data::Json::JsonObject::TryParse(*stateRes.value, root) && root.HasKey(L"shapes")) {
+            const auto arr = root.GetNamedArray(L"shapes");
+            for (uint32_t i = 0; i < arr.Size(); ++i) {
+                const auto sh = arr.GetObjectAt(i);
+                if (static_cast<uint64_t>(sh.GetNamedNumber(L"id", 0.0)) == m_selectedShapeId) {
+                    existingDesc = sh.GetNamedString(L"hyperlink_desc", L"").c_str();
+                    existingAddr = sh.GetNamedString(L"hyperlink_address", L"").c_str();
+                    existingSub = sh.GetNamedString(L"hyperlink_sub_address", L"").c_str();
+                    existingTip = sh.GetNamedString(L"screentip", L"").c_str();
+                    break;
+                }
+            }
+        }
+    }
+
+    StackPanel panel{};
+    panel.Spacing(10.0);
+    panel.MinWidth(460.0);
+
+    TextBox addrBox{};
+    addrBox.Header(box_value(L"Address (HTTPS URL or file path)"));
+    addrBox.PlaceholderText(L"https://docs.example.com/runbook");
+    addrBox.Text(hstring{existingAddr});
+
+    TextBox subBox{};
+    subBox.Header(box_value(L"Sub-Address (Target Page Name for Internal Drill-Down)"));
+    subBox.PlaceholderText(L"Page-2");
+    subBox.Text(hstring{existingSub});
+
+    TextBox descBox{};
+    descBox.Header(box_value(L"Hyperlink Description"));
+    descBox.PlaceholderText(L"Architecture Runbook");
+    descBox.Text(hstring{existingDesc});
+
+    TextBox tipBox{};
+    tipBox.Header(box_value(L"ScreenTip (Hover Tooltip)"));
+    tipBox.PlaceholderText(L"SLA: 99.99% • Owner: Platform SRE");
+    tipBox.Text(hstring{existingTip});
+
+    panel.Children().Append(addrBox);
+    panel.Children().Append(subBox);
+    panel.Children().Append(descBox);
+    panel.Children().Append(tipBox);
+
+    ContentDialog dlg{};
+    dlg.XamlRoot(RootWorkstationGrid().XamlRoot());
+    dlg.Title(box_value(hstring{std::format(L"Hyperlink & ScreenTip — Sheet.{} (Ctrl+K)", m_selectedShapeId)}));
+    dlg.Content(panel);
+    dlg.PrimaryButtonText(L"Save");
+    dlg.SecondaryButtonText(L"Clear All");
+    dlg.CloseButtonText(L"Cancel");
+    dlg.DefaultButton(ContentDialogButton::Primary);
+
+    const auto weakSelf = get_weak();
+    const auto res = co_await dlg.ShowAsync();
+    auto self = weakSelf.get();
+    if (!self || !self->m_doc) co_return;
+
+    if (res == ContentDialogResult::Primary) {
+        if (self->m_doc.SetHyperlinkAndScreentip(
+                self->m_activePageId,
+                self->m_selectedShapeId,
+                vexio::win::ToUtf8(descBox.Text()),
+                vexio::win::ToUtf8(addrBox.Text()),
+                vexio::win::ToUtf8(subBox.Text()),
+                vexio::win::ToUtf8(tipBox.Text())) == VEXIO_OK)
+        {
+            self->MarkDocumentDirty(true);
+            self->PresentViewportFrame();
+            self->RefreshShapeSheetSectionRows();
+            self->ShowBanner(InfoBarSeverity::Success, L"Hyperlink & ScreenTip Saved",
+                             std::format(L"Updated Hyperlinks.Link_1 and Comment ScreenTip on Sheet.{}.", self->m_selectedShapeId));
+        }
+    } else if (res == ContentDialogResult::Secondary) {
+        (void)self->m_doc.SetHyperlinkAndScreentip(self->m_activePageId, self->m_selectedShapeId, "", "", "", "");
+        self->MarkDocumentDirty(true);
+        self->PresentViewportFrame();
+        self->RefreshShapeSheetSectionRows();
+    }
+}
+
+winrt::fire_and_forget MainWindow::ShowDomainWizardsDialogAsync() {
+    if (!m_doc) co_return;
+
+    struct WizardPreset {
+        std::string slug;
+        std::wstring label;
+        std::wstring sampleSpec;
+    };
+    const std::vector<WizardPreset> presets = {
+        {"gantt", L"Gantt Chart Schedule (CSV)", L"Discovery,0,5,1.0,\nArchitecture,5,8,0.6,1\nImplementation,13,12,0.25,2\nGA Release,25,3,0.0,3"},
+        {"timeline", L"Executive Project Timeline", L"0,Q1 Kickoff,true\n30,Architecture Sign-Off,true\n75,Public Beta,true\n110,GA Launch,true"},
+        {"pert", L"PERT / Critical Path Network", L"A,Scope,4,\nB,Core Engine,8,A\nC,UI Shell,6,A\nD,Release QA,4,B;C"},
+        {"sql_reverse", L"SQL DDL → Crow's Foot ERD", L"CREATE TABLE accounts (\n  id UUID PRIMARY KEY,\n  email VARCHAR(255) NOT NULL\n);\nCREATE TABLE orders (\n  id UUID PRIMARY KEY,\n  account_id UUID REFERENCES accounts(id),\n  total_cents INT NOT NULL\n);"},
+        {"sql_forward", L"Active ERD Page → Generate SQL DDL", L"postgres"},
+        {"org_chart", L"Organization Chart Hierarchy", L"1,,Alex Rivera,Chief Executive Officer,Executive\n2,1,Priya Patel,VP Engineering,Engineering\n3,1,Marcus Chen,VP Product,Product\n4,2, Elena Rostova,Principal Systems Architect,Core"},
+        {"rack_42u", L"42U Data Center Rack Elevation", L"41,2,Core Spine Switch,Switch,320,12\n37,4,GPU Compute Node A,Compute,1400,48\n33,4,NVMe Storage Array,Storage,850,38\n1,2,Dual Redundant UPS,UPS,1800,62"},
+        {"arch_room", L"Architectural Room Space (Live Area SqFt)", L"Conference Suite A,2.0,3.0,5.0,3.5"}
+    };
+
+    StackPanel panel{};
+    panel.Spacing(10.0);
+    panel.MinWidth(540.0);
+
+    ComboBox modeCombo{};
+    modeCombo.Header(box_value(L"Enterprise Diagram Wizard"));
+    modeCombo.HorizontalAlignment(HorizontalAlignment::Stretch);
+    for (auto const& p : presets) {
+        modeCombo.Items().Append(box_value(hstring{p.label}));
+    }
+    modeCombo.SelectedIndex(0);
+
+    TextBox specBox{};
+    specBox.Header(box_value(L"Wizard Specification (CSV / SQL DDL / Dialect)"));
+    specBox.AcceptsReturn(true);
+    specBox.Height(200.0);
+    specBox.FontFamily(FontFamily{L"Consolas"});
+    specBox.FontSize(12.0);
+    specBox.Text(hstring{presets[0].sampleSpec});
+
+    modeCombo.SelectionChanged([presets, modeCombo, specBox](IInspectable const&, SelectionChangedEventArgs const&) {
+        const int32_t idx = modeCombo.SelectedIndex();
+        if (idx >= 0 && static_cast<size_t>(idx) < presets.size()) {
+            specBox.Text(hstring{presets[static_cast<size_t>(idx)].sampleSpec});
+        }
+    });
+
+    panel.Children().Append(modeCombo);
+    panel.Children().Append(specBox);
+
+    ContentDialog dlg{};
+    dlg.XamlRoot(RootWorkstationGrid().XamlRoot());
+    dlg.Title(box_value(L"Enterprise Domain Diagram Wizards"));
+    dlg.Content(panel);
+    dlg.PrimaryButtonText(L"Run Wizard");
+    dlg.CloseButtonText(L"Cancel");
+    dlg.DefaultButton(ContentDialogButton::Primary);
+
+    const auto weakSelf = get_weak();
+    const auto res = co_await dlg.ShowAsync();
+    auto self = weakSelf.get();
+    if (!self || !self->m_doc || res != ContentDialogResult::Primary) co_return;
+
+    const int32_t sel = modeCombo.SelectedIndex();
+    const size_t idx = (sel >= 0 && static_cast<size_t>(sel) < presets.size()) ? static_cast<size_t>(sel) : 0u;
+    const auto& chosen = presets[idx];
+    const auto wizRes = self->m_doc.RunDomainWizard(
+        self->m_activePageId,
+        chosen.slug,
+        vexio::win::ToUtf8(specBox.Text()));
+    if (!wizRes.ok()) {
+        self->ShowBanner(InfoBarSeverity::Error, L"Domain Wizard Failed", wizRes.message());
+        co_return;
+    }
+
+    if (chosen.slug == "sql_forward") {
+        std::wstring ddlOut = wizRes.value->c_str();
+        Windows::Data::Json::JsonObject obj{nullptr};
+        if (Windows::Data::Json::JsonObject::TryParse(*wizRes.value, obj)) {
+            ddlOut = obj.GetNamedString(L"sql_ddl", *wizRes.value).c_str();
+        }
+        TextBox outBox{};
+        outBox.AcceptsReturn(true);
+        outBox.IsReadOnly(true);
+        outBox.Height(240.0);
+        outBox.FontFamily(FontFamily{L"Consolas"});
+        outBox.Text(hstring{ddlOut});
+        ContentDialog ddlDlg{};
+        ddlDlg.XamlRoot(self->RootWorkstationGrid().XamlRoot());
+        ddlDlg.Title(box_value(L"Generated SQL DDL Schema"));
+        ddlDlg.Content(outBox);
+        ddlDlg.CloseButtonText(L"Close");
+        (void)co_await ddlDlg.ShowAsync();
+    } else {
+        self->MarkDocumentDirty(true);
+        self->FitPageToWindow();
+        self->PresentViewportFrame();
+        self->SyncInspectorFromShapeSheet();
+        self->ShowBanner(
+            InfoBarSeverity::Success,
+            L"Domain Diagram Generated",
+            std::format(L"Generated {} diagram on active page.", chosen.label));
     }
 }
 

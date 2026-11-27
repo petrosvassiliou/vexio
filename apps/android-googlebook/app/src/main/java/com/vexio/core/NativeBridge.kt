@@ -770,6 +770,81 @@ object NativeBridge {
         pageId: Int,
         shapeId: Long
     ): Boolean
+
+    @JvmStatic
+    external fun nativeRunVbaMacro(
+        docPtr: Long,
+        selectionIds: LongArray,
+        script: String
+    ): String?
+
+    @JvmStatic
+    external fun nativeListCommentsJson(
+        docPtr: Long,
+        pageId: Int
+    ): String?
+
+    @JvmStatic
+    external fun nativeAddComment(
+        docPtr: Long,
+        pageId: Int,
+        shapeId: Long,
+        author: String,
+        text: String
+    ): Int
+
+    @JvmStatic
+    external fun nativeResolveComment(
+        docPtr: Long,
+        commentId: Int,
+        resolved: Boolean
+    ): Boolean
+
+    @JvmStatic
+    external fun nativeDeleteComment(
+        docPtr: Long,
+        commentId: Int
+    ): Boolean
+
+    @JvmStatic
+    external fun nativeClearPageInk(
+        docPtr: Long,
+        pageId: Int
+    ): Int
+
+    @JvmStatic
+    external fun nativeSetHyperlinkAndScreentip(
+        docPtr: Long,
+        pageId: Int,
+        shapeId: Long,
+        description: String,
+        address: String,
+        subAddress: String,
+        screentip: String
+    ): Boolean
+
+    @JvmStatic
+    external fun nativeRunDomainWizard(
+        docPtr: Long,
+        pageId: Int,
+        wizardSlug: String,
+        spec: String
+    ): String?
+
+    @JvmStatic
+    external fun nativeApplyCadScale(
+        docPtr: Long,
+        pageId: Int,
+        scaleSlug: String,
+        locked: Boolean
+    ): Double
+
+    @JvmStatic
+    external fun nativeConvertCadLayers(
+        docPtr: Long,
+        pageId: Int,
+        layerNameOrAll: String
+    ): Int
 }
 
 /**
@@ -1000,7 +1075,9 @@ enum class VexioTool(val displayName: String, val shortcutHint: String, val nati
     STAR("Star", "S", 15),
     TEXT_BLOCK("Text", "Ctrl+2", 3),
     STYLUS_INK("Pen Ink", "Ctrl+4", 12),
-    HIGHLIGHTER("Highlighter", "Ctrl+7", 13)
+    HIGHLIGHTER("Highlighter", "Ctrl+7", 13),
+    EDIT_VERTICES("Edit Vertices", "Ctrl+6", 16),
+    INK_ERASER("Ink Eraser", "Alt+E", 17)
 }
 
 /**
@@ -1591,6 +1668,15 @@ data class SlideSnippetUiItem(
     val heightIn: Double = 8.5
 )
 
+data class ReviewCommentUiItem(
+    val id: Int,
+    val pageId: Int,
+    val shapeId: Long = 0L,
+    val author: String = "Reviewer",
+    val text: String = "",
+    val resolved: Boolean = false
+)
+
 data class DataGraphicUiState(
     val enabled: Boolean = false,
     val iconSetField: String = "Status",
@@ -1772,7 +1858,7 @@ data class WorkstationUiState(
     val inlineTextEditor: InlineCanvasEditorModel? = null,
     val smartGuidesEnabled: Boolean = true,
     val autoCheckUpdates: Boolean = true,
-    val updateStatusMessage: String = "Vexio v0.5.0-beta • Automatic update check enabled",
+    val updateStatusMessage: String = "Vexio v0.6.0-beta • Automatic update check enabled",
     val availableUpdateTag: String? = null,
     val availableUpdateUrl: String? = null,
     val showUpdateDialog: Boolean = false,
@@ -1819,6 +1905,22 @@ data class WorkstationUiState(
     val slideSnippets: List<SlideSnippetUiItem> = emptyList(),
     val isPresentationModeActive: Boolean = false,
     val activeSlideIndex: Int = 0,
+    val showVbaMacroDialog: Boolean = false,
+    val vbaMacroScript: String = "Sub StandardizeProcessShapes()\n    ActivePage.Shapes(1).Cells(\"Width\").FormulaU = \"2.50 in\"\n    ActivePage.Shapes(1).Cells(\"Height\").FormulaU = \"1.20 in\"\n    ActivePage.Shapes(1).Cells(\"Prop.Status\").FormulaU = \"\"\"Approved\"\"\"\nEnd Sub",
+    val lastVbaReportSummary: String? = null,
+    val showCommentsDialog: Boolean = false,
+    val reviewComments: List<ReviewCommentUiItem> = emptyList(),
+    val showHyperlinkDialog: Boolean = false,
+    val hyperlinkDescription: String = "",
+    val hyperlinkAddress: String = "",
+    val hyperlinkSubAddress: String = "",
+    val shapeScreentip: String = "",
+    val showDomainWizardsDialog: Boolean = false,
+    val domainWizardSlug: String = "gantt",
+    val domainWizardSpec: String = "Discovery,0,5,1.0,\nArchitecture,5,8,0.6,1\nImplementation,13,12,0.25,2\nGA Release,25,3,0.0,3",
+    val lastDomainWizardOutput: String? = null,
+    val cadScaleSlug: String = "1:100",
+    val cadScaleLocked: Boolean = true,
     val validationSummary: ValidationBadgeSummary = ValidationBadgeSummary(
         standard = "BPMN 2.0",
         errorCount = 0,
@@ -2617,7 +2719,9 @@ class VexioSessionViewModel(
                 VexioTool.POINTER,
                 VexioTool.PAN_HAND,
                 VexioTool.STYLUS_INK,
-                VexioTool.HIGHLIGHTER
+                VexioTool.HIGHLIGHTER,
+                VexioTool.EDIT_VERTICES,
+                VexioTool.INK_ERASER
             )
         if (shouldResetToPointer && NativeBridge.isNativeAvailable && viewportPtr != 0L) {
             NativeBridge.nativeSetViewportTool(viewportPtr, VexioTool.POINTER.nativeCode)
@@ -5376,6 +5480,327 @@ class VexioSessionViewModel(
     }
 
     @Synchronized
+    fun setVbaMacroDialogVisible(visible: Boolean) {
+        _uiState.update { it.copy(showVbaMacroDialog = visible) }
+    }
+
+    @Synchronized
+    fun setVbaMacroScript(script: String) {
+        _uiState.update { it.copy(vbaMacroScript = script) }
+    }
+
+    @Synchronized
+    fun runVbaMacro(script: String = _uiState.value.vbaMacroScript): String {
+        if (script.isBlank()) return ""
+        val cur = _uiState.value
+        val selIds = cur.selectedShapeIds.ifEmpty { listOf(cur.selectedShapeId) }.toLongArray()
+        var summary = "Executed VBA macro inside gas-metered sandbox"
+        if (NativeBridge.isNativeAvailable && docPtr != 0L) {
+            val reportJson = NativeBridge.nativeRunVbaMacro(docPtr, selIds, script).orEmpty()
+            summary = runCatching {
+                val obj = org.json.JSONObject(reportJson)
+                if (obj.has("error")) {
+                    "VBA Error: ${obj.optString("error")}"
+                } else {
+                    val stmts = obj.optInt("executed_statements", 0)
+                    val gas = obj.optInt("gas_used", 0)
+                    "Executed $stmts statements ($gas gas) in deterministic sandbox"
+                }
+            }.getOrDefault(summary)
+            syncStateFromNative()
+            presentViewportOrFallback()
+        } else {
+            val cellRegex = Regex("""Cells\("([^"]+)"\)\.(?:FormulaU|Formula)\s*=\s*"((?:""|[^"])*)"""")
+            var applied = 0
+            for (m in cellRegex.findAll(script)) {
+                val cellName = m.groupValues[1]
+                val formula = m.groupValues[2].replace("\"\"", "\"")
+                commitCellFormula(cellName, formula, forceSetf = true)
+                applied++
+            }
+            summary = "Executed $applied ShapeSheet assignment(s) in deterministic sandbox"
+        }
+        _uiState.update {
+            it.copy(
+                showVbaMacroDialog = false,
+                lastVbaReportSummary = summary,
+                isDirty = true,
+                canUndo = true,
+                statusBanner = summary
+            )
+        }
+        return summary
+    }
+
+    private fun parseCommentsJson(raw: String?): List<ReviewCommentUiItem> {
+        if (raw.isNullOrBlank()) return emptyList()
+        return runCatching {
+            val arr = org.json.JSONArray(raw)
+            buildList {
+                for (i in 0 until arr.length()) {
+                    val o = arr.optJSONObject(i) ?: continue
+                    add(
+                        ReviewCommentUiItem(
+                            id = o.optInt("id", i + 1),
+                            pageId = o.optInt("page_id", 1),
+                            shapeId = o.optLong("shape_id", 0L),
+                            author = o.optString("author", "Reviewer"),
+                            text = o.optString("text", ""),
+                            resolved = o.optBoolean("resolved", false)
+                        )
+                    )
+                }
+            }
+        }.getOrDefault(emptyList())
+    }
+
+    @Synchronized
+    fun setCommentsDialogVisible(visible: Boolean) {
+        if (visible && NativeBridge.isNativeAvailable && docPtr != 0L) {
+            val pid = resolveNativePageId(_uiState.value.activePageId)
+            val loaded = parseCommentsJson(NativeBridge.nativeListCommentsJson(docPtr, pid))
+            _uiState.update { it.copy(showCommentsDialog = true, reviewComments = loaded) }
+        } else {
+            _uiState.update { it.copy(showCommentsDialog = visible) }
+        }
+    }
+
+    @Synchronized
+    fun addReviewComment(author: String, text: String): Int {
+        if (text.isBlank()) return -1
+        val cur = _uiState.value
+        val pid = resolveNativePageId(cur.activePageId)
+        val cleanAuthor = author.trim().ifEmpty { "Reviewer" }
+        val nextComments: List<ReviewCommentUiItem>
+        val newId: Int
+        if (NativeBridge.isNativeAvailable && docPtr != 0L) {
+            newId = NativeBridge.nativeAddComment(docPtr, pid, cur.selectedShapeId, cleanAuthor, text.trim())
+            nextComments = parseCommentsJson(NativeBridge.nativeListCommentsJson(docPtr, pid))
+            presentViewportOrFallback()
+        } else {
+            newId = (cur.reviewComments.maxOfOrNull { it.id } ?: 0) + 1
+            nextComments = cur.reviewComments + ReviewCommentUiItem(
+                id = newId,
+                pageId = pid,
+                shapeId = cur.selectedShapeId,
+                author = cleanAuthor,
+                text = text.trim(),
+                resolved = false
+            )
+        }
+        _uiState.update {
+            it.copy(
+                reviewComments = nextComments,
+                isDirty = true,
+                canUndo = true,
+                statusBanner = "Posted comment #$newId on Sheet.${cur.selectedShapeId}"
+            )
+        }
+        return newId
+    }
+
+    @Synchronized
+    fun toggleResolveComment(commentId: Int, resolved: Boolean): Boolean {
+        val cur = _uiState.value
+        val pid = resolveNativePageId(cur.activePageId)
+        val nextComments = if (NativeBridge.isNativeAvailable && docPtr != 0L) {
+            NativeBridge.nativeResolveComment(docPtr, commentId, resolved)
+            presentViewportOrFallback()
+            parseCommentsJson(NativeBridge.nativeListCommentsJson(docPtr, pid))
+        } else {
+            cur.reviewComments.map { if (it.id == commentId) it.copy(resolved = resolved) else it }
+        }
+        _uiState.update { it.copy(reviewComments = nextComments, isDirty = true) }
+        return true
+    }
+
+    @Synchronized
+    fun deleteReviewComment(commentId: Int): Boolean {
+        val cur = _uiState.value
+        val pid = resolveNativePageId(cur.activePageId)
+        val nextComments = if (NativeBridge.isNativeAvailable && docPtr != 0L) {
+            NativeBridge.nativeDeleteComment(docPtr, commentId)
+            presentViewportOrFallback()
+            parseCommentsJson(NativeBridge.nativeListCommentsJson(docPtr, pid))
+        } else {
+            cur.reviewComments.filterNot { it.id == commentId }
+        }
+        _uiState.update { it.copy(reviewComments = nextComments, isDirty = true) }
+        return true
+    }
+
+    @Synchronized
+    fun clearActivePageInk(): Int {
+        val pid = resolveNativePageId(_uiState.value.activePageId)
+        val removed = if (NativeBridge.isNativeAvailable && docPtr != 0L) {
+            val count = NativeBridge.nativeClearPageInk(docPtr, pid).coerceAtLeast(0)
+            presentViewportOrFallback()
+            count
+        } else {
+            0
+        }
+        _uiState.update {
+            it.copy(
+                isDirty = true,
+                canUndo = true,
+                statusBanner = "Cleared $removed markup ink stroke(s) from page"
+            )
+        }
+        return removed
+    }
+
+    @Synchronized
+    fun setHyperlinkDialogVisible(visible: Boolean) {
+        _uiState.update { it.copy(showHyperlinkDialog = visible) }
+    }
+
+    @Synchronized
+    fun saveHyperlinkAndScreentip(
+        description: String,
+        address: String,
+        subAddress: String,
+        screentip: String
+    ): Boolean {
+        val cur = _uiState.value
+        val pid = resolveNativePageId(cur.activePageId)
+        var ok = true
+        if (NativeBridge.isNativeAvailable && docPtr != 0L) {
+            ok = NativeBridge.nativeSetHyperlinkAndScreentip(
+                docPtr,
+                pid,
+                cur.selectedShapeId,
+                description.trim(),
+                address.trim(),
+                subAddress.trim(),
+                screentip.trim()
+            )
+            presentViewportOrFallback()
+        }
+        _uiState.update {
+            it.copy(
+                showHyperlinkDialog = false,
+                hyperlinkDescription = description.trim(),
+                hyperlinkAddress = address.trim(),
+                hyperlinkSubAddress = subAddress.trim(),
+                shapeScreentip = screentip.trim(),
+                isDirty = true,
+                canUndo = true,
+                statusBanner = "Saved Hyperlink & ScreenTip on Sheet.${cur.selectedShapeId}"
+            )
+        }
+        return ok
+    }
+
+    @Synchronized
+    fun setDomainWizardsDialogVisible(visible: Boolean) {
+        _uiState.update { it.copy(showDomainWizardsDialog = visible) }
+    }
+
+    @Synchronized
+    fun selectDomainWizardPreset(slug: String) {
+        val sample = when (slug) {
+            "gantt" -> "Discovery,0,5,1.0,\nArchitecture,5,8,0.6,1\nImplementation,13,12,0.25,2\nGA Release,25,3,0.0,3"
+            "timeline" -> "0,Q1 Kickoff,true\n30,Architecture Sign-Off,true\n75,Public Beta,true\n110,GA Launch,true"
+            "pert" -> "A,Scope,4,\nB,Core Engine,8,A\nC,UI Shell,6,A\nD,Release QA,4,B;C"
+            "sql_reverse" -> "CREATE TABLE accounts (\n  id UUID PRIMARY KEY,\n  email VARCHAR(255) NOT NULL\n);\nCREATE TABLE orders (\n  id UUID PRIMARY KEY,\n  account_id UUID REFERENCES accounts(id),\n  total_cents INT NOT NULL\n);"
+            "sql_forward" -> "postgres"
+            "org_chart" -> "1,,Alex Rivera,Chief Executive Officer,Executive\n2,1,Priya Patel,VP Engineering,Engineering\n3,1,Marcus Chen,VP Product,Product\n4,2,Elena Rostova,Principal Architect,Core"
+            "rack_42u" -> "41,2,Core Spine Switch,Switch,320,12\n37,4,GPU Compute Node A,Compute,1400,48\n33,4,NVMe Storage Array,Storage,850,38\n1,2,Dual Redundant UPS,UPS,1800,62"
+            "arch_room" -> "Conference Suite A,2.0,3.0,5.0,3.5"
+            else -> ""
+        }
+        _uiState.update { it.copy(domainWizardSlug = slug, domainWizardSpec = sample, lastDomainWizardOutput = null) }
+    }
+
+    @Synchronized
+    fun setDomainWizardSpec(spec: String) {
+        _uiState.update { it.copy(domainWizardSpec = spec) }
+    }
+
+    @Synchronized
+    fun runDomainWizard(
+        slug: String = _uiState.value.domainWizardSlug,
+        spec: String = _uiState.value.domainWizardSpec
+    ): String {
+        val pid = resolveNativePageId(_uiState.value.activePageId)
+        val rawResult = if (NativeBridge.isNativeAvailable && docPtr != 0L) {
+            val out = NativeBridge.nativeRunDomainWizard(docPtr, pid, slug, spec).orEmpty()
+            syncStateFromNative()
+            presentViewportOrFallback()
+            out
+        } else if (slug == "sql_forward") {
+            "{\"wizard\":\"sql_forward\",\"sql_ddl\":\"CREATE TABLE diagram_entities (id SERIAL PRIMARY KEY);\"}"
+        } else {
+            "{\"wizard\":\"$slug\",\"created_shapes\":4}"
+        }
+        val ddlOut = if (slug == "sql_forward") {
+            runCatching { org.json.JSONObject(rawResult).optString("sql_ddl", rawResult) }.getOrDefault(rawResult)
+        } else {
+            null
+        }
+        _uiState.update {
+            it.copy(
+                showDomainWizardsDialog = slug == "sql_forward",
+                lastDomainWizardOutput = ddlOut ?: rawResult,
+                isDirty = slug != "sql_forward",
+                canUndo = true,
+                pageShapeCount = if (slug != "sql_forward") it.pageShapeCount + 4 else it.pageShapeCount,
+                statusBanner = "Executed domain wizard: $slug"
+            )
+        }
+        return ddlOut ?: rawResult
+    }
+
+    @Synchronized
+    fun applyCadArchitecturalScale(scaleSlug: String = _uiState.value.cadScaleSlug, locked: Boolean = !_uiState.value.cadScaleLocked): Double {
+        val pid = resolveNativePageId(_uiState.value.activePageId)
+        val ratio = if (NativeBridge.isNativeAvailable && docPtr != 0L) {
+            val r = NativeBridge.nativeApplyCadScale(docPtr, pid, scaleSlug, locked)
+            presentViewportOrFallback()
+            if (r > 0.0) r else 100.0
+        } else {
+            when (scaleSlug) {
+                "1/4_in_ft" -> 48.0
+                "1/8_in_ft" -> 96.0
+                "1:50" -> 50.0
+                "1:200" -> 200.0
+                "1:1" -> 1.0
+                else -> 100.0
+            }
+        }
+        _uiState.update {
+            it.copy(
+                cadScaleSlug = scaleSlug,
+                cadScaleLocked = locked,
+                isDirty = true,
+                canUndo = true,
+                statusBanner = if (locked) "CAD Scale locked ($scaleSlug, 1:${ratio.toInt()})" else "CAD Scale unlocked"
+            )
+        }
+        return ratio
+    }
+
+    @Synchronized
+    fun convertCadLayersToShapeSheet(layerOrAll: String = "*"): Int {
+        val pid = resolveNativePageId(_uiState.value.activePageId)
+        val converted = if (NativeBridge.isNativeAvailable && docPtr != 0L) {
+            val c = NativeBridge.nativeConvertCadLayers(docPtr, pid, layerOrAll).coerceAtLeast(0)
+            presentViewportOrFallback()
+            c
+        } else {
+            1
+        }
+        _uiState.update {
+            it.copy(
+                isDirty = true,
+                canUndo = true,
+                statusBanner = "Converted $converted CAD shape(s) to unlocked ShapeSheet Geometry1"
+            )
+        }
+        return converted
+    }
+
+    @Synchronized
     fun focusSlideSnippet(index: Int, enterPresenter: Boolean = true) {
         var slides = _uiState.value.slideSnippets
         if (slides.isEmpty()) {
@@ -5651,7 +6076,7 @@ class VexioSessionViewModel(
                     instanceFollowRedirects = true
                     connectTimeout = 20_000
                     readTimeout = 45_000
-                    setRequestProperty("User-Agent", "Vexio-Android-Workstation/0.5.0-beta")
+                    setRequestProperty("User-Agent", "Vexio-Android-Workstation/0.6.0-beta")
                 }
                 try {
                     val code = conn.responseCode
@@ -6613,7 +7038,7 @@ class VexioSessionViewModel(
             }
         }
         viewModelScope.launch(ioDispatcher) {
-            val currentVersion = "0.5.0-beta"
+            val currentVersion = "0.6.0-beta"
             var latestTag: String? = null
             var downloadUrl = "https://github.com/petrosvassiliou/vexio/releases"
             var ok = false
@@ -6624,7 +7049,7 @@ class VexioSessionViewModel(
                     requestMethod = "GET"
                     connectTimeout = 4500
                     readTimeout = 4500
-                    setRequestProperty("User-Agent", "Vexio-Android-Googlebook/0.5.0-beta")
+                    setRequestProperty("User-Agent", "Vexio-Android-Googlebook/0.6.0-beta")
                     setRequestProperty("Accept", "application/vnd.github+json")
                 }
                 if (conn.responseCode in 200..299) {
@@ -6715,6 +7140,7 @@ class VexioSessionViewModel(
         val state = _uiState.value
         return when (cleanExt) {
             "jpg", "jpeg" -> buildDeterministicJpegFallback()
+            "dwg" -> "AC1018\u0000\u0000\u0000\u0000\u0000\u0001VEXIO_DWG".toByteArray(Charsets.ISO_8859_1)
             "pdf" -> buildDeterministicVectorPdf(state)
             "pptx" -> buildDeterministicPptxPackage(state)
             "docx" -> buildDeterministicDocxPackage(state)

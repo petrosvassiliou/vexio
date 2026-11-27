@@ -134,6 +134,7 @@ public enum VexioExportFormat: String, CaseIterable, Identifiable, Sendable {
     case pdf
     case svg
     case dxf
+    case dwg
     case vsd
     case pptx
     case docx
@@ -150,6 +151,7 @@ public enum VexioExportFormat: String, CaseIterable, Identifiable, Sendable {
         case .pdf: return "Vector PDF/A (.pdf)"
         case .svg: return "Scalable Vector Graphics (.svg)"
         case .dxf: return "AutoCAD Exchange (.dxf)"
+        case .dwg: return "AutoCAD Binary Drawing (.dwg)"
         case .vsd: return "Visio 2003–2010 Binary (.vsd)"
         case .pptx: return "PowerPoint Presentation (.pptx)"
         case .docx: return "Word Process Specification (.docx)"
@@ -174,6 +176,7 @@ public enum VexioExportFormat: String, CaseIterable, Identifiable, Sendable {
         case .pdf: return .pdf
         case .svg: return .svg
         case .dxf: return .autoCADDXF
+        case .dwg: return UTType(filenameExtension: "dwg") ?? .data
         case .vsd: return .visioLegacyDrawing
         case .pptx: return .presentation
         case .docx: return .data
@@ -200,10 +203,12 @@ public enum VexioCanvasTool: String, CaseIterable, Identifiable, Sendable {
     case text = "Text"
     case ink = "Pen Ink"
     case highlighter = "Highlighter"
+    case editVertices = "Edit Vertices"
+    case inkEraser = "Ink Eraser"
 
     public var id: String { rawValue }
 
-    /// Matches `NativeCanvasTool` C-ABI discriminant (`0..15`) in `vexio_viewport_set_tool`.
+    /// Matches `NativeCanvasTool` C-ABI discriminant (`0..17`) in `vexio_viewport_set_tool`.
     public var engineToolCode: UInt32 {
         switch self {
         case .pointer: return 0
@@ -222,6 +227,8 @@ public enum VexioCanvasTool: String, CaseIterable, Identifiable, Sendable {
         case .highlighter: return 13
         case .hexagon: return 14
         case .star: return 15
+        case .editVertices: return 16
+        case .inkEraser: return 17
         }
     }
 
@@ -243,6 +250,8 @@ public enum VexioCanvasTool: String, CaseIterable, Identifiable, Sendable {
         case .text: return "character.textbox"
         case .ink: return "pencil.tip.crop.circle"
         case .highlighter: return "highlighter"
+        case .editVertices: return "point.3.connected.trianglepath.dotted"
+        case .inkEraser: return "eraser"
         }
     }
 
@@ -264,6 +273,8 @@ public enum VexioCanvasTool: String, CaseIterable, Identifiable, Sendable {
         case .text: return "⌘3"
         case .ink: return "⌘7"
         case .highlighter: return "⇧⌘7"
+        case .editVertices: return "⌥⌘E"
+        case .inkEraser: return "⌥⌘7"
         }
     }
 
@@ -2606,6 +2617,155 @@ private final class NativeDocumentCore: @unchecked Sendable {
             throw err
         }
     }
+
+    // MARK: - v0.6.0-beta C-ABI Wrappers (VBA, Comments, Ink, Hyperlinks, Domain Wizards & CAD)
+
+    func runVbaMacro(selectionIds: [UInt64], script: String) throws -> String {
+        lock.lock()
+        defer { lock.unlock() }
+        var outBuf = VexioOwnedBuffer(ptr: nil, len: 0, cap: 0)
+        let status = selectionIds.withUnsafeBufferPointer { selBuf in
+            script.withCString { scriptCStr in
+                vexio_doc_run_vba_macro(doc, selBuf.baseAddress, selBuf.count, scriptCStr, &outBuf)
+            }
+        }
+        if let err = VexioBridgeError.from(status: status, context: "run_vba_macro") {
+            vexio_buffer_free(outBuf)
+            throw err
+        }
+        return Self.consumeOwnedBufferAsUTF8(outBuf)
+    }
+
+    func listCommentsJson(pageId: UInt32) throws -> String {
+        lock.lock()
+        defer { lock.unlock() }
+        var outBuf = VexioOwnedBuffer(ptr: nil, len: 0, cap: 0)
+        let status = vexio_doc_list_comments_json(doc, pageId, &outBuf)
+        if let err = VexioBridgeError.from(status: status, context: "list_comments") {
+            vexio_buffer_free(outBuf)
+            throw err
+        }
+        return Self.consumeOwnedBufferAsUTF8(outBuf)
+    }
+
+    func addComment(pageId: UInt32, shapeId: UInt64, author: String, text: String) throws -> UInt32 {
+        lock.lock()
+        defer { lock.unlock() }
+        var outId: UInt32 = 0
+        let status = author.withCString { authCStr in
+            text.withCString { textCStr in
+                vexio_doc_add_comment(doc, pageId, shapeId, authCStr, textCStr, 0.0, 0.0, &outId)
+            }
+        }
+        if let err = VexioBridgeError.from(status: status, context: "add_comment") {
+            throw err
+        }
+        return outId
+    }
+
+    func resolveComment(commentId: UInt32, resolved: Bool) throws {
+        lock.lock()
+        defer { lock.unlock() }
+        let status = vexio_doc_resolve_comment(doc, commentId, resolved)
+        if let err = VexioBridgeError.from(status: status, context: "resolve_comment") {
+            throw err
+        }
+    }
+
+    func deleteComment(commentId: UInt32) throws {
+        lock.lock()
+        defer { lock.unlock() }
+        let status = vexio_doc_delete_comment(doc, commentId)
+        if let err = VexioBridgeError.from(status: status, context: "delete_comment") {
+            throw err
+        }
+    }
+
+    func clearPageInk(pageId: UInt32) throws -> UInt32 {
+        lock.lock()
+        defer { lock.unlock() }
+        var outRemoved: UInt32 = 0
+        let status = vexio_doc_clear_page_ink(doc, pageId, &outRemoved)
+        if let err = VexioBridgeError.from(status: status, context: "clear_page_ink") {
+            throw err
+        }
+        return outRemoved
+    }
+
+    func setHyperlinkAndScreentip(
+        pageId: UInt32,
+        shapeId: UInt64,
+        description: String,
+        address: String,
+        subAddress: String,
+        screentip: String
+    ) throws {
+        lock.lock()
+        defer { lock.unlock() }
+        let status = description.withCString { dCStr in
+            address.withCString { aCStr in
+                subAddress.withCString { sCStr in
+                    screentip.withCString { tCStr in
+                        vexio_doc_set_hyperlink_and_screentip(doc, pageId, shapeId, dCStr, aCStr, sCStr, tCStr)
+                    }
+                }
+            }
+        }
+        if let err = VexioBridgeError.from(status: status, context: "set_hyperlink_and_screentip") {
+            throw err
+        }
+    }
+
+    func runDomainWizard(pageId: UInt32, wizardSlug: String, spec: String) throws -> String {
+        lock.lock()
+        defer { lock.unlock() }
+        var outBuf = VexioOwnedBuffer(ptr: nil, len: 0, cap: 0)
+        let status = wizardSlug.withCString { wCStr in
+            spec.withCString { sCStr in
+                vexio_doc_run_domain_wizard(doc, pageId, wCStr, sCStr, &outBuf)
+            }
+        }
+        if let err = VexioBridgeError.from(status: status, context: "run_domain_wizard(\(wizardSlug))") {
+            vexio_buffer_free(outBuf)
+            throw err
+        }
+        return Self.consumeOwnedBufferAsUTF8(outBuf)
+    }
+
+    func applyCadScale(pageId: UInt32, scaleSlug: String, locked: Bool) throws -> Double {
+        lock.lock()
+        defer { lock.unlock() }
+        var outRatio: Double = 1.0
+        let status = scaleSlug.withCString { sCStr in
+            vexio_doc_apply_cad_scale(doc, pageId, sCStr, locked, &outRatio)
+        }
+        if let err = VexioBridgeError.from(status: status, context: "apply_cad_scale") {
+            throw err
+        }
+        return outRatio
+    }
+
+    func convertCadLayers(pageId: UInt32, layerNameOrAll: String) throws -> UInt32 {
+        lock.lock()
+        defer { lock.unlock() }
+        var outConverted: UInt32 = 0
+        let status = layerNameOrAll.withCString { lCStr in
+            vexio_doc_convert_cad_layers(doc, pageId, lCStr, &outConverted)
+        }
+        if let err = VexioBridgeError.from(status: status, context: "convert_cad_layers") {
+            throw err
+        }
+        return outConverted
+    }
+}
+
+public struct VexioReviewCommentItem: Identifiable, Equatable, Sendable, Decodable {
+    public let id: UInt32
+    public let author: String
+    public let text: String
+    public let page_id: UInt32
+    public let shape_id: UInt64?
+    public let resolved: Bool
 }
 
 // MARK: - SwiftUI Color <-> Hex RGB Helpers for Native OS ColorPicker
@@ -6044,6 +6204,177 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
                     }
                 }
             }
+        }
+    }
+
+    // MARK: - v0.6.0-beta Public Session Actions (VBA, Comments/Ink, Hyperlinks, Domain Wizards & CAD)
+
+    public func executeVbaMacroScript(_ script: String, undoManager: UndoManager? = nil) -> String {
+        let sel = selectedShapeIds.isEmpty ? (selectedShapeId > 0 ? [selectedShapeId] : []) : selectedShapeIds
+        do {
+            let repJson = try core.runVbaMacro(selectionIds: sel, script: script)
+            registerJournalUndoStep(actionName: "Run VBA Macro", undoManager: undoManager)
+            reloadSelectedShapeSheetCells()
+            syncSelectedShapeMetadataFromCore()
+            core.renderViewportFrame()
+            if let data = repJson.data(using: .utf8),
+               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                let created = obj["shapes_created"] as? Int ?? 0
+                let modified = obj["cells_modified"] as? Int ?? 0
+                let steps = obj["instructions_executed"] as? Int ?? 0
+                let logs = (obj["logs"] as? [String])?.joined(separator: "\n") ?? ""
+                let msg = "VBA executed (\(steps) ops): +\(created) shape(s), \(modified) cell(s) updated."
+                statusMessage = msg
+                return logs.isEmpty ? msg : "\(msg)\n\(logs)"
+            }
+            statusMessage = "VBA macro executed"
+            return repJson
+        } catch {
+            let errMsg = "VBA Error: \(error.localizedDescription)"
+            statusMessage = errMsg
+            return errMsg
+        }
+    }
+
+    public func fetchReviewComments() -> [VexioReviewCommentItem] {
+        guard let json = try? core.listCommentsJson(pageId: activePageId),
+              let data = json.data(using: .utf8),
+              let decoded = try? JSONDecoder().decode([VexioReviewCommentItem].self, from: data)
+        else { return [] }
+        return decoded
+    }
+
+    public func addReviewComment(author: String, text: String, undoManager: UndoManager? = nil) {
+        do {
+            let cid = try core.addComment(pageId: activePageId, shapeId: selectedShapeId, author: author, text: text)
+            registerJournalUndoStep(actionName: "Add Review Comment", undoManager: undoManager)
+            syncSelectedShapeMetadataFromCore()
+            statusMessage = "Added review note #\(cid)"
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    public func toggleReviewCommentResolved(commentId: UInt32, resolved: Bool, undoManager: UndoManager? = nil) {
+        do {
+            try core.resolveComment(commentId: commentId, resolved: resolved)
+            registerJournalUndoStep(actionName: "Resolve Comment", undoManager: undoManager)
+            syncSelectedShapeMetadataFromCore()
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    public func deleteReviewComment(commentId: UInt32, undoManager: UndoManager? = nil) {
+        do {
+            try core.deleteComment(commentId: commentId)
+            registerJournalUndoStep(actionName: "Delete Comment", undoManager: undoManager)
+            syncSelectedShapeMetadataFromCore()
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    public func clearActivePageInk(undoManager: UndoManager? = nil) {
+        do {
+            let cnt = try core.clearPageInk(pageId: activePageId)
+            registerJournalUndoStep(actionName: "Clear Page Ink", undoManager: undoManager)
+            core.renderViewportFrame()
+            statusMessage = "Cleared \(cnt) markup ink stroke(s)"
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    public func applyHyperlinkAndScreentip(
+        description: String,
+        address: String,
+        subAddress: String,
+        screentip: String,
+        undoManager: UndoManager? = nil
+    ) {
+        guard selectedShapeId > 0 else {
+            statusMessage = "Select a shape first to attach a Hyperlink or ScreenTip."
+            return
+        }
+        do {
+            try core.setHyperlinkAndScreentip(
+                pageId: activePageId,
+                shapeId: selectedShapeId,
+                description: description,
+                address: address,
+                subAddress: subAddress,
+                screentip: screentip
+            )
+            registerJournalUndoStep(actionName: "Set Hyperlink & ScreenTip", undoManager: undoManager)
+            reloadSelectedShapeSheetCells()
+            syncSelectedShapeMetadataFromCore()
+            statusMessage = "Updated Hyperlink & ScreenTip on Sheet.\(selectedShapeId)"
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    public func runEnterpriseDomainWizard(
+        wizardSlug: String,
+        specText: String,
+        createNewPage: Bool,
+        newPageTitle: String = "",
+        undoManager: UndoManager? = nil
+    ) -> (summary: String, exportedText: String) {
+        do {
+            if createNewPage {
+                let pTitle = newPageTitle.isEmpty ? wizardSlug.uppercased() : newPageTitle
+                insertNewPage(named: pTitle, undoManager: undoManager)
+            }
+            let resJson = try core.runDomainWizard(pageId: activePageId, wizardSlug: wizardSlug, spec: specText)
+            registerJournalUndoStep(actionName: "Domain Wizard (\(wizardSlug))", undoManager: undoManager)
+            reloadSelectedShapeSheetCells()
+            syncSelectedShapeMetadataFromCore()
+            fitViewportToActivePage()
+            if let data = resJson.data(using: .utf8),
+               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                let summary = obj["summary"] as? String ?? "Completed \(wizardSlug)"
+                let exported = obj["exportedText"] as? String ?? ""
+                statusMessage = summary
+                return (summary, exported)
+            }
+            statusMessage = "Completed \(wizardSlug)"
+            return (statusMessage, "")
+        } catch {
+            let msg = "Wizard error: \(error.localizedDescription)"
+            statusMessage = msg
+            return (msg, "")
+        }
+    }
+
+    public func applyCadScalePreset(scaleSlug: String, locked: Bool, undoManager: UndoManager? = nil) -> Double {
+        do {
+            let ratio = try core.applyCadScale(pageId: activePageId, scaleSlug: scaleSlug, locked: locked)
+            registerJournalUndoStep(actionName: "Apply CAD Scale", undoManager: undoManager)
+            reloadSelectedShapeSheetCells()
+            syncSelectedShapeMetadataFromCore()
+            core.renderViewportFrame()
+            statusMessage = String(format: "Applied CAD scale %@ (1:%.0f%@)", scaleSlug, ratio, locked ? ", GUARD locked" : "")
+            return ratio
+        } catch {
+            statusMessage = error.localizedDescription
+            return 1.0
+        }
+    }
+
+    public func convertCadLayersToVisioShapes(layerNameOrAll: String = "*", undoManager: UndoManager? = nil) -> UInt32 {
+        do {
+            let count = try core.convertCadLayers(pageId: activePageId, layerNameOrAll: layerNameOrAll)
+            registerJournalUndoStep(actionName: "Convert CAD Layers", undoManager: undoManager)
+            reloadSelectedShapeSheetCells()
+            syncSelectedShapeMetadataFromCore()
+            core.renderViewportFrame()
+            statusMessage = "Converted \(count) CAD entity shape(s) into unlocked Visio shapes with connection ports"
+            return count
+        } catch {
+            statusMessage = error.localizedDescription
+            return 0
         }
     }
 }

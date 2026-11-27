@@ -418,6 +418,21 @@ interface WasmSessionInstance {
     sub_address: string,
     screentip: string
   ): boolean;
+  insert_shape_vertex?(
+    page_id: number,
+    shape_id: number,
+    geom_index: number,
+    after_row_ix: number,
+    x_in: number,
+    y_in: number
+  ): boolean;
+  delete_shape_vertex?(page_id: number, shape_id: number, geom_index: number, row_ix: number): boolean;
+  resolve_comment?(comment_id: number, resolved: boolean): boolean;
+  delete_comment?(comment_id: number): boolean;
+  clear_page_ink?(page_id: number): number;
+  run_domain_wizard?(page_id: number, wizard_slug: string, spec_text: string): string;
+  apply_cad_scale?(page_id: number, scale_slug: string, locked: boolean): number;
+  convert_cad_layers?(page_id: number, layer_name_or_all: string): number;
   apply_title_block_border(page_id: number, project_code: string, author: string, revision: string): number;
   compare_with_vsdx_bytes(baseline_vsdx: Uint8Array): string;
   import_data_visualizer(page_id: number, bytes: Uint8Array): number;
@@ -1814,6 +1829,104 @@ self.onmessage = async (ev: MessageEvent) => {
             : false;
         const wal = session.export_wal();
         self.postMessage({ id, ok: true, okReset, wal, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'insertShapeVertex': {
+        const shapeId = Number(payload.shapeId ?? 0);
+        const inserted =
+          typeof session.insert_shape_vertex === 'function'
+            ? session.insert_shape_vertex(
+                activePageId,
+                shapeId,
+                Number(payload.geomIndex ?? 1),
+                Number(payload.afterRowIx ?? 1),
+                Number(payload.xIn ?? 0),
+                Number(payload.yIn ?? 0)
+              )
+            : false;
+        const vertices = shapeId > 0 ? JSON.parse(session.list_shape_vertices_json(activePageId, shapeId)) : [];
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, inserted, vertices, wal, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'deleteShapeVertex': {
+        const shapeId = Number(payload.shapeId ?? 0);
+        const deleted =
+          typeof session.delete_shape_vertex === 'function'
+            ? session.delete_shape_vertex(
+                activePageId,
+                shapeId,
+                Number(payload.geomIndex ?? 1),
+                Number(payload.rowIx ?? 1)
+              )
+            : false;
+        const vertices = shapeId > 0 ? JSON.parse(session.list_shape_vertices_json(activePageId, shapeId)) : [];
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, deleted, vertices, wal, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'resolveComment': {
+        const resolved =
+          typeof session.resolve_comment === 'function'
+            ? session.resolve_comment(Number(payload.commentId ?? 0), Boolean(payload.resolved))
+            : false;
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, resolved, wal, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'deleteComment': {
+        const deleted =
+          typeof session.delete_comment === 'function'
+            ? session.delete_comment(Number(payload.commentId ?? 0))
+            : false;
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, deleted, wal, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'clearPageInk': {
+        const cleared =
+          typeof session.clear_page_ink === 'function' ? session.clear_page_ink(activePageId) : 0;
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, cleared, wal, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'runDomainWizard': {
+        if (payload.newPageName && String(payload.newPageName).trim()) {
+          activePageId = session.add_page(String(payload.newPageName).trim());
+        }
+        const rawJson =
+          typeof session.run_domain_wizard === 'function'
+            ? session.run_domain_wizard(
+                activePageId,
+                String(payload.wizardSlug ?? 'gantt'),
+                String(payload.specText ?? '')
+              )
+            : '{"createdCount":0,"exportedText":"","summary":"Domain wizard unavailable"}';
+        const result = JSON.parse(rawJson);
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, result, wal, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'applyCadScale': {
+        const ratio =
+          typeof session.apply_cad_scale === 'function'
+            ? session.apply_cad_scale(
+                activePageId,
+                String(payload.scaleSlug ?? '1:100'),
+                Boolean(payload.locked ?? true)
+              )
+            : 100;
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, ratio, wal, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'convertCadLayers': {
+        const convertedCount =
+          typeof session.convert_cad_layers === 'function'
+            ? session.convert_cad_layers(activePageId, String(payload.layerName ?? '*'))
+            : 0;
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, convertedCount, wal, snapshot: buildSnapshot(session) });
         break;
       }
     }

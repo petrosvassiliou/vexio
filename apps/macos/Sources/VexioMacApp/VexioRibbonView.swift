@@ -997,6 +997,15 @@ public struct VexioHeaderAndRibbonBar: View {
                     ribbonCompactButton("rectangle.3.group", "Subprocess") {
                         session.createSubprocessDrilldown(undoManager: undoManager)
                     }
+                    ribbonCompactButton("link", "Hyperlink…", tip: "Attach External URL, Page Link & Hover ScreenTip (⌘K)") {
+                        NotificationCenter.default.post(name: .vexioOpenHyperlinkSheet, object: nil)
+                    }
+                    ribbonCompactButton("wand.and.stars", "Wizards…", tip: "SQL ⇄ ERD, Gantt, Timeline, PERT/CPM, Org Chart, 42U Rack & Room Wizards") {
+                        NotificationCenter.default.post(name: .vexioOpenDomainWizardsSheet, object: nil)
+                    }
+                    ribbonCompactButton("ruler", "CAD Tools…", tip: "Architectural Scale Lock, Convert CAD Layers & Export Binary .DWG") {
+                        NotificationCenter.default.post(name: .vexioOpenCadToolsSheet, object: nil)
+                    }
                 }
             }
         }
@@ -1277,9 +1286,14 @@ public struct VexioHeaderAndRibbonBar: View {
                 }
             }
             Divider().frame(height: 44)
-            ribbonGroup(title: "Subprocess") {
-                ribbonCompactButton("arrow.turn.down.right", "Link Subprocess") {
-                    session.createSubprocessDrilldown(undoManager: undoManager)
+            ribbonGroup(title: "Subprocess & Schedules") {
+                HStack(spacing: 6) {
+                    ribbonCompactButton("arrow.turn.down.right", "Link Subprocess") {
+                        session.createSubprocessDrilldown(undoManager: undoManager)
+                    }
+                    ribbonCompactButton("calendar.day.timeline.left", "Gantt / PERT / Timeline…") {
+                        NotificationCenter.default.post(name: .vexioOpenDomainWizardsSheet, object: "gantt")
+                    }
                 }
             }
         }
@@ -1288,13 +1302,16 @@ public struct VexioHeaderAndRibbonBar: View {
     // 6. REVIEW RIBBON
     private var reviewRibbonGroups: some View {
         HStack(spacing: 12) {
-            ribbonGroup(title: "Diagram Compare") {
+            ribbonGroup(title: "Diagram Compare & Notes") {
                 HStack(spacing: 6) {
                     ribbonCompactButton("pin", "Pin Baseline") {
                         session.captureComparisonBaseline()
                     }
                     ribbonCompactButton("arrow.left.arrow.right.square", "Compare") {
                         session.compareWithSnapshot()
+                    }
+                    ribbonCompactButton("text.bubble", "Comments…", tip: "Threaded Review Notes") {
+                        NotificationCenter.default.post(name: .vexioOpenCommentsSheet, object: nil)
                     }
                 }
             }
@@ -1306,6 +1323,12 @@ public struct VexioHeaderAndRibbonBar: View {
                     }
                     ribbonCompactButton("highlighter", "Highlighter") {
                         session.activeTool = .highlighter
+                    }
+                    ribbonCompactButton("eraser", "Eraser") {
+                        session.activeTool = .inkEraser
+                    }
+                    ribbonCompactButton("trash", "Clear Ink") {
+                        session.clearActivePageInk(undoManager: undoManager)
                     }
                 }
             }
@@ -1388,12 +1411,23 @@ public struct VexioHeaderAndRibbonBar: View {
                     ribbonCompactButton("point.topleft.down.curvedto.point.bottomright.up", "Reset Route", tip: "Restore Automatic A* Orthogonal Routing") {
                         session.resetSelectedConnectorRouting(undoManager: undoManager)
                     }
+                    ribbonCompactButton("point.3.connected.trianglepath.dotted", "Edit Vertices", tip: "Drag Vertices, Option-Click to Insert, Right-Click to Delete") {
+                        session.activeTool = (session.activeTool == .editVertices) ? .pointer : .editVertices
+                    }
                 }
             }
             Divider().frame(height: 44)
-            ribbonGroup(title: "Diagram-as-Code") {
-                ribbonCompactButton("chevron.left.forwardslash.chevron.right", "Mermaid / PlantUML / DOT…", tip: "Bidirectional Mermaid (.mmd), PlantUML (.puml) & Graphviz DOT (.dot) Studio") {
-                    NotificationCenter.default.post(name: .vexioOpenMarkupStudioSheet, object: nil)
+            ribbonGroup(title: "Studios & Automation") {
+                HStack(spacing: 5) {
+                    ribbonCompactButton("chevron.left.forwardslash.chevron.right", "Mermaid / DOT…", tip: "Bidirectional Mermaid (.mmd), PlantUML (.puml) & Graphviz DOT (.dot) Studio") {
+                        NotificationCenter.default.post(name: .vexioOpenMarkupStudioSheet, object: nil)
+                    }
+                    ribbonCompactButton("terminal", "VBA Macros…", tip: "Sandboxed VBA Automation Studio (⌥⌘V)") {
+                        NotificationCenter.default.post(name: .vexioOpenVbaStudioSheet, object: nil)
+                    }
+                    ribbonCompactButton("cylinder.split.1x2", "SQL ⇄ ERD…", tip: "Reverse & Forward SQL Schema Engineering") {
+                        NotificationCenter.default.post(name: .vexioOpenDomainWizardsSheet, object: "sql_reverse")
+                    }
                 }
             }
         }

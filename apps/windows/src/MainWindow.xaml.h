@@ -23,6 +23,8 @@ enum class ActiveCanvasTool : uint32_t {
     InkHighlighter = 13,
     Hexagon        = 14,
     Star           = 15,
+    EditVertices   = 16,
+    InkEraser      = 17,
 };
 
 struct StencilMasterDescriptor {
@@ -106,6 +108,8 @@ struct MainWindow : MainWindowT<MainWindow> {
                                        winrt::Microsoft::UI::Xaml::Input::KeyboardAcceleratorInvokedEventArgs const& args);
     void OnMacroEditorAccelerator(winrt::Microsoft::UI::Xaml::Input::KeyboardAccelerator const& sender,
                                   winrt::Microsoft::UI::Xaml::Input::KeyboardAcceleratorInvokedEventArgs const& args);
+    void OnHyperlinkAccelerator(winrt::Microsoft::UI::Xaml::Input::KeyboardAccelerator const& sender,
+                                winrt::Microsoft::UI::Xaml::Input::KeyboardAcceleratorInvokedEventArgs const& args);
     void OnGroupAccelerator(winrt::Microsoft::UI::Xaml::Input::KeyboardAccelerator const& sender,
                             winrt::Microsoft::UI::Xaml::Input::KeyboardAcceleratorInvokedEventArgs const& args);
     void OnUngroupAccelerator(winrt::Microsoft::UI::Xaml::Input::KeyboardAccelerator const& sender,
@@ -130,6 +134,7 @@ struct MainWindow : MainWindowT<MainWindow> {
     void OnExportPdfClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
     void OnExportSvgClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
     void OnExportDxfClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
+    void OnExportDwgClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
 
     // Ribbon Tab Switching & Commands
     void OnRibbonTabChanged(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
@@ -328,6 +333,11 @@ struct MainWindow : MainWindowT<MainWindow> {
     void OnOpenSlideSnippetsClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
     void OnResetConnectorRoutingClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
     void OnEnsureControlHandleClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
+    void OnClearPageInkClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
+    void OnInsertHyperlinkClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
+    void OnOpenDomainWizardsClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
+    void OnEditVerticesToggleClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
+    void OnInkEraserToggleClick(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
     void OnShapeFillColorPickerChanged(winrt::Microsoft::UI::Xaml::Controls::ColorPicker const& sender, winrt::Microsoft::UI::Xaml::Controls::ColorChangedEventArgs const& args);
     void OnShapeLineColorPickerChanged(winrt::Microsoft::UI::Xaml::Controls::ColorPicker const& sender, winrt::Microsoft::UI::Xaml::Controls::ColorChangedEventArgs const& args);
 
@@ -433,6 +443,9 @@ private:
     winrt::fire_and_forget ShowTiledPrintDialogAsync();
     winrt::fire_and_forget ShowMarkupStudioDialogAsync();
     winrt::fire_and_forget ShowSlideSnippetsDialogAsync();
+    winrt::fire_and_forget ShowCommentsDialogAsync();
+    winrt::fire_and_forget ShowHyperlinkDialogAsync();
+    winrt::fire_and_forget ShowDomainWizardsDialogAsync();
     winrt::fire_and_forget RunAutomatedScreenshotIfRequestedAsync();
 
 private:

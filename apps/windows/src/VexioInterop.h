@@ -1563,6 +1563,152 @@ public:
         return vexio_doc_ensure_control_handle(m_ptr, pageId, shapeId);
     }
 
+    [[nodiscard]] VexioResult<winrt::hstring> RunVbaMacro(
+        std::span<const uint64_t> selectionIds,
+        std::string_view scriptUtf8)
+    {
+        if (m_ptr == nullptr) {
+            return VexioResult<winrt::hstring>{VEXIO_ERR_INVALID_ARG, std::nullopt};
+        }
+        const std::string script{scriptUtf8};
+        OwnedBufferGuard buf;
+        const VexioStatus status = vexio_doc_run_vba_macro(
+            m_ptr,
+            selectionIds.empty() ? nullptr : selectionIds.data(),
+            selectionIds.size(),
+            script.c_str(),
+            buf.OutPtr());
+        if (status != VEXIO_OK) {
+            return VexioResult<winrt::hstring>{status, std::nullopt};
+        }
+        return VexioResult<winrt::hstring>{VEXIO_OK, buf.ToWinRtString()};
+    }
+
+    [[nodiscard]] VexioResult<winrt::hstring> ListCommentsJson(uint32_t pageId) const {
+        if (m_ptr == nullptr) {
+            return VexioResult<winrt::hstring>{VEXIO_ERR_INVALID_ARG, std::nullopt};
+        }
+        OwnedBufferGuard buf;
+        const VexioStatus status = vexio_doc_list_comments_json(m_ptr, pageId, buf.OutPtr());
+        if (status != VEXIO_OK) {
+            return VexioResult<winrt::hstring>{status, std::nullopt};
+        }
+        return VexioResult<winrt::hstring>{VEXIO_OK, buf.ToWinRtString()};
+    }
+
+    [[nodiscard]] VexioResult<uint32_t> AddComment(
+        uint32_t pageId,
+        uint64_t shapeId,
+        std::string_view authorUtf8,
+        std::string_view textUtf8,
+        double xIn = 2.0,
+        double yIn = 2.0)
+    {
+        if (m_ptr == nullptr) {
+            return VexioResult<uint32_t>{VEXIO_ERR_INVALID_ARG, std::nullopt};
+        }
+        const std::string author{authorUtf8};
+        const std::string text{textUtf8};
+        uint32_t outId = 0;
+        const VexioStatus status = vexio_doc_add_comment(
+            m_ptr, pageId, shapeId, author.c_str(), text.c_str(), xIn, yIn, &outId);
+        if (status != VEXIO_OK) {
+            return VexioResult<uint32_t>{status, std::nullopt};
+        }
+        return VexioResult<uint32_t>{VEXIO_OK, outId};
+    }
+
+    [[nodiscard]] VexioStatus ResolveComment(uint32_t commentId, bool resolved) {
+        if (m_ptr == nullptr) return VEXIO_ERR_INVALID_ARG;
+        return vexio_doc_resolve_comment(m_ptr, commentId, resolved);
+    }
+
+    [[nodiscard]] VexioStatus DeleteComment(uint32_t commentId) {
+        if (m_ptr == nullptr) return VEXIO_ERR_INVALID_ARG;
+        return vexio_doc_delete_comment(m_ptr, commentId);
+    }
+
+    [[nodiscard]] VexioResult<uint32_t> ClearPageInk(uint32_t pageId) {
+        if (m_ptr == nullptr) {
+            return VexioResult<uint32_t>{VEXIO_ERR_INVALID_ARG, std::nullopt};
+        }
+        uint32_t removed = 0;
+        const VexioStatus status = vexio_doc_clear_page_ink(m_ptr, pageId, &removed);
+        if (status != VEXIO_OK) {
+            return VexioResult<uint32_t>{status, std::nullopt};
+        }
+        return VexioResult<uint32_t>{VEXIO_OK, removed};
+    }
+
+    [[nodiscard]] VexioStatus SetHyperlinkAndScreentip(
+        uint32_t pageId,
+        uint64_t shapeId,
+        std::string_view descriptionUtf8,
+        std::string_view addressUtf8,
+        std::string_view subAddressUtf8,
+        std::string_view screentipUtf8)
+    {
+        if (m_ptr == nullptr || shapeId == 0) return VEXIO_ERR_INVALID_ARG;
+        const std::string desc{descriptionUtf8};
+        const std::string addr{addressUtf8};
+        const std::string sub{subAddressUtf8};
+        const std::string tip{screentipUtf8};
+        return vexio_doc_set_hyperlink_and_screentip(
+            m_ptr, pageId, shapeId, desc.c_str(), addr.c_str(), sub.c_str(), tip.c_str());
+    }
+
+    [[nodiscard]] VexioResult<winrt::hstring> RunDomainWizard(
+        uint32_t pageId,
+        std::string_view wizardSlugUtf8,
+        std::string_view specUtf8)
+    {
+        if (m_ptr == nullptr) {
+            return VexioResult<winrt::hstring>{VEXIO_ERR_INVALID_ARG, std::nullopt};
+        }
+        const std::string slug{wizardSlugUtf8};
+        const std::string spec{specUtf8};
+        OwnedBufferGuard buf;
+        const VexioStatus status = vexio_doc_run_domain_wizard(
+            m_ptr, pageId, slug.c_str(), spec.c_str(), buf.OutPtr());
+        if (status != VEXIO_OK) {
+            return VexioResult<winrt::hstring>{status, std::nullopt};
+        }
+        return VexioResult<winrt::hstring>{VEXIO_OK, buf.ToWinRtString()};
+    }
+
+    [[nodiscard]] VexioResult<double> ApplyCadScale(
+        uint32_t pageId,
+        std::string_view scaleSlugUtf8,
+        bool locked)
+    {
+        if (m_ptr == nullptr) {
+            return VexioResult<double>{VEXIO_ERR_INVALID_ARG, std::nullopt};
+        }
+        const std::string slug{scaleSlugUtf8};
+        double ratio = 1.0;
+        const VexioStatus status = vexio_doc_apply_cad_scale(m_ptr, pageId, slug.c_str(), locked, &ratio);
+        if (status != VEXIO_OK) {
+            return VexioResult<double>{status, std::nullopt};
+        }
+        return VexioResult<double>{VEXIO_OK, ratio};
+    }
+
+    [[nodiscard]] VexioResult<uint32_t> ConvertCadLayers(
+        uint32_t pageId,
+        std::string_view layerNameOrAllUtf8 = "*")
+    {
+        if (m_ptr == nullptr) {
+            return VexioResult<uint32_t>{VEXIO_ERR_INVALID_ARG, std::nullopt};
+        }
+        const std::string layer{layerNameOrAllUtf8.empty() ? "*" : layerNameOrAllUtf8};
+        uint32_t converted = 0;
+        const VexioStatus status = vexio_doc_convert_cad_layers(m_ptr, pageId, layer.c_str(), &converted);
+        if (status != VEXIO_OK) {
+            return VexioResult<uint32_t>{status, std::nullopt};
+        }
+        return VexioResult<uint32_t>{VEXIO_OK, converted};
+    }
+
 private:
     VexioDoc* m_ptr{nullptr};
 };

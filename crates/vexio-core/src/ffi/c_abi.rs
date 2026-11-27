@@ -131,6 +131,8 @@ pub enum NativeCanvasTool {
     Highlighter = 13,
     Hexagon = 14,
     Star = 15,
+    EditVertices = 16,
+    InkEraser = 17,
 }
 
 impl NativeCanvasTool {
@@ -151,6 +153,8 @@ impl NativeCanvasTool {
             13 => Self::Highlighter,
             14 => Self::Hexagon,
             15 => Self::Star,
+            16 => Self::EditVertices,
+            17 => Self::InkEraser,
             _ => Self::Select,
         }
     }
@@ -591,6 +595,14 @@ pub enum NativeDragState {
         target_shape_id: Option<u64>,
         target_port_cell: Option<String>,
     },
+    DragShapeVertex {
+        shape_id: u64,
+        geom_index: u32,
+        row_ix: u32,
+        orig_x: String,
+        orig_y: String,
+        cur_page: [f64; 2],
+    },
 }
 
 pub struct VexioEngine {
@@ -738,6 +750,8 @@ impl VexioViewport {
         self.overlay.connector_preview_in = None;
         self.overlay.hovered_autoconnect = None;
         self.overlay.container_drop_target_in = None;
+        self.overlay.live_stroke_points.clear();
+        self.overlay.live_stroke_highlighter = false;
     }
 
     pub fn present_if_attached(&mut self, doc: &VisioDocument) -> bool {
@@ -746,6 +760,19 @@ impl VexioViewport {
             self.pending_fit = false;
         }
         self.sync_glued_ends(doc);
+        if self.active_tool == NativeCanvasTool::EditVertices {
+            if let Some(&sid) = self.selected_ids.first() {
+                self.overlay.editable_vertices =
+                    crate::boolean_ops::list_shape_vertices(doc, self.page_id, sid)
+                        .into_iter()
+                        .map(|v| [v.page_x_in, v.page_y_in])
+                        .collect();
+            } else {
+                self.overlay.editable_vertices.clear();
+            }
+        } else {
+            self.overlay.editable_vertices.clear();
+        }
         let Some(r) = &mut self.gpu_renderer else {
             return false;
         };
@@ -1067,6 +1094,9 @@ impl VexioViewport {
                     NativeCanvasTool::Freeform
                     | NativeCanvasTool::InkPen
                     | NativeCanvasTool::Highlighter => {
+                        self.overlay.live_stroke_points = vec![page_pt];
+                        self.overlay.live_stroke_highlighter =
+                            self.active_tool == NativeCanvasTool::Highlighter;
                         self.drag_state = Some(NativeDragState::DrawPath {
                             tool: self.active_tool,
                             points: vec![MarkupInkPoint {
@@ -1077,6 +1107,88 @@ impl VexioViewport {
                                 tilt_y: ev.tilt_y_deg,
                             }],
                         });
+                        return 2;
+                    }
+                    NativeCanvasTool::InkEraser => {
+                        let _ = session.erase_ink_at(
+                            pid,
+                            page_pt[0],
+                            page_pt[1],
+                            (14.0 / logical_ppi).max(0.10),
+                        );
+                        self.present_if_attached(&session.doc);
+                        return 2;
+                    }
+                    NativeCanvasTool::EditVertices => {
+                        let is_right_btn = (ev.buttons & 2) != 0;
+                        if let Some(&sid) = self.selected_ids.first() {
+                            let verts =
+                                crate::boolean_ops::list_shape_vertices(&session.doc, pid, sid);
+                            let v_tol = (10.5 / logical_ppi).max(0.06);
+                            if let Some(hit_v) = verts.iter().find(|v| {
+                                (v.page_x_in - page_pt[0]).hypot(v.page_y_in - page_pt[1]) <= v_tol
+                            }) {
+                                if is_right_btn || (is_alt && is_shift) {
+                                    let _ = session.delete_shape_vertex(
+                                        pid,
+                                        sid,
+                                        hit_v.geom_index,
+                                        hit_v.row_ix,
+                                    );
+                                    self.present_if_attached(&session.doc);
+                                    return 2;
+                                }
+                                let (ox, oy) = session
+                                    .doc
+                                    .page(pid)
+                                    .and_then(|p| p.find_shape(sid))
+                                    .and_then(|sh| {
+                                        sh.sheet
+                                            .geometries
+                                            .iter()
+                                            .find(|g| g.index == hit_v.geom_index && !g.deleted)
+                                            .and_then(|g| {
+                                                g.rows
+                                                    .iter()
+                                                    .find(|r| r.ix == hit_v.row_ix && !r.deleted)
+                                                    .map(|r| (r.x.clone(), r.y.clone()))
+                                            })
+                                    })
+                                    .unwrap_or_else(|| ("0 in".into(), "0 in".into()));
+                                self.drag_state = Some(NativeDragState::DragShapeVertex {
+                                    shape_id: sid,
+                                    geom_index: hit_v.geom_index,
+                                    row_ix: hit_v.row_ix,
+                                    orig_x: ox,
+                                    orig_y: oy,
+                                    cur_page: [hit_v.page_x_in, hit_v.page_y_in],
+                                });
+                                return 2;
+                            } else if is_alt && !verts.is_empty() {
+                                if let Some(nearest) = verts.iter().min_by(|a, b| {
+                                    let da = (a.page_x_in - page_pt[0])
+                                        .hypot(a.page_y_in - page_pt[1]);
+                                    let db = (b.page_x_in - page_pt[0])
+                                        .hypot(b.page_y_in - page_pt[1]);
+                                    da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
+                                }) {
+                                    let _ = session.insert_shape_vertex(
+                                        pid,
+                                        sid,
+                                        nearest.geom_index,
+                                        nearest.row_ix,
+                                        page_pt[0],
+                                        page_pt[1],
+                                    );
+                                    self.present_if_attached(&session.doc);
+                                    return 2;
+                                }
+                            }
+                        }
+                        if let Some(sid) = top_hit {
+                            self.selected_ids = vec![sid];
+                            self.present_if_attached(&session.doc);
+                        }
                         return 2;
                     }
                     NativeCanvasTool::Connector => {
@@ -1487,7 +1599,7 @@ impl VexioViewport {
                             }
                             return if vert { 6 } else { 5 };
                         }
-                        NativeDragState::DrawPath { points, .. } => {
+                        NativeDragState::DrawPath { tool, points } => {
                             let should_push = points
                                 .last()
                                 .map(|p| (p.x_in - page_pt[0]).hypot(p.y_in - page_pt[1]) >= 0.02)
@@ -1500,7 +1612,35 @@ impl VexioViewport {
                                     tilt_x: ev.tilt_x_deg,
                                     tilt_y: ev.tilt_y_deg,
                                 });
+                                self.overlay.live_stroke_points =
+                                    points.iter().map(|p| [p.x_in, p.y_in]).collect();
+                                self.overlay.live_stroke_highlighter =
+                                    *tool == NativeCanvasTool::Highlighter;
+                                self.present_if_attached(&session.doc);
                             }
+                            return 2;
+                        }
+                        NativeDragState::DragShapeVertex {
+                            shape_id,
+                            geom_index,
+                            row_ix,
+                            cur_page,
+                            ..
+                        } => {
+                            *cur_page = page_pt;
+                            let sid = *shape_id;
+                            let gidx = *geom_index;
+                            let rix = *row_ix;
+                            let _ = crate::boolean_ops::move_shape_vertex(
+                                &mut session.doc,
+                                pid,
+                                sid,
+                                gidx,
+                                rix,
+                                page_pt[0],
+                                page_pt[1],
+                            );
+                            self.present_if_attached(&session.doc);
                             return 2;
                         }
                         NativeDragState::DrawBoxOrLine {
@@ -1646,6 +1786,17 @@ impl VexioViewport {
                         self.overlay.highlighted_ports.clear();
                     }
                     self.present_if_attached(&session.doc);
+                } else if self.active_tool == NativeCanvasTool::InkEraser
+                    && (ev.buttons & 1) != 0
+                {
+                    let _ = session.erase_ink_at(
+                        pid,
+                        page_pt[0],
+                        page_pt[1],
+                        (14.0 / logical_ppi).max(0.10),
+                    );
+                    self.present_if_attached(&session.doc);
+                    return 2;
                 } else if self.active_tool == NativeCanvasTool::Select {
                     for &cand_sid in self.selected_ids.iter().rev() {
                         if let Some(grip_hit) =
@@ -2182,6 +2333,42 @@ impl VexioViewport {
                                 }
                             }
                         }
+                        NativeDragState::DragShapeVertex {
+                            shape_id,
+                            geom_index,
+                            row_ix,
+                            orig_x,
+                            orig_y,
+                            cur_page,
+                        } => {
+                            if let Some(sh) =
+                                session.doc.page_mut(pid).and_then(|p| p.find_shape_mut(shape_id))
+                            {
+                                if let Some(g) = sh
+                                    .sheet
+                                    .geometries
+                                    .iter_mut()
+                                    .find(|g| g.index == geom_index && !g.deleted)
+                                {
+                                    if let Some(r) =
+                                        g.rows.iter_mut().find(|r| r.ix == row_ix && !r.deleted)
+                                    {
+                                        r.x = orig_x;
+                                        r.y = orig_y;
+                                    }
+                                }
+                                sh.sheet.sync_all_sections_to_cells();
+                            }
+                            ReactiveEngine::recalculate_document(&mut session.doc);
+                            let _ = session.move_shape_vertex(
+                                pid,
+                                shape_id,
+                                geom_index,
+                                row_ix,
+                                cur_page[0],
+                                cur_page[1],
+                            );
+                        }
                     }
                     self.present_if_attached(&session.doc);
                 }
@@ -2322,6 +2509,10 @@ struct NativeShapeDto {
     vert_align: u8,
     bullet_style: u8,
     control_handles_count: usize,
+    screentip: Option<String>,
+    hyperlink_address: Option<String>,
+    hyperlink_sub_address: Option<String>,
+    hyperlink_description: Option<String>,
     bound_recordset_row: Option<[u64; 2]>,
     shape_data: Vec<crate::workspace::ShapeDataItemDto>,
     cells: Vec<NativeCellDto>,
@@ -2363,6 +2554,8 @@ struct NativeStateDto {
     display_unit: String,
     pages: Vec<NativePageDto>,
     layers: Vec<NativeLayerDto>,
+    comments: Vec<vexio_shapesheet::CommentAnnotation>,
+    ink_stroke_count: usize,
     shapes: Vec<NativeShapeDto>,
     data_link_state: crate::workspace::PageDataLinkStateDto,
     slide_snippets: Vec<crate::enterprise_plan2::SlideSnippetFrame>,
@@ -2532,6 +2725,29 @@ pub(crate) fn build_native_state_json(session: &DocumentSession, active_page_id:
                         vert_align: s.sheet.get_f64("VerticalAlign").unwrap_or(1.0).round().clamp(0.0, 2.0) as u8,
                         bullet_style: s.sheet.get_f64("Para.Bullet").unwrap_or(0.0).round().clamp(0.0, 4.0) as u8,
                         control_handles_count: list_control_handles(&session.doc, pid, s.id).len(),
+                        screentip: s
+                            .sheet
+                            .get_cell("Comment")
+                            .and_then(|c| c.value.as_str_coerced().ok())
+                            .filter(|v| !v.trim().is_empty()),
+                        hyperlink_address: s
+                            .sheet
+                            .hyperlinks
+                            .first()
+                            .map(|h| h.address.clone())
+                            .filter(|v| !v.trim().is_empty()),
+                        hyperlink_sub_address: s
+                            .sheet
+                            .hyperlinks
+                            .first()
+                            .map(|h| h.sub_address.clone())
+                            .filter(|v| !v.trim().is_empty()),
+                        hyperlink_description: s
+                            .sheet
+                            .hyperlinks
+                            .first()
+                            .map(|h| h.description.clone())
+                            .filter(|v| !v.trim().is_empty()),
                         bound_recordset_row: s.bound_data_row.map(|(rs_id, row_id)| [rs_id as u64, row_id]),
                         shape_data: crate::workspace::collect_shape_data_items(&session.doc, s),
                         cells,
@@ -2541,6 +2757,15 @@ pub(crate) fn build_native_state_json(session: &DocumentSession, active_page_id:
         })
         .unwrap_or_default();
 
+    let comments: Vec<vexio_shapesheet::CommentAnnotation> = session
+        .doc
+        .comments
+        .iter()
+        .filter(|c| c.page_id == pid)
+        .cloned()
+        .collect();
+    let ink_stroke_count = active_page.map(|p| p.ink_strokes.len()).unwrap_or(0);
+
     let dto = NativeStateDto {
         title: session.doc.properties.title.clone(),
         active_page_id: pid,
@@ -2549,6 +2774,8 @@ pub(crate) fn build_native_state_json(session: &DocumentSession, active_page_id:
         display_unit,
         pages,
         layers,
+        comments,
+        ink_stroke_count,
         shapes,
         data_link_state: session.get_page_data_link_state(pid),
         slide_snippets: session.list_slide_snippets(),
@@ -4733,6 +4960,412 @@ pub unsafe extern "C" fn vexio_doc_ensure_control_handle(
         let d = unsafe { &mut *doc };
         match d.session.ensure_control_handle(page_id, shape_id) {
             Ok(_) => VexioStatus::Ok,
+            Err(e) => map_core_err(e),
+        }
+    })
+}
+
+// ============================================================================
+// v0.6.0-beta C-ABI: VBA Macro IDE, Sub-Shape Vertices, Review Comments & Ink,
+//                    Hyperlinks/ScreenTips, Enterprise Domain Wizards & CAD Tools
+// ============================================================================
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_doc_run_vba_macro(
+    doc: *mut VexioDoc,
+    selection_ptr: *const u64,
+    selection_len: usize,
+    script_utf8: *const c_char,
+    out_report_json: *mut VexioOwnedBuffer,
+) -> VexioStatus {
+    catch_ffi_status(|| {
+        if doc.is_null() || script_utf8.is_null() || out_report_json.is_null() {
+            return VexioStatus::ErrInvalidArg;
+        }
+        // SAFETY: `doc`, `script_utf8`, and `out_report_json` verified non-null; `selection_ptr` guarded by `selection_len`.
+        let d = unsafe { &mut *doc };
+        let sel: &[u64] = if selection_ptr.is_null() || selection_len == 0 {
+            &[]
+        } else {
+            unsafe { std::slice::from_raw_parts(selection_ptr, selection_len) }
+        };
+        let Ok(script) = unsafe { CStr::from_ptr(script_utf8) }.to_str() else {
+            return VexioStatus::ErrInvalidArg;
+        };
+        match d.session.run_vba_macro_with_selection(sel, script) {
+            Ok(json) => {
+                // SAFETY: `out_report_json` verified non-null.
+                unsafe { *out_report_json = VexioOwnedBuffer::from_vec(json.into_bytes()) };
+                VexioStatus::Ok
+            }
+            Err(e) => map_core_err(e),
+        }
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_doc_list_vertices_json(
+    doc: *const VexioDoc,
+    page_id: u32,
+    shape_id: u64,
+    out_json: *mut VexioOwnedBuffer,
+) -> VexioStatus {
+    catch_ffi_status(|| {
+        if doc.is_null() || out_json.is_null() {
+            return VexioStatus::ErrInvalidArg;
+        }
+        // SAFETY: `doc` and `out_json` verified non-null.
+        let d = unsafe { &*doc };
+        let json = d.session.list_shape_vertices_json(page_id, shape_id);
+        unsafe { *out_json = VexioOwnedBuffer::from_vec(json.into_bytes()) };
+        VexioStatus::Ok
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_doc_move_vertex(
+    doc: *mut VexioDoc,
+    page_id: u32,
+    shape_id: u64,
+    geom_index: u32,
+    row_ix: u32,
+    page_x_in: f64,
+    page_y_in: f64,
+) -> VexioStatus {
+    catch_ffi_status(|| {
+        if doc.is_null() || shape_id == 0 {
+            return VexioStatus::ErrInvalidArg;
+        }
+        // SAFETY: `doc` verified non-null.
+        let d = unsafe { &mut *doc };
+        match d.session.move_shape_vertex(page_id, shape_id, geom_index, row_ix, page_x_in, page_y_in) {
+            Ok(true) => VexioStatus::Ok,
+            Ok(false) => VexioStatus::ErrInvalidArg,
+            Err(e) => map_core_err(e),
+        }
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_doc_insert_vertex(
+    doc: *mut VexioDoc,
+    page_id: u32,
+    shape_id: u64,
+    geom_index: u32,
+    after_row_ix: u32,
+    page_x_in: f64,
+    page_y_in: f64,
+) -> VexioStatus {
+    catch_ffi_status(|| {
+        if doc.is_null() || shape_id == 0 {
+            return VexioStatus::ErrInvalidArg;
+        }
+        // SAFETY: `doc` verified non-null.
+        let d = unsafe { &mut *doc };
+        match d.session.insert_shape_vertex(page_id, shape_id, geom_index, after_row_ix, page_x_in, page_y_in) {
+            Ok(true) => VexioStatus::Ok,
+            Ok(false) => VexioStatus::ErrInvalidArg,
+            Err(e) => map_core_err(e),
+        }
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_doc_delete_vertex(
+    doc: *mut VexioDoc,
+    page_id: u32,
+    shape_id: u64,
+    geom_index: u32,
+    row_ix: u32,
+) -> VexioStatus {
+    catch_ffi_status(|| {
+        if doc.is_null() || shape_id == 0 {
+            return VexioStatus::ErrInvalidArg;
+        }
+        // SAFETY: `doc` verified non-null.
+        let d = unsafe { &mut *doc };
+        match d.session.delete_shape_vertex(page_id, shape_id, geom_index, row_ix) {
+            Ok(true) => VexioStatus::Ok,
+            Ok(false) => VexioStatus::ErrInvalidArg,
+            Err(e) => map_core_err(e),
+        }
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_doc_draw_freeform_json(
+    doc: *mut VexioDoc,
+    page_id: u32,
+    points_json_utf8: *const c_char,
+    closed: bool,
+    out_shape_id: *mut u64,
+) -> VexioStatus {
+    catch_ffi_status(|| {
+        if doc.is_null() || points_json_utf8.is_null() {
+            return VexioStatus::ErrInvalidArg;
+        }
+        // SAFETY: `doc` and `points_json_utf8` verified non-null.
+        let d = unsafe { &mut *doc };
+        let Ok(pjson) = unsafe { CStr::from_ptr(points_json_utf8) }.to_str() else {
+            return VexioStatus::ErrInvalidArg;
+        };
+        match d.session.draw_freeform_curve_json(page_id, pjson, closed) {
+            Ok(sid) => {
+                if !out_shape_id.is_null() {
+                    // SAFETY: `out_shape_id` verified non-null.
+                    unsafe { *out_shape_id = sid };
+                }
+                VexioStatus::Ok
+            }
+            Err(e) => map_core_err(e),
+        }
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_doc_list_comments_json(
+    doc: *const VexioDoc,
+    page_id: u32,
+    out_json: *mut VexioOwnedBuffer,
+) -> VexioStatus {
+    catch_ffi_status(|| {
+        if doc.is_null() || out_json.is_null() {
+            return VexioStatus::ErrInvalidArg;
+        }
+        // SAFETY: `doc` and `out_json` verified non-null.
+        let d = unsafe { &*doc };
+        let json = d.session.list_comments_json(page_id);
+        unsafe { *out_json = VexioOwnedBuffer::from_vec(json.into_bytes()) };
+        VexioStatus::Ok
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_doc_add_comment(
+    doc: *mut VexioDoc,
+    page_id: u32,
+    shape_id: u64,
+    author_utf8: *const c_char,
+    text_utf8: *const c_char,
+    x_in: f64,
+    y_in: f64,
+    out_comment_id: *mut u32,
+) -> VexioStatus {
+    catch_ffi_status(|| {
+        if doc.is_null() || text_utf8.is_null() {
+            return VexioStatus::ErrInvalidArg;
+        }
+        // SAFETY: `doc` and `text_utf8` verified non-null.
+        let d = unsafe { &mut *doc };
+        let author = if author_utf8.is_null() {
+            ""
+        } else {
+            unsafe { CStr::from_ptr(author_utf8) }.to_str().unwrap_or("")
+        };
+        let Ok(text) = unsafe { CStr::from_ptr(text_utf8) }.to_str() else {
+            return VexioStatus::ErrInvalidArg;
+        };
+        match d.session.add_comment(page_id, shape_id, author, text, x_in, y_in) {
+            Ok(cid) => {
+                if !out_comment_id.is_null() {
+                    unsafe { *out_comment_id = cid };
+                }
+                VexioStatus::Ok
+            }
+            Err(e) => map_core_err(e),
+        }
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_doc_resolve_comment(
+    doc: *mut VexioDoc,
+    comment_id: u32,
+    resolved: bool,
+) -> VexioStatus {
+    catch_ffi_status(|| {
+        if doc.is_null() || comment_id == 0 {
+            return VexioStatus::ErrInvalidArg;
+        }
+        // SAFETY: `doc` verified non-null.
+        let d = unsafe { &mut *doc };
+        match d.session.set_comment_resolved(comment_id, resolved) {
+            Ok(true) => VexioStatus::Ok,
+            Ok(false) => VexioStatus::ErrInvalidArg,
+            Err(e) => map_core_err(e),
+        }
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_doc_delete_comment(
+    doc: *mut VexioDoc,
+    comment_id: u32,
+) -> VexioStatus {
+    catch_ffi_status(|| {
+        if doc.is_null() || comment_id == 0 {
+            return VexioStatus::ErrInvalidArg;
+        }
+        // SAFETY: `doc` verified non-null.
+        let d = unsafe { &mut *doc };
+        match d.session.delete_comment(comment_id) {
+            Ok(true) => VexioStatus::Ok,
+            Ok(false) => VexioStatus::ErrInvalidArg,
+            Err(e) => map_core_err(e),
+        }
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_doc_clear_page_ink(
+    doc: *mut VexioDoc,
+    page_id: u32,
+    out_removed_count: *mut u32,
+) -> VexioStatus {
+    catch_ffi_status(|| {
+        if doc.is_null() {
+            return VexioStatus::ErrInvalidArg;
+        }
+        // SAFETY: `doc` verified non-null.
+        let d = unsafe { &mut *doc };
+        match d.session.clear_page_ink(page_id) {
+            Ok(cnt) => {
+                if !out_removed_count.is_null() {
+                    unsafe { *out_removed_count = cnt as u32 };
+                }
+                VexioStatus::Ok
+            }
+            Err(e) => map_core_err(e),
+        }
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_doc_set_hyperlink_and_screentip(
+    doc: *mut VexioDoc,
+    page_id: u32,
+    shape_id: u64,
+    description_utf8: *const c_char,
+    address_utf8: *const c_char,
+    sub_address_utf8: *const c_char,
+    screentip_utf8: *const c_char,
+) -> VexioStatus {
+    catch_ffi_status(|| {
+        if doc.is_null() || shape_id == 0 {
+            return VexioStatus::ErrInvalidArg;
+        }
+        // SAFETY: `doc` verified non-null; optional string pointers guarded for null.
+        let d = unsafe { &mut *doc };
+        let read_opt = |p: *const c_char| -> &str {
+            if p.is_null() {
+                ""
+            } else {
+                unsafe { CStr::from_ptr(p) }.to_str().unwrap_or("")
+            }
+        };
+        match d.session.set_shape_hyperlink_and_screentip(
+            page_id,
+            shape_id,
+            read_opt(description_utf8),
+            read_opt(address_utf8),
+            read_opt(sub_address_utf8),
+            read_opt(screentip_utf8),
+        ) {
+            Ok(true) => VexioStatus::Ok,
+            Ok(false) => VexioStatus::ErrInvalidArg,
+            Err(e) => map_core_err(e),
+        }
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_doc_run_domain_wizard(
+    doc: *mut VexioDoc,
+    page_id: u32,
+    wizard_slug_utf8: *const c_char,
+    spec_utf8: *const c_char,
+    out_result_json: *mut VexioOwnedBuffer,
+) -> VexioStatus {
+    catch_ffi_status(|| {
+        if doc.is_null() || wizard_slug_utf8.is_null() || out_result_json.is_null() {
+            return VexioStatus::ErrInvalidArg;
+        }
+        // SAFETY: `doc`, `wizard_slug_utf8`, and `out_result_json` verified non-null.
+        let d = unsafe { &mut *doc };
+        let Ok(slug) = unsafe { CStr::from_ptr(wizard_slug_utf8) }.to_str() else {
+            return VexioStatus::ErrInvalidArg;
+        };
+        let spec = if spec_utf8.is_null() {
+            ""
+        } else {
+            unsafe { CStr::from_ptr(spec_utf8) }.to_str().unwrap_or("")
+        };
+        match d.session.run_domain_wizard(page_id, slug, spec) {
+            Ok(json) => {
+                unsafe { *out_result_json = VexioOwnedBuffer::from_vec(json.into_bytes()) };
+                VexioStatus::Ok
+            }
+            Err(e) => map_core_err(e),
+        }
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_doc_apply_cad_scale(
+    doc: *mut VexioDoc,
+    page_id: u32,
+    scale_slug_utf8: *const c_char,
+    locked: bool,
+    out_ratio: *mut f64,
+) -> VexioStatus {
+    catch_ffi_status(|| {
+        if doc.is_null() || scale_slug_utf8.is_null() {
+            return VexioStatus::ErrInvalidArg;
+        }
+        // SAFETY: `doc` and `scale_slug_utf8` verified non-null.
+        let d = unsafe { &mut *doc };
+        let Ok(slug) = unsafe { CStr::from_ptr(scale_slug_utf8) }.to_str() else {
+            return VexioStatus::ErrInvalidArg;
+        };
+        match d.session.apply_cad_scale(page_id, slug, locked) {
+            Ok(r) => {
+                if !out_ratio.is_null() {
+                    unsafe { *out_ratio = r };
+                }
+                VexioStatus::Ok
+            }
+            Err(e) => map_core_err(e),
+        }
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_doc_convert_cad_layers(
+    doc: *mut VexioDoc,
+    page_id: u32,
+    layer_name_or_all_utf8: *const c_char,
+    out_converted_count: *mut u32,
+) -> VexioStatus {
+    catch_ffi_status(|| {
+        if doc.is_null() {
+            return VexioStatus::ErrInvalidArg;
+        }
+        // SAFETY: `doc` verified non-null.
+        let d = unsafe { &mut *doc };
+        let layer_s = if layer_name_or_all_utf8.is_null() {
+            "*"
+        } else {
+            unsafe { CStr::from_ptr(layer_name_or_all_utf8) }
+                .to_str()
+                .unwrap_or("*")
+        };
+        match d.session.convert_cad_layers(page_id, layer_s) {
+            Ok(cnt) => {
+                if !out_converted_count.is_null() {
+                    unsafe { *out_converted_count = cnt as u32 };
+                }
+                VexioStatus::Ok
+            }
             Err(e) => map_core_err(e),
         }
     })
