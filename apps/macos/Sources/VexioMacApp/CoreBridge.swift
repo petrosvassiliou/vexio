@@ -3758,6 +3758,9 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
                 } else if pointerEvent.kind == 2 {
                     refreshStateRevisionFromCore()
                 }
+                if pointerEvent.kind == 2 {
+                    refreshStateRevisionFromCore()
+                }
             }
             return resolveNSCursor(for: cursorCode)
         } catch let bridgeErr as VexioBridgeError {

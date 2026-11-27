@@ -15,6 +15,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.lifecycle.lifecycleScope
+import com.vexio.core.PendingUnsavedPromptKind
 import com.vexio.core.VexioSessionViewModel
 import com.vexio.ui.theme.VexioMaterial3ExpressiveTheme
 import com.vexio.ui.workstation.ACTION_NEW_DOCUMENT_WINDOW
@@ -53,7 +54,8 @@ class MainActivity : ComponentActivity() {
     /**
      * SAF CreateDocument contract for Save As persistence to local disk or mounted Google Drive / SMB shares.
      */
-    private var finishAfterNextSave: Boolean = false
+    private var approvedForceExit: Boolean = false
+    private var postSaveContinuation: (() -> Unit)? = null
 
     private val createDocumentLauncher = registerForActivityResult(
         ActivityResultContracts.CreateDocument("application/vnd.ms-visio.drawing.main+xml")
@@ -62,7 +64,7 @@ class MainActivity : ComponentActivity() {
             takePersistableReadWritePermissionsIfPossible(targetUri)
             writeDiagramToSafUri(targetUri)
         } else {
-            finishAfterNextSave = false
+            postSaveContinuation = null
         }
     }
 
@@ -143,9 +145,18 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         sessionViewModel.attachStencilStorageDirectory(java.io.File(filesDir, "stencils"))
+        sessionViewModel.attachRecoveryStorageDirectory(java.io.File(filesDir, "recovery"))
 
         if (savedInstanceState == null) {
-            handleIncomingLaunchIntent(intent)
+            val hasExternalIntent = intent?.data != null || intent?.action == ACTION_NEW_DOCUMENT_WINDOW
+            val restoredDirty = if (!hasExternalIntent) {
+                sessionViewModel.restoreUnsavedRecoveryIfPresent()
+            } else {
+                false
+            }
+            if (!restoredDirty) {
+                handleIncomingLaunchIntent(intent)
+            }
             sessionViewModel.checkForUpdatesAsync(userInitiated = false)
         }
 
@@ -187,11 +198,21 @@ class MainActivity : ComponentActivity() {
                     onExportFormatRequested = ::triggerExportFormatSafPicker,
                     onExternalUriDropped = ::loadDiagramFromSafUri,
                     onSaveAndExitRequested = {
-                        finishAfterNextSave = true
+                        postSaveContinuation = {
+                            approvedForceExit = true
+                            sessionViewModel.clearUnsavedRecovery()
+                            finish()
+                        }
+                        triggerSaveInPlaceOrPicker()
+                    },
+                    onSaveThenContinueRequested = { afterSave ->
+                        postSaveContinuation = afterSave
                         triggerSaveInPlaceOrPicker()
                     },
                     onDiscardAndExitRequested = {
-                        finishAfterNextSave = false
+                        postSaveContinuation = null
+                        approvedForceExit = true
+                        sessionViewModel.clearUnsavedRecovery()
                         finish()
                     },
                     onPrintRequested = {
@@ -200,6 +221,37 @@ class MainActivity : ComponentActivity() {
                 )
             }
         }
+    }
+
+    override fun finish() {
+        if (!approvedForceExit && sessionViewModel.uiState.value.isDirty) {
+            sessionViewModel.requestUnsavedPrompt(PendingUnsavedPromptKind.EXIT_WINDOW)
+            return
+        }
+        super.finish()
+    }
+
+    override fun finishAndRemoveTask() {
+        if (!approvedForceExit && sessionViewModel.uiState.value.isDirty) {
+            sessionViewModel.requestUnsavedPrompt(PendingUnsavedPromptKind.EXIT_WINDOW)
+            return
+        }
+        super.finishAndRemoveTask()
+    }
+
+    override fun finishAffinity() {
+        if (!approvedForceExit && sessionViewModel.uiState.value.isDirty) {
+            sessionViewModel.requestUnsavedPrompt(PendingUnsavedPromptKind.EXIT_WINDOW)
+            return
+        }
+        super.finishAffinity()
+    }
+
+    override fun onStop() {
+        if (!approvedForceExit && sessionViewModel.uiState.value.isDirty) {
+            sessionViewModel.persistUnsavedRecoveryIfDirty()
+        }
+        super.onStop()
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -561,13 +613,12 @@ class MainActivity : ComponentActivity() {
                         displayName = resolvedName,
                         ext = ext
                     )
-                    if (finishAfterNextSave) {
-                        finishAfterNextSave = false
-                        finish()
-                    }
+                    val continuation = postSaveContinuation
+                    postSaveContinuation = null
+                    continuation?.invoke()
                 }
             } else {
-                finishAfterNextSave = false
+                postSaveContinuation = null
             }
         }
     }

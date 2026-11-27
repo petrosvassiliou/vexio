@@ -67,7 +67,7 @@ private struct MacWindowUnifiedTitlebarAccessor: NSViewRepresentable {
 
         func bind(window: NSWindow, session: VexioDocumentSession) {
             self.session = session
-            if attachedWindow !== window {
+            if attachedWindow !== window || window.delegate !== self {
                 attachedWindow = window
                 window.delegate = self
             }

@@ -730,8 +730,8 @@ class NativeBridgePacketTest {
         assertEquals(33, vm.uiState.value.stencilCategories.size)
         assertTrue(vm.uiState.value.stencilMasters.isNotEmpty())
         assertTrue(
-            "Expected 0.9.1-beta in updateStatusMessage, got: ${vm.uiState.value.updateStatusMessage}",
-            vm.uiState.value.updateStatusMessage.contains("0.9.1-beta")
+            "Expected 0.9.2-beta in updateStatusMessage, got: ${vm.uiState.value.updateStatusMessage}",
+            vm.uiState.value.updateStatusMessage.contains("0.9.2-beta")
         )
 
         val sampleNativeJson = """
@@ -962,6 +962,45 @@ class NativeBridgePacketTest {
         assertTrue(vm.exportMindMapOutline().contains("#"))
         val calcJson = vm.recalculateVsmAndFta()
         assertTrue(calcJson.contains("pce") || calcJson.contains("vsm") || calcJson.contains("fta"))
+    }
+
+    @Test
+    fun v092UnsavedClosePromptStateAndRecoverySnapshotPersistDeterministically() {
+        val vm = VexioSessionViewModel()
+        vm.createBlankWithPagePreset("Clean_Check.vsdx", VexioPagePresetSpec.A4_LANDSCAPE)
+        assertFalse("Fresh blank document must not be dirty", vm.uiState.value.isDirty)
+        assertEquals(null, vm.uiState.value.pendingUnsavedPrompt)
+
+        // Mutate document and verify unsaved close prompt lifecycle
+        vm.drawQuickPrimitive("rect")
+        assertTrue("Document must be marked dirty after drawing a shape", vm.uiState.value.isDirty)
+
+        vm.requestUnsavedPrompt(PendingUnsavedPromptKind.EXIT_WINDOW)
+        assertEquals(PendingUnsavedPromptKind.EXIT_WINDOW, vm.uiState.value.pendingUnsavedPrompt)
+        vm.dismissUnsavedPrompt()
+        assertEquals(null, vm.uiState.value.pendingUnsavedPrompt)
+
+        // Verify crash/close recovery persistence & clean clearance on save
+        val tempDir = kotlin.io.path.createTempDirectory("vexio_unsaved_test").toFile()
+        try {
+            vm.attachRecoveryStorageDirectory(tempDir)
+            vm.persistUnsavedRecoveryIfDirty()
+
+            val vmRecovered = VexioSessionViewModel()
+            vmRecovered.attachRecoveryStorageDirectory(tempDir)
+            assertTrue("Should recover unsaved .vsdx snapshot", vmRecovered.restoreUnsavedRecoveryIfPresent())
+            assertTrue("Recovered session must remain marked dirty until saved", vmRecovered.uiState.value.isDirty)
+            assertEquals("Clean_Check.vsdx", vmRecovered.uiState.value.documentTitle)
+
+            vmRecovered.markSaved(null, "Clean_Check.vsdx", "vsdx")
+            assertFalse("markSaved must clear isDirty and delete recovery snapshot", vmRecovered.uiState.value.isDirty)
+
+            val vmAfterSave = VexioSessionViewModel()
+            vmAfterSave.attachRecoveryStorageDirectory(tempDir)
+            assertFalse("Recovery snapshot must be deleted after save", vmAfterSave.restoreUnsavedRecoveryIfPresent())
+        } finally {
+            tempDir.deleteRecursively()
+        }
     }
 }
 

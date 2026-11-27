@@ -2152,6 +2152,14 @@ data class InspectedObjectUiState(
     }
 }
 
+enum class PendingUnsavedPromptKind {
+    EXIT_WINDOW,
+    NEW_BLANK,
+    OPEN_FILE,
+    LOAD_TEMPLATE,
+    RECOVERED_SESSION
+}
+
 data class WorkstationUiState(
     val windowInstanceId: String = "win-${runCatching { SystemClock.uptimeMillis() }.getOrDefault(1L)}",
     val documentTitle: String = "Architecture_Blueprint.vsdx",
@@ -2159,6 +2167,8 @@ data class WorkstationUiState(
     val documentExtension: String = "vsdx",
     val isDarkTheme: Boolean = false,
     val isDirty: Boolean = false,
+    val pendingUnsavedPrompt: PendingUnsavedPromptKind? = null,
+    val pendingUnsavedTemplateSlug: String? = null,
     val canUndo: Boolean = false,
     val canRedo: Boolean = false,
     val activeTool: VexioTool = VexioTool.POINTER,
@@ -2215,7 +2225,7 @@ data class WorkstationUiState(
     val inlineTextEditor: InlineCanvasEditorModel? = null,
     val smartGuidesEnabled: Boolean = true,
     val autoCheckUpdates: Boolean = true,
-    val updateStatusMessage: String = "Vexio v0.9.1-beta • Automatic update check enabled",
+    val updateStatusMessage: String = "Vexio v0.9.2-beta • Automatic update check enabled",
     val availableUpdateTag: String? = null,
     val availableUpdateUrl: String? = null,
     val showUpdateDialog: Boolean = false,
@@ -2716,10 +2726,14 @@ class VexioSessionViewModel(
                 syncPagesAndActivePageFromNative(preferFirstForeground = true)
             }
         }
+        hasMetadataUnsavedEdit = false
+        savedStateRevision = readNativeStateRevision()
         _uiState.update { state ->
             state.copy(
                 documentTitle = title,
                 isDirty = false,
+                pendingUnsavedPrompt = null,
+                pendingUnsavedTemplateSlug = null,
                 isAutoFitPage = true,
                 showStartBackstage = if (hideStartBackstage) false else state.showStartBackstage,
                 statusBanner = if (NativeBridge.isNativeAvailable && enginePtr != 0L) {
@@ -2730,12 +2744,125 @@ class VexioSessionViewModel(
             )
         }
         refreshSelectedShapeFormulas()
-        savedStateRevision = readNativeStateRevision()
         captureBaselineSnapshot()
         if (_uiState.value.isAutoFitPage && viewportWidthPx > 0 && viewportHeightPx > 0) {
             fitPageToWindow()
         } else {
             presentViewportOrFallback()
+        }
+    }
+
+    private var hasMetadataUnsavedEdit: Boolean = false
+    private var recoveryStorageDir: java.io.File? = null
+
+    fun attachRecoveryStorageDirectory(dir: java.io.File) {
+        recoveryStorageDir = dir.apply { mkdirs() }
+    }
+
+    fun requestUnsavedPrompt(kind: PendingUnsavedPromptKind, templateSlug: String? = null) {
+        _uiState.update {
+            it.copy(
+                pendingUnsavedPrompt = kind,
+                pendingUnsavedTemplateSlug = templateSlug
+            )
+        }
+    }
+
+    fun dismissUnsavedPrompt() {
+        _uiState.update {
+            it.copy(
+                pendingUnsavedPrompt = null,
+                pendingUnsavedTemplateSlug = null
+            )
+        }
+    }
+
+    @Synchronized
+    fun persistUnsavedRecoveryIfDirty() {
+        val dir = recoveryStorageDir ?: return
+        val cur = _uiState.value
+        if (!cur.isDirty) return
+        runCatching {
+            val bytes = exportDocumentBytes("vsdx")
+            if (bytes.isNotEmpty()) {
+                java.io.File(dir, "unsaved_recovery.vsdx").writeBytes(bytes)
+                val meta = "${cur.documentTitle}\n${cur.documentExtension}\n${cur.documentUri?.toString().orEmpty()}"
+                java.io.File(dir, "unsaved_recovery.meta").writeText(meta, Charsets.UTF_8)
+            }
+        }
+    }
+
+    @Synchronized
+    fun clearUnsavedRecovery() {
+        val dir = recoveryStorageDir ?: return
+        runCatching {
+            java.io.File(dir, "unsaved_recovery.vsdx").delete()
+            java.io.File(dir, "unsaved_recovery.meta").delete()
+        }
+    }
+
+    @Synchronized
+    fun restoreUnsavedRecoveryIfPresent(): Boolean {
+        val dir = recoveryStorageDir ?: return false
+        val vsdxFile = java.io.File(dir, "unsaved_recovery.vsdx")
+        val metaFile = java.io.File(dir, "unsaved_recovery.meta")
+        if (!vsdxFile.exists() || vsdxFile.length() <= 0L) return false
+        val bytes = runCatching { vsdxFile.readBytes() }.getOrNull() ?: return false
+        val lines = runCatching { metaFile.readLines(Charsets.UTF_8) }.getOrDefault(emptyList())
+        val recoveredTitle = lines.getOrNull(0)?.takeIf { it.isNotBlank() } ?: "Recovered_Diagram.vsdx"
+        val recoveredExt = lines.getOrNull(1)?.takeIf { it.isNotBlank() } ?: "vsdx"
+        val recoveredUri = lines.getOrNull(2)?.takeIf { it.isNotBlank() }?.let { runCatching { Uri.parse(it) }.getOrNull() }
+
+        if (NativeBridge.ensureLoaded()) {
+            if (enginePtr == 0L) {
+                enginePtr = NativeBridge.nativeInitEngine()
+            }
+            val directBuffer = ByteBuffer.allocateDirect(max(1, bytes.size)).order(ByteOrder.nativeOrder())
+            directBuffer.put(bytes)
+            directBuffer.flip()
+            val openedPtr = NativeBridge.nativeOpenDocument(enginePtr, directBuffer, "vsdx")
+            if (openedPtr != 0L) {
+                val oldDoc = docPtr
+                docPtr = openedPtr
+                if (oldDoc != 0L && oldDoc != openedPtr) {
+                    NativeBridge.nativeDestroyDocument(oldDoc)
+                }
+                loadDynamicStencilsFromNative()
+                syncPagesAndActivePageFromNative(preferFirstForeground = true)
+            }
+        }
+        hasMetadataUnsavedEdit = true
+        savedStateRevision = -1L
+        refreshSelectedShapeFormulas()
+        _uiState.update {
+            it.copy(
+                showStartBackstage = false,
+                documentTitle = recoveredTitle,
+                documentExtension = recoveredExt,
+                documentUri = recoveredUri,
+                isDirty = true,
+                canUndo = true,
+                pendingUnsavedPrompt = PendingUnsavedPromptKind.RECOVERED_SESSION,
+                statusBanner = "Recovered unsaved changes for $recoveredTitle"
+            )
+        }
+        presentViewportOrFallback()
+        return true
+    }
+
+    private fun syncDirtyFromNativeRevision() {
+        if (!NativeBridge.isNativeAvailable || docPtr == 0L) return
+        val curRev = readNativeStateRevision()
+        val dirtyNow = (curRev != savedStateRevision) || hasMetadataUnsavedEdit
+        _uiState.update { state ->
+            if (state.isDirty == dirtyNow && (!dirtyNow || state.canUndo)) {
+                state
+            } else {
+                state.copy(
+                    isDirty = dirtyNow,
+                    canUndo = dirtyNow || state.canUndo
+                )
+            }
         }
     }
 
@@ -3110,14 +3237,24 @@ class VexioSessionViewModel(
             primaryTool == MotionBatchFormat.TOOL_ERASER
         val tiltDegrees = Math.toDegrees(currentTilt.toDouble()).toInt().coerceIn(0, 90)
 
+        val fallbackCanvasMutated = !NativeBridge.isNativeAvailable &&
+            mappedAction == MotionBatchFormat.ACTION_UP &&
+            activeBeforeUp != VexioTool.PAN_HAND &&
+            activeBeforeUp != VexioTool.POINTER
+
         _uiState.update { state ->
             state.copy(
                 activeTool = if (shouldResetToPointer) VexioTool.POINTER else state.activeTool,
                 activeCursor = resolvedCursor,
+                isDirty = if (fallbackCanvasMutated) true else state.isDirty,
+                canUndo = if (fallbackCanvasMutated) true else state.canUndo,
                 isStylusActive = stylusActive || palmRejector.isStylusProximityActive,
                 lastStylusPressure = if (stylusActive) currentPressure else state.lastStylusPressure,
                 lastStylusTiltDeg = if (stylusActive) tiltDegrees else state.lastStylusTiltDeg
             )
+        }
+        if (mappedAction == MotionBatchFormat.ACTION_UP) {
+            syncDirtyFromNativeRevision()
         }
 
         if (newlyCreatedTextId > 0L) {
@@ -3949,8 +4086,15 @@ class VexioSessionViewModel(
             }
         }
 
+        val revDirty = if (NativeBridge.isNativeAvailable && docPtr != 0L) {
+            (readNativeStateRevision() != savedStateRevision) || hasMetadataUnsavedEdit
+        } else {
+            _uiState.value.isDirty
+        }
         _uiState.update {
             it.copy(
+                isDirty = revDirty,
+                canUndo = revDirty || it.canUndo,
                 shapeSheetCells = refreshed,
                 formulaBarInput = activeFormula,
                 pages = parsedPages,
@@ -5298,6 +5442,9 @@ class VexioSessionViewModel(
                 if (openedPtr != 0L) {
                     syncPagesAndActivePageFromNative(preferFirstForeground = true)
                 }
+                hasMetadataUnsavedEdit = false
+                clearUnsavedRecovery()
+                savedStateRevision = readNativeStateRevision()
                 _uiState.update { state ->
                     state.copy(
                         showStartBackstage = false,
@@ -5305,6 +5452,8 @@ class VexioSessionViewModel(
                         documentUri = uri,
                         documentExtension = ext,
                         isDirty = false,
+                        pendingUnsavedPrompt = null,
+                        pendingUnsavedTemplateSlug = null,
                         statusBanner = if (openedPtr != 0L) {
                             "Opened $displayName (${state.pages.size} page(s), .$ext) losslessly"
                         } else {
@@ -5313,7 +5462,6 @@ class VexioSessionViewModel(
                     )
                 }
                 refreshSelectedShapeFormulas()
-                savedStateRevision = readNativeStateRevision()
                 fitPageToWindow()
                 captureBaselineSnapshot()
                 presentViewportOrFallback()
@@ -5437,6 +5585,9 @@ class VexioSessionViewModel(
                 NativeBridge.nativeSetViewportTool(viewportPtr, VexioTool.POINTER.nativeCode)
             }
         }
+        hasMetadataUnsavedEdit = false
+        clearUnsavedRecovery()
+        savedStateRevision = readNativeStateRevision()
         _uiState.update { state ->
             state.copy(
                 showStartBackstage = false,
@@ -5453,6 +5604,8 @@ class VexioSessionViewModel(
                 activeTool = VexioTool.POINTER,
                 activeCursor = VexioCursorKind.ARROW,
                 isDirty = false,
+                pendingUnsavedPrompt = null,
+                pendingUnsavedTemplateSlug = null,
                 statusBanner = "Created $title • ${preset.label}"
             )
         }
@@ -5496,6 +5649,7 @@ class VexioSessionViewModel(
         if (NativeBridge.isNativeAvailable && docPtr != 0L) {
             NativeBridge.nativeSetDocumentTitle(docPtr, normalized)
         }
+        hasMetadataUnsavedEdit = true
         _uiState.update {
             it.copy(
                 documentTitle = normalized,
@@ -6103,7 +6257,7 @@ class VexioSessionViewModel(
             "org_chart" -> "1,,Alex Rivera,Chief Executive Officer,Executive\n2,1,Priya Patel,VP Engineering,Engineering\n3,1,Marcus Chen,VP Product,Product\n4,2,Elena Rostova,Principal Architect,Core"
             "rack_42u" -> "41,2,Core Spine Switch,Switch,320,12\n37,4,GPU Compute Node A,Compute,1400,48\n33,4,NVMe Storage Array,Storage,850,38\n1,2,Dual Redundant UPS,UPS,1800,62"
             "arch_room" -> "Conference Suite A,2.0,3.0,5.0,3.5"
-            "calendar" -> "2026-11,monday\n2026-11-03|Architecture Freeze\n2026-11-12|Security Audit\n2026-11-27|v0.9.1-beta Release"
+            "calendar" -> "2026-11,monday\n2026-11-03|Architecture Freeze\n2026-11-12|Security Audit\n2026-11-27|v0.9.2-beta Release"
             "pivot_diagram" -> "GROUP=Region>Service;METRIC=Cost;AGG=SUM\nRegion,Service,Cost\nEMEA,Compute,42000\nEMEA,Storage,18000\nAmericas,Compute,64000\nAmericas,AI_GPU,51000\nAPAC,Compute,29000"
             "mind_map" -> "# Vexio 1.0 Launch\n## Core Engine\n### Associative Dimensions\n### Wall Auto-Healing\n## Native Apps\n### Windows WinUI 3\n### macOS Liquid Glass\n### Android Vulkan\n### ChromeOS Offline PWA"
             "mind_map_radial" -> "# Product Strategy\n## Enterprise CAD\n### DWG R2024\n### Scale Locking\n## Process Intelligence\n### Lean VSM\n### Fault Tree MOCUS"
@@ -6844,7 +6998,7 @@ class VexioSessionViewModel(
     }
 
     // -------------------------------------------------------------------------
-    // Milestone 4 (`v0.9.1-beta`): Associative Architectural Dimensions,
+    // Milestone 4 (`v0.9.2-beta`): Associative Architectural Dimensions,
     // Wall Miter/T-Join Auto-Healing, Door/Window Openings, Mind Map Topics & VSM/FTA
     // -------------------------------------------------------------------------
     @Synchronized
@@ -7339,7 +7493,7 @@ class VexioSessionViewModel(
                     instanceFollowRedirects = true
                     connectTimeout = 20_000
                     readTimeout = 45_000
-                    setRequestProperty("User-Agent", "Vexio-Android-Workstation/0.9.1-beta")
+                    setRequestProperty("User-Agent", "Vexio-Android-Workstation/0.9.2-beta")
                 }
                 try {
                     val code = conn.responseCode
@@ -8301,7 +8455,7 @@ class VexioSessionViewModel(
             }
         }
         viewModelScope.launch(ioDispatcher) {
-            val currentVersion = "0.9.1-beta"
+            val currentVersion = "0.9.2-beta"
             var latestTag: String? = null
             var downloadUrl = "https://github.com/petrosvassiliou/vexio/releases"
             var ok = false
@@ -8312,7 +8466,7 @@ class VexioSessionViewModel(
                     requestMethod = "GET"
                     connectTimeout = 4500
                     readTimeout = 4500
-                    setRequestProperty("User-Agent", "Vexio-Android-Googlebook/0.9.1-beta")
+                    setRequestProperty("User-Agent", "Vexio-Android-Googlebook/0.9.2-beta")
                     setRequestProperty("Accept", "application/vnd.github+json")
                 }
                 if (conn.responseCode in 200..299) {
@@ -8417,6 +8571,8 @@ class VexioSessionViewModel(
     }
 
     fun markSaved(uri: Uri?, displayName: String, ext: String) {
+        hasMetadataUnsavedEdit = false
+        clearUnsavedRecovery()
         savedStateRevision = readNativeStateRevision()
         _uiState.update {
             it.copy(
@@ -8424,6 +8580,8 @@ class VexioSessionViewModel(
                 documentTitle = displayName,
                 documentExtension = ext,
                 isDirty = false,
+                pendingUnsavedPrompt = null,
+                pendingUnsavedTemplateSlug = null,
                 statusBanner = "Saved $displayName to local storage"
             )
         }

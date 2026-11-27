@@ -309,6 +309,7 @@ import com.vexio.core.DiagramPageTab
 import com.vexio.core.ExternalRecordsetUiItem
 import com.vexio.core.FormulaCommitStatus
 import com.vexio.core.InspectedObjectUiState
+import com.vexio.core.PendingUnsavedPromptKind
 import com.vexio.core.Plan2SamplePayloads
 import com.vexio.core.ReviewCommentUiItem
 import com.vexio.core.ShapeDataUiItem
@@ -435,6 +436,10 @@ fun GooglebookWorkstationScreen(
     onExportJpgRequested: () -> Unit = { viewModel.exportPlan2Artifact("jpg") },
     onExportFormatRequested: (String) -> Unit = { fmt -> viewModel.exportPlan2Artifact(fmt) },
     onSaveAndExitRequested: () -> Unit = { onSaveDocumentRequested() },
+    onSaveThenContinueRequested: (() -> Unit) -> Unit = { cont ->
+        onSaveDocumentRequested()
+        cont()
+    },
     onDiscardAndExitRequested: () -> Unit = { },
     onPrintRequested: () -> Unit = { }
 ) {
@@ -443,16 +448,41 @@ fun GooglebookWorkstationScreen(
     val semanticColors = LocalVexioSemanticColors.current
     val rootFocusRequester = remember { FocusRequester() }
     val formulaFocusRequester = remember { FocusRequester() }
-    var showUnsavedExitDialog by remember { mutableStateOf(false) }
 
-    BackHandler(enabled = !uiState.showStartBackstage && uiState.isDirty) {
-        showUnsavedExitDialog = true
+    val executeUnsavedActionImmediately: (PendingUnsavedPromptKind, String?) -> Unit = { kind, tplSlug ->
+        viewModel.dismissUnsavedPrompt()
+        viewModel.clearUnsavedRecovery()
+        when (kind) {
+            PendingUnsavedPromptKind.EXIT_WINDOW -> onDiscardAndExitRequested()
+            PendingUnsavedPromptKind.NEW_BLANK,
+            PendingUnsavedPromptKind.RECOVERED_SESSION -> {
+                viewModel.createBlankWithPagePreset(
+                    "Untitled_Diagram.vsdx",
+                    if (uiState.metricUnits) VexioPagePresetSpec.A4_LANDSCAPE else VexioPagePresetSpec.LETTER_LANDSCAPE
+                )
+            }
+            PendingUnsavedPromptKind.OPEN_FILE -> {
+                viewModel.setStartBackstageVisible(false)
+                onOpenDocumentRequested()
+            }
+            PendingUnsavedPromptKind.LOAD_TEMPLATE -> {
+                if (!tplSlug.isNullOrBlank()) {
+                    viewModel.loadStarterTemplate(tplSlug)
+                }
+            }
+        }
     }
 
-    if (showUnsavedExitDialog) {
+    BackHandler(enabled = !uiState.showStartBackstage && uiState.isDirty && uiState.pendingUnsavedPrompt == null) {
+        viewModel.requestUnsavedPrompt(PendingUnsavedPromptKind.EXIT_WINDOW)
+    }
+
+    val activeUnsavedPrompt = uiState.pendingUnsavedPrompt
+    if (activeUnsavedPrompt != null) {
         val lang = uiState.language
+        val pendingTpl = uiState.pendingUnsavedTemplateSlug
         AlertDialog(
-            onDismissRequest = { showUnsavedExitDialog = false },
+            onDismissRequest = viewModel::dismissUnsavedPrompt,
             title = {
                 Text(
                     text = VexioI18n.unsavedPromptTitle(uiState.documentTitle, lang),
@@ -469,8 +499,16 @@ fun GooglebookWorkstationScreen(
             confirmButton = {
                 Button(
                     onClick = {
-                        showUnsavedExitDialog = false
-                        onSaveAndExitRequested()
+                        viewModel.dismissUnsavedPrompt()
+                        if (activeUnsavedPrompt == PendingUnsavedPromptKind.EXIT_WINDOW) {
+                            onSaveAndExitRequested()
+                        } else if (activeUnsavedPrompt == PendingUnsavedPromptKind.RECOVERED_SESSION) {
+                            onSaveDocumentRequested()
+                        } else {
+                            onSaveThenContinueRequested {
+                                executeUnsavedActionImmediately(activeUnsavedPrompt, pendingTpl)
+                            }
+                        }
                     }
                 ) {
                     Text(lang.saveLabel)
@@ -478,13 +516,12 @@ fun GooglebookWorkstationScreen(
             },
             dismissButton = {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    TextButton(onClick = { showUnsavedExitDialog = false }) {
+                    TextButton(onClick = viewModel::dismissUnsavedPrompt) {
                         Text(VexioI18n.cancelButton(lang))
                     }
                     OutlinedButton(
                         onClick = {
-                            showUnsavedExitDialog = false
-                            onDiscardAndExitRequested()
+                            executeUnsavedActionImmediately(activeUnsavedPrompt, pendingTpl)
                         }
                     ) {
                         Text(
@@ -570,9 +607,13 @@ fun GooglebookWorkstationScreen(
                         onSaveAsDocumentRequested()
                         true
                     }
-                    // Ctrl + O -> SAF Open Document
+                    // Ctrl + O -> SAF Open Document (prompts Save / Don't Save / Cancel if dirty!)
                     ctrlOrMeta && keyEvent.key == Key.O -> {
-                        onOpenDocumentRequested()
+                        if (uiState.isDirty) {
+                            viewModel.requestUnsavedPrompt(PendingUnsavedPromptKind.OPEN_FILE)
+                        } else {
+                            onOpenDocumentRequested()
+                        }
                         true
                     }
                     // Ctrl + N -> Launch New Independent Side-by-Side Document Window
@@ -580,10 +621,11 @@ fun GooglebookWorkstationScreen(
                         launchNewDocumentWindow(context, template = "blank")
                         true
                     }
-                    // Ctrl + W / Ctrl + Q -> Close Window (prompts Save / Don't Save / Cancel if dirty!)
-                    ctrlOrMeta && !shift && (keyEvent.key == Key.W || keyEvent.key == Key.Q) -> {
+                    // Ctrl + W / Ctrl + Q / Alt + F4 -> Close Window (prompts Save / Don't Save / Cancel if dirty!)
+                    (ctrlOrMeta && !shift && (keyEvent.key == Key.W || keyEvent.key == Key.Q)) ||
+                        (alt && !ctrlOrMeta && keyEvent.key == Key.F4) -> {
                         if (uiState.isDirty) {
-                            showUnsavedExitDialog = true
+                            viewModel.requestUnsavedPrompt(PendingUnsavedPromptKind.EXIT_WINDOW)
                         } else {
                             (context as? Activity)?.finish()
                         }
@@ -754,14 +796,24 @@ fun GooglebookWorkstationScreen(
                 uiState = uiState,
                 viewModel = viewModel,
                 onNewBlankClick = {
-                    viewModel.createBlankWithPagePreset(
-                        "Untitled_Diagram.vsdx",
-                        if (uiState.metricUnits) VexioPagePresetSpec.A4_LANDSCAPE else VexioPagePresetSpec.LETTER_LANDSCAPE
-                    )
+                    if (uiState.isDirty) {
+                        viewModel.requestUnsavedPrompt(PendingUnsavedPromptKind.NEW_BLANK)
+                    } else {
+                        viewModel.createBlankWithPagePreset(
+                            "Untitled_Diagram.vsdx",
+                            if (uiState.metricUnits) VexioPagePresetSpec.A4_LANDSCAPE else VexioPagePresetSpec.LETTER_LANDSCAPE
+                        )
+                    }
                 },
                 onOpenBackstage = { viewModel.setStartBackstageVisible(true) },
                 onNewWindowClick = { launchNewDocumentWindow(context, template = "blank") },
-                onOpenFileClick = onOpenDocumentRequested,
+                onOpenFileClick = {
+                    if (uiState.isDirty) {
+                        viewModel.requestUnsavedPrompt(PendingUnsavedPromptKind.OPEN_FILE)
+                    } else {
+                        onOpenDocumentRequested()
+                    }
+                },
                 onSaveClick = onSaveDocumentRequested,
                 onSaveAsClick = onSaveAsDocumentRequested,
                 onExportJpgClick = onExportJpgRequested,
@@ -771,7 +823,7 @@ fun GooglebookWorkstationScreen(
                 onCheckUpdatesClick = { viewModel.checkForUpdatesAsync(userInitiated = true) },
                 onCloseDocumentClick = {
                     if (uiState.isDirty) {
-                        showUnsavedExitDialog = true
+                        viewModel.requestUnsavedPrompt(PendingUnsavedPromptKind.EXIT_WINDOW)
                     } else {
                         onDiscardAndExitRequested()
                     }
@@ -1132,12 +1184,28 @@ fun GooglebookWorkstationScreen(
                 uiState = uiState,
                 onClose = { viewModel.setStartBackstageVisible(false) },
                 onCreateNewBlank = {
-                    viewModel.createBlankWithPagePreset("Untitled_Diagram.vsdx", VexioPagePresetSpec.A4_LANDSCAPE)
+                    if (uiState.isDirty) {
+                        viewModel.setStartBackstageVisible(false)
+                        viewModel.requestUnsavedPrompt(PendingUnsavedPromptKind.NEW_BLANK)
+                    } else {
+                        viewModel.createBlankWithPagePreset("Untitled_Diagram.vsdx", VexioPagePresetSpec.A4_LANDSCAPE)
+                    }
                 },
-                onLoadTemplate = viewModel::loadStarterTemplate,
+                onLoadTemplate = { slug ->
+                    if (uiState.isDirty) {
+                        viewModel.setStartBackstageVisible(false)
+                        viewModel.requestUnsavedPrompt(PendingUnsavedPromptKind.LOAD_TEMPLATE, slug)
+                    } else {
+                        viewModel.loadStarterTemplate(slug)
+                    }
+                },
                 onOpenFile = {
                     viewModel.setStartBackstageVisible(false)
-                    onOpenDocumentRequested()
+                    if (uiState.isDirty) {
+                        viewModel.requestUnsavedPrompt(PendingUnsavedPromptKind.OPEN_FILE)
+                    } else {
+                        onOpenDocumentRequested()
+                    }
                 },
                 onSelectLanguage = viewModel::setLanguage,
                 onToggleAutoUpdates = viewModel::setAutoCheckUpdates,
