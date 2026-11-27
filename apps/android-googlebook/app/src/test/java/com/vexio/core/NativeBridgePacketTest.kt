@@ -1066,7 +1066,7 @@ class NativeBridgePacketTest {
     fun stencilDropAtCanvasLocalPixelsSelectsSingleShapeAndResolvesActivePage() {
         val vm = VexioSessionViewModel()
         vm.resizeVulkanViewport(width = 1000, height = 800, density = 1.0f)
-        vm.addPage()
+        vm.addNewPage()
         val secondPageId = vm.uiState.value.activePageId
         assertTrue("Second page ID must be non-negative", secondPageId >= 0)
 
