@@ -70,62 +70,45 @@ import androidx.compose.material.icons.automirrored.filled.FormatAlignLeft
 import androidx.compose.material.icons.automirrored.filled.FormatAlignRight
 import androidx.compose.material.icons.automirrored.filled.FormatListBulleted
 import androidx.compose.material.icons.automirrored.filled.Redo
-import androidx.compose.material.icons.automirrored.filled.TrendingFlat
 import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.AccountTree
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Adjust
 import androidx.compose.material.icons.filled.AlignHorizontalCenter
 import androidx.compose.material.icons.filled.AlignHorizontalLeft
 import androidx.compose.material.icons.filled.AlignHorizontalRight
 import androidx.compose.material.icons.filled.AlignVerticalBottom
 import androidx.compose.material.icons.filled.AlignVerticalCenter
 import androidx.compose.material.icons.filled.AlignVerticalTop
-import androidx.compose.material.icons.filled.AltRoute
 import androidx.compose.material.icons.filled.Analytics
 import androidx.compose.material.icons.filled.Architecture
 import androidx.compose.material.icons.filled.AspectRatio
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.AutoFixHigh
-import androidx.compose.material.icons.filled.AutoFixNormal
 import androidx.compose.material.icons.filled.Badge
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.BorderColor
 import androidx.compose.material.icons.filled.BorderOuter
-import androidx.compose.material.icons.filled.Brush
 import androidx.compose.material.icons.filled.Calculate
 import androidx.compose.material.icons.filled.CalendarMonth
-import androidx.compose.material.icons.filled.CallSplit
 import androidx.compose.material.icons.filled.CenterFocusStrong
-import androidx.compose.material.icons.filled.ChangeHistory
-import androidx.compose.material.icons.filled.ChatBubbleOutline
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.CheckBoxOutlineBlank
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.Comment
 import androidx.compose.material.icons.filled.CompareArrows
 import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.ContentCut
-import androidx.compose.material.icons.filled.ContentPaste
-import androidx.compose.material.icons.filled.CropSquare
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.DashboardCustomize
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Description
-import androidx.compose.material.icons.filled.Diamond
-import androidx.compose.material.icons.filled.Domain
-import androidx.compose.material.icons.filled.Draw
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.FactCheck
 import androidx.compose.material.icons.filled.FilterFrames
-import androidx.compose.material.icons.filled.Flip
 import androidx.compose.material.icons.filled.FlipToBack
-import androidx.compose.material.icons.filled.FlipToFront
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.FormatAlignCenter
 import androidx.compose.material.icons.filled.FormatBold
@@ -133,13 +116,10 @@ import androidx.compose.material.icons.filled.FormatColorFill
 import androidx.compose.material.icons.filled.FormatColorText
 import androidx.compose.material.icons.filled.FormatItalic
 import androidx.compose.material.icons.filled.FormatListNumbered
-import androidx.compose.material.icons.filled.FormatPaint
 import androidx.compose.material.icons.filled.FormatUnderlined
 import androidx.compose.material.icons.filled.Functions
-import androidx.compose.material.icons.filled.Gesture
 import androidx.compose.material.icons.filled.Grid4x4
 import androidx.compose.material.icons.filled.GridOn
-import androidx.compose.material.icons.filled.Hexagon
 import androidx.compose.material.icons.filled.Highlight
 import androidx.compose.material.icons.filled.HorizontalRule
 import androidx.compose.material.icons.filled.Hub
@@ -154,68 +134,44 @@ import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.LineWeight
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.NearMe
 import androidx.compose.material.icons.filled.NoteAdd
 import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Palette
-import androidx.compose.material.icons.filled.PanTool
 import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.PivotTableChart
 import androidx.compose.material.icons.filled.Polyline
 import androidx.compose.material.icons.filled.Print
 import androidx.compose.material.icons.filled.Psychology
-import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Rotate90DegreesCcw
-import androidx.compose.material.icons.filled.Rotate90DegreesCw
-import androidx.compose.material.icons.filled.RoundedCorner
 import androidx.compose.material.icons.filled.Rule
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.SaveAs
 import androidx.compose.material.icons.filled.Schema
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.SensorDoor
 import androidx.compose.material.icons.filled.Slideshow
-import androidx.compose.material.icons.filled.StarBorder
-import androidx.compose.material.icons.filled.Straighten
 import androidx.compose.material.icons.filled.StrikethroughS
-import androidx.compose.material.icons.filled.SwapVert
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.SystemUpdateAlt
-import androidx.compose.material.icons.filled.TableChart
 import androidx.compose.material.icons.filled.TableView
 import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material.icons.filled.TextDecrease
-import androidx.compose.material.icons.filled.TextFields
 import androidx.compose.material.icons.filled.TextIncrease
-import androidx.compose.material.icons.filled.TextRotationNone
-import androidx.compose.material.icons.filled.Timeline
-import androidx.compose.material.icons.filled.Title
 import androidx.compose.material.icons.filled.TouchApp
-import androidx.compose.material.icons.filled.Transform
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material.icons.filled.VerticalAlignBottom
 import androidx.compose.material.icons.filled.VerticalAlignCenter
 import androidx.compose.material.icons.filled.VerticalAlignTop
 import androidx.compose.material.icons.filled.VerticalSplit
-import androidx.compose.material.icons.filled.ViewColumn
-import androidx.compose.material.icons.filled.ViewSidebar
-import androidx.compose.material.icons.filled.ViewStream
-import androidx.compose.material.icons.filled.Workspaces
 import androidx.compose.material.icons.filled.ZoomIn
 import androidx.compose.material.icons.filled.ZoomOut
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Badge
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -223,15 +179,11 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.PlainTooltip
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TooltipBox
-import androidx.compose.material3.TooltipDefaults
 import androidx.compose.material3.VerticalDivider
-import androidx.compose.material3.rememberTooltipState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -264,6 +216,7 @@ import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.withTransform
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.PathParser
 import androidx.compose.ui.input.key.Key
@@ -325,6 +278,7 @@ import com.vexio.core.VexioTool
 import com.vexio.core.VexioVisualPreset
 import com.vexio.core.WorkstationUiState
 import com.vexio.ui.i18n.VexioI18n
+import com.vexio.ui.icons.VexioIcons
 import com.vexio.ui.theme.LocalVexioSemanticColors
 import com.vexio.ui.theme.VexioExpressiveMotion
 import com.vexio.ui.theme.rememberExpressiveScaleState
@@ -764,7 +718,7 @@ fun GooglebookWorkstationScreen(
                 .fillMaxSize()
                 .statusBarsPadding()
         ) {
-            // 1. Clean Top Workstation Header Bar (Double-Click Title Rename, Sibling Hover Menus, Save & Save As, Language & Updates)
+            // 1. Clean Top Workstation Header Bar (Double-Click Title Rename, Quick Search, Save, Language & Workspace Panes)
             WorkstationHeaderBar(
                 uiState = uiState,
                 posture = posture,
@@ -785,6 +739,8 @@ fun GooglebookWorkstationScreen(
                 onPrintClick = onPrintRequested,
                 onUndoClick = viewModel::performUndo,
                 onRedoClick = viewModel::performRedo,
+                onFindClick = { viewModel.setFindReplaceDialogVisible(true) },
+                onOpenPageSetupClick = { pageSetupTargetPageId = uiState.activePageId },
                 onToggleTheme = viewModel::toggleDarkTheme,
                 onToggleStencilDrawer = viewModel::toggleStencilDrawer,
                 onToggleShapeSheet = viewModel::toggleShapeSheetDrawer,
@@ -913,7 +869,7 @@ fun GooglebookWorkstationScreen(
                     .fillMaxWidth()
                     .animateContentSize(VexioExpressiveMotion.sizeReflowSpring)
             ) {
-                // Supporting Pane A: All 22+ Visio Stencil Categories + Custom .vssx/.vss Import Navigator
+                // Supporting Pane A: 2-Column Visual Stencil Tile Navigator + Custom .vssx/.vss Import
                 if (uiState.isStencilDrawerExpanded) {
                     StencilMasterDrawerPane(
                         uiState = uiState,
@@ -928,6 +884,7 @@ fun GooglebookWorkstationScreen(
                         onMasterDoubleClicked = { master ->
                             viewModel.dropStencilAtViewportCenter(master)
                         },
+                        onToggleGridView = viewModel::toggleStencilViewMode,
                         onImportStencilRequested = onImportStencilRequested,
                         onOpenOfficialCatalogRequested = {
                             viewModel.setOfficialStencilCatalogDialogVisible(true)
@@ -945,60 +902,68 @@ fun GooglebookWorkstationScreen(
                     VerticalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 }
 
-                // Primary Center Pane: Vulkan SurfaceView + Expressive Morphing Toolbar + ShapeSheet Grid
+                // Docked Left Vertical Tool Rail (8 Grouped Authoring Tools with Flyouts — Zero Stacked Horizontal Bar!)
+                if (!uiState.isToolbarFloating) {
+                    VisioLeftToolRail(
+                        uiState = uiState,
+                        isFloating = false,
+                        onSelectTool = viewModel::selectTool,
+                        onFormatPainterClick = {
+                            viewModel.copySelectedShapeFormat()
+                            viewModel.selectTool(
+                                if (uiState.activeTool == VexioTool.FORMAT_PAINTER) VexioTool.POINTER else VexioTool.FORMAT_PAINTER
+                            )
+                        },
+                        onToggleFloating = viewModel::toggleToolbarDockMode
+                    )
+                    VerticalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                }
+
+                // Primary Center Pane: Calibrated Metric/Imperial Rulers + Vulkan SurfaceView + ShapeSheet Grid
                 Column(
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxHeight()
                 ) {
-                    // Docked Expressive Quick Toolbar
-                    androidx.compose.animation.AnimatedVisibility(
-                        visible = !uiState.isToolbarFloating,
-                        enter = expandVertically(VexioExpressiveMotion.spatialSpring()) + fadeIn(),
-                        exit = shrinkVertically(VexioExpressiveMotion.spatialSpring()) + fadeOut()
-                    ) {
-                        ExpressiveMorphingToolbar(
-                            uiState = uiState,
-                            isFloating = false,
-                            onSelectTool = viewModel::selectTool,
-                            onZoomDelta = viewModel::adjustZoom,
-                            onZoomReset = { viewModel.setZoomPercent(100) },
-                            onToggleFloating = viewModel::toggleToolbarDockMode,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 10.dp, vertical = 4.dp)
-                        )
-                    }
-
-                    // Vulkan Canvas + Cross-Window Drag & Drop Target + Floating Expressive Pill Toolbar
+                    // Vulkan Canvas + Synchronized Rulers + Cross-Window Drag & Drop Target
                     Box(
                         modifier = Modifier
                             .weight(1f)
                             .fillMaxWidth()
                             .background(semanticColors.canvasBackdrop)
                     ) {
-                        VulkanCanvasDropZone(
+                        CanvasRulerFrame(
                             uiState = uiState,
                             viewModel = viewModel,
-                            onExternalUriDropped = onExternalUriDropped,
-                            onOpenNewWindowRequested = {
-                                launchNewDocumentWindow(context, template = "blank")
-                            },
                             modifier = Modifier.fillMaxSize()
-                        )
+                        ) {
+                            VulkanCanvasDropZone(
+                                uiState = uiState,
+                                viewModel = viewModel,
+                                onExternalUriDropped = onExternalUriDropped,
+                                onOpenNewWindowRequested = {
+                                    launchNewDocumentWindow(context, template = "blank")
+                                },
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
 
-                        // Floating Material 3 Expressive Morphing Pill Toolbar
+                        // Optional Floating Vertical Tool Capsule (when user undocks the Left Tool Rail)
                         if (uiState.isToolbarFloating) {
-                            ExpressiveMorphingToolbar(
+                            VisioLeftToolRail(
                                 uiState = uiState,
                                 isFloating = true,
                                 onSelectTool = viewModel::selectTool,
-                                onZoomDelta = viewModel::adjustZoom,
-                                onZoomReset = { viewModel.setZoomPercent(100) },
+                                onFormatPainterClick = {
+                                    viewModel.copySelectedShapeFormat()
+                                    viewModel.selectTool(
+                                        if (uiState.activeTool == VexioTool.FORMAT_PAINTER) VexioTool.POINTER else VexioTool.FORMAT_PAINTER
+                                    )
+                                },
                                 onToggleFloating = viewModel::toggleToolbarDockMode,
                                 modifier = Modifier
-                                    .align(Alignment.TopCenter)
-                                    .padding(top = 12.dp)
+                                    .align(Alignment.CenterStart)
+                                    .padding(start = if (uiState.showCanvasRulers) 28.dp else 10.dp)
                             )
                         }
 
@@ -1022,14 +987,14 @@ fun GooglebookWorkstationScreen(
                                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
                                 ) {
                                     Icon(
-                                        imageVector = Icons.Default.Brush,
+                                        imageVector = VexioIcons.MarkupPen,
                                         contentDescription = null,
                                         tint = semanticColors.stylusInkAccent,
                                         modifier = Modifier.size(16.dp)
                                     )
                                     Spacer(Modifier.width(6.dp))
                                     Text(
-                                        text = "USI Stylus • Pressure ${(uiState.lastStylusPressure * 100).toInt()}% • Tilt ${uiState.lastStylusTiltDeg}° • Palm Guard ON",
+                                        text = "USI Stylus • ${(uiState.lastStylusPressure * 100).toInt()}% • ${uiState.lastStylusTiltDeg}°",
                                         style = MaterialTheme.typography.labelSmall,
                                         color = semanticColors.stylusInkAccent
                                     )
@@ -1087,7 +1052,7 @@ fun GooglebookWorkstationScreen(
                 }
             }
 
-            // 4. Bottom Page Switcher & Workstation Diagnostics Bar (Right-Click Page Menu + Page Setup)
+            // 4. Bottom Page Switcher, Selection Telemetry & Visio Zoom Slider Bar
             WorkstationBottomStatusBar(
                 uiState = uiState,
                 posture = posture,
@@ -1106,6 +1071,11 @@ fun GooglebookWorkstationScreen(
                 },
                 onCreateSubprocess = { viewModel.createOrLinkSubprocess() },
                 onAutoLayoutPage = { viewModel.autoLayoutActivePage() },
+                onToggleRulers = viewModel::toggleCanvasRulers,
+                onToggleSmartGuides = viewModel::toggleSmartGuides,
+                onZoomDelta = viewModel::adjustZoom,
+                onSetZoomPercent = viewModel::setZoomPercent,
+                onFitPage = viewModel::fitPageToWindow,
                 onZoomReset = { viewModel.setZoomPercent(100) }
             )
         }
@@ -1354,11 +1324,12 @@ fun GooglebookWorkstationScreen(
 
         // Review — Threaded Diagram Comments Dialog
         if (uiState.showCommentsDialog) {
+            val lang = uiState.language
             var commentAuthor by remember { mutableStateOf("Reviewer") }
             var commentDraft by remember { mutableStateOf("") }
             AlertDialog(
                 onDismissRequest = { viewModel.setCommentsDialogVisible(false) },
-                title = { Text("Review — Threaded Comments") },
+                title = { Text(VexioI18n.commentsDialogTitle(lang)) },
                 text = {
                     Column(
                         verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -1369,7 +1340,7 @@ fun GooglebookWorkstationScreen(
                     ) {
                         if (uiState.reviewComments.isEmpty()) {
                             Text(
-                                text = "No comments on this page yet. Add a review note attached to Sheet.${uiState.selectedShapeId}.",
+                                text = "Sheet.${uiState.selectedShapeId}",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -1395,12 +1366,17 @@ fun GooglebookWorkstationScreen(
                                             Text(c.text, style = MaterialTheme.typography.bodySmall)
                                         }
                                         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                            TextButton(onClick = { viewModel.toggleResolveComment(c.id, !c.resolved) }) {
-                                                Text(if (c.resolved) "Reopen" else "Resolve")
-                                            }
-                                            TextButton(onClick = { viewModel.deleteReviewComment(c.id) }) {
-                                                Text("Delete", color = MaterialTheme.colorScheme.error)
-                                            }
+                                            CompactHeaderIconButton(
+                                                icon = Icons.Default.Check,
+                                                tooltip = VexioI18n.applyButton(lang),
+                                                active = c.resolved,
+                                                onClick = { viewModel.toggleResolveComment(c.id, !c.resolved) }
+                                            )
+                                            CompactHeaderIconButton(
+                                                icon = Icons.Default.DeleteOutline,
+                                                tooltip = VexioI18n.ctxDelete(lang),
+                                                onClick = { viewModel.deleteReviewComment(c.id) }
+                                            )
                                         }
                                     }
                                 }
@@ -1410,7 +1386,7 @@ fun GooglebookWorkstationScreen(
                             value = commentAuthor,
                             onValueChange = { commentAuthor = it },
                             singleLine = true,
-                            label = { Text("Author") },
+                            label = { Text(VexioI18n.objectNameLabel(lang)) },
                             modifier = Modifier.fillMaxWidth()
                         )
                         OutlinedTextField(
@@ -1418,7 +1394,7 @@ fun GooglebookWorkstationScreen(
                             onValueChange = { commentDraft = it },
                             minLines = 2,
                             maxLines = 4,
-                            label = { Text("Comment on Sheet.${uiState.selectedShapeId}") },
+                            label = { Text("${VexioI18n.objectCaptionLabel(lang)} (Sheet.${uiState.selectedShapeId})") },
                             modifier = Modifier.fillMaxWidth()
                         )
                     }
@@ -1432,12 +1408,12 @@ fun GooglebookWorkstationScreen(
                             }
                         }
                     ) {
-                        Text("Post Comment")
+                        Text(VexioI18n.applyButton(lang))
                     }
                 },
                 dismissButton = {
                     TextButton(onClick = { viewModel.setCommentsDialogVisible(false) }) {
-                        Text("Done")
+                        Text(VexioI18n.closeButton(lang))
                     }
                 }
             )
@@ -1445,13 +1421,14 @@ fun GooglebookWorkstationScreen(
 
         // Insert — Shape Hyperlink & ScreenTip Dialog (Ctrl+K)
         if (uiState.showHyperlinkDialog) {
+            val lang = uiState.language
             var addrDraft by remember(uiState.hyperlinkAddress) { mutableStateOf(uiState.hyperlinkAddress) }
             var subDraft by remember(uiState.hyperlinkSubAddress) { mutableStateOf(uiState.hyperlinkSubAddress) }
             var descDraft by remember(uiState.hyperlinkDescription) { mutableStateOf(uiState.hyperlinkDescription) }
             var tipDraft by remember(uiState.shapeScreentip) { mutableStateOf(uiState.shapeScreentip) }
             AlertDialog(
                 onDismissRequest = { viewModel.setHyperlinkDialogVisible(false) },
-                title = { Text("Hyperlink & ScreenTip — Sheet.${uiState.selectedShapeId}") },
+                title = { Text(VexioI18n.hyperlinkDialogTitle(uiState.selectedShapeId, lang)) },
                 text = {
                     Column(
                         verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -1461,28 +1438,28 @@ fun GooglebookWorkstationScreen(
                             value = addrDraft,
                             onValueChange = { addrDraft = it },
                             singleLine = true,
-                            label = { Text("Address (URL or File)") },
+                            label = { Text("URL / File") },
                             modifier = Modifier.fillMaxWidth()
                         )
                         OutlinedTextField(
                             value = subDraft,
                             onValueChange = { subDraft = it },
                             singleLine = true,
-                            label = { Text("Sub-Address (Target Page Name)") },
+                            label = { Text(VexioI18n.groupPages(lang)) },
                             modifier = Modifier.fillMaxWidth()
                         )
                         OutlinedTextField(
                             value = descDraft,
                             onValueChange = { descDraft = it },
                             singleLine = true,
-                            label = { Text("Description") },
+                            label = { Text(VexioI18n.objectCaptionLabel(lang)) },
                             modifier = Modifier.fillMaxWidth()
                         )
                         OutlinedTextField(
                             value = tipDraft,
                             onValueChange = { tipDraft = it },
                             singleLine = true,
-                            label = { Text("ScreenTip (Hover Tooltip)") },
+                            label = { Text("ScreenTip") },
                             modifier = Modifier.fillMaxWidth()
                         )
                     }
@@ -1493,16 +1470,16 @@ fun GooglebookWorkstationScreen(
                             viewModel.saveHyperlinkAndScreentip(descDraft, addrDraft, subDraft, tipDraft)
                         }
                     ) {
-                        Text("Save")
+                        Text(VexioI18n.applyButton(lang))
                     }
                 },
                 dismissButton = {
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         TextButton(onClick = { viewModel.saveHyperlinkAndScreentip("", "", "", "") }) {
-                            Text("Clear")
+                            Text(VexioI18n.noneLabel(lang))
                         }
                         TextButton(onClick = { viewModel.setHyperlinkDialogVisible(false) }) {
-                            Text("Cancel")
+                            Text(VexioI18n.cancelButton(lang))
                         }
                     }
                 }
@@ -1691,6 +1668,7 @@ fun GooglebookWorkstationScreen(
 
         // Milestone 3 (`v0.8.0-beta`): Find & Replace Dialog
         if (uiState.showFindReplaceDialog) {
+            val lang = uiState.language
             var queryDraft by remember { mutableStateOf("") }
             var replaceDraft by remember { mutableStateOf("") }
             var matchCaseDraft by remember { mutableStateOf(false) }
@@ -1698,41 +1676,42 @@ fun GooglebookWorkstationScreen(
             var allPagesDraft by remember { mutableStateOf(true) }
             AlertDialog(
                 onDismissRequest = { viewModel.setFindReplaceDialogVisible(false) },
-                title = { Text("Find & Replace (Ctrl+F)") },
+                title = { Text(VexioI18n.findReplaceTitle(lang)) },
                 text = {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedTextField(
                             value = queryDraft,
                             onValueChange = { queryDraft = it },
                             singleLine = true,
-                            label = { Text("Find text, Prop.*, or shape name") },
+                            label = { Text(VexioI18n.findFieldLabel(lang)) },
                             modifier = Modifier.fillMaxWidth()
                         )
                         OutlinedTextField(
                             value = replaceDraft,
                             onValueChange = { replaceDraft = it },
                             singleLine = true,
-                            label = { Text("Replace with") },
+                            label = { Text(VexioI18n.replaceWithLabel(lang)) },
                             modifier = Modifier.fillMaxWidth()
                         )
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Checkbox(checked = matchCaseDraft, onCheckedChange = { matchCaseDraft = it })
-                                Text("Case", style = MaterialTheme.typography.bodySmall)
+                                Text("Aa", style = MaterialTheme.typography.bodySmall)
                             }
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Checkbox(checked = wholeWordDraft, onCheckedChange = { wholeWordDraft = it })
-                                Text("Word", style = MaterialTheme.typography.bodySmall)
+                                Text("[ab]", style = MaterialTheme.typography.bodySmall)
                             }
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Checkbox(checked = allPagesDraft, onCheckedChange = { allPagesDraft = it })
-                                Text("All Pages", style = MaterialTheme.typography.bodySmall)
+                                Text(VexioI18n.allCategoryPill(lang), style = MaterialTheme.typography.bodySmall)
                             }
                         }
                         if (uiState.lastFindMatches.isNotEmpty()) {
                             Text(
-                                "Matches: ${uiState.lastFindMatches.size} (first: Sheet.${uiState.lastFindMatches.first().shapeId})",
-                                style = MaterialTheme.typography.labelSmall
+                                "${uiState.lastFindMatches.size} • Sheet.${uiState.lastFindMatches.first().shapeId}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary
                             )
                         }
                     }
@@ -1741,67 +1720,65 @@ fun GooglebookWorkstationScreen(
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         TextButton(onClick = {
                             viewModel.findInDocument(queryDraft, matchCaseDraft, wholeWordDraft, allPagesDraft)
-                        }) { Text("Find All") }
+                        }) { Text(VexioI18n.findAllButton(lang)) }
                         FilledTonalButton(onClick = {
                             viewModel.replaceInDocument(queryDraft, replaceDraft, matchCaseDraft, wholeWordDraft, allPagesDraft)
-                        }) { Text("Replace All") }
+                        }) { Text(VexioI18n.replaceAllButton(lang)) }
                     }
                 },
                 dismissButton = {
-                    TextButton(onClick = { viewModel.setFindReplaceDialogVisible(false) }) { Text("Close") }
+                    TextButton(onClick = { viewModel.setFindReplaceDialogVisible(false) }) { Text(VexioI18n.closeButton(lang)) }
                 }
             )
         }
 
         // Milestone 3 (`v0.8.0-beta`): Snap & Glue Matrix Dialog
         if (uiState.showSnapGlueDialog) {
+            val lang = uiState.language
             var snapOn by remember(uiState.snapEnabled) { mutableStateOf(uiState.snapEnabled) }
             var glueOn by remember(uiState.glueEnabled) { mutableStateOf(uiState.glueEnabled) }
             var snapMask by remember(uiState.snapTargetsMask) { mutableStateOf(uiState.snapTargetsMask) }
             var glueMask by remember(uiState.glueTypesMask) { mutableStateOf(uiState.glueTypesMask) }
             AlertDialog(
                 onDismissRequest = { viewModel.setSnapGlueDialogVisible(false) },
-                title = { Text("Snap & Glue Matrix") },
+                title = { Text(VexioI18n.snapGlueDialogTitle(lang)) },
                 text = {
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Checkbox(checked = snapOn, onCheckedChange = { snapOn = it })
-                            Text("Enable Snap", style = MaterialTheme.typography.bodySmall)
+                            Text(VexioI18n.enableSnapLabel(lang), style = MaterialTheme.typography.bodySmall)
                             Spacer(Modifier.width(12.dp))
                             Checkbox(checked = glueOn, onCheckedChange = { glueOn = it })
-                            Text("Enable Glue", style = MaterialTheme.typography.bodySmall)
+                            Text(VexioI18n.enableGlueLabel(lang), style = MaterialTheme.typography.bodySmall)
                         }
                         listOf(
-                            1 to "Snap to Page Grid",
-                            4 to "Snap to Ruler Guides",
-                            8 to "Snap to Shape Geometry",
-                            16 to "Snap to Alignment Box",
-                            64 to "Snap to Connection Points"
+                            1 to "Grid",
+                            4 to VexioI18n.rulersLabel(lang),
+                            8 to VexioI18n.railShapesGroupTooltip(lang),
+                            16 to VexioI18n.alignMenuPill(lang).removeSuffix(" ▾"),
+                            64 to VexioI18n.toolName(VexioTool.CONNECTION_POINT, lang)
                         ).forEach { (bit, label) ->
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Checkbox(
-                                    checked = (snapMask and bit) != 0,
-                                    onCheckedChange = { checked ->
-                                        snapMask = if (checked) (snapMask or bit) else (snapMask and bit.inv())
-                                    }
-                                )
-                                Text(label, style = MaterialTheme.typography.bodySmall)
-                            }
+                            CompactCheckRow(
+                                checked = (snapMask and bit) != 0,
+                                label = label,
+                                onCheckedChange = { checked ->
+                                    snapMask = if (checked) (snapMask or bit) else (snapMask and bit.inv())
+                                }
+                            )
                         }
+                        HorizontalDivider()
                         listOf(
-                            1 to "Glue to Connection Points",
-                            2 to "Glue to Ruler Guides",
-                            4 to "Glue to Shape Geometry"
+                            1 to VexioI18n.toolName(VexioTool.CONNECTION_POINT, lang),
+                            2 to VexioI18n.rulersLabel(lang),
+                            4 to VexioI18n.railShapesGroupTooltip(lang)
                         ).forEach { (bit, label) ->
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Checkbox(
-                                    checked = (glueMask and bit) != 0,
-                                    onCheckedChange = { checked ->
-                                        glueMask = if (checked) (glueMask or bit) else (glueMask and bit.inv())
-                                    }
-                                )
-                                Text(label, style = MaterialTheme.typography.bodySmall)
-                            }
+                            CompactCheckRow(
+                                checked = (glueMask and bit) != 0,
+                                label = "${VexioI18n.enableGlueLabel(lang)}: $label",
+                                onCheckedChange = { checked ->
+                                    glueMask = if (checked) (glueMask or bit) else (glueMask and bit.inv())
+                                }
+                            )
                         }
                     }
                 },
@@ -1809,22 +1786,23 @@ fun GooglebookWorkstationScreen(
                     FilledTonalButton(onClick = {
                         viewModel.setSnapGlueSettings(snapOn, glueOn, snapMask, glueMask)
                         viewModel.setSnapGlueDialogVisible(false)
-                    }) { Text("Apply") }
+                    }) { Text(VexioI18n.applyButton(lang)) }
                 },
                 dismissButton = {
-                    TextButton(onClick = { viewModel.setSnapGlueDialogVisible(false) }) { Text("Cancel") }
+                    TextButton(onClick = { viewModel.setSnapGlueDialogVisible(false) }) { Text(VexioI18n.cancelButton(lang)) }
                 }
             )
         }
 
         // Milestone 3 (`v0.8.0-beta`): Number Shapes Wizard Dialog
         if (uiState.showNumberShapesDialog) {
+            val lang = uiState.language
             var orderDraft by remember { mutableStateOf("top_to_bottom_left_to_right") }
             var prefixDraft by remember { mutableStateOf("") }
             var startDraft by remember { mutableStateOf("1") }
             AlertDialog(
                 onDismissRequest = { viewModel.setNumberShapesDialogVisible(false) },
-                title = { Text("Number Shapes Wizard") },
+                title = { Text(VexioI18n.numberShapesDialogTitle(lang)) },
                 text = {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Row(
@@ -1832,10 +1810,10 @@ fun GooglebookWorkstationScreen(
                             modifier = Modifier.horizontalScroll(rememberScrollState())
                         ) {
                             listOf(
-                                "top_to_bottom_left_to_right" to "Top→Bottom",
-                                "left_to_right_top_to_bottom" to "Left→Right",
-                                "connected_flow" to "Flow BFS",
-                                "z_order" to "Z-Order"
+                                "top_to_bottom_left_to_right" to "↓ →",
+                                "left_to_right_top_to_bottom" to "→ ↓",
+                                "connected_flow" to "Flow",
+                                "z_order" to "Z"
                             ).forEach { (slug, label) ->
                                 ExpressivePlan2ActionPill(
                                     label = label,
@@ -1848,14 +1826,14 @@ fun GooglebookWorkstationScreen(
                             value = startDraft,
                             onValueChange = { startDraft = it },
                             singleLine = true,
-                            label = { Text("Start Number") },
+                            label = { Text("#") },
                             modifier = Modifier.fillMaxWidth()
                         )
                         OutlinedTextField(
                             value = prefixDraft,
                             onValueChange = { prefixDraft = it },
                             singleLine = true,
-                            label = { Text("Optional Prefix (e.g. P-)") },
+                            label = { Text("Prefix (P-)") },
                             modifier = Modifier.fillMaxWidth()
                         )
                     }
@@ -1870,16 +1848,17 @@ fun GooglebookWorkstationScreen(
                             targetMode = "both"
                         )
                         viewModel.setNumberShapesDialogVisible(false)
-                    }) { Text("Apply Numbering") }
+                    }) { Text(VexioI18n.applyButton(lang)) }
                 },
                 dismissButton = {
-                    TextButton(onClick = { viewModel.setNumberShapesDialogVisible(false) }) { Text("Cancel") }
+                    TextButton(onClick = { viewModel.setNumberShapesDialogVisible(false) }) { Text(VexioI18n.cancelButton(lang)) }
                 }
             )
         }
 
         // Enterprise Domain Diagram Wizards Dialog
         if (uiState.showDomainWizardsDialog) {
+            val lang = uiState.language
             val wizardChoices = listOf(
                 "gantt" to "Gantt",
                 "timeline" to "Timeline",
@@ -1888,18 +1867,18 @@ fun GooglebookWorkstationScreen(
                 "sql_forward" to "ERD → SQL",
                 "org_chart" to "Org Chart",
                 "rack_42u" to "42U Rack",
-                "arch_room" to "Room SqFt",
-                "calendar" to "Calendar",
+                "arch_room" to "Room",
+                "calendar" to VexioI18n.calendarLabel(lang),
                 "pivot_diagram" to "PivotDiagram",
-                "mind_map" to "Mind Map",
-                "mind_map_radial" to "Radial Map",
-                "mind_map_export" to "Map → MD",
+                "mind_map" to VexioI18n.mindMapLabel(lang),
+                "mind_map_radial" to "Radial",
+                "mind_map_export" to "MD",
                 "vsm" to "Lean VSM",
-                "fta" to "Fault Tree"
+                "fta" to VexioI18n.faultTreeLabel(lang)
             )
             AlertDialog(
                 onDismissRequest = { viewModel.setDomainWizardsDialogVisible(false) },
-                title = { Text("Enterprise Domain Diagram Wizards") },
+                title = { Text(VexioI18n.domainWizardsDialogTitle(lang)) },
                 text = {
                     Column(
                         verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -1927,7 +1906,7 @@ fun GooglebookWorkstationScreen(
                             textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
                             minLines = 6,
                             maxLines = 10,
-                            label = { Text("Wizard Specification (CSV / SQL DDL / Dialect)") },
+                            label = { Text("CSV / SQL DDL") },
                             modifier = Modifier.fillMaxWidth()
                         )
                         if (uiState.domainWizardSlug in setOf("sql_forward", "mind_map_export") &&
@@ -1941,13 +1920,7 @@ fun GooglebookWorkstationScreen(
                                 minLines = 4,
                                 maxLines = 8,
                                 label = {
-                                    Text(
-                                        if (uiState.domainWizardSlug == "sql_forward") {
-                                            "Generated SQL DDL"
-                                        } else {
-                                            "Exported Mind Map Markdown"
-                                        }
-                                    )
+                                    Text(if (uiState.domainWizardSlug == "sql_forward") "SQL DDL" else "Markdown")
                                 },
                                 modifier = Modifier.fillMaxWidth()
                             )
@@ -1956,12 +1929,12 @@ fun GooglebookWorkstationScreen(
                 },
                 confirmButton = {
                     FilledTonalButton(onClick = { viewModel.runDomainWizard() }) {
-                        Text("Run Wizard")
+                        Text(VexioI18n.runWizardButton(lang))
                     }
                 },
                 dismissButton = {
                     TextButton(onClick = { viewModel.setDomainWizardsDialogVisible(false) }) {
-                        Text("Close")
+                        Text(VexioI18n.closeButton(lang))
                     }
                 }
             )
@@ -2292,6 +2265,8 @@ private fun WorkstationHeaderBar(
     onPrintClick: () -> Unit,
     onUndoClick: () -> Unit,
     onRedoClick: () -> Unit,
+    onFindClick: () -> Unit = {},
+    onOpenPageSetupClick: () -> Unit = {},
     onToggleTheme: () -> Unit,
     onToggleStencilDrawer: () -> Unit,
     onToggleShapeSheet: () -> Unit,
@@ -2447,23 +2422,28 @@ private fun WorkstationHeaderBar(
                     )
                 }
                 Spacer(Modifier.width(5.dp))
-                Surface(
-                    shape = RoundedCornerShape(5.dp),
-                    color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.65f)
-                ) {
-                    Text(
-                        text = "${uiState.documentExtension.uppercase()} • ${if (uiState.metricUnits) "MM" else "IN"}",
-                        fontSize = 9.5.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSecondaryContainer,
-                        maxLines = 1,
-                        softWrap = false,
-                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
-                    )
+                VexioTooltip(text = VexioI18n.pageSetupMenuLabel(lang)) {
+                    Surface(
+                        shape = RoundedCornerShape(5.dp),
+                        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.65f),
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(5.dp))
+                            .clickable(onClick = onOpenPageSetupClick)
+                    ) {
+                        Text(
+                            text = "${uiState.documentExtension.uppercase()} • ${if (uiState.metricUnits) "MM" else "IN"}",
+                            fontSize = 9.5.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer,
+                            maxLines = 1,
+                            softWrap = false,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
                 }
             }
 
-            // Compact Quick-Access Icon Strip (Undo, Redo, Save — full File/Print/Export commands live cleanly in the File Menu)
+            // Compact Quick-Access Icon Strip (Undo, Redo, Save, Find)
             CompactHeaderIconButton(
                 icon = Icons.AutoMirrored.Filled.Undo,
                 tooltip = VexioI18n.undoTooltip(lang),
@@ -2479,7 +2459,14 @@ private fun WorkstationHeaderBar(
             CompactHeaderIconButton(
                 icon = Icons.Default.Save,
                 tooltip = lang.saveLabel,
+                active = uiState.isDirty,
                 onClick = onSaveClick
+            )
+            CompactHeaderIconButton(
+                icon = Icons.Default.Search,
+                tooltip = VexioI18n.findReplaceTitle(lang),
+                active = uiState.showFindReplaceDialog,
+                onClick = onFindClick
             )
 
             VerticalDivider(
@@ -2529,7 +2516,7 @@ private fun WorkstationHeaderBar(
 
             CompactHeaderIconButton(
                 icon = if (uiState.isDarkTheme) Icons.Default.LightMode else Icons.Default.DarkMode,
-                tooltip = if (uiState.isDarkTheme) "Light Mode" else "Dark Mode",
+                tooltip = if (uiState.isDarkTheme) VexioI18n.lightModeTooltip(lang) else VexioI18n.darkModeTooltip(lang),
                 onClick = onToggleTheme
             )
 
@@ -2540,22 +2527,22 @@ private fun WorkstationHeaderBar(
                 color = MaterialTheme.colorScheme.outlineVariant
             )
 
-            // Workspace Pane Toggles (28dp compact icons highlighted when active!)
+            // Workspace Pane Toggles using Purpose-Built Split-Pane Vector Icons
             CompactHeaderIconButton(
-                icon = Icons.Default.Schema,
+                icon = VexioIcons.SidebarLeft,
                 tooltip = VexioI18n.toggleStencilsTooltip(lang),
                 active = uiState.isStencilDrawerExpanded,
                 onClick = onToggleStencilDrawer
             )
             CompactHeaderIconButton(
-                icon = Icons.Default.TableChart,
+                icon = VexioIcons.BottomPanel,
                 tooltip = VexioI18n.toggleShapeSheetTooltip(lang),
                 active = uiState.isShapeSheetDrawerExpanded,
                 onClick = onToggleShapeSheet
             )
             if (posture != AdaptiveWorkstationPosture.COMPACT_CONVERTIBLE) {
                 CompactHeaderIconButton(
-                    icon = Icons.Default.ViewSidebar,
+                    icon = VexioIcons.SidebarRight,
                     tooltip = VexioI18n.toggleInspectorTooltip(lang),
                     active = uiState.isInspectorExpanded,
                     onClick = onToggleInspector
@@ -3214,7 +3201,7 @@ private fun ClassicVisioM3Ribbon(
                                         onClick = { viewModel.duplicateSelectedShapes() }
                                     )
                                     RibbonIconBtn(
-                                        icon = Icons.Default.FormatPaint,
+                                        icon = VexioIcons.FormatPainter,
                                         tooltip = "${VexioI18n.toolName(VexioTool.FORMAT_PAINTER, lang)} (Ctrl+Shift+P)",
                                         selected = uiState.activeTool == VexioTool.FORMAT_PAINTER,
                                         onClick = {
@@ -3238,8 +3225,8 @@ private fun ClassicVisioM3Ribbon(
                                 Box {
                                     RibbonSelectBox(
                                         label = VexioI18n.stylesDropdownLabel(lang),
-                                        leadingIcon = Icons.Default.Title,
-                                        maxWidthDp = 112,
+                                        leadingIcon = VexioIcons.TextTool,
+                                        maxWidthDp = 116,
                                         onClick = { headingMenuOpen = true }
                                     )
                                     DropdownMenu(
@@ -3247,18 +3234,11 @@ private fun ClassicVisioM3Ribbon(
                                         onDismissRequest = { headingMenuOpen = false }
                                     ) {
                                         listOf(
-                                            "title" to "Diagram Title (24 pt Bold)",
-                                            "subtitle" to "Subtitle (14 pt)",
-                                            "h1" to "Heading 1 — Underlined (18 pt)",
-                                            "h2" to "Heading 2 (14 pt Bold)",
-                                            "h3" to "Heading 3 (12 pt Accent)",
-                                            "section_banner" to "Section Header Banner",
-                                            "callout_title" to "Accent Callout Header",
-                                            "body" to "Body Text (11 pt)",
-                                            "caption" to "Caption / Note (9.5 pt)"
-                                        ).forEach { (slug, label) ->
+                                            "title", "subtitle", "h1", "h2", "h3",
+                                            "section_banner", "callout_title", "body", "caption"
+                                        ).forEach { slug ->
                                             DropdownMenuItem(
-                                                text = { Text(label) },
+                                                text = { Text(VexioI18n.headingPresetLabel(slug, lang)) },
                                                 onClick = {
                                                     headingMenuOpen = false
                                                     viewModel.applyOrInsertHeading(slug, forceInsert = false)
@@ -3532,7 +3512,7 @@ private fun ClassicVisioM3Ribbon(
                                 }
                                 Box {
                                     RibbonIconBtn(
-                                        icon = Icons.AutoMirrored.Filled.TrendingFlat,
+                                        icon = VexioIcons.ArrowEndOpen,
                                         tooltip = VexioI18n.lineArrowsSectionTitle(lang),
                                         onClick = { arrowRouteMenuOpen = true }
                                     )
@@ -3541,31 +3521,32 @@ private fun ClassicVisioM3Ribbon(
                                         onDismissRequest = { arrowRouteMenuOpen = false }
                                     ) {
                                         DropdownMenuItem(
-                                            text = { Text("Right-Angle Orthogonal") },
-                                            leadingIcon = { Icon(Icons.Default.Timeline, contentDescription = null, modifier = Modifier.size(16.dp)) },
+                                            text = { Text(VexioI18n.connectorRouteLabel(16, lang)) },
+                                            leadingIcon = { Icon(VexioIcons.ConnectorOrthogonal, contentDescription = null, modifier = Modifier.size(17.dp)) },
                                             onClick = { arrowRouteMenuOpen = false; viewModel.setCellForSelection("ShapeRouteStyle", "16") }
                                         )
                                         DropdownMenuItem(
-                                            text = { Text("Curved Connector") },
-                                            leadingIcon = { Icon(Icons.Default.Gesture, contentDescription = null, modifier = Modifier.size(16.dp)) },
+                                            text = { Text(VexioI18n.connectorRouteLabel(2, lang)) },
+                                            leadingIcon = { Icon(VexioIcons.ConnectorCurved, contentDescription = null, modifier = Modifier.size(17.dp)) },
                                             onClick = { arrowRouteMenuOpen = false; viewModel.setCellForSelection("ShapeRouteStyle", "2") }
                                         )
                                         DropdownMenuItem(
-                                            text = { Text("Straight Line") },
-                                            leadingIcon = { Icon(Icons.Default.HorizontalRule, contentDescription = null, modifier = Modifier.size(16.dp)) },
+                                            text = { Text(VexioI18n.connectorRouteLabel(1, lang)) },
+                                            leadingIcon = { Icon(VexioIcons.LineSegment, contentDescription = null, modifier = Modifier.size(17.dp)) },
                                             onClick = { arrowRouteMenuOpen = false; viewModel.setCellForSelection("ShapeRouteStyle", "1") }
                                         )
                                         HorizontalDivider()
                                         listOf(
-                                            0 to "0 — No Arrowhead",
-                                            1 to "1 — Open Arrow",
-                                            4 to "4 — Filled Triangle",
-                                            5 to "5 — Stealth Arrow",
-                                            11 to "11 — Filled Diamond",
-                                            27 to "27 — ERD Crow's Foot"
-                                        ).forEach { (code, label) ->
+                                            0 to VexioIcons.ArrowEndNone,
+                                            1 to VexioIcons.ArrowEndOpen,
+                                            4 to VexioIcons.ArrowEndTriangle,
+                                            5 to VexioIcons.ArrowEndOpen,
+                                            11 to VexioIcons.ArrowEndDiamond,
+                                            27 to VexioIcons.ArrowEndCrowsFoot
+                                        ).forEach { (code, arrIcon) ->
                                             DropdownMenuItem(
-                                                text = { Text(label) },
+                                                text = { Text(VexioI18n.arrowheadOptionLabel(code, lang)) },
+                                                leadingIcon = { Icon(arrIcon, contentDescription = null, modifier = Modifier.size(17.dp)) },
                                                 onClick = { arrowRouteMenuOpen = false; viewModel.setConnectorArrowheads(0, code, 2) }
                                             )
                                         }
@@ -3573,7 +3554,7 @@ private fun ClassicVisioM3Ribbon(
                                 }
                             }
 
-                            // 5. Arrange, Align, Order, Group & Transform Group
+                            // 5. Arrange, Align, Order, Group & Transform Group (Purpose-Built CAD & Visio Vector Icons!)
                             RibbonCommandGroup(title = VexioI18n.arrangeSectionTitle(lang), showDividerAfter = false) {
                                 Box {
                                     RibbonCommandBtn(
@@ -3607,7 +3588,7 @@ private fun ClassicVisioM3Ribbon(
                                 }
                                 Box {
                                     RibbonCommandBtn(
-                                        icon = Icons.Default.ViewColumn,
+                                        icon = VexioIcons.DistributeHorizontally,
                                         label = VexioI18n.distributeMenuPill(lang).removeSuffix(" ▾"),
                                         hasDropdown = true,
                                         onClick = { distributeMenuOpen = true }
@@ -3618,7 +3599,7 @@ private fun ClassicVisioM3Ribbon(
                                     ) {
                                         DropdownMenuItem(
                                             text = { Text(VexioI18n.distributeHorizontally(lang)) },
-                                            leadingIcon = { Icon(Icons.Default.ViewColumn, contentDescription = null, modifier = Modifier.size(17.dp)) },
+                                            leadingIcon = { Icon(VexioIcons.DistributeHorizontally, contentDescription = null, modifier = Modifier.size(17.dp)) },
                                             onClick = {
                                                 distributeMenuOpen = false
                                                 viewModel.distributeSelectedShapes("horizontal")
@@ -3626,7 +3607,7 @@ private fun ClassicVisioM3Ribbon(
                                         )
                                         DropdownMenuItem(
                                             text = { Text(VexioI18n.distributeVertically(lang)) },
-                                            leadingIcon = { Icon(Icons.Default.ViewStream, contentDescription = null, modifier = Modifier.size(17.dp)) },
+                                            leadingIcon = { Icon(VexioIcons.DistributeVertically, contentDescription = null, modifier = Modifier.size(17.dp)) },
                                             onClick = {
                                                 distributeMenuOpen = false
                                                 viewModel.distributeSelectedShapes("vertical")
@@ -3636,25 +3617,25 @@ private fun ClassicVisioM3Ribbon(
                                 }
                                 RibbonSegmentedCluster {
                                     RibbonIconBtn(
-                                        icon = Icons.Default.FlipToFront,
+                                        icon = VexioIcons.BringToFront,
                                         tooltip = VexioI18n.bringToFrontTooltip(lang),
                                         enabled = hasSelection,
                                         onClick = { viewModel.reorderSelectedShapes("front") }
                                     )
                                     RibbonIconBtn(
-                                        icon = Icons.Default.FlipToBack,
+                                        icon = VexioIcons.SendToBack,
                                         tooltip = VexioI18n.sendToBackTooltip(lang),
                                         enabled = hasSelection,
                                         onClick = { viewModel.reorderSelectedShapes("back") }
                                     )
                                     RibbonIconBtn(
-                                        icon = Icons.Default.Workspaces,
+                                        icon = VexioIcons.GroupShapes,
                                         tooltip = VexioI18n.ctxGroupSelected(lang),
                                         enabled = hasMultiSelection,
                                         onClick = { viewModel.groupSelectedShapes() }
                                     )
                                     RibbonIconBtn(
-                                        icon = Icons.Default.CallSplit,
+                                        icon = VexioIcons.UngroupShapes,
                                         tooltip = VexioI18n.ctxUngroupSelected(lang),
                                         enabled = hasSelection,
                                         onClick = { viewModel.ungroupSelectedShapes() }
@@ -3662,25 +3643,25 @@ private fun ClassicVisioM3Ribbon(
                                 }
                                 RibbonSegmentedCluster {
                                     RibbonIconBtn(
-                                        icon = Icons.Default.Rotate90DegreesCcw,
+                                        icon = VexioIcons.RotateLeft90,
                                         tooltip = VexioI18n.rotateLeftTooltip(lang),
                                         enabled = hasSelection,
                                         onClick = { viewModel.rotateOrFlipSelected(deltaAngleDeg = -90.0) }
                                     )
                                     RibbonIconBtn(
-                                        icon = Icons.Default.Rotate90DegreesCw,
+                                        icon = VexioIcons.RotateRight90,
                                         tooltip = VexioI18n.rotateRightTooltip(lang),
                                         enabled = hasSelection,
                                         onClick = { viewModel.rotateOrFlipSelected(deltaAngleDeg = 90.0) }
                                     )
                                     RibbonIconBtn(
-                                        icon = Icons.Default.Flip,
+                                        icon = VexioIcons.FlipHorizontal,
                                         tooltip = VexioI18n.flipHorizTooltip(lang),
                                         enabled = hasSelection,
                                         onClick = { viewModel.rotateOrFlipSelected(flipX = true) }
                                     )
                                     RibbonIconBtn(
-                                        icon = Icons.Default.SwapVert,
+                                        icon = VexioIcons.FlipVertical,
                                         tooltip = VexioI18n.flipVertTooltip(lang),
                                         enabled = hasSelection,
                                         onClick = { viewModel.rotateOrFlipSelected(flipY = true) }
@@ -3719,7 +3700,7 @@ private fun ClassicVisioM3Ribbon(
                             RibbonCommandGroup(title = VexioI18n.groupDiagramParts(lang)) {
                                 Box {
                                     RibbonCommandBtn(
-                                        icon = Icons.Default.Title,
+                                        icon = VexioIcons.TextTool,
                                         label = VexioI18n.stylesDropdownLabel(lang),
                                         hasDropdown = true,
                                         onClick = { insertHeadingMenuOpen = true }
@@ -3729,16 +3710,11 @@ private fun ClassicVisioM3Ribbon(
                                         onDismissRequest = { insertHeadingMenuOpen = false }
                                     ) {
                                         listOf(
-                                            "title" to "Diagram Title (24 pt)",
-                                            "subtitle" to "Subtitle (14 pt)",
-                                            "h1" to "Heading 1 — Underlined",
-                                            "h2" to "Heading 2",
-                                            "h3" to "Heading 3",
-                                            "section_banner" to "Section Header Banner",
-                                            "callout_title" to "Accent Callout Header"
-                                        ).forEach { (slug, label) ->
+                                            "title", "subtitle", "h1", "h2", "h3",
+                                            "section_banner", "callout_title"
+                                        ).forEach { slug ->
                                             DropdownMenuItem(
-                                                text = { Text(label) },
+                                                text = { Text(VexioI18n.headingPresetLabel(slug, lang)) },
                                                 onClick = {
                                                     insertHeadingMenuOpen = false
                                                     viewModel.applyOrInsertHeading(slug, forceInsert = true)
@@ -3748,37 +3724,37 @@ private fun ClassicVisioM3Ribbon(
                                     }
                                 }
                                 RibbonCommandBtn(
-                                    icon = Icons.Default.TextFields,
+                                    icon = VexioIcons.TextTool,
                                     label = VexioI18n.toolName(VexioTool.TEXT_BLOCK, lang),
                                     tooltip = VexioI18n.textBoxPill(lang),
                                     selected = uiState.activeTool == VexioTool.TEXT_BLOCK,
                                     onClick = { viewModel.selectTool(VexioTool.TEXT_BLOCK) }
                                 )
                                 RibbonCommandBtn(
-                                    icon = Icons.Default.CheckBoxOutlineBlank,
+                                    icon = VexioIcons.ContainerFrame,
                                     label = VexioI18n.shortContainer(lang),
                                     onClick = { viewModel.insertContainer() }
                                 )
                                 RibbonCommandBtn(
-                                    icon = Icons.Default.ViewStream,
+                                    icon = VexioIcons.Swimlanes,
                                     label = VexioI18n.shortSwimlanes(lang),
                                     onClick = { viewModel.insertSwimlanes() }
                                 )
                                 RibbonCommandBtn(
-                                    icon = Icons.Default.ChatBubbleOutline,
+                                    icon = VexioIcons.CalloutNote,
                                     label = VexioI18n.shortCallout(lang),
                                     onClick = { viewModel.attachCallout() }
                                 )
                                 RibbonCommandBtn(
                                     icon = Icons.Default.AccountTree,
-                                    label = VexioI18n.subprocessPill(lang).removeSuffix(" (+)"),
+                                    label = VexioI18n.subprocessGroupTitle(lang),
                                     onClick = { viewModel.createOrLinkSubprocess() }
                                 )
                             }
 
                             RibbonCommandGroup(title = VexioI18n.groupAec(lang)) {
                                 RibbonCommandBtn(
-                                    icon = Icons.Default.Domain,
+                                    icon = VexioIcons.ArchitecturalWall,
                                     label = VexioI18n.toolName(VexioTool.WALL, lang),
                                     tooltip = "${VexioI18n.toolName(VexioTool.WALL, lang)} (Ctrl+Shift+W)",
                                     selected = uiState.activeTool == VexioTool.WALL,
@@ -3790,7 +3766,7 @@ private fun ClassicVisioM3Ribbon(
                                 )
                                 Box {
                                     RibbonCommandBtn(
-                                        icon = Icons.Default.SensorDoor,
+                                        icon = VexioIcons.WallOpeningDoor,
                                         label = VexioI18n.shortWallOpening(lang),
                                         hasDropdown = true,
                                         onClick = { wallOpeningMenuOpen = true }
@@ -3800,15 +3776,11 @@ private fun ClassicVisioM3Ribbon(
                                         onDismissRequest = { wallOpeningMenuOpen = false }
                                     ) {
                                         listOf(
-                                            "single_door" to "Single Door (90°)",
-                                            "double_door" to "Double French Door",
-                                            "sliding_door" to "Sliding Door",
-                                            "pocket_door" to "Pocket Door",
-                                            "window" to "Casement Window",
-                                            "cased_opening" to "Cased Opening"
-                                        ).forEach { (slug, label) ->
+                                            "single_door", "double_door", "sliding_door",
+                                            "pocket_door", "window", "cased_opening"
+                                        ).forEach { slug ->
                                             DropdownMenuItem(
-                                                text = { Text(label) },
+                                                text = { Text(VexioI18n.wallOpeningOptionLabel(slug, lang)) },
                                                 onClick = {
                                                     wallOpeningMenuOpen = false
                                                     viewModel.insertWallOpening(slug)
@@ -3819,7 +3791,7 @@ private fun ClassicVisioM3Ribbon(
                                 }
                                 Box {
                                     RibbonCommandBtn(
-                                        icon = Icons.Default.Straighten,
+                                        icon = VexioIcons.AssociativeDimension,
                                         label = VexioI18n.toolName(VexioTool.DIMENSION, lang),
                                         tooltip = "${VexioI18n.toolName(VexioTool.DIMENSION, lang)} (Ctrl+Shift+D)",
                                         selected = uiState.activeTool == VexioTool.DIMENSION,
@@ -3831,8 +3803,8 @@ private fun ClassicVisioM3Ribbon(
                                         onDismissRequest = { dimensionMenuOpen = false }
                                     ) {
                                         DropdownMenuItem(
-                                            text = { Text("${VexioI18n.toolName(VexioTool.DIMENSION, lang)} Tool (Ctrl+Shift+D)") },
-                                            leadingIcon = { Icon(Icons.Default.Straighten, contentDescription = null, modifier = Modifier.size(16.dp)) },
+                                            text = { Text("${VexioI18n.toolName(VexioTool.DIMENSION, lang)} (Ctrl+Shift+D)") },
+                                            leadingIcon = { Icon(VexioIcons.AssociativeDimension, contentDescription = null, modifier = Modifier.size(16.dp)) },
                                             onClick = {
                                                 dimensionMenuOpen = false
                                                 viewModel.selectTool(
@@ -3841,16 +3813,9 @@ private fun ClassicVisioM3Ribbon(
                                             }
                                         )
                                         HorizontalDivider()
-                                        listOf(
-                                            "aligned" to "Insert Aligned Dimension",
-                                            "horizontal" to "Insert Horizontal Span",
-                                            "vertical" to "Insert Vertical Span",
-                                            "angular" to "Insert Angular (2 Shapes)",
-                                            "radial" to "Insert Radial (R)",
-                                            "diameter" to "Insert Diameter (⌀)"
-                                        ).forEach { (slug, label) ->
+                                        listOf("aligned", "horizontal", "vertical", "angular", "radial", "diameter").forEach { slug ->
                                             DropdownMenuItem(
-                                                text = { Text(label) },
+                                                text = { Text(VexioI18n.dimensionOptionLabel(slug, lang)) },
                                                 onClick = {
                                                     dimensionMenuOpen = false
                                                     viewModel.insertAssociativeDimension(slug)
@@ -3875,15 +3840,14 @@ private fun ClassicVisioM3Ribbon(
                                 )
                                 RibbonCommandBtn(
                                     icon = Icons.Default.Link,
-                                    label = "Link",
-                                    tooltip = "Hyperlink & ScreenTip (Ctrl+K)",
+                                    label = VexioI18n.hyperlinkShortLabel(lang),
+                                    tooltip = VexioI18n.hyperlinkDialogTitle(uiState.selectedShapeId, lang),
                                     selected = uiState.showHyperlinkDialog,
                                     onClick = { viewModel.setHyperlinkDialogVisible(true) }
                                 )
                                 RibbonCommandBtn(
                                     icon = Icons.Default.Functions,
-                                    label = "<fld>",
-                                    tooltip = "Insert Dynamic Formula Field",
+                                    label = VexioI18n.fieldShortLabel(lang),
                                     selected = uiState.showInsertFieldDialog,
                                     onClick = { viewModel.setInsertFieldDialogVisible(true) }
                                 )
@@ -3900,15 +3864,7 @@ private fun ClassicVisioM3Ribbon(
                                         onDismissRequest = { cadMenuOpen = false }
                                     ) {
                                         DropdownMenuItem(
-                                            text = {
-                                                Text(
-                                                    if (uiState.cadScaleLocked) {
-                                                        "Unlock CAD Scale (${uiState.cadScaleSlug})"
-                                                    } else {
-                                                        "Lock Architectural CAD Scale"
-                                                    }
-                                                )
-                                            },
+                                            text = { Text(VexioI18n.cadLockMenuLabel(uiState.cadScaleLocked, uiState.cadScaleSlug, lang)) },
                                             leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null, modifier = Modifier.size(16.dp)) },
                                             onClick = {
                                                 cadMenuOpen = false
@@ -3917,7 +3873,7 @@ private fun ClassicVisioM3Ribbon(
                                             }
                                         )
                                         DropdownMenuItem(
-                                            text = { Text("Convert CAD Layers to Visio Shapes") },
+                                            text = { Text(VexioI18n.cadConvertLayersMenuLabel(lang)) },
                                             leadingIcon = { Icon(Icons.Default.Layers, contentDescription = null, modifier = Modifier.size(16.dp)) },
                                             onClick = {
                                                 cadMenuOpen = false
@@ -3961,7 +3917,7 @@ private fun ClassicVisioM3Ribbon(
                                 Box {
                                     RibbonCommandBtn(
                                         icon = Icons.Default.BorderOuter,
-                                        label = "Borders & Titles",
+                                        label = VexioI18n.bordersAndTitlesLabel(lang),
                                         hasDropdown = true,
                                         onClick = { bordersMenuOpen = true }
                                     )
@@ -3970,15 +3926,11 @@ private fun ClassicVisioM3Ribbon(
                                         onDismissRequest = { bordersMenuOpen = false }
                                     ) {
                                         listOf(
-                                            "modern_banner" to "Modern Header Banner",
-                                            "executive_underline" to "Executive Title & Accent Rule",
-                                            "classic_frame" to "Classic Frame & Title",
-                                            "pill_banner" to "Rounded Pill Banner",
-                                            "iso_engineering" to "ISO 7200 / ANSI Engineering Block",
-                                            "none" to "None (Remove Border & Title)"
-                                        ).forEach { (slug, label) ->
+                                            "modern_banner", "executive_underline", "classic_frame",
+                                            "pill_banner", "iso_engineering", "none"
+                                        ).forEach { slug ->
                                             DropdownMenuItem(
-                                                text = { Text(label) },
+                                                text = { Text(VexioI18n.borderStyleOption(slug, lang)) },
                                                 onClick = {
                                                     bordersMenuOpen = false
                                                     viewModel.applyBorderAndTitle(slug)
@@ -3989,10 +3941,10 @@ private fun ClassicVisioM3Ribbon(
                                 }
                             }
 
-                            RibbonCommandGroup(title = "Themes") {
+                            RibbonCommandGroup(title = VexioI18n.themesGroupTitle(lang)) {
                                 VexioThemePreset.entries.forEach { preset ->
                                     RibbonCommandBtn(
-                                        icon = if (preset == VexioThemePreset.HAND_DRAWN) Icons.Default.Draw else Icons.Default.Palette,
+                                        icon = if (preset == VexioThemePreset.HAND_DRAWN) VexioIcons.FreeformSpline else Icons.Default.Palette,
                                         label = VexioI18n.themePresetName(preset, lang),
                                         selected = uiState.activeThemeSlug == preset.slug,
                                         onClick = { viewModel.applyDocumentTheme(preset.slug, uiState.activeThemeVariant) }
@@ -4012,14 +3964,9 @@ private fun ClassicVisioM3Ribbon(
                                         expanded = layoutMenuOpen,
                                         onDismissRequest = { layoutMenuOpen = false }
                                     ) {
-                                        listOf(
-                                            "hierarchical_tb" to "Top-to-Bottom Hierarchy",
-                                            "hierarchical_lr" to "Left-to-Right Hierarchy",
-                                            "radial" to "Radial Star Layout",
-                                            "force_directed" to "Force-Directed Network"
-                                        ).forEach { (algo, label) ->
+                                        listOf("hierarchical_tb", "hierarchical_lr", "radial", "force_directed").forEach { algo ->
                                             DropdownMenuItem(
-                                                text = { Text(label) },
+                                                text = { Text(VexioI18n.autoLayoutOption(algo, lang)) },
                                                 onClick = {
                                                     layoutMenuOpen = false
                                                     viewModel.autoLayoutActivePage(algo)
@@ -4032,30 +3979,30 @@ private fun ClassicVisioM3Ribbon(
                         }
 
                         "Data" -> {
-                            RibbonCommandGroup(title = "External Data") {
+                            RibbonCommandGroup(title = VexioI18n.externalDataGroupTitle(lang)) {
                                 RibbonCommandBtn(
                                     icon = Icons.Default.Link,
-                                    label = "Link Data…",
-                                    tooltip = "Link .xlsx, .csv, .sqlite, or .json",
+                                    label = VexioI18n.linkDataLabel(lang),
+                                    tooltip = ".xlsx, .csv, .sqlite, .json",
                                     selected = uiState.externalRecordsets.isNotEmpty(),
                                     onClick = onLinkExternalDataClick
                                 )
                                 RibbonCommandBtn(
                                     icon = Icons.Default.Refresh,
-                                    label = "Refresh",
+                                    label = VexioI18n.refreshLabel(lang),
                                     onClick = onRefreshExternalDataClick
                                 )
                                 RibbonCommandBtn(
                                     icon = Icons.Default.Sync,
-                                    label = "Writeback",
+                                    label = VexioI18n.writebackLabel(lang),
                                     onClick = onTwoWayWritebackClick
                                 )
                             }
 
-                            RibbonCommandGroup(title = "Data Graphics") {
+                            RibbonCommandGroup(title = VexioI18n.dataGraphicsLabel(lang)) {
                                 RibbonCommandBtn(
                                     icon = Icons.Default.Leaderboard,
-                                    label = "Data Graphics",
+                                    label = VexioI18n.dataGraphicsLabel(lang),
                                     selected = uiState.dataGraphics.enabled,
                                     onClick = {
                                         val dg = uiState.dataGraphics
@@ -4064,7 +4011,7 @@ private fun ClassicVisioM3Ribbon(
                                 )
                                 RibbonCommandBtn(
                                     icon = Icons.Default.LegendToggle,
-                                    label = "Legend",
+                                    label = VexioI18n.legendLabel(lang),
                                     selected = uiState.dataGraphics.legendVisible,
                                     onClick = { viewModel.insertOrUpdateDataLegend() }
                                 )
@@ -4075,7 +4022,7 @@ private fun ClassicVisioM3Ribbon(
                                 )
                             }
 
-                            RibbonCommandGroup(title = "Plan 2 Connectors", showDividerAfter = false) {
+                            RibbonCommandGroup(title = VexioI18n.connectorsPlan2GroupTitle(lang), showDividerAfter = false) {
                                 RibbonCommandBtn(
                                     icon = Icons.Default.GridOn,
                                     label = VexioI18n.dataVisualizerPill(lang),
@@ -4099,7 +4046,7 @@ private fun ClassicVisioM3Ribbon(
                         }
 
                         "Process" -> {
-                            RibbonCommandGroup(title = "Validation") {
+                            RibbonCommandGroup(title = VexioI18n.validationGroupTitle(lang)) {
                                 RibbonCommandBtn(
                                     icon = Icons.Default.Verified,
                                     label = "BPMN 2.0",
@@ -4122,7 +4069,7 @@ private fun ClassicVisioM3Ribbon(
                                 )
                             }
 
-                            RibbonCommandGroup(title = "Subprocess") {
+                            RibbonCommandGroup(title = VexioI18n.subprocessGroupTitle(lang)) {
                                 RibbonCommandBtn(
                                     icon = Icons.Default.AccountTree,
                                     label = VexioI18n.createSubprocessDrillDown(lang),
@@ -4130,10 +4077,10 @@ private fun ClassicVisioM3Ribbon(
                                 )
                             }
 
-                            RibbonCommandGroup(title = "Plan 2 Analytics", showDividerAfter = false) {
+                            RibbonCommandGroup(title = VexioI18n.analyticsGroupTitle(lang), showDividerAfter = false) {
                                 RibbonCommandBtn(
                                     icon = Icons.Default.CalendarMonth,
-                                    label = "Calendar",
+                                    label = VexioI18n.calendarLabel(lang),
                                     onClick = {
                                         viewModel.selectDomainWizardPreset("calendar")
                                         viewModel.setDomainWizardsDialogVisible(true)
@@ -4149,7 +4096,7 @@ private fun ClassicVisioM3Ribbon(
                                 )
                                 RibbonCommandBtn(
                                     icon = Icons.Default.Psychology,
-                                    label = "Mind Map",
+                                    label = VexioI18n.mindMapLabel(lang),
                                     onClick = {
                                         viewModel.selectDomainWizardPreset("mind_map")
                                         viewModel.setDomainWizardsDialogVisible(true)
@@ -4157,7 +4104,7 @@ private fun ClassicVisioM3Ribbon(
                                 )
                                 RibbonCommandBtn(
                                     icon = Icons.Default.Add,
-                                    label = "+ Topic",
+                                    label = VexioI18n.addTopicLabel(lang),
                                     onClick = { viewModel.addMindMapTopic("New Subtopic", false) }
                                 )
                                 RibbonCommandBtn(
@@ -4170,7 +4117,7 @@ private fun ClassicVisioM3Ribbon(
                                 )
                                 RibbonCommandBtn(
                                     icon = Icons.Default.Hub,
-                                    label = "Fault Tree",
+                                    label = VexioI18n.faultTreeLabel(lang),
                                     onClick = {
                                         viewModel.selectDomainWizardPreset("fta")
                                         viewModel.setDomainWizardsDialogVisible(true)
@@ -4178,43 +4125,43 @@ private fun ClassicVisioM3Ribbon(
                                 )
                                 RibbonCommandBtn(
                                     icon = Icons.Default.Calculate,
-                                    label = "Recalc VSM / FTA",
+                                    label = VexioI18n.recalcVsmFtaLabel(lang),
                                     onClick = { viewModel.recalculateVsmAndFta() }
                                 )
                             }
                         }
 
                         "Review" -> {
-                            RibbonCommandGroup(title = "Markup Ink") {
+                            RibbonCommandGroup(title = VexioI18n.markupInkGroupTitle(lang)) {
                                 RibbonCommandBtn(
-                                    icon = Icons.Default.Brush,
+                                    icon = VexioIcons.MarkupPen,
                                     label = VexioI18n.markupPenPill(lang),
                                     selected = uiState.activeTool == VexioTool.STYLUS_INK,
                                     onClick = { viewModel.selectTool(VexioTool.STYLUS_INK) }
                                 )
                                 RibbonCommandBtn(
-                                    icon = Icons.Default.Highlight,
+                                    icon = VexioIcons.Highlighter,
                                     label = VexioI18n.highlighterPill(lang),
                                     selected = uiState.activeTool == VexioTool.HIGHLIGHTER,
                                     onClick = { viewModel.selectTool(VexioTool.HIGHLIGHTER) }
                                 )
                                 RibbonCommandBtn(
-                                    icon = Icons.Default.AutoFixNormal,
+                                    icon = VexioIcons.InkEraser,
                                     label = VexioI18n.toolName(VexioTool.INK_ERASER, lang),
                                     selected = uiState.activeTool == VexioTool.INK_ERASER,
                                     onClick = { viewModel.selectTool(VexioTool.INK_ERASER) }
                                 )
                                 RibbonCommandBtn(
                                     icon = Icons.Default.LayersClear,
-                                    label = "Clear Ink",
+                                    label = VexioI18n.clearInkLabel(lang),
                                     onClick = { viewModel.clearActivePageInk() }
                                 )
                             }
 
-                            RibbonCommandGroup(title = "Review & Compare", showDividerAfter = false) {
+                            RibbonCommandGroup(title = VexioI18n.reviewCompareGroupTitle(lang), showDividerAfter = false) {
                                 RibbonCommandBtn(
                                     icon = Icons.Default.Comment,
-                                    label = "Comments (${uiState.reviewComments.size})",
+                                    label = VexioI18n.commentsCountLabel(uiState.reviewComments.size, lang),
                                     selected = uiState.showCommentsDialog,
                                     onClick = { viewModel.setCommentsDialogVisible(true) }
                                 )
@@ -4227,21 +4174,21 @@ private fun ClassicVisioM3Ribbon(
                         }
 
                         "View" -> {
-                            RibbonCommandGroup(title = "Panes") {
+                            RibbonCommandGroup(title = VexioI18n.panesGroupTitle(lang)) {
                                 RibbonCommandBtn(
-                                    icon = Icons.Default.Schema,
+                                    icon = VexioIcons.SidebarLeft,
                                     label = VexioI18n.stencilsNavigatorPill(lang),
                                     selected = uiState.isStencilDrawerExpanded,
                                     onClick = viewModel::toggleStencilDrawer
                                 )
                                 RibbonCommandBtn(
-                                    icon = Icons.Default.ViewSidebar,
+                                    icon = VexioIcons.SidebarRight,
                                     label = VexioI18n.inspectorPanePill(lang),
                                     selected = uiState.isInspectorExpanded,
                                     onClick = viewModel::toggleInspectorPane
                                 )
                                 RibbonCommandBtn(
-                                    icon = Icons.Default.TableChart,
+                                    icon = VexioIcons.BottomPanel,
                                     label = "ShapeSheet",
                                     tooltip = VexioI18n.toggleShapeSheetTooltip(lang),
                                     selected = uiState.isShapeSheetDrawerExpanded,
@@ -4249,7 +4196,13 @@ private fun ClassicVisioM3Ribbon(
                                 )
                             }
 
-                            RibbonCommandGroup(title = "Guides & Snap") {
+                            RibbonCommandGroup(title = VexioI18n.guidesSnapGroupTitle(lang)) {
+                                RibbonCommandBtn(
+                                    icon = VexioIcons.RulerCorner,
+                                    label = VexioI18n.rulersLabel(lang),
+                                    selected = uiState.showCanvasRulers,
+                                    onClick = { viewModel.toggleCanvasRulers() }
+                                )
                                 RibbonCommandBtn(
                                     icon = Icons.Default.Grid4x4,
                                     label = VexioI18n.smartGuidesPill(lang),
@@ -4258,44 +4211,50 @@ private fun ClassicVisioM3Ribbon(
                                 )
                                 RibbonCommandBtn(
                                     icon = Icons.Default.HorizontalRule,
-                                    label = "+ H Guide",
+                                    label = VexioI18n.addHGuideLabel(lang),
                                     onClick = { viewModel.addRulerGuide(false, 4.0) }
                                 )
                                 RibbonCommandBtn(
                                     icon = Icons.Default.VerticalSplit,
-                                    label = "+ V Guide",
+                                    label = VexioI18n.addVGuideLabel(lang),
                                     onClick = { viewModel.addRulerGuide(true, 5.5) }
                                 )
                                 RibbonCommandBtn(
                                     icon = Icons.Default.GridOn,
-                                    label = "Snap & Glue",
+                                    label = VexioI18n.snapGlueLabel(lang),
                                     selected = uiState.showSnapGlueDialog,
                                     onClick = { viewModel.setSnapGlueDialogVisible(true) }
                                 )
                                 RibbonCommandBtn(
                                     icon = Icons.Default.FormatListNumbered,
-                                    label = "Number Shapes",
+                                    label = VexioI18n.numberShapesLabel(lang),
                                     selected = uiState.showNumberShapesDialog,
                                     onClick = { viewModel.setNumberShapesDialogVisible(true) }
                                 )
                             }
 
-                            RibbonCommandGroup(title = "Zoom & Present", showDividerAfter = false) {
+                            RibbonCommandGroup(title = VexioI18n.zoomPresentGroupTitle(lang), showDividerAfter = false) {
+                                RibbonCommandBtn(
+                                    icon = VexioIcons.FitToPage,
+                                    label = VexioI18n.fitToScreenLabel(lang),
+                                    selected = uiState.isAutoFitPage,
+                                    onClick = { viewModel.fitPageToWindow() }
+                                )
                                 RibbonCommandBtn(
                                     icon = Icons.Default.CenterFocusStrong,
                                     label = VexioI18n.zoom100Pill(lang),
-                                    selected = uiState.zoomPercent == 100,
+                                    selected = uiState.zoomPercent == 100 && !uiState.isAutoFitPage,
                                     onClick = { viewModel.setZoomPercent(100) }
                                 )
                                 RibbonCommandBtn(
                                     icon = Icons.Default.FilterFrames,
-                                    label = "Slides (${uiState.slideSnippets.size})",
+                                    label = VexioI18n.slidesCountLabel(uiState.slideSnippets.size, lang),
                                     selected = uiState.showSlideSnippetsDialog,
                                     onClick = { viewModel.setSlideSnippetsDialogVisible(true) }
                                 )
                                 RibbonCommandBtn(
                                     icon = Icons.Default.Slideshow,
-                                    label = if (uiState.isPresentationModeActive) "Exit Present" else "Present",
+                                    label = VexioI18n.presentModeLabel(uiState.isPresentationModeActive, lang),
                                     selected = uiState.isPresentationModeActive,
                                     onClick = { viewModel.setPresentationModeActive(!uiState.isPresentationModeActive) }
                                 )
@@ -4307,7 +4266,7 @@ private fun ClassicVisioM3Ribbon(
 
                             RibbonCommandGroup(title = "ShapeSheet") {
                                 RibbonCommandBtn(
-                                    icon = Icons.Default.TableChart,
+                                    icon = VexioIcons.BottomPanel,
                                     label = "ShapeSheet",
                                     tooltip = VexioI18n.toggleShapeSheetTooltip(lang),
                                     selected = uiState.isShapeSheetDrawerExpanded,
@@ -4315,25 +4274,25 @@ private fun ClassicVisioM3Ribbon(
                                 )
                                 RibbonCommandBtn(
                                     icon = Icons.Default.Bolt,
-                                    label = "Actions (${uiState.selectedShapeActions.size})",
+                                    label = VexioI18n.actionsCountLabel(uiState.selectedShapeActions.size, lang),
                                     selected = uiState.showSmartActionsDialog,
                                     onClick = { viewModel.setSmartActionsDialogVisible(true) }
                                 )
                                 RibbonCommandBtn(
                                     icon = Icons.Default.TouchApp,
-                                    label = "+ Control",
+                                    label = VexioI18n.addControlHandleLabel(lang),
                                     onClick = { viewModel.ensureSelectedControlHandle() }
                                 )
                                 RibbonCommandBtn(
-                                    icon = Icons.Default.AltRoute,
-                                    label = "Reset Route",
+                                    icon = VexioIcons.ConnectorOrthogonal,
+                                    label = VexioI18n.resetRouteLabel(lang),
                                     onClick = { viewModel.resetSelectedConnectorRouting() }
                                 )
                             }
 
-                            RibbonCommandGroup(title = "Geometry & Tools") {
+                            RibbonCommandGroup(title = VexioI18n.geometryToolsGroupTitle(lang)) {
                                 RibbonCommandBtn(
-                                    icon = Icons.Default.Polyline,
+                                    icon = VexioIcons.EditVertices,
                                     label = VexioI18n.toolName(VexioTool.EDIT_VERTICES, lang),
                                     selected = uiState.activeTool == VexioTool.EDIT_VERTICES,
                                     onClick = {
@@ -4343,7 +4302,7 @@ private fun ClassicVisioM3Ribbon(
                                     }
                                 )
                                 RibbonCommandBtn(
-                                    icon = Icons.Default.Adjust,
+                                    icon = VexioIcons.ConnectionPoint,
                                     label = VexioI18n.toolName(VexioTool.CONNECTION_POINT, lang),
                                     tooltip = "${VexioI18n.toolName(VexioTool.CONNECTION_POINT, lang)} (Ctrl+Shift+1)",
                                     selected = uiState.activeTool == VexioTool.CONNECTION_POINT,
@@ -4354,7 +4313,7 @@ private fun ClassicVisioM3Ribbon(
                                     }
                                 )
                                 RibbonCommandBtn(
-                                    icon = Icons.Default.Transform,
+                                    icon = VexioIcons.TextBlockTransform,
                                     label = VexioI18n.toolName(VexioTool.TEXT_BLOCK_TRANSFORM, lang),
                                     tooltip = "${VexioI18n.toolName(VexioTool.TEXT_BLOCK_TRANSFORM, lang)} (Ctrl+Shift+4)",
                                     selected = uiState.activeTool == VexioTool.TEXT_BLOCK_TRANSFORM,
@@ -4389,14 +4348,14 @@ private fun ClassicVisioM3Ribbon(
                                 }
                                 RibbonCommandBtn(
                                     icon = Icons.Default.Search,
-                                    label = "Find",
-                                    tooltip = "Find & Replace (Ctrl+F)",
+                                    label = VexioI18n.findLabel(lang),
+                                    tooltip = VexioI18n.findReplaceTitle(lang),
                                     selected = uiState.showFindReplaceDialog,
                                     onClick = { viewModel.setFindReplaceDialogVisible(true) }
                                 )
                             }
 
-                            RibbonCommandGroup(title = "Code & Macros", showDividerAfter = false) {
+                            RibbonCommandGroup(title = VexioI18n.codeMacrosGroupTitle(lang), showDividerAfter = false) {
                                 RibbonCommandBtn(
                                     icon = Icons.Default.Code,
                                     label = "Mermaid / UML",
@@ -4406,7 +4365,7 @@ private fun ClassicVisioM3Ribbon(
                                 RibbonCommandBtn(
                                     icon = Icons.Default.Terminal,
                                     label = "VBA Macros",
-                                    tooltip = "Sandboxed VBA Studio (Alt+F9)",
+                                    tooltip = "Alt+F9",
                                     selected = uiState.showVbaMacroDialog,
                                     onClick = { viewModel.setVbaMacroDialogVisible(true) }
                                 )
@@ -4572,20 +4531,111 @@ private fun InAppStartBackstageOverlay(
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     modifier = Modifier.horizontalScroll(rememberScrollState())
                 ) {
+                    val accentStroke = MaterialTheme.colorScheme.primary
                     listOf("flowchart", "bpmn", "network", "floorplan", "orgchart", "uml").forEach { slug ->
                         Surface(
                             shape = RoundedCornerShape(14.dp),
                             color = MaterialTheme.colorScheme.surfaceContainer,
                             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                             modifier = Modifier
+                                .width(172.dp)
                                 .clip(RoundedCornerShape(14.dp))
                                 .clickable { onLoadTemplate(slug) }
                         ) {
-                            Text(
-                                text = VexioI18n.templateTitle(slug, lang),
-                                style = MaterialTheme.typography.labelLarge,
-                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
-                            )
+                            Column(
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.padding(10.dp)
+                            ) {
+                                // Crisp Miniature Vector Diagram Preview
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = Color.White,
+                                    border = BorderStroke(0.75.dp, Color(0xFFCBD5E1)),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(78.dp)
+                                ) {
+                                    androidx.compose.foundation.Canvas(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .padding(8.dp)
+                                    ) {
+                                        val w = size.width
+                                        val h = size.height
+                                        val fillSoft = accentStroke.copy(alpha = 0.14f)
+                                        val st = Stroke(width = 1.6.dp.toPx())
+                                        when (slug) {
+                                            "flowchart" -> {
+                                                drawRoundRect(fillSoft, Offset(4f, h * 0.3f), androidx.compose.ui.geometry.Size(w * 0.28f, h * 0.4f), CornerRadius(12f))
+                                                drawRoundRect(accentStroke, Offset(4f, h * 0.3f), androidx.compose.ui.geometry.Size(w * 0.28f, h * 0.4f), CornerRadius(12f), style = st)
+                                                val dm = Path().apply {
+                                                    moveTo(w * 0.56f, h * 0.16f); lineTo(w * 0.72f, h * 0.5f)
+                                                    lineTo(w * 0.56f, h * 0.84f); lineTo(w * 0.40f, h * 0.5f); close()
+                                                }
+                                                drawPath(dm, fillSoft); drawPath(dm, accentStroke, style = st)
+                                                drawRect(fillSoft, Offset(w * 0.78f, h * 0.28f), androidx.compose.ui.geometry.Size(w * 0.20f, h * 0.44f))
+                                                drawRect(accentStroke, Offset(w * 0.78f, h * 0.28f), androidx.compose.ui.geometry.Size(w * 0.20f, h * 0.44f), style = st)
+                                                drawLine(accentStroke, Offset(w * 0.32f, h * 0.5f), Offset(w * 0.40f, h * 0.5f), strokeWidth = st.width)
+                                                drawLine(accentStroke, Offset(w * 0.72f, h * 0.5f), Offset(w * 0.78f, h * 0.5f), strokeWidth = st.width)
+                                            }
+                                            "bpmn" -> {
+                                                drawRect(accentStroke.copy(alpha = 0.35f), Offset(0f, 2f), androidx.compose.ui.geometry.Size(w, h - 4f), style = Stroke(1.dp.toPx()))
+                                                drawLine(accentStroke.copy(alpha = 0.35f), Offset(0f, h * 0.5f), Offset(w, h * 0.5f), strokeWidth = 1.dp.toPx())
+                                                drawCircle(Color(0xFF16A34A), radius = h * 0.14f, center = Offset(w * 0.16f, h * 0.28f), style = st)
+                                                drawRoundRect(fillSoft, Offset(w * 0.36f, h * 0.12f), androidx.compose.ui.geometry.Size(w * 0.28f, h * 0.3f), CornerRadius(6f))
+                                                drawRoundRect(accentStroke, Offset(w * 0.36f, h * 0.12f), androidx.compose.ui.geometry.Size(w * 0.28f, h * 0.3f), CornerRadius(6f), style = st)
+                                                drawRoundRect(fillSoft, Offset(w * 0.56f, h * 0.58f), androidx.compose.ui.geometry.Size(w * 0.32f, h * 0.3f), CornerRadius(6f))
+                                                drawRoundRect(accentStroke, Offset(w * 0.56f, h * 0.58f), androidx.compose.ui.geometry.Size(w * 0.32f, h * 0.3f), CornerRadius(6f), style = st)
+                                                drawLine(accentStroke, Offset(w * 0.50f, h * 0.42f), Offset(w * 0.50f, h * 0.73f), strokeWidth = st.width)
+                                                drawLine(accentStroke, Offset(w * 0.50f, h * 0.73f), Offset(w * 0.56f, h * 0.73f), strokeWidth = st.width)
+                                            }
+                                            "network" -> {
+                                                drawCircle(fillSoft, radius = h * 0.22f, center = Offset(w * 0.22f, h * 0.5f))
+                                                drawCircle(accentStroke, radius = h * 0.22f, center = Offset(w * 0.22f, h * 0.5f), style = st)
+                                                drawRect(fillSoft, Offset(w * 0.58f, h * 0.12f), androidx.compose.ui.geometry.Size(w * 0.34f, h * 0.3f))
+                                                drawRect(accentStroke, Offset(w * 0.58f, h * 0.12f), androidx.compose.ui.geometry.Size(w * 0.34f, h * 0.3f), style = st)
+                                                drawRect(fillSoft, Offset(w * 0.58f, h * 0.58f), androidx.compose.ui.geometry.Size(w * 0.34f, h * 0.3f))
+                                                drawRect(accentStroke, Offset(w * 0.58f, h * 0.58f), androidx.compose.ui.geometry.Size(w * 0.34f, h * 0.3f), style = st)
+                                                drawLine(accentStroke, Offset(w * 0.36f, h * 0.44f), Offset(w * 0.58f, h * 0.27f), strokeWidth = st.width)
+                                                drawLine(accentStroke, Offset(w * 0.36f, h * 0.56f), Offset(w * 0.58f, h * 0.73f), strokeWidth = st.width)
+                                            }
+                                            "floorplan" -> {
+                                                val wallSt = Stroke(width = 2.6.dp.toPx())
+                                                drawRect(Color(0xFF334155), Offset(w * 0.08f, h * 0.12f), androidx.compose.ui.geometry.Size(w * 0.84f, h * 0.76f), style = wallSt)
+                                                drawLine(Color(0xFF334155), Offset(w * 0.52f, h * 0.12f), Offset(w * 0.52f, h * 0.58f), strokeWidth = wallSt.width)
+                                                drawArc(accentStroke, startAngle = 270f, sweepAngle = 90f, useCenter = false, topLeft = Offset(w * 0.40f, h * 0.58f), size = androidx.compose.ui.geometry.Size(w * 0.24f, h * 0.30f), style = st)
+                                            }
+                                            "orgchart" -> {
+                                                drawRoundRect(fillSoft, Offset(w * 0.34f, h * 0.08f), androidx.compose.ui.geometry.Size(w * 0.32f, h * 0.28f), CornerRadius(5f))
+                                                drawRoundRect(accentStroke, Offset(w * 0.34f, h * 0.08f), androidx.compose.ui.geometry.Size(w * 0.32f, h * 0.28f), CornerRadius(5f), style = st)
+                                                listOf(0.08f, 0.38f, 0.68f).forEach { lx ->
+                                                    drawRoundRect(fillSoft, Offset(w * lx, h * 0.64f), androidx.compose.ui.geometry.Size(w * 0.24f, h * 0.26f), CornerRadius(4f))
+                                                    drawRoundRect(accentStroke, Offset(w * lx, h * 0.64f), androidx.compose.ui.geometry.Size(w * 0.24f, h * 0.26f), CornerRadius(4f), style = st)
+                                                    drawLine(accentStroke, Offset(w * (lx + 0.12f), h * 0.50f), Offset(w * (lx + 0.12f), h * 0.64f), strokeWidth = st.width)
+                                                }
+                                                drawLine(accentStroke, Offset(w * 0.50f, h * 0.36f), Offset(w * 0.50f, h * 0.50f), strokeWidth = st.width)
+                                                drawLine(accentStroke, Offset(w * 0.20f, h * 0.50f), Offset(w * 0.80f, h * 0.50f), strokeWidth = st.width)
+                                            }
+                                            else -> {
+                                                drawRect(fillSoft, Offset(w * 0.08f, h * 0.14f), androidx.compose.ui.geometry.Size(w * 0.36f, h * 0.72f))
+                                                drawRect(accentStroke, Offset(w * 0.08f, h * 0.14f), androidx.compose.ui.geometry.Size(w * 0.36f, h * 0.72f), style = st)
+                                                drawLine(accentStroke, Offset(w * 0.08f, h * 0.38f), Offset(w * 0.44f, h * 0.38f), strokeWidth = st.width)
+                                                drawRect(fillSoft, Offset(w * 0.58f, h * 0.14f), androidx.compose.ui.geometry.Size(w * 0.36f, h * 0.72f))
+                                                drawRect(accentStroke, Offset(w * 0.58f, h * 0.14f), androidx.compose.ui.geometry.Size(w * 0.36f, h * 0.72f), style = st)
+                                                drawLine(accentStroke, Offset(w * 0.58f, h * 0.38f), Offset(w * 0.94f, h * 0.38f), strokeWidth = st.width)
+                                                drawLine(accentStroke, Offset(w * 0.44f, h * 0.50f), Offset(w * 0.58f, h * 0.50f), strokeWidth = st.width)
+                                            }
+                                        }
+                                    }
+                                }
+                                Text(
+                                    text = VexioI18n.templateTitle(slug, lang),
+                                    style = MaterialTheme.typography.labelLarge,
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
                         }
                     }
                 }
@@ -5102,35 +5152,36 @@ private fun ShapeSheetFormulaBar(
 }
 
 private fun resolveToolIcon(tool: VexioTool): ImageVector = when (tool) {
-    VexioTool.POINTER -> Icons.Default.NearMe
-    VexioTool.PAN_HAND -> Icons.Default.PanTool
-    VexioTool.CONNECTOR -> Icons.Default.Timeline
-    VexioTool.LINE -> Icons.Default.HorizontalRule
-    VexioTool.ARC -> Icons.Default.Gesture
-    VexioTool.FREEFORM -> Icons.Default.Draw
-    VexioTool.RECTANGLE -> Icons.Default.CropSquare
-    VexioTool.ROUNDED_RECT -> Icons.Default.RoundedCorner
-    VexioTool.ELLIPSE -> Icons.Default.RadioButtonUnchecked
-    VexioTool.DIAMOND -> Icons.Default.Diamond
-    VexioTool.TRIANGLE -> Icons.Default.ChangeHistory
-    VexioTool.HEXAGON -> Icons.Default.Hexagon
-    VexioTool.STAR -> Icons.Default.StarBorder
-    VexioTool.TEXT_BLOCK -> Icons.Default.Title
-    VexioTool.STYLUS_INK -> Icons.Default.Brush
-    VexioTool.HIGHLIGHTER -> Icons.Default.Highlight
-    VexioTool.EDIT_VERTICES -> Icons.Default.Polyline
-    VexioTool.INK_ERASER -> Icons.Default.AutoFixNormal
-    VexioTool.CONNECTION_POINT -> Icons.Default.Adjust
-    VexioTool.TEXT_BLOCK_TRANSFORM -> Icons.Default.TextRotationNone
-    VexioTool.FORMAT_PAINTER -> Icons.Default.FormatPaint
-    VexioTool.WALL -> Icons.Default.Domain
-    VexioTool.DIMENSION -> Icons.Default.Straighten
+    VexioTool.POINTER -> VexioIcons.Pointer
+    VexioTool.PAN_HAND -> VexioIcons.PanHand
+    VexioTool.CONNECTOR -> VexioIcons.ConnectorOrthogonal
+    VexioTool.LINE -> VexioIcons.LineSegment
+    VexioTool.ARC -> VexioIcons.CircularArc
+    VexioTool.FREEFORM -> VexioIcons.FreeformSpline
+    VexioTool.RECTANGLE -> VexioIcons.Rectangle
+    VexioTool.ROUNDED_RECT -> VexioIcons.RoundedRect
+    VexioTool.ELLIPSE -> VexioIcons.Ellipse
+    VexioTool.DIAMOND -> VexioIcons.Diamond
+    VexioTool.TRIANGLE -> VexioIcons.Triangle
+    VexioTool.HEXAGON -> VexioIcons.Hexagon
+    VexioTool.STAR -> VexioIcons.Star
+    VexioTool.TEXT_BLOCK -> VexioIcons.TextTool
+    VexioTool.STYLUS_INK -> VexioIcons.MarkupPen
+    VexioTool.HIGHLIGHTER -> VexioIcons.Highlighter
+    VexioTool.EDIT_VERTICES -> VexioIcons.EditVertices
+    VexioTool.INK_ERASER -> VexioIcons.InkEraser
+    VexioTool.CONNECTION_POINT -> VexioIcons.ConnectionPoint
+    VexioTool.TEXT_BLOCK_TRANSFORM -> VexioIcons.TextBlockTransform
+    VexioTool.FORMAT_PAINTER -> VexioIcons.FormatPainter
+    VexioTool.WALL -> VexioIcons.ArchitecturalWall
+    VexioTool.DIMENSION -> VexioIcons.AssociativeDimension
 }
 
 /**
- * Collapsible 22-Category Visio Professional Stencil Navigator with live search,
- * category filter chips, crisp multi-geometry SVG previews, cross-window Drag & Drop,
- * and stencil context menus.
+ * Clean, High-Density Visio Stencil Navigator with:
+ * - Compact single-line header + `2-Column Visual Tile Grid` / `1-Column List` toggle + `+` Actions menu
+ * - Integrated Search + Category Dropdown selector (zero duplicate horizontal chip bar!)
+ * - Crisp 2-Column Visual Stencil Tiles showing 12–16 shapes at a glance with drag & drop and localized titles
  */
 @Composable
 private fun StencilMasterDrawerPane(
@@ -5139,6 +5190,7 @@ private fun StencilMasterDrawerPane(
     onSelectCategory: (String) -> Unit,
     onMasterSelected: (StencilMasterItem) -> Unit,
     onMasterDoubleClicked: (StencilMasterItem) -> Unit,
+    onToggleGridView: () -> Unit = {},
     onImportStencilRequested: () -> Unit = {},
     onOpenOfficialCatalogRequested: () -> Unit = {},
     onAddToMyShapesRequested: () -> Unit = {},
@@ -5147,6 +5199,8 @@ private fun StencilMasterDrawerPane(
 ) {
     val lang = uiState.language
     var searchQuery by remember { mutableStateOf("") }
+    var actionsMenuOpen by remember { mutableStateOf(false) }
+    var categoryDropdownOpen by remember { mutableStateOf(false) }
     var expandedCategories by remember {
         mutableStateOf(
             setOf(
@@ -5159,7 +5213,7 @@ private fun StencilMasterDrawerPane(
         )
     }
 
-    val drawerWidth = if (posture == AdaptiveWorkstationPosture.COMPACT_CONVERTIBLE) 224.dp else 268.dp
+    val drawerWidth = if (posture == AdaptiveWorkstationPosture.COMPACT_CONVERTIBLE) 224.dp else 258.dp
     val trimmedQuery = searchQuery.trim()
     val visibleCategories = remember(uiState.selectedStencilCategory, uiState.stencilCategories) {
         if (uiState.selectedStencilCategory != "All" &&
@@ -5178,223 +5232,230 @@ private fun StencilMasterDrawerPane(
             .fillMaxHeight()
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            // Header + Expand All / Collapse Toggle
+            // 1. Sleek Single-Line Stencil Header (Title + 2-Col Grid Toggle + Expand/Collapse + '+' Stencil Menu)
             Row(
                 verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(2.dp),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 8.dp)
-            ) {
-                Text(
-                    text = VexioI18n.stencilsHeader(uiState.stencilMasters.size, uiState.stencilCategories.size, lang),
-                    style = MaterialTheme.typography.titleSmall,
-                    modifier = Modifier.weight(1f)
-                )
-                val allExpanded = expandedCategories.size >= uiState.stencilCategories.size
-                Text(
-                    text = if (allExpanded) VexioI18n.collapseLabel(lang) else VexioI18n.expandAllLabel(lang),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(6.dp))
-                        .clickable {
-                            expandedCategories = if (allExpanded) {
-                                setOf("Basic Shapes", "Basic Flowchart")
-                            } else {
-                                uiState.stencilCategories.toSet()
-                            }
-                        }
-                        .padding(horizontal = 6.dp, vertical = 3.dp)
-                )
-            }
-
-            // + Import Visio Stencil (.vssx / .vss / .zip) + Official Stencil Packs Buttons
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 10.dp, vertical = 2.dp)
-            ) {
-                FilledTonalButton(
-                    onClick = onImportStencilRequested,
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
-                    shape = RoundedCornerShape(10.dp),
-                    colors = ButtonDefaults.filledTonalButtonColors(
-                        containerColor = MaterialTheme.colorScheme.secondaryContainer
-                    ),
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.FolderOpen,
-                        contentDescription = null,
-                        modifier = Modifier.size(14.dp)
-                    )
-                    Spacer(Modifier.width(4.dp))
-                    Text(
-                        text = VexioI18n.addStencilShort(lang),
-                        style = MaterialTheme.typography.labelSmall,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-                FilledTonalButton(
-                    onClick = onOpenOfficialCatalogRequested,
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
-                    shape = RoundedCornerShape(10.dp),
-                    colors = ButtonDefaults.filledTonalButtonColors(
-                        containerColor = MaterialTheme.colorScheme.primaryContainer
-                    ),
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Add,
-                        contentDescription = null,
-                        modifier = Modifier.size(14.dp)
-                    )
-                    Spacer(Modifier.width(4.dp))
-                    Text(
-                        text = VexioI18n.officialPacksShort(lang),
-                        style = MaterialTheme.typography.labelSmall,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-            }
-
-            // "My Shapes" Custom Stencil Authoring & .vssx Export Row
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 10.dp, vertical = 2.dp)
-            ) {
-                FilledTonalButton(
-                    onClick = onAddToMyShapesRequested,
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 5.dp),
-                    shape = RoundedCornerShape(10.dp),
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Text(
-                        text = VexioI18n.addToMyShapesShort(lang),
-                        style = MaterialTheme.typography.labelSmall,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-                FilledTonalButton(
-                    onClick = onExportMyShapesVssxRequested,
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 5.dp),
-                    shape = RoundedCornerShape(10.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.IosShare,
-                        contentDescription = null,
-                        modifier = Modifier.size(13.dp)
-                    )
-                    Spacer(Modifier.width(3.dp))
-                    Text(
-                        text = ".vssx",
-                        style = MaterialTheme.typography.labelSmall,
-                        maxLines = 1
-                    )
-                }
-            }
-
-            Spacer(Modifier.height(6.dp))
-
-            // Search Field
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier
-                    .fillMaxWidth()
+                    .height(36.dp)
                     .padding(horizontal = 10.dp)
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(MaterialTheme.colorScheme.surfaceContainerLowest)
-                    .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(10.dp))
-                    .padding(horizontal = 8.dp, vertical = 6.dp)
             ) {
-                Icon(
-                    imageVector = Icons.Default.Search,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(15.dp)
+                Text(
+                    text = "${lang.importStencilLabel.substringAfter(" ").substringBefore(" ").takeIf { false } ?: VexioI18n.shortImportStencil(lang)} (${uiState.stencilMasters.size})",
+                    fontSize = 12.5.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
                 )
-                Spacer(Modifier.width(6.dp))
-                Box(modifier = Modifier.weight(1f)) {
-                    if (searchQuery.isEmpty()) {
-                        Text(
-                            text = VexioI18n.searchStencilsPlaceholder(uiState.stencilMasters.size, uiState.stencilCategories.size, lang),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+
+                CompactHeaderIconButton(
+                    icon = if (uiState.isStencilGridMode) VexioIcons.Grid2Col else VexioIcons.ListView,
+                    tooltip = if (uiState.isStencilGridMode) VexioI18n.listViewTooltip(lang) else VexioI18n.gridViewTooltip(lang),
+                    active = uiState.isStencilGridMode,
+                    onClick = onToggleGridView
+                )
+
+                val allExpanded = expandedCategories.size >= uiState.stencilCategories.size
+                CompactHeaderIconButton(
+                    icon = if (allExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                    tooltip = if (allExpanded) VexioI18n.collapseLabel(lang) else VexioI18n.expandAllLabel(lang),
+                    onClick = {
+                        expandedCategories = if (allExpanded) {
+                            setOf("Basic Shapes", "Basic Flowchart")
+                        } else {
+                            uiState.stencilCategories.toSet()
+                        }
+                    }
+                )
+
+                Box {
+                    CompactHeaderIconButton(
+                        icon = Icons.Default.LibraryAdd,
+                        tooltip = VexioI18n.stencilActionsTooltip(lang),
+                        active = actionsMenuOpen,
+                        onClick = { actionsMenuOpen = true }
+                    )
+                    DropdownMenu(
+                        expanded = actionsMenuOpen,
+                        onDismissRequest = { actionsMenuOpen = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text(lang.importStencilLabel) },
+                            leadingIcon = { Icon(Icons.Default.FolderOpen, contentDescription = null, modifier = Modifier.size(17.dp)) },
+                            onClick = {
+                                actionsMenuOpen = false
+                                onImportStencilRequested()
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text(VexioI18n.officialCatalogTitle(lang)) },
+                            leadingIcon = { Icon(Icons.Default.LibraryAdd, contentDescription = null, modifier = Modifier.size(17.dp)) },
+                            onClick = {
+                                actionsMenuOpen = false
+                                onOpenOfficialCatalogRequested()
+                            }
+                        )
+                        HorizontalDivider()
+                        DropdownMenuItem(
+                            text = { Text(VexioI18n.ctxAddToMyShapes(lang)) },
+                            leadingIcon = { Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(17.dp)) },
+                            onClick = {
+                                actionsMenuOpen = false
+                                onAddToMyShapesRequested()
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text(VexioI18n.exportMyShapesVssxMenu(lang)) },
+                            leadingIcon = { Icon(Icons.Default.IosShare, contentDescription = null, modifier = Modifier.size(17.dp)) },
+                            onClick = {
+                                actionsMenuOpen = false
+                                onExportMyShapesVssxRequested()
+                            }
                         )
                     }
-                    BasicTextField(
-                        value = searchQuery,
-                        onValueChange = { searchQuery = it },
-                        singleLine = true,
-                        textStyle = MaterialTheme.typography.labelMedium.copy(
-                            color = MaterialTheme.colorScheme.onSurface
-                        ),
-                        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-                if (searchQuery.isNotEmpty()) {
-                    Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = "Clear Search",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier
-                            .size(15.dp)
-                            .clickable { searchQuery = "" }
-                    )
                 }
             }
 
-            Spacer(Modifier.height(6.dp))
-
-            // Horizontal Category Filter Pills (All + 22 Packs)
+            // 2. Compact Search + Category Pack Selector Row
             Row(
+                verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(5.dp),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState())
-                    .padding(horizontal = 10.dp, vertical = 2.dp)
+                    .padding(horizontal = 8.dp, vertical = 2.dp)
             ) {
-                (listOf("All") + uiState.stencilCategories).forEach { cat ->
-                    val active = uiState.selectedStencilCategory == cat
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(28.dp)
+                        .clip(RoundedCornerShape(7.dp))
+                        .background(MaterialTheme.colorScheme.surfaceContainerLowest)
+                        .border(0.85.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(7.dp))
+                        .padding(horizontal = 7.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Search,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Spacer(Modifier.width(5.dp))
+                    Box(
+                        contentAlignment = Alignment.CenterStart,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        if (searchQuery.isEmpty()) {
+                            Text(
+                                text = VexioI18n.findLabel(lang) + "…",
+                                fontSize = 11.5.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        BasicTextField(
+                            value = searchQuery,
+                            onValueChange = { searchQuery = it },
+                            singleLine = true,
+                            textStyle = MaterialTheme.typography.labelMedium.copy(
+                                fontSize = 11.5.sp,
+                                color = MaterialTheme.colorScheme.onSurface
+                            ),
+                            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                    if (searchQuery.isNotEmpty()) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Clear Search",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier
+                                .size(14.dp)
+                                .clickable { searchQuery = "" }
+                        )
+                    }
+                }
+
+                Box {
                     Surface(
-                        shape = CircleShape,
-                        color = if (active) {
+                        shape = RoundedCornerShape(7.dp),
+                        color = if (uiState.selectedStencilCategory != "All") {
                             MaterialTheme.colorScheme.primaryContainer
                         } else {
                             MaterialTheme.colorScheme.surfaceContainer
                         },
-                        border = BorderStroke(
-                            width = 1.dp,
-                            color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant
-                        ),
+                        border = BorderStroke(0.75.dp, MaterialTheme.colorScheme.outlineVariant),
                         modifier = Modifier
-                            .clip(CircleShape)
-                            .clickable {
-                                onSelectCategory(cat)
-                                if (cat != "All") {
-                                    expandedCategories = expandedCategories + cat
-                                }
-                            }
+                            .height(28.dp)
+                            .widthIn(max = 96.dp)
+                            .clip(RoundedCornerShape(7.dp))
+                            .clickable { categoryDropdownOpen = true }
                     ) {
-                        Text(
-                            text = VexioI18n.localizeStencilCategory(cat, lang),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = if (active) {
-                                MaterialTheme.colorScheme.onPrimaryContainer
-                            } else {
-                                MaterialTheme.colorScheme.onSurfaceVariant
-                            },
-                            modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp)
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(2.dp),
+                            modifier = Modifier.padding(horizontal = 7.dp)
+                        ) {
+                            Text(
+                                text = VexioI18n.localizeStencilCategory(uiState.selectedStencilCategory, lang),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = if (uiState.selectedStencilCategory != "All") {
+                                    MaterialTheme.colorScheme.onPrimaryContainer
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                },
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f, fill = false)
+                            )
+                            Icon(
+                                imageVector = Icons.Default.ExpandMore,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(13.dp)
+                            )
+                        }
+                    }
+
+                    DropdownMenu(
+                        expanded = categoryDropdownOpen,
+                        onDismissRequest = { categoryDropdownOpen = false },
+                        modifier = Modifier
+                            .width(260.dp)
+                            .heightIn(max = 380.dp)
+                    ) {
+                        (listOf("All") + uiState.stencilCategories).forEach { cat ->
+                            val selected = uiState.selectedStencilCategory == cat
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        text = VexioI18n.localizeStencilCategory(cat, lang),
+                                        fontSize = 12.sp,
+                                        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                },
+                                leadingIcon = {
+                                    if (selected) {
+                                        Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(15.dp))
+                                    }
+                                },
+                                onClick = {
+                                    categoryDropdownOpen = false
+                                    onSelectCategory(cat)
+                                    if (cat != "All") {
+                                        expandedCategories = expandedCategories + cat
+                                    }
+                                }
+                            )
+                        }
                     }
                 }
             }
@@ -5402,18 +5463,20 @@ private fun StencilMasterDrawerPane(
             Spacer(Modifier.height(4.dp))
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
-            // 22-Category Accordion List
+            // 3. Stencil Packs Accordion + 2-Column Visual Icon Grid (or Compact 1-Column List)
             LazyColumn(
-                contentPadding = PaddingValues(10.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
                 modifier = Modifier.fillMaxSize()
             ) {
                 visibleCategories.forEach { category ->
                     val localizedCat = VexioI18n.localizeStencilCategory(category, lang)
                     val mastersInCat = uiState.stencilMasters.filter { m ->
+                        val locTitle = VexioI18n.localizeStencilTitle(m.title, lang)
                         m.category == category && (
                             trimmedQuery.isEmpty() ||
                                 m.title.contains(trimmedQuery, ignoreCase = true) ||
+                                locTitle.contains(trimmedQuery, ignoreCase = true) ||
                                 m.category.contains(trimmedQuery, ignoreCase = true) ||
                                 localizedCat.contains(trimmedQuery, ignoreCase = true) ||
                                 m.prompt.contains(trimmedQuery, ignoreCase = true)
@@ -5426,10 +5489,11 @@ private fun StencilMasterDrawerPane(
 
                         item(key = "header::$category") {
                             Surface(
-                                shape = RoundedCornerShape(10.dp),
+                                shape = RoundedCornerShape(7.dp),
                                 color = MaterialTheme.colorScheme.surfaceContainer,
                                 modifier = Modifier
                                     .fillMaxWidth()
+                                    .clip(RoundedCornerShape(7.dp))
                                     .clickable {
                                         if (isExpanded) {
                                             expandedCategories = expandedCategories - category
@@ -5443,46 +5507,74 @@ private fun StencilMasterDrawerPane(
                             ) {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp)
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)
                                 ) {
                                     Icon(
                                         imageVector = if (isExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
                                         contentDescription = null,
-                                        modifier = Modifier.size(16.dp),
+                                        modifier = Modifier.size(15.dp),
                                         tint = MaterialTheme.colorScheme.primary
                                     )
-                                    Spacer(Modifier.width(6.dp))
+                                    Spacer(Modifier.width(5.dp))
                                     Text(
                                         text = localizedCat,
-                                        style = MaterialTheme.typography.labelLarge,
+                                        fontSize = 11.5.sp,
+                                        fontWeight = FontWeight.SemiBold,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis,
                                         modifier = Modifier.weight(1f)
                                     )
-                                    Badge(
-                                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer
-                                    ) {
-                                        Text(
-                                            text = "${mastersInCat.size}",
-                                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
-                                        )
-                                    }
+                                    Text(
+                                        text = "${mastersInCat.size}",
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.padding(start = 4.dp)
+                                    )
                                 }
                             }
                         }
 
                         if (isExpanded) {
-                            items(mastersInCat, key = { it.masterId }) { master ->
-                                DraggableStencilMasterCard(
-                                    windowInstanceId = uiState.windowInstanceId,
-                                    master = master,
-                                    lang = lang,
-                                    isHighlighted = uiState.highlightedStencilMasterId == master.masterId,
-                                    onSelect = { onMasterSelected(master) },
-                                    onDoubleClickAdd = { onMasterDoubleClicked(master) },
-                                    onOpenNewWindowRequested = onOpenNewWindowRequested
-                                )
+                            if (uiState.isStencilGridMode) {
+                                val rows = mastersInCat.chunked(2)
+                                items(rows, key = { pair -> "grid::${pair.first().masterId}" }) { rowPair ->
+                                    Row(
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        rowPair.forEach { master ->
+                                            Box(modifier = Modifier.weight(1f)) {
+                                                DraggableStencilMasterCard(
+                                                    windowInstanceId = uiState.windowInstanceId,
+                                                    master = master,
+                                                    lang = lang,
+                                                    compactGridTile = true,
+                                                    isHighlighted = uiState.highlightedStencilMasterId == master.masterId,
+                                                    onSelect = { onMasterSelected(master) },
+                                                    onDoubleClickAdd = { onMasterDoubleClicked(master) },
+                                                    onOpenNewWindowRequested = onOpenNewWindowRequested
+                                                )
+                                            }
+                                        }
+                                        if (rowPair.size == 1) {
+                                            Spacer(modifier = Modifier.weight(1f))
+                                        }
+                                    }
+                                }
+                            } else {
+                                items(mastersInCat, key = { "list::${it.masterId}" }) { master ->
+                                    DraggableStencilMasterCard(
+                                        windowInstanceId = uiState.windowInstanceId,
+                                        master = master,
+                                        lang = lang,
+                                        compactGridTile = false,
+                                        isHighlighted = uiState.highlightedStencilMasterId == master.masterId,
+                                        onSelect = { onMasterSelected(master) },
+                                        onDoubleClickAdd = { onMasterDoubleClicked(master) },
+                                        onOpenNewWindowRequested = onOpenNewWindowRequested
+                                    )
+                                }
                             }
                         }
                     }
@@ -5765,6 +5857,7 @@ private fun DraggableStencilMasterCard(
     windowInstanceId: String,
     master: StencilMasterItem,
     lang: VexioAppLanguage,
+    compactGridTile: Boolean = true,
     isHighlighted: Boolean,
     onSelect: () -> Unit,
     onDoubleClickAdd: () -> Unit,
@@ -5774,6 +5867,9 @@ private fun DraggableStencilMasterCard(
     val hostView = LocalView.current
     val density = LocalDensity.current.density
     val primaryStroke = MaterialTheme.colorScheme.primary
+    val localizedTitle = remember(master.title, lang) {
+        VexioI18n.localizeStencilTitle(master.title, lang)
+    }
     val decodedPngPreview = remember(master.masterId, master.pngDataUrl) {
         val prefix = "data:image/png;base64,"
         if (master.pngDataUrl.startsWith(prefix)) {
@@ -5810,214 +5906,246 @@ private fun DraggableStencilMasterCard(
         )
     }
 
-    Box(modifier = Modifier.fillMaxWidth()) {
+    @Composable
+    fun StencilArtworkBox(boxModifier: Modifier) {
         Surface(
-            shape = RoundedCornerShape(12.dp),
-            color = if (isHighlighted) {
-                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.42f)
-            } else {
-                MaterialTheme.colorScheme.surfaceContainerLowest
-            },
-            border = BorderStroke(
-                width = if (isHighlighted) 1.5.dp else 1.dp,
-                color = if (isHighlighted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant
-            ),
-            modifier = Modifier
-                .fillMaxWidth()
-                .pointerInput(master.masterId) {
-                    detectTapGestures(
-                        onTap = { onSelect() },
-                        onDoubleTap = { onDoubleClickAdd() }
-                    )
-                }
-                .pointerInput(master.masterId, jsonPayload) {
-                    var dragLaunched = false
-                    detectDragGestures(
-                        onDragStart = {
-                            onSelect()
-                            dragLaunched = startStencilSystemDrag(
-                                hostView = hostView,
-                                masterTitle = master.title,
-                                jsonPayload = jsonPayload,
-                                previewBitmap = runCatching { decodedPngPreview?.asAndroidBitmap() }.getOrNull(),
-                                density = density
-                            )
-                        },
-                        onDragEnd = { dragLaunched = false },
-                        onDragCancel = { dragLaunched = false },
-                        onDrag = { change, _ ->
-                            if (dragLaunched) {
-                                change.consume()
-                            }
-                        }
-                    )
-                }
+            shape = RoundedCornerShape(7.dp),
+            color = Color(0xFFFFFFFF),
+            border = BorderStroke(0.75.dp, Color(0xFFCBD5E1)),
+            modifier = boxModifier
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)
-            ) {
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = Color(0xFFFFFFFF),
-                    border = BorderStroke(1.dp, Color(0xFFCBD5E1)),
-                    modifier = Modifier.size(width = 56.dp, height = 40.dp)
+            if (decodedPngPreview != null) {
+                Image(
+                    bitmap = decodedPngPreview,
+                    contentDescription = null,
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(3.dp)
+                )
+            } else {
+                val fillTint = primaryStroke.copy(alpha = 0.14f)
+                androidx.compose.foundation.Canvas(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(4.dp)
                 ) {
-                    if (decodedPngPreview != null) {
-                        Image(
-                            bitmap = decodedPngPreview,
-                            contentDescription = null,
-                            contentScale = ContentScale.Fit,
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(3.dp)
-                        )
-                    } else {
-                    val fillTint = primaryStroke.copy(alpha = 0.14f)
-                    androidx.compose.foundation.Canvas(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(3.dp)
-                    ) {
-                        val w = size.width
-                        val h = size.height
-                        if (parsedSvgDoc.shapes.isNotEmpty()) {
-                            val srcW = parsedSvgDoc.viewBoxW
-                            val srcH = parsedSvgDoc.viewBoxH
-                            val fitScale = minOf(w / srcW, h / srcH)
-                            val offX = (w - srcW * fitScale) * 0.5f
-                            val offY = (h - srcH * fitScale) * 0.5f
-                            withTransform({
-                                translate(left = offX, top = offY)
-                                scale(scaleX = fitScale, scaleY = fitScale, pivot = Offset.Zero)
-                            }) {
-                                parsedSvgDoc.shapes.forEach { seg ->
-                                    if (seg.fillColor != null) {
-                                        drawPath(seg.path, color = seg.fillColor)
-                                    }
-                                    if (seg.strokeColor != null) {
-                                        drawPath(
-                                            seg.path,
-                                            color = seg.strokeColor,
-                                            style = Stroke(
-                                                width = seg.strokeWidthPx.coerceAtLeast(1.1f),
-                                                cap = androidx.compose.ui.graphics.StrokeCap.Round,
-                                                join = androidx.compose.ui.graphics.StrokeJoin.Round
-                                            )
+                    val w = size.width
+                    val h = size.height
+                    if (parsedSvgDoc.shapes.isNotEmpty()) {
+                        val srcW = parsedSvgDoc.viewBoxW
+                        val srcH = parsedSvgDoc.viewBoxH
+                        val fitScale = minOf(w / srcW, h / srcH)
+                        val offX = (w - srcW * fitScale) * 0.5f
+                        val offY = (h - srcH * fitScale) * 0.5f
+                        withTransform({
+                            translate(left = offX, top = offY)
+                            scale(scaleX = fitScale, scaleY = fitScale, pivot = Offset.Zero)
+                        }) {
+                            parsedSvgDoc.shapes.forEach { seg ->
+                                if (seg.fillColor != null) {
+                                    drawPath(seg.path, color = seg.fillColor)
+                                }
+                                if (seg.strokeColor != null) {
+                                    drawPath(
+                                        seg.path,
+                                        color = seg.strokeColor,
+                                        style = Stroke(
+                                            width = seg.strokeWidthPx.coerceAtLeast(1.1f),
+                                            cap = androidx.compose.ui.graphics.StrokeCap.Round,
+                                            join = androidx.compose.ui.graphics.StrokeJoin.Round
                                         )
-                                    }
+                                    )
                                 }
                             }
-                        } else {
-                            val strokeStyle = Stroke(width = 1.7.dp.toPx())
-                            val low = master.title.lowercase()
-                            when {
-                                master.shapeKind == "Circle" || "event" in low || "pump" in low -> {
-                                    val r = minOf(w, h) * 0.42f
-                                    drawCircle(color = fillTint, radius = r)
-                                    drawCircle(color = primaryStroke, radius = r, style = strokeStyle)
+                        }
+                    } else {
+                        val strokeStyle = Stroke(width = 1.7.dp.toPx())
+                        val low = master.title.lowercase()
+                        when {
+                            master.shapeKind == "Circle" || "event" in low || "pump" in low -> {
+                                val r = minOf(w, h) * 0.42f
+                                drawCircle(color = fillTint, radius = r)
+                                drawCircle(color = primaryStroke, radius = r, style = strokeStyle)
+                            }
+                            master.shapeKind == "Diamond" || "gateway" in low || "decision" in low -> {
+                                val p = Path().apply {
+                                    moveTo(w * 0.5f, 0f)
+                                    lineTo(w, h * 0.5f)
+                                    lineTo(w * 0.5f, h)
+                                    lineTo(0f, h * 0.5f)
+                                    close()
                                 }
-                                master.shapeKind == "Diamond" || "gateway" in low || "decision" in low -> {
-                                    val p = Path().apply {
-                                        moveTo(w * 0.5f, 0f)
-                                        lineTo(w, h * 0.5f)
-                                        lineTo(w * 0.5f, h)
-                                        lineTo(0f, h * 0.5f)
-                                        close()
-                                    }
-                                    drawPath(p, color = fillTint)
-                                    drawPath(p, color = primaryStroke, style = strokeStyle)
+                                drawPath(p, color = fillTint)
+                                drawPath(p, color = primaryStroke, style = strokeStyle)
+                            }
+                            master.shapeKind == "Hexagon" || "cluster" in low -> {
+                                val p = Path().apply {
+                                    moveTo(w * 0.22f, 0f)
+                                    lineTo(w * 0.78f, 0f)
+                                    lineTo(w, h * 0.5f)
+                                    lineTo(w * 0.78f, h)
+                                    lineTo(w * 0.22f, h)
+                                    lineTo(0f, h * 0.5f)
+                                    close()
                                 }
-                                master.shapeKind == "Hexagon" || "cluster" in low -> {
-                                    val p = Path().apply {
-                                        moveTo(w * 0.22f, 0f)
-                                        lineTo(w * 0.78f, 0f)
-                                        lineTo(w, h * 0.5f)
-                                        lineTo(w * 0.78f, h)
-                                        lineTo(w * 0.22f, h)
-                                        lineTo(0f, h * 0.5f)
-                                        close()
-                                    }
-                                    drawPath(p, color = fillTint)
-                                    drawPath(p, color = primaryStroke, style = strokeStyle)
+                                drawPath(p, color = fillTint)
+                                drawPath(p, color = primaryStroke, style = strokeStyle)
+                            }
+                            master.shapeKind == "Star" || "star" in low -> {
+                                val p = Path().apply {
+                                    moveTo(w * 0.5f, 0f)
+                                    lineTo(w * 0.63f, h * 0.36f)
+                                    lineTo(w, h * 0.38f)
+                                    lineTo(w * 0.70f, h * 0.62f)
+                                    lineTo(w * 0.81f, h)
+                                    lineTo(w * 0.5f, h * 0.77f)
+                                    lineTo(w * 0.19f, h)
+                                    lineTo(w * 0.30f, h * 0.62f)
+                                    lineTo(0f, h * 0.38f)
+                                    lineTo(w * 0.37f, h * 0.36f)
+                                    close()
                                 }
-                                master.shapeKind == "Star" || "star" in low -> {
-                                    val p = Path().apply {
-                                        moveTo(w * 0.5f, 0f)
-                                        lineTo(w * 0.63f, h * 0.36f)
-                                        lineTo(w, h * 0.38f)
-                                        lineTo(w * 0.70f, h * 0.62f)
-                                        lineTo(w * 0.81f, h)
-                                        lineTo(w * 0.5f, h * 0.77f)
-                                        lineTo(w * 0.19f, h)
-                                        lineTo(w * 0.30f, h * 0.62f)
-                                        lineTo(0f, h * 0.38f)
-                                        lineTo(w * 0.37f, h * 0.36f)
-                                        close()
-                                    }
-                                    drawPath(p, color = fillTint)
-                                    drawPath(p, color = primaryStroke, style = strokeStyle)
+                                drawPath(p, color = fillTint)
+                                drawPath(p, color = primaryStroke, style = strokeStyle)
+                            }
+                            master.shapeKind == "Arrow" || "arrow" in low -> {
+                                val p = Path().apply {
+                                    moveTo(0f, h * 0.28f)
+                                    lineTo(w * 0.62f, h * 0.28f)
+                                    lineTo(w * 0.62f, 0f)
+                                    lineTo(w, h * 0.5f)
+                                    lineTo(w * 0.62f, h)
+                                    lineTo(w * 0.62f, h * 0.72f)
+                                    lineTo(0f, h * 0.72f)
+                                    close()
                                 }
-                                master.shapeKind == "Arrow" || "arrow" in low -> {
-                                    val p = Path().apply {
-                                        moveTo(0f, h * 0.28f)
-                                        lineTo(w * 0.62f, h * 0.28f)
-                                        lineTo(w * 0.62f, 0f)
-                                        lineTo(w, h * 0.5f)
-                                        lineTo(w * 0.62f, h)
-                                        lineTo(w * 0.62f, h * 0.72f)
-                                        lineTo(0f, h * 0.72f)
-                                        close()
-                                    }
-                                    drawPath(p, color = fillTint)
-                                    drawPath(p, color = primaryStroke, style = strokeStyle)
-                                }
-                                master.shapeKind == "ClassBox" || "class" in low || "entity" in low || "window" in low -> {
-                                    drawRect(color = fillTint)
-                                    drawRect(color = primaryStroke, style = strokeStyle)
-                                    drawLine(primaryStroke, Offset(0f, h * 0.32f), Offset(w, h * 0.32f), strokeWidth = strokeStyle.width * 0.8f)
-                                }
-                                master.shapeKind == "Cylinder" || "database" in low -> {
-                                    drawRoundRect(color = fillTint, cornerRadius = CornerRadius(6.dp.toPx()))
-                                    drawRoundRect(color = primaryStroke, cornerRadius = CornerRadius(6.dp.toPx()), style = strokeStyle)
-                                    drawLine(primaryStroke, Offset(0f, h * 0.28f), Offset(w, h * 0.28f), strokeWidth = strokeStyle.width * 0.8f)
-                                }
-                                else -> {
-                                    val cr = CornerRadius(if (master.shapeKind == "Pill" || "start" in low) h * 0.5f else 4.dp.toPx())
-                                    drawRoundRect(color = fillTint, cornerRadius = cr)
-                                    drawRoundRect(color = primaryStroke, cornerRadius = cr, style = strokeStyle)
+                                drawPath(p, color = fillTint)
+                                drawPath(p, color = primaryStroke, style = strokeStyle)
+                            }
+                            master.shapeKind == "ClassBox" || "class" in low || "entity" in low || "window" in low -> {
+                                drawRect(color = fillTint)
+                                drawRect(color = primaryStroke, style = strokeStyle)
+                                drawLine(primaryStroke, Offset(0f, h * 0.32f), Offset(w, h * 0.32f), strokeWidth = strokeStyle.width * 0.8f)
+                            }
+                            master.shapeKind == "Cylinder" || "database" in low -> {
+                                drawRoundRect(color = fillTint, cornerRadius = CornerRadius(6.dp.toPx()))
+                                drawRoundRect(color = primaryStroke, cornerRadius = CornerRadius(6.dp.toPx()), style = strokeStyle)
+                                drawLine(primaryStroke, Offset(0f, h * 0.28f), Offset(w, h * 0.28f), strokeWidth = strokeStyle.width * 0.8f)
+                            }
+                            else -> {
+                                val cr = CornerRadius(if (master.shapeKind == "Pill" || "start" in low) h * 0.5f else 4.dp.toPx())
+                                drawRoundRect(color = fillTint, cornerRadius = cr)
+                                drawRoundRect(color = primaryStroke, cornerRadius = cr, style = strokeStyle)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Box(modifier = Modifier.fillMaxWidth()) {
+        VexioTooltip(text = "$localizedTitle (${master.defaultWidthFormula} × ${master.defaultHeightFormula})") {
+            Surface(
+                shape = RoundedCornerShape(9.dp),
+                color = if (isHighlighted) {
+                    MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.48f)
+                } else {
+                    MaterialTheme.colorScheme.surfaceContainerLowest
+                },
+                border = BorderStroke(
+                    width = if (isHighlighted) 1.5.dp else 0.75.dp,
+                    color = if (isHighlighted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .pointerInput(master.masterId) {
+                        awaitPointerEventScope {
+                            while (true) {
+                                val ev = awaitPointerEvent(PointerEventPass.Initial)
+                                if (ev.type == PointerEventType.Press && ev.buttons.isSecondaryPressed) {
+                                    ev.changes.forEach { it.consume() }
+                                    cardMenuExpanded = true
                                 }
                             }
                         }
                     }
+                    .pointerInput(master.masterId) {
+                        detectTapGestures(
+                            onTap = { onSelect() },
+                            onDoubleTap = { onDoubleClickAdd() },
+                            onLongPress = { cardMenuExpanded = true }
+                        )
                     }
-                }
-                Spacer(Modifier.width(10.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = master.title,
-                        style = MaterialTheme.typography.labelLarge,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Text(
-                        text = VexioI18n.localizeStencilCategory(master.category, lang),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-                IconButton(
-                    onClick = { cardMenuExpanded = true },
-                    modifier = Modifier.size(28.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.MoreVert,
-                        contentDescription = "Stencil Options",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(16.dp)
-                    )
+                    .pointerInput(master.masterId, jsonPayload) {
+                        var dragLaunched = false
+                        detectDragGestures(
+                            onDragStart = {
+                                onSelect()
+                                dragLaunched = startStencilSystemDrag(
+                                    hostView = hostView,
+                                    masterTitle = localizedTitle,
+                                    jsonPayload = jsonPayload,
+                                    previewBitmap = runCatching { decodedPngPreview?.asAndroidBitmap() }.getOrNull(),
+                                    density = density
+                                )
+                            },
+                            onDragEnd = { dragLaunched = false },
+                            onDragCancel = { dragLaunched = false },
+                            onDrag = { change, _ ->
+                                if (dragLaunched) {
+                                    change.consume()
+                                }
+                            }
+                        )
+                    }
+            ) {
+                if (compactGridTile) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 6.dp, vertical = 6.dp)
+                    ) {
+                        StencilArtworkBox(
+                            boxModifier = Modifier
+                                .fillMaxWidth()
+                                .height(42.dp)
+                        )
+                        Text(
+                            text = localizedTitle,
+                            fontSize = 10.5.sp,
+                            lineHeight = 12.5.sp,
+                            fontWeight = FontWeight.Medium,
+                            textAlign = TextAlign.Center,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = 25.dp)
+                        )
+                    }
+                } else {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)
+                    ) {
+                        StencilArtworkBox(
+                            boxModifier = Modifier.size(width = 44.dp, height = 32.dp)
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            text = localizedTitle,
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.Medium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
                 }
             }
         }
@@ -6047,166 +6175,578 @@ private fun DraggableStencilMasterCard(
 }
 
 /**
- * Material 3 Expressive Toolbar that morphs smoothly between a floating capsule pill (`28.dp`)
- * and a docked desktop squircle bar (`16.dp`), exposing all 16 Visio drawing & authoring tools.
+ * Sleek `44.dp` Left Vertical Tool Rail (replacing the redundant 23-icon horizontal bar).
+ *
+ * Groups all 23 Visio authoring tools into 8 clean primary buttons with smart flyout palettes
+ * that remember the last-selected sub-tool in each group, plus Format Painter and Float/Dock toggle.
  */
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun ExpressiveMorphingToolbar(
+private fun VisioLeftToolRail(
     uiState: WorkstationUiState,
     isFloating: Boolean,
     onSelectTool: (VexioTool) -> Unit,
-    onZoomDelta: (Int) -> Unit,
-    onZoomReset: () -> Unit = {},
+    onFormatPainterClick: () -> Unit,
     onToggleFloating: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val lang = uiState.language
-    val toolbarShape = rememberMorphingToolbarShape(isFloatingPill = isFloating)
-    val dividerAfterTools = remember {
-        setOf(
-            VexioTool.PAN_HAND,
-            VexioTool.FREEFORM,
-            VexioTool.STAR,
-            VexioTool.TEXT_BLOCK_TRANSFORM,
-            VexioTool.FORMAT_PAINTER,
-            VexioTool.DIMENSION,
-            VexioTool.CONNECTION_POINT
-        )
+    var openFlyoutGroup by remember { mutableStateOf<String?>(null) }
+
+    val connectorTools = remember {
+        listOf(VexioTool.CONNECTOR, VexioTool.LINE, VexioTool.ARC, VexioTool.FREEFORM)
     }
-    val orderedTools = remember {
+    val shapeTools = remember {
         listOf(
-            VexioTool.POINTER,
-            VexioTool.PAN_HAND,
-            VexioTool.CONNECTOR,
-            VexioTool.LINE,
-            VexioTool.ARC,
-            VexioTool.FREEFORM,
             VexioTool.RECTANGLE,
             VexioTool.ROUNDED_RECT,
             VexioTool.ELLIPSE,
             VexioTool.DIAMOND,
             VexioTool.TRIANGLE,
             VexioTool.HEXAGON,
-            VexioTool.STAR,
-            VexioTool.TEXT_BLOCK,
-            VexioTool.TEXT_BLOCK_TRANSFORM,
-            VexioTool.FORMAT_PAINTER,
-            VexioTool.WALL,
-            VexioTool.DIMENSION,
-            VexioTool.EDIT_VERTICES,
-            VexioTool.CONNECTION_POINT,
-            VexioTool.STYLUS_INK,
-            VexioTool.HIGHLIGHTER,
-            VexioTool.INK_ERASER
+            VexioTool.STAR
         )
     }
+    val textTools = remember { listOf(VexioTool.TEXT_BLOCK, VexioTool.TEXT_BLOCK_TRANSFORM) }
+    val aecTools = remember { listOf(VexioTool.WALL, VexioTool.DIMENSION) }
+    val geomTools = remember { listOf(VexioTool.CONNECTION_POINT, VexioTool.EDIT_VERTICES) }
+    val inkTools = remember { listOf(VexioTool.STYLUS_INK, VexioTool.HIGHLIGHTER, VexioTool.INK_ERASER) }
 
-    Surface(
-        shape = toolbarShape,
-        color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(
-            alpha = if (isFloating) 0.96f else 1.0f
-        ),
-        shadowElevation = if (isFloating) 6.dp else 1.dp,
-        border = BorderStroke(0.75.dp, MaterialTheme.colorScheme.outlineVariant),
-        modifier = modifier
+    var lastConnectorTool by remember { mutableStateOf(VexioTool.CONNECTOR) }
+    var lastShapeTool by remember { mutableStateOf(VexioTool.RECTANGLE) }
+    var lastTextTool by remember { mutableStateOf(VexioTool.TEXT_BLOCK) }
+    var lastAecTool by remember { mutableStateOf(VexioTool.WALL) }
+    var lastGeomTool by remember { mutableStateOf(VexioTool.CONNECTION_POINT) }
+    var lastInkTool by remember { mutableStateOf(VexioTool.STYLUS_INK) }
+
+    LaunchedEffect(uiState.activeTool) {
+        when (uiState.activeTool) {
+            in connectorTools -> lastConnectorTool = uiState.activeTool
+            in shapeTools -> lastShapeTool = uiState.activeTool
+            in textTools -> lastTextTool = uiState.activeTool
+            in aecTools -> lastAecTool = uiState.activeTool
+            in geomTools -> lastGeomTool = uiState.activeTool
+            in inkTools -> lastInkTool = uiState.activeTool
+            else -> {}
+        }
+    }
+
+    @Composable
+    fun RailSingleBtn(
+        tool: VexioTool,
+        selected: Boolean = uiState.activeTool == tool,
+        customClick: (() -> Unit)? = null
     ) {
-        FlowRow(
-            horizontalArrangement = Arrangement.spacedBy(2.dp),
-            verticalArrangement = Arrangement.spacedBy(3.dp),
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-        ) {
-            orderedTools.forEach { tool ->
-                val isSelected = uiState.activeTool == tool
-                val itemShape = RoundedCornerShape(if (isSelected) 8.dp else 6.dp)
-                val scale by rememberExpressiveScaleState(emphasized = isSelected)
-                val bgColor by animateColorAsState(
-                    targetValue = if (isSelected) {
-                        MaterialTheme.colorScheme.primary
-                    } else {
-                        Color.Transparent
-                    },
-                    animationSpec = VexioExpressiveMotion.crispEffectsSpring(),
-                    label = "ToolBgColor"
+        val tip = "${VexioI18n.toolName(tool, lang)} (${tool.shortcutHint})"
+        val bg by animateColorAsState(
+            targetValue = if (selected) MaterialTheme.colorScheme.primary else Color.Transparent,
+            animationSpec = VexioExpressiveMotion.crispEffectsSpring(),
+            label = "RailSingleBg"
+        )
+        val fg by animateColorAsState(
+            targetValue = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+            animationSpec = VexioExpressiveMotion.crispEffectsSpring(),
+            label = "RailSingleFg"
+        )
+        VexioTooltip(text = tip) {
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .size(34.dp)
+                    .clip(RoundedCornerShape(9.dp))
+                    .background(bg)
+                    .clickable {
+                        openFlyoutGroup = null
+                        if (customClick != null) customClick() else onSelectTool(tool)
+                    }
+            ) {
+                Icon(
+                    imageVector = resolveToolIcon(tool),
+                    contentDescription = tip,
+                    tint = fg,
+                    modifier = Modifier.size(18.5.dp)
                 )
-                val contentColor by animateColorAsState(
-                    targetValue = if (isSelected) {
-                        MaterialTheme.colorScheme.onPrimary
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    },
-                    animationSpec = VexioExpressiveMotion.crispEffectsSpring(),
-                    label = "ToolFgColor"
-                )
+            }
+        }
+    }
 
-                val toolTipLabel = "${VexioI18n.toolName(tool, lang)} (${tool.shortcutHint})"
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    VexioTooltip(text = toolTipLabel) {
-                        Surface(
-                            shape = itemShape,
-                            color = bgColor,
-                            modifier = Modifier
-                                .size(28.dp)
-                                .scale(scale)
-                                .clip(itemShape)
-                                .clickable { onSelectTool(tool) }
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(
-                                    imageVector = resolveToolIcon(tool),
-                                    contentDescription = toolTipLabel,
-                                    tint = contentColor,
-                                    modifier = Modifier.size(16.dp)
-                                )
+    @Composable
+    fun RailGroupFlyoutBtn(
+        groupId: String,
+        groupTitle: String,
+        activeOrLastTool: VexioTool,
+        tools: List<VexioTool>
+    ) {
+        val isGroupSelected = uiState.activeTool in tools
+        val bg by animateColorAsState(
+            targetValue = if (isGroupSelected) MaterialTheme.colorScheme.primary else Color.Transparent,
+            animationSpec = VexioExpressiveMotion.crispEffectsSpring(),
+            label = "RailGroupBg"
+        )
+        val fg by animateColorAsState(
+            targetValue = if (isGroupSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+            animationSpec = VexioExpressiveMotion.crispEffectsSpring(),
+            label = "RailGroupFg"
+        )
+        val tip = "$groupTitle — ${VexioI18n.toolName(activeOrLastTool, lang)} (${activeOrLastTool.shortcutHint})"
+
+        Box {
+            VexioTooltip(text = tip) {
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .size(34.dp)
+                        .clip(RoundedCornerShape(9.dp))
+                        .background(bg)
+                        .pointerInput(groupId) {
+                            awaitPointerEventScope {
+                                while (true) {
+                                    val ev = awaitPointerEvent(PointerEventPass.Initial)
+                                    if (ev.type == PointerEventType.Press && ev.buttons.isSecondaryPressed) {
+                                        ev.changes.forEach { it.consume() }
+                                        openFlyoutGroup = if (openFlyoutGroup == groupId) null else groupId
+                                    }
+                                }
                             }
                         }
-                    }
-                    if (tool in dividerAfterTools) {
-                        VerticalDivider(
-                            modifier = Modifier
-                                .height(16.dp)
-                                .padding(horizontal = 3.dp),
-                            color = MaterialTheme.colorScheme.outlineVariant
+                        .combinedClickable(
+                            onClick = {
+                                if (isGroupSelected) {
+                                    openFlyoutGroup = if (openFlyoutGroup == groupId) null else groupId
+                                } else {
+                                    openFlyoutGroup = null
+                                    onSelectTool(activeOrLastTool)
+                                }
+                            },
+                            onLongClick = {
+                                openFlyoutGroup = if (openFlyoutGroup == groupId) null else groupId
+                            }
                         )
+                ) {
+                    Icon(
+                        imageVector = resolveToolIcon(activeOrLastTool),
+                        contentDescription = tip,
+                        tint = fg,
+                        modifier = Modifier.size(18.5.dp)
+                    )
+                    // Crisp bottom-right corner flyout chevron indicator (like Adobe / Visio / Figma)
+                    androidx.compose.foundation.Canvas(
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(2.5.dp)
+                            .size(5.dp)
+                    ) {
+                        val indicatorPath = Path().apply {
+                            moveTo(size.width, 0f)
+                            lineTo(size.width, size.height)
+                            lineTo(0f, size.height)
+                            close()
+                        }
+                        drawPath(indicatorPath, color = fg.copy(alpha = 0.78f))
                     }
                 }
             }
 
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                VerticalDivider(
-                    modifier = Modifier
-                        .height(18.dp)
-                        .padding(horizontal = 4.dp),
-                    color = MaterialTheme.colorScheme.outlineVariant
+            DropdownMenu(
+                expanded = openFlyoutGroup == groupId,
+                onDismissRequest = { if (openFlyoutGroup == groupId) openFlyoutGroup = null },
+                offset = DpOffset(x = 40.dp, y = (-28).dp)
+            ) {
+                Text(
+                    text = groupTitle.uppercase(),
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    letterSpacing = 0.5.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
                 )
-                CompactHeaderIconButton(
-                    icon = Icons.Default.ZoomOut,
-                    tooltip = VexioI18n.zoomOutTooltip(lang),
-                    onClick = { onZoomDelta(-15) }
-                )
-                VexioTooltip(text = VexioI18n.zoomResetTooltip(lang)) {
-                    Text(
-                        text = "${uiState.zoomPercent}%",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(5.dp))
-                            .clickable { onZoomReset() }
-                            .padding(horizontal = 6.dp, vertical = 4.dp)
+                tools.forEach { t ->
+                    val chosen = uiState.activeTool == t
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                text = VexioI18n.toolName(t, lang),
+                                fontSize = 12.5.sp,
+                                fontWeight = if (chosen) FontWeight.SemiBold else FontWeight.Normal,
+                                color = if (chosen) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                            )
+                        },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = resolveToolIcon(t),
+                                contentDescription = null,
+                                tint = if (chosen) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        },
+                        trailingIcon = { MenuShortcutBadge(t.shortcutHint) },
+                        onClick = {
+                            openFlyoutGroup = null
+                            onSelectTool(t)
+                        }
                     )
                 }
-                CompactHeaderIconButton(
-                    icon = Icons.Default.ZoomIn,
-                    tooltip = VexioI18n.zoomInTooltip(lang),
-                    onClick = { onZoomDelta(15) }
+            }
+        }
+    }
+
+    val containerShape = if (isFloating) RoundedCornerShape(16.dp) else RoundedCornerShape(0.dp)
+    Surface(
+        shape = containerShape,
+        color = MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = if (isFloating) 0.96f else 1f),
+        shadowElevation = if (isFloating) 6.dp else 0.dp,
+        border = if (isFloating) BorderStroke(0.75.dp, MaterialTheme.colorScheme.outlineVariant) else null,
+        modifier = if (isFloating) modifier.width(44.dp) else modifier.width(44.dp).fillMaxHeight()
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+            modifier = Modifier
+                .verticalScroll(rememberScrollState())
+                .padding(vertical = 8.dp, horizontal = 5.dp)
+        ) {
+            RailSingleBtn(VexioTool.POINTER)
+            RailSingleBtn(VexioTool.PAN_HAND)
+
+            HorizontalDivider(
+                modifier = Modifier.padding(vertical = 3.dp, horizontal = 4.dp),
+                color = MaterialTheme.colorScheme.outlineVariant
+            )
+
+            RailGroupFlyoutBtn(
+                groupId = "connectors",
+                groupTitle = VexioI18n.railConnectorsGroupTooltip(lang),
+                activeOrLastTool = lastConnectorTool,
+                tools = connectorTools
+            )
+            RailGroupFlyoutBtn(
+                groupId = "shapes",
+                groupTitle = VexioI18n.railShapesGroupTooltip(lang),
+                activeOrLastTool = lastShapeTool,
+                tools = shapeTools
+            )
+            RailGroupFlyoutBtn(
+                groupId = "text",
+                groupTitle = VexioI18n.typographySectionTitle(lang),
+                activeOrLastTool = lastTextTool,
+                tools = textTools
+            )
+            RailGroupFlyoutBtn(
+                groupId = "aec",
+                groupTitle = VexioI18n.railAecGroupTooltip(lang),
+                activeOrLastTool = lastAecTool,
+                tools = aecTools
+            )
+            RailGroupFlyoutBtn(
+                groupId = "geometry",
+                groupTitle = VexioI18n.railGeometryGroupTooltip(lang),
+                activeOrLastTool = lastGeomTool,
+                tools = geomTools
+            )
+            RailGroupFlyoutBtn(
+                groupId = "ink",
+                groupTitle = VexioI18n.railInkGroupTooltip(lang),
+                activeOrLastTool = lastInkTool,
+                tools = inkTools
+            )
+
+            HorizontalDivider(
+                modifier = Modifier.padding(vertical = 3.dp, horizontal = 4.dp),
+                color = MaterialTheme.colorScheme.outlineVariant
+            )
+
+            RailSingleBtn(
+                tool = VexioTool.FORMAT_PAINTER,
+                customClick = onFormatPainterClick
+            )
+
+            if (!isFloating) {
+                Spacer(Modifier.height(4.dp))
+            }
+            CompactHeaderIconButton(
+                icon = Icons.Default.DashboardCustomize,
+                tooltip = VexioI18n.floatToolbarTooltip(isFloating, lang),
+                active = isFloating,
+                onClick = onToggleFloating
+            )
+        }
+    }
+}
+
+/**
+ * Calibrated Desktop Metric (`mm`) & Imperial (`in`) Top + Left Canvas Rulers (`20.dp`)
+ * with live pointer/stylus hairlines, active sheet extent highlight, and click-to-place Ruler Guides.
+ */
+@Composable
+private fun CanvasRulerFrame(
+    uiState: WorkstationUiState,
+    viewModel: VexioSessionViewModel,
+    modifier: Modifier = Modifier,
+    canvasContent: @Composable () -> Unit
+) {
+    if (!uiState.showCanvasRulers) {
+        Box(modifier = modifier) {
+            canvasContent()
+        }
+        return
+    }
+
+    val density = LocalDensity.current.density.coerceAtLeast(1f)
+    var hoverCanvasPx by remember { mutableStateOf<Offset?>(null) }
+
+    val rulerBg = MaterialTheme.colorScheme.surfaceContainer
+    val rulerSheetBand = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.42f)
+    val rulerBorder = MaterialTheme.colorScheme.outlineVariant
+    val tickColor = MaterialTheme.colorScheme.onSurfaceVariant
+    val accentHairline = MaterialTheme.colorScheme.primary
+    val unitCode = if (uiState.metricUnits) "mm" else "in"
+
+    fun niceMajorStep(rawStep: Double): Double {
+        if (!rawStep.isFinite() || rawStep <= 0.0) return 10.0
+        val exp = kotlin.math.floor(kotlin.math.log10(rawStep))
+        val base = Math.pow(10.0, exp)
+        val frac = rawStep / base
+        val mult = when {
+            frac <= 1.2 -> 1.0
+            frac <= 2.5 -> 2.0
+            frac <= 6.0 -> 5.0
+            else -> 10.0
+        }
+        return (mult * base).coerceAtLeast(if (uiState.metricUnits) 1.0 else 0.1)
+    }
+
+    Column(modifier = modifier) {
+        // Top Row: 20x20 Unit Origin Badge + Horizontal Ruler
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(20.dp)
+                .background(rulerBg)
+        ) {
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .size(20.dp)
+                    .border(0.5.dp, rulerBorder)
+                    .clickable { viewModel.toggleCanvasRulers() }
+            ) {
+                Text(
+                    text = unitCode,
+                    fontSize = 8.5.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary,
+                    maxLines = 1,
+                    softWrap = false
                 )
-                CompactHeaderIconButton(
-                    icon = Icons.Default.DashboardCustomize,
-                    tooltip = VexioI18n.floatToolbarTooltip(isFloating, lang),
-                    active = isFloating,
-                    onClick = onToggleFloating
-                )
+            }
+
+            androidx.compose.foundation.Canvas(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+                    .pointerInput(uiState.activePageId, uiState.zoomPercent) {
+                        detectTapGestures { tapOffset ->
+                            val (_, yMidIn) = viewModel.screenPxToPageIn(tapOffset.x, 120f)
+                            val (xIn, _) = viewModel.screenPxToPageIn(tapOffset.x, 0f)
+                            if (xIn.isFinite()) {
+                                viewModel.addRulerGuide(isVertical = true, coordIn = xIn.toDouble())
+                            } else if (yMidIn.isFinite()) {
+                                viewModel.addRulerGuide(isVertical = true, coordIn = 5.0)
+                            }
+                        }
+                    }
+            ) {
+                val wPx = size.width
+                val hPx = size.height
+                if (wPx <= 4f) return@Canvas
+                val (leftInF, _) = viewModel.screenPxToPageIn(0f, 0f)
+                val (rightInF, _) = viewModel.screenPxToPageIn(wPx, 0f)
+                val spanIn = (rightInF - leftInF).toDouble()
+                val unitFactor = if (uiState.metricUnits) 25.4 else 1.0
+                val startU = if (spanIn > 0.01 && spanIn.isFinite()) leftInF * unitFactor else -20.0 * (unitFactor / 25.4)
+                val endU = if (spanIn > 0.01 && spanIn.isFinite()) rightInF * unitFactor else (uiState.pageWidthInches * unitFactor) + 40.0 * (unitFactor / 25.4)
+                val pxPerU = (wPx / (endU - startU).coerceAtLeast(0.001)).toFloat()
+
+                // Highlight physical sheet horizontal span [0 .. pageWidth]
+                val sheetEndU = uiState.pageWidthInches * unitFactor
+                val x0 = ((0.0 - startU) * pxPerU).toFloat().coerceIn(0f, wPx)
+                val x1 = ((sheetEndU - startU) * pxPerU).toFloat().coerceIn(0f, wPx)
+                if (x1 > x0) {
+                    drawRect(
+                        color = rulerSheetBand,
+                        topLeft = Offset(x0, 0f),
+                        size = androidx.compose.ui.geometry.Size(x1 - x0, hPx)
+                    )
+                }
+
+                val majorU = niceMajorStep((58f * density) / pxPerU.coerceAtLeast(0.01f).toDouble())
+                val minorU = majorU / 5.0
+                val firstTickIdx = kotlin.math.floor(startU / minorU).toLong()
+                val lastTickIdx = kotlin.math.ceil(endU / minorU).toLong().coerceAtMost(firstTickIdx + 400L)
+
+                val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = android.graphics.Color.argb(
+                        215,
+                        (tickColor.red * 255).toInt(),
+                        (tickColor.green * 255).toInt(),
+                        (tickColor.blue * 255).toInt()
+                    )
+                    textSize = 8.5f * density
+                }
+
+                for (idx in firstTickIdx..lastTickIdx) {
+                    val u = idx * minorU
+                    val x = ((u - startU) * pxPerU).toFloat()
+                    if (x < 0f || x > wPx) continue
+                    val isMajor = (idx % 5L) == 0L
+                    val tickTop = if (isMajor) hPx * 0.22f else hPx * 0.66f
+                    drawLine(
+                        color = tickColor.copy(alpha = if (isMajor) 0.7f else 0.38f),
+                        start = Offset(x, tickTop),
+                        end = Offset(x, hPx),
+                        strokeWidth = if (isMajor) 1.1f else 0.8f
+                    )
+                    if (isMajor) {
+                        val label = if (majorU >= 1.0) "${kotlin.math.round(u).toInt()}" else "%.1f".format(java.util.Locale.US, u)
+                        drawContext.canvas.nativeCanvas.drawText(label, x + 2.5f * density, 9.5f * density, textPaint)
+                    }
+                }
+
+                hoverCanvasPx?.let { hp ->
+                    if (hp.x in 0f..wPx) {
+                        drawLine(
+                            color = accentHairline,
+                            start = Offset(hp.x, 0f),
+                            end = Offset(hp.x, hPx),
+                            strokeWidth = 1.6f * density
+                        )
+                    }
+                }
+
+                drawLine(rulerBorder, Offset(0f, hPx - 0.5f), Offset(wPx, hPx - 0.5f), strokeWidth = 1f)
+            }
+        }
+
+        // Bottom Row: 20dp Vertical Ruler + Main Canvas Content
+        Row(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+        ) {
+            androidx.compose.foundation.Canvas(
+                modifier = Modifier
+                    .width(20.dp)
+                    .fillMaxHeight()
+                    .background(rulerBg)
+                    .pointerInput(uiState.activePageId, uiState.zoomPercent) {
+                        detectTapGestures { tapOffset ->
+                            val (_, yIn) = viewModel.screenPxToPageIn(0f, tapOffset.y)
+                            if (yIn.isFinite()) {
+                                viewModel.addRulerGuide(isVertical = false, coordIn = yIn.toDouble())
+                            }
+                        }
+                    }
+            ) {
+                val wPx = size.width
+                val hPx = size.height
+                if (hPx <= 4f) return@Canvas
+                val (_, topInF) = viewModel.screenPxToPageIn(0f, 0f)
+                val (_, botInF) = viewModel.screenPxToPageIn(0f, hPx)
+                val unitFactor = if (uiState.metricUnits) 25.4 else 1.0
+                val minIn = minOf(topInF, botInF).toDouble()
+                val maxIn = maxOf(topInF, botInF).toDouble()
+                val validSpan = (maxIn - minIn) > 0.01 && minIn.isFinite() && maxIn.isFinite()
+                val topU = if (validSpan) topInF * unitFactor else (uiState.pageHeightInches * unitFactor) + 20.0 * (unitFactor / 25.4)
+                val botU = if (validSpan) botInF * unitFactor else -20.0 * (unitFactor / 25.4)
+                val totalSignedU = botU - topU
+                val absSpanU = kotlin.math.abs(totalSignedU).coerceAtLeast(0.001)
+                val pxPerU = (hPx / absSpanU).toFloat()
+
+                // Highlight physical sheet vertical span [0 .. pageHeight]
+                val sheetTopY = ((0.0 - topU) / totalSignedU * hPx).toFloat()
+                val sheetBotY = (((uiState.pageHeightInches * unitFactor) - topU) / totalSignedU * hPx).toFloat()
+                val yMin = minOf(sheetTopY, sheetBotY).coerceIn(0f, hPx)
+                val yMax = maxOf(sheetTopY, sheetBotY).coerceIn(0f, hPx)
+                if (yMax > yMin) {
+                    drawRect(
+                        color = rulerSheetBand,
+                        topLeft = Offset(0f, yMin),
+                        size = androidx.compose.ui.geometry.Size(wPx, yMax - yMin)
+                    )
+                }
+
+                val majorU = niceMajorStep((58f * density) / pxPerU.coerceAtLeast(0.01f).toDouble())
+                val minorU = majorU / 5.0
+                val lowU = minOf(topU, botU)
+                val highU = maxOf(topU, botU)
+                val firstTickIdx = kotlin.math.floor(lowU / minorU).toLong()
+                val lastTickIdx = kotlin.math.ceil(highU / minorU).toLong().coerceAtMost(firstTickIdx + 400L)
+
+                val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = android.graphics.Color.argb(
+                        215,
+                        (tickColor.red * 255).toInt(),
+                        (tickColor.green * 255).toInt(),
+                        (tickColor.blue * 255).toInt()
+                    )
+                    textSize = 8.0f * density
+                }
+
+                for (idx in firstTickIdx..lastTickIdx) {
+                    val u = idx * minorU
+                    val y = (((u - topU) / totalSignedU) * hPx).toFloat()
+                    if (y < 0f || y > hPx) continue
+                    val isMajor = (idx % 5L) == 0L
+                    val tickLeft = if (isMajor) wPx * 0.25f else wPx * 0.66f
+                    drawLine(
+                        color = tickColor.copy(alpha = if (isMajor) 0.7f else 0.38f),
+                        start = Offset(tickLeft, y),
+                        end = Offset(wPx, y),
+                        strokeWidth = if (isMajor) 1.1f else 0.8f
+                    )
+                    if (isMajor) {
+                        val label = if (majorU >= 1.0) "${kotlin.math.round(u).toInt()}" else "%.1f".format(java.util.Locale.US, u)
+                        val nc = drawContext.canvas.nativeCanvas
+                        nc.save()
+                        nc.translate(9.5f * density, y - 2.0f * density)
+                        nc.rotate(-90f)
+                        nc.drawText(label, 0f, 0f, textPaint)
+                        nc.restore()
+                    }
+                }
+
+                hoverCanvasPx?.let { hp ->
+                    if (hp.y in 0f..hPx) {
+                        drawLine(
+                            color = accentHairline,
+                            start = Offset(0f, hp.y),
+                            end = Offset(wPx, hp.y),
+                            strokeWidth = 1.6f * density
+                        )
+                    }
+                }
+
+                drawLine(rulerBorder, Offset(wPx - 0.5f, 0f), Offset(wPx - 0.5f, hPx), strokeWidth = 1f)
+            }
+
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+                    .pointerInput(Unit) {
+                        awaitPointerEventScope {
+                            while (true) {
+                                val ev = awaitPointerEvent(PointerEventPass.Initial)
+                                when (ev.type) {
+                                    PointerEventType.Exit -> hoverCanvasPx = null
+                                    else -> ev.changes.firstOrNull()?.let { ch ->
+                                        hoverCanvasPx = ch.position
+                                    }
+                                }
+                            }
+                        }
+                    }
+            ) {
+                canvasContent()
             }
         }
     }
@@ -6639,6 +7179,7 @@ private fun VulkanCanvasDropZone(
             )
             DropdownMenuItem(
                 text = { Text(VexioI18n.ctxGroupSelected(lang)) },
+                leadingIcon = { Icon(VexioIcons.GroupShapes, contentDescription = null) },
                 onClick = {
                     contextMenuVisible = false
                     viewModel.groupSelectedShapes()
@@ -6646,6 +7187,7 @@ private fun VulkanCanvasDropZone(
             )
             DropdownMenuItem(
                 text = { Text(VexioI18n.ctxUngroupSelected(lang)) },
+                leadingIcon = { Icon(VexioIcons.UngroupShapes, contentDescription = null) },
                 onClick = {
                     contextMenuVisible = false
                     viewModel.ungroupSelectedShapes()
@@ -6653,6 +7195,7 @@ private fun VulkanCanvasDropZone(
             )
             DropdownMenuItem(
                 text = { Text(VexioI18n.ctxRotateLeft90(lang)) },
+                leadingIcon = { Icon(VexioIcons.RotateLeft90, contentDescription = null) },
                 onClick = {
                     contextMenuVisible = false
                     viewModel.rotateOrFlipSelected(deltaAngleDeg = -90.0)
@@ -6660,6 +7203,7 @@ private fun VulkanCanvasDropZone(
             )
             DropdownMenuItem(
                 text = { Text(VexioI18n.ctxRotateRight90(lang)) },
+                leadingIcon = { Icon(VexioIcons.RotateRight90, contentDescription = null) },
                 onClick = {
                     contextMenuVisible = false
                     viewModel.rotateOrFlipSelected(deltaAngleDeg = 90.0)
@@ -6667,6 +7211,7 @@ private fun VulkanCanvasDropZone(
             )
             DropdownMenuItem(
                 text = { Text(VexioI18n.ctxFlipHorizontal(lang)) },
+                leadingIcon = { Icon(VexioIcons.FlipHorizontal, contentDescription = null) },
                 onClick = {
                     contextMenuVisible = false
                     viewModel.rotateOrFlipSelected(flipX = true)
@@ -6674,6 +7219,7 @@ private fun VulkanCanvasDropZone(
             )
             DropdownMenuItem(
                 text = { Text(VexioI18n.ctxFlipVertical(lang)) },
+                leadingIcon = { Icon(VexioIcons.FlipVertical, contentDescription = null) },
                 onClick = {
                     contextMenuVisible = false
                     viewModel.rotateOrFlipSelected(flipY = true)
@@ -6699,7 +7245,7 @@ private fun VulkanCanvasDropZone(
             HorizontalDivider()
             DropdownMenuItem(
                 text = { Text(VexioI18n.ctxBringToFront(lang)) },
-                leadingIcon = { Icon(Icons.Default.FlipToFront, contentDescription = null) },
+                leadingIcon = { Icon(VexioIcons.BringToFront, contentDescription = null) },
                 onClick = {
                     contextMenuVisible = false
                     viewModel.reorderSelectedShapes("front")
@@ -6707,7 +7253,7 @@ private fun VulkanCanvasDropZone(
             )
             DropdownMenuItem(
                 text = { Text(VexioI18n.ctxSendToBack(lang)) },
-                leadingIcon = { Icon(Icons.Default.FlipToBack, contentDescription = null) },
+                leadingIcon = { Icon(VexioIcons.SendToBack, contentDescription = null) },
                 onClick = {
                     contextMenuVisible = false
                     viewModel.reorderSelectedShapes("back")
@@ -6716,7 +7262,7 @@ private fun VulkanCanvasDropZone(
             HorizontalDivider()
             DropdownMenuItem(
                 text = { Text(VexioI18n.ctxInsertPrimitive("rect", lang)) },
-                leadingIcon = { Icon(Icons.Default.CropSquare, contentDescription = null) },
+                leadingIcon = { Icon(VexioIcons.Rectangle, contentDescription = null) },
                 onClick = {
                     contextMenuVisible = false
                     viewModel.drawQuickPrimitive("rect", lastRightClickPageIn.first, lastRightClickPageIn.second)
@@ -6724,7 +7270,7 @@ private fun VulkanCanvasDropZone(
             )
             DropdownMenuItem(
                 text = { Text(VexioI18n.ctxInsertPrimitive("ellipse", lang)) },
-                leadingIcon = { Icon(Icons.Default.RadioButtonUnchecked, contentDescription = null) },
+                leadingIcon = { Icon(VexioIcons.Ellipse, contentDescription = null) },
                 onClick = {
                     contextMenuVisible = false
                     viewModel.drawQuickPrimitive("ellipse", lastRightClickPageIn.first, lastRightClickPageIn.second)
@@ -6732,7 +7278,7 @@ private fun VulkanCanvasDropZone(
             )
             DropdownMenuItem(
                 text = { Text(VexioI18n.ctxInsertPrimitive("diamond", lang)) },
-                leadingIcon = { Icon(Icons.Default.Diamond, contentDescription = null) },
+                leadingIcon = { Icon(VexioIcons.Diamond, contentDescription = null) },
                 onClick = {
                     contextMenuVisible = false
                     viewModel.drawQuickPrimitive("diamond", lastRightClickPageIn.first, lastRightClickPageIn.second)
@@ -6740,7 +7286,7 @@ private fun VulkanCanvasDropZone(
             )
             DropdownMenuItem(
                 text = { Text(VexioI18n.ctxInsertPrimitive("hexagon", lang)) },
-                leadingIcon = { Icon(Icons.Default.Hexagon, contentDescription = null) },
+                leadingIcon = { Icon(VexioIcons.Hexagon, contentDescription = null) },
                 onClick = {
                     contextMenuVisible = false
                     viewModel.drawQuickPrimitive("hexagon", lastRightClickPageIn.first, lastRightClickPageIn.second)
@@ -6748,7 +7294,7 @@ private fun VulkanCanvasDropZone(
             )
             DropdownMenuItem(
                 text = { Text(VexioI18n.ctxInsertPrimitive("star", lang)) },
-                leadingIcon = { Icon(Icons.Default.StarBorder, contentDescription = null) },
+                leadingIcon = { Icon(VexioIcons.Star, contentDescription = null) },
                 onClick = {
                     contextMenuVisible = false
                     viewModel.drawQuickPrimitive("star", lastRightClickPageIn.first, lastRightClickPageIn.second)
@@ -6756,7 +7302,7 @@ private fun VulkanCanvasDropZone(
             )
             DropdownMenuItem(
                 text = { Text(VexioI18n.ctxInsertPrimitive("line", lang)) },
-                leadingIcon = { Icon(Icons.Default.HorizontalRule, contentDescription = null) },
+                leadingIcon = { Icon(VexioIcons.LineSegment, contentDescription = null) },
                 onClick = {
                     contextMenuVisible = false
                     viewModel.drawQuickPrimitive("line", lastRightClickPageIn.first, lastRightClickPageIn.second)
@@ -6765,7 +7311,7 @@ private fun VulkanCanvasDropZone(
             HorizontalDivider()
             DropdownMenuItem(
                 text = { Text(VexioI18n.ctxAutoLayoutPage(lang)) },
-                leadingIcon = { Icon(Icons.Default.Schema, contentDescription = null) },
+                leadingIcon = { Icon(Icons.Default.AccountTree, contentDescription = null) },
                 onClick = {
                     contextMenuVisible = false
                     viewModel.autoLayoutActivePage()
@@ -6781,7 +7327,7 @@ private fun VulkanCanvasDropZone(
             )
             DropdownMenuItem(
                 text = { Text(VexioI18n.ctxInspectShapeSheet(lang)) },
-                leadingIcon = { Icon(Icons.Default.TableChart, contentDescription = null) },
+                leadingIcon = { Icon(VexioIcons.BottomPanel, contentDescription = null) },
                 onClick = {
                     contextMenuVisible = false
                     if (!uiState.isShapeSheetDrawerExpanded) {
@@ -6790,14 +7336,15 @@ private fun VulkanCanvasDropZone(
                 }
             )
             DropdownMenuItem(
-                text = { Text("Smart-Shape Actions…") },
+                text = { Text(VexioI18n.ctxSmartActions(lang)) },
+                leadingIcon = { Icon(Icons.Default.Bolt, contentDescription = null) },
                 onClick = {
                     contextMenuVisible = false
                     viewModel.setSmartActionsDialogVisible(true)
                 }
             )
             DropdownMenuItem(
-                text = { Text("Add Selection to My Shapes") },
+                text = { Text(VexioI18n.ctxAddToMyShapes(lang)) },
                 leadingIcon = { Icon(Icons.Default.Add, contentDescription = null) },
                 onClick = {
                     contextMenuVisible = false
@@ -6805,7 +7352,8 @@ private fun VulkanCanvasDropZone(
                 }
             )
             DropdownMenuItem(
-                text = { Text("Update Custom Master from Selection") },
+                text = { Text(VexioI18n.ctxUpdateCustomMaster(lang)) },
+                leadingIcon = { Icon(Icons.Default.Refresh, contentDescription = null) },
                 onClick = {
                     contextMenuVisible = false
                     viewModel.updateCustomMasterFromSelection()
@@ -7347,7 +7895,7 @@ private fun ShapeInspectorPane(
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Text(
-                        text = "${formatInchesNumeric(uiState.pageWidthInches)} × ${formatInchesNumeric(uiState.pageHeightInches)} $unitSuffix • ${uiState.pageShapeCount}",
+                        text = "${formatInchesNumeric(uiState.pageWidthInches)} × ${formatInchesNumeric(uiState.pageHeightInches)} $unitSuffix • ${VexioI18n.shapesCountSummary(uiState.pageShapeCount, lang)}",
                         fontSize = 11.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -7367,7 +7915,7 @@ private fun ShapeInspectorPane(
                 listOf(
                     Triple(0, lang.inspectorFormatTab, lang.inspectorFormatTab),
                     Triple(1, lang.inspectorSizePosTab, VexioI18n.transformSectionTitle(lang)),
-                    Triple(2, lang.inspectorDataTab, "Shape Data (Prop.*)"),
+                    Triple(2, lang.inspectorDataTab, VexioI18n.shapeDataSectionTitle(lang)),
                     Triple(3, lang.inspectorLayersTab, lang.inspectorLayersTab)
                 ).forEach { (idx, shortLabel, tip) ->
                     val active = selectedTab == idx
@@ -7534,13 +8082,21 @@ private fun ShapeInspectorPane(
                                 }
                             }
                             Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.fillMaxWidth()) {
-                                listOf(0 to "—", 1 to "›", 4 to "▶", 11 to "◆").forEach { (arr, lbl) ->
-                                    CompactSegmentPill(
-                                        label = lbl,
-                                        selected = curObj.endArrow == arr,
-                                        modifier = Modifier.weight(1f),
-                                        onClick = { viewModel.setCellForSelection("EndArrow", "$arr") }
-                                    )
+                                listOf(
+                                    0 to VexioIcons.ArrowEndNone,
+                                    1 to VexioIcons.ArrowEndOpen,
+                                    4 to VexioIcons.ArrowEndTriangle,
+                                    11 to VexioIcons.ArrowEndDiamond,
+                                    27 to VexioIcons.ArrowEndCrowsFoot
+                                ).forEach { (arr, arrIcon) ->
+                                    Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                                        RibbonIconBtn(
+                                            icon = arrIcon,
+                                            tooltip = VexioI18n.arrowheadOptionLabel(arr, lang),
+                                            selected = curObj.endArrow == arr,
+                                            onClick = { viewModel.setCellForSelection("EndArrow", "$arr") }
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -7669,52 +8225,38 @@ private fun ShapeInspectorPane(
                         InspectorCard(title = VexioI18n.arrangeSectionTitle(lang)) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
                                 modifier = Modifier.fillMaxWidth()
                             ) {
-                                Box(modifier = Modifier.weight(1f)) {
-                                    CompactSegmentPill(
-                                        label = "↺ 90°",
-                                        selected = false,
-                                        tooltip = VexioI18n.rotateLeftTooltip(lang),
-                                        modifier = Modifier.fillMaxWidth(),
-                                        onClick = { viewModel.rotateOrFlipSelected(deltaAngleDeg = -90.0) }
-                                    )
-                                }
-                                Box(modifier = Modifier.weight(1f)) {
-                                    CompactSegmentPill(
-                                        label = "↻ 90°",
-                                        selected = false,
-                                        tooltip = VexioI18n.rotateRightTooltip(lang),
-                                        modifier = Modifier.fillMaxWidth(),
-                                        onClick = { viewModel.rotateOrFlipSelected(deltaAngleDeg = 90.0) }
-                                    )
-                                }
-                                Box(modifier = Modifier.weight(0.7f)) {
-                                    CompactSegmentPill(
-                                        label = "⇆",
-                                        selected = curObj.flipX,
-                                        tooltip = VexioI18n.flipHorizTooltip(lang),
-                                        modifier = Modifier.fillMaxWidth(),
-                                        onClick = { viewModel.rotateOrFlipSelected(flipX = true) }
-                                    )
-                                }
-                                Box(modifier = Modifier.weight(0.7f)) {
-                                    CompactSegmentPill(
-                                        label = "⇅",
-                                        selected = curObj.flipY,
-                                        tooltip = VexioI18n.flipVertTooltip(lang),
-                                        modifier = Modifier.fillMaxWidth(),
-                                        onClick = { viewModel.rotateOrFlipSelected(flipY = true) }
-                                    )
-                                }
-                                CompactHeaderIconButton(
-                                    icon = Icons.Default.FlipToFront,
+                                RibbonIconBtn(
+                                    icon = VexioIcons.RotateLeft90,
+                                    tooltip = VexioI18n.rotateLeftTooltip(lang),
+                                    onClick = { viewModel.rotateOrFlipSelected(deltaAngleDeg = -90.0) }
+                                )
+                                RibbonIconBtn(
+                                    icon = VexioIcons.RotateRight90,
+                                    tooltip = VexioI18n.rotateRightTooltip(lang),
+                                    onClick = { viewModel.rotateOrFlipSelected(deltaAngleDeg = 90.0) }
+                                )
+                                RibbonIconBtn(
+                                    icon = VexioIcons.FlipHorizontal,
+                                    tooltip = VexioI18n.flipHorizTooltip(lang),
+                                    selected = curObj.flipX,
+                                    onClick = { viewModel.rotateOrFlipSelected(flipX = true) }
+                                )
+                                RibbonIconBtn(
+                                    icon = VexioIcons.FlipVertical,
+                                    tooltip = VexioI18n.flipVertTooltip(lang),
+                                    selected = curObj.flipY,
+                                    onClick = { viewModel.rotateOrFlipSelected(flipY = true) }
+                                )
+                                RibbonIconBtn(
+                                    icon = VexioIcons.BringToFront,
                                     tooltip = VexioI18n.bringToFrontTooltip(lang),
                                     onClick = { viewModel.reorderSelectedShapes("front") }
                                 )
-                                CompactHeaderIconButton(
-                                    icon = Icons.Default.FlipToBack,
+                                RibbonIconBtn(
+                                    icon = VexioIcons.SendToBack,
                                     tooltip = VexioI18n.sendToBackTooltip(lang),
                                     onClick = { viewModel.reorderSelectedShapes("back") }
                                 )
@@ -7758,7 +8300,7 @@ private fun ShapeInspectorPane(
                     2 -> {
                         // TAB 2: SHAPE DATA (Prop.*) + LIVE DATA GRAPHICS & TWO-WAY EXTERNAL DATA
                         if (obj != null) {
-                            InspectorCard(title = "Shape Data (Prop.*)") {
+                            InspectorCard(title = VexioI18n.shapeDataSectionTitle(lang)) {
                                 if (uiState.shapeDataItems.isEmpty()) {
                                     Text(
                                         text = "—",
@@ -7786,7 +8328,7 @@ private fun ShapeInspectorPane(
                                             )
                                             CompactHeaderIconButton(
                                                 icon = Icons.Default.DeleteOutline,
-                                                tooltip = "Delete Prop.${sd.rowName}",
+                                                tooltip = "Prop.${sd.rowName}",
                                                 onClick = { viewModel.deleteSelectedShapeData(sd.rowName) }
                                             )
                                         }
@@ -7796,7 +8338,7 @@ private fun ShapeInspectorPane(
                                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
 
                                 CompactPropertyField(
-                                    label = "Prop",
+                                    label = VexioI18n.objectNameLabel(lang),
                                     value = newPropName,
                                     onValueChange = { newPropName = it },
                                     placeholder = "Owner / Status",
@@ -7808,10 +8350,10 @@ private fun ShapeInspectorPane(
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
                                     CompactPropertyField(
-                                        label = "Val",
+                                        label = "=",
                                         value = newPropValue,
                                         onValueChange = { newPropValue = it },
-                                        placeholder = "Value",
+                                        placeholder = "…",
                                         onCommit = {
                                             if (newPropName.isNotBlank()) {
                                                 viewModel.upsertSelectedShapeData(newPropName, newPropName, 0, newPropValue)
@@ -7857,14 +8399,14 @@ private fun ShapeInspectorPane(
                             )
                         }
 
-                        InspectorCard(title = "Data Graphics & Legend") {
+                        InspectorCard(title = VexioI18n.dataGraphicsLabel(lang)) {
                             CompactCheckRow(
                                 checked = dg.enabled,
-                                label = "Live Data Graphics",
+                                label = VexioI18n.liveDataGraphicsLabel(lang),
                                 onCheckedChange = { checked -> commitDg(enabled = checked) }
                             )
                             CompactPropertyField(
-                                label = "Icon",
+                                label = VexioI18n.iconFieldShort(lang),
                                 value = iconFieldDraft,
                                 onValueChange = { iconFieldDraft = it },
                                 placeholder = "Status",
@@ -7872,7 +8414,7 @@ private fun ShapeInspectorPane(
                                 modifier = Modifier.fillMaxWidth()
                             )
                             CompactPropertyField(
-                                label = "Bar",
+                                label = VexioI18n.barFieldShort(lang),
                                 value = barFieldDraft,
                                 onValueChange = { barFieldDraft = it },
                                 placeholder = "CompletionPct",
@@ -7880,7 +8422,7 @@ private fun ShapeInspectorPane(
                                 modifier = Modifier.fillMaxWidth()
                             )
                             CompactPropertyField(
-                                label = "Tag",
+                                label = VexioI18n.calloutFieldShort(lang),
                                 value = calloutFieldDraft,
                                 onValueChange = { calloutFieldDraft = it },
                                 placeholder = "Owner",
@@ -7889,11 +8431,11 @@ private fun ShapeInspectorPane(
                             )
                             CompactCheckRow(
                                 checked = dg.colorByValueEnabled,
-                                label = "Color by Value",
+                                label = VexioI18n.colorByValueLabel(lang),
                                 onCheckedChange = { cbv -> commitDg(enabled = true, cbv = cbv) }
                             )
                             CompactPropertyField(
-                                label = "Col",
+                                label = VexioI18n.colorFieldShort(lang),
                                 value = colorFieldDraft,
                                 onValueChange = { colorFieldDraft = it },
                                 placeholder = "Status",
@@ -7908,7 +8450,7 @@ private fun ShapeInspectorPane(
                                     onClick = { commitDg(enabled = true) }
                                 )
                                 CompactSegmentPill(
-                                    label = "Legend",
+                                    label = VexioI18n.legendLabel(lang),
                                     selected = dg.legendVisible,
                                     modifier = Modifier.weight(1f),
                                     onClick = { viewModel.insertOrUpdateDataLegend(colorFieldDraft.ifBlank { iconFieldDraft }) }
@@ -7916,10 +8458,10 @@ private fun ShapeInspectorPane(
                             }
                         }
 
-                        InspectorCard(title = "External Data (.xlsx / .csv / .sqlite / .json)") {
+                        InspectorCard(title = VexioI18n.externalDataGroupTitle(lang)) {
                             Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
                                 CompactSegmentPill(
-                                    label = "+ Link File…",
+                                    label = VexioI18n.linkDataLabel(lang),
                                     selected = false,
                                     modifier = Modifier.weight(1f),
                                     onClick = onLinkExternalDataClick
@@ -7943,17 +8485,24 @@ private fun ShapeInspectorPane(
                                         Column(modifier = Modifier.weight(1f)) {
                                             Text(rs.name, fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                             Text(
-                                                text = "${rs.sourceKind.uppercase()} • ${rs.rows.size} rows",
+                                                text = "${rs.sourceKind.uppercase()} • ${rs.rows.size}",
                                                 fontSize = 10.sp,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                                             )
                                         }
-                                        CompactSegmentPill(label = "↻", selected = false, tooltip = "Refresh", onClick = onRefreshExternalDataClick)
-                                        Spacer(Modifier.width(3.dp))
-                                        CompactSegmentPill(label = "⇪", selected = false, tooltip = "Two-Way Sync", onClick = { onTwoWayWritebackClick(rs.id) })
+                                        CompactHeaderIconButton(
+                                            icon = Icons.Default.Refresh,
+                                            tooltip = VexioI18n.refreshLabel(lang),
+                                            onClick = onRefreshExternalDataClick
+                                        )
+                                        CompactHeaderIconButton(
+                                            icon = Icons.Default.Sync,
+                                            tooltip = VexioI18n.writebackLabel(lang),
+                                            onClick = { onTwoWayWritebackClick(rs.id) }
+                                        )
                                         CompactHeaderIconButton(
                                             icon = Icons.Default.DeleteOutline,
-                                            tooltip = "Unlink",
+                                            tooltip = VexioI18n.ctxDelete(lang),
                                             onClick = { viewModel.deleteExternalRecordset(rs.id) }
                                         )
                                     }
@@ -7978,14 +8527,14 @@ private fun ShapeInspectorPane(
                                                 modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp)
                                             ) {
                                                 Text(
-                                                    text = keyVal.ifEmpty { "Row #${rIdx + 1}" },
+                                                    text = keyVal.ifEmpty { "#${rIdx + 1}" },
                                                     fontSize = 11.sp,
                                                     maxLines = 1,
                                                     overflow = TextOverflow.Ellipsis,
                                                     modifier = Modifier.weight(1f)
                                                 )
                                                 Text(
-                                                    text = if (linkedIds.isNotEmpty()) "${linkedIds.size}✓" else "Bind",
+                                                    text = if (linkedIds.isNotEmpty()) "${linkedIds.size}✓" else "+",
                                                     fontSize = 10.sp,
                                                     fontWeight = FontWeight.Medium,
                                                     color = MaterialTheme.colorScheme.primary
@@ -7999,16 +8548,16 @@ private fun ShapeInspectorPane(
                     }
 
                     else -> {
-                        // TAB 3: LAYERS (Compact Desktop Layer List)
+                        // TAB 3: LAYERS (Crisp Eye Visibility & Lock Vector Icons)
                         InspectorCard(title = lang.inspectorLayersTab) {
                             uiState.pageLayers.forEach { layer: DiagramLayerUiItem ->
                                 val isMember = obj?.layerIndices?.contains(layer.ix) == true
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .height(26.dp)
+                                        .height(28.dp)
                                 ) {
                                     if (obj != null) {
                                         Box(modifier = Modifier.weight(1f)) {
@@ -8029,17 +8578,17 @@ private fun ShapeInspectorPane(
                                             modifier = Modifier.weight(1f)
                                         )
                                     }
-                                    CompactSegmentPill(
-                                        label = if (layer.visible) "Vis" else "Hid",
-                                        selected = layer.visible,
-                                        tooltip = if (layer.visible) "Hide Layer" else "Show Layer",
+                                    CompactHeaderIconButton(
+                                        icon = if (layer.visible) VexioIcons.EyeVisible else VexioIcons.EyeHidden,
+                                        tooltip = VexioI18n.showLayerTooltip(layer.visible, lang),
+                                        active = layer.visible,
                                         onClick = {
                                             viewModel.updatePageLayerFlags(layer.ix, !layer.visible, layer.lock, layer.print, layer.snapGlue)
                                         }
                                     )
                                     CompactHeaderIconButton(
                                         icon = Icons.Default.Lock,
-                                        tooltip = if (layer.lock) "Unlock Layer" else "Lock Layer",
+                                        tooltip = VexioI18n.lockLayerTooltip(layer.lock, lang),
                                         active = layer.lock,
                                         onClick = {
                                             viewModel.updatePageLayerFlags(layer.ix, layer.visible, !layer.lock, layer.print, layer.snapGlue)
@@ -8099,6 +8648,11 @@ private fun WorkstationBottomStatusBar(
     onOpenPageSetup: (Int) -> Unit = {},
     onCreateSubprocess: () -> Unit,
     onAutoLayoutPage: () -> Unit,
+    onToggleRulers: () -> Unit = {},
+    onToggleSmartGuides: () -> Unit = {},
+    onZoomDelta: (Int) -> Unit = {},
+    onSetZoomPercent: (Int) -> Unit = {},
+    onFitPage: () -> Unit = {},
     onZoomReset: () -> Unit
 ) {
     val lang = uiState.language
@@ -8573,31 +9127,142 @@ private fun WorkstationBottomStatusBar(
             }
 
             if (posture != AdaptiveWorkstationPosture.COMPACT_CONVERTIBLE) {
+                val unitFactor = if (uiState.metricUnits) 25.4 else 1.0
+                val unitStr = if (uiState.metricUnits) "mm" else "in"
+                val fmtPattern = if (uiState.metricUnits) "%.0f" else "%.2f"
+                val selObj = if (uiState.selectedShapeId > 0L) uiState.inspectedObject else null
+                val telemetryText = when {
+                    uiState.selectedShapeIds.size >= 2 ->
+                        "${VexioI18n.shapesCountSummary(uiState.selectedShapeIds.size, lang)} • ${VexioI18n.toolName(uiState.activeTool, lang)}"
+                    selObj != null -> {
+                        val wStr = fmtPattern.format(java.util.Locale.US, selObj.widthIn * unitFactor)
+                        val hStr = fmtPattern.format(java.util.Locale.US, selObj.heightIn * unitFactor)
+                        "Sheet.${selObj.id} • $wStr × $hStr $unitStr • ${VexioI18n.toolName(uiState.activeTool, lang)}"
+                    }
+                    else -> {
+                        val pwStr = fmtPattern.format(java.util.Locale.US, uiState.pageWidthInches * unitFactor)
+                        val phStr = fmtPattern.format(java.util.Locale.US, uiState.pageHeightInches * unitFactor)
+                        "$pwStr × $phStr $unitStr • ${VexioI18n.shapesCountSummary(uiState.pageShapeCount, lang)}"
+                    }
+                }
                 Text(
-                    text = VexioI18n.statusCursorAndTool(uiState.activeCursor, uiState.activeTool, lang),
+                    text = telemetryText,
                     fontSize = 11.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     softWrap = false,
                     modifier = Modifier.padding(horizontal = 8.dp)
                 )
+
+                VerticalDivider(
+                    modifier = Modifier
+                        .height(16.dp)
+                        .padding(horizontal = 2.dp),
+                    color = MaterialTheme.colorScheme.outlineVariant
+                )
+
+                CompactHeaderIconButton(
+                    icon = VexioIcons.RulerCorner,
+                    tooltip = VexioI18n.toggleRulersTooltip(lang),
+                    active = uiState.showCanvasRulers,
+                    onClick = onToggleRulers
+                )
+                CompactHeaderIconButton(
+                    icon = Icons.Default.Grid4x4,
+                    tooltip = VexioI18n.smartGuidesPill(lang),
+                    active = uiState.smartGuidesEnabled,
+                    onClick = onToggleSmartGuides
+                )
+
+                VerticalDivider(
+                    modifier = Modifier
+                        .height(16.dp)
+                        .padding(horizontal = 2.dp),
+                    color = MaterialTheme.colorScheme.outlineVariant
+                )
             }
 
-            VexioTooltip(
-                text = VexioI18n.zoomResetTooltip(lang),
-                preferAbove = true
+            // Interactive Visio Bottom-Right Zoom Bar: [-] [Slider] [+] [100%] [Fit Page]
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(2.dp)
             ) {
-                Text(
-                    text = "${uiState.zoomPercent}%",
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.primary,
-                    maxLines = 1,
-                    softWrap = false,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(5.dp))
-                        .clickable { onZoomReset() }
-                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                CompactHeaderIconButton(
+                    icon = Icons.Default.ZoomOut,
+                    tooltip = VexioI18n.zoomOutTooltip(lang),
+                    onClick = { onZoomDelta(-15) }
+                )
+
+                if (posture == AdaptiveWorkstationPosture.ULTRAWIDE_DESKTOP) {
+                    val clampedSliderZoom = uiState.zoomPercent.coerceIn(25, 400).toFloat()
+                    androidx.compose.foundation.Canvas(
+                        modifier = Modifier
+                            .width(82.dp)
+                            .height(20.dp)
+                            .pointerInput(Unit) {
+                                awaitPointerEventScope {
+                                    while (true) {
+                                        val ev = awaitPointerEvent()
+                                        val ch = ev.changes.firstOrNull()
+                                        if (ch != null && ch.pressed && size.width > 0) {
+                                            val frac = (ch.position.x / size.width.toFloat()).coerceIn(0f, 1f)
+                                            val nextPct = if (frac <= 0.5f) {
+                                                (25f + (frac / 0.5f) * 75f).toInt()
+                                            } else {
+                                                (100f + ((frac - 0.5f) / 0.5f) * 300f).toInt()
+                                            }
+                                            onSetZoomPercent(nextPct)
+                                        }
+                                    }
+                                }
+                            }
+                    ) {
+                        val cy = size.height * 0.5f
+                        val frac = if (clampedSliderZoom <= 100f) {
+                            ((clampedSliderZoom - 25f) / 75f) * 0.5f
+                        } else {
+                            0.5f + ((clampedSliderZoom - 100f) / 300f) * 0.5f
+                        }
+                        val thumbX = (frac.coerceIn(0f, 1f) * (size.width - 10f)) + 5f
+                        val trackMuted = Color(0xFF94A3B8).copy(alpha = 0.45f)
+                        val trackActive = Color(0xFF2563EB)
+                        drawLine(trackMuted, Offset(4f, cy), Offset(size.width - 4f, cy), strokeWidth = 2.dp.toPx())
+                        drawLine(trackActive, Offset(4f, cy), Offset(thumbX, cy), strokeWidth = 2.dp.toPx())
+                        // 100% center notch
+                        drawLine(trackMuted, Offset(size.width * 0.5f, cy - 4.dp.toPx()), Offset(size.width * 0.5f, cy + 4.dp.toPx()), strokeWidth = 1.dp.toPx())
+                        drawCircle(trackActive, radius = 4.5.dp.toPx(), center = Offset(thumbX, cy))
+                    }
+                }
+
+                CompactHeaderIconButton(
+                    icon = Icons.Default.ZoomIn,
+                    tooltip = VexioI18n.zoomInTooltip(lang),
+                    onClick = { onZoomDelta(15) }
+                )
+
+                VexioTooltip(
+                    text = VexioI18n.zoomResetTooltip(lang),
+                    preferAbove = true
+                ) {
+                    Text(
+                        text = "${uiState.zoomPercent}%",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.primary,
+                        maxLines = 1,
+                        softWrap = false,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(5.dp))
+                            .clickable { onZoomReset() }
+                            .padding(horizontal = 5.dp, vertical = 2.dp)
+                    )
+                }
+
+                CompactHeaderIconButton(
+                    icon = VexioIcons.FitToPage,
+                    tooltip = VexioI18n.fitToScreenLabel(lang),
+                    active = uiState.isAutoFitPage,
+                    onClick = onFitPage
                 )
             }
         }
@@ -8921,6 +9586,19 @@ private fun FullSpectrumColorPickerDialog(
     val startColor = remember(initialHex) {
         parseColorHexOrFallback(initialHex, Color(0xFF1D4ED8))
     }
+    val initialHsv = remember(initialHex) {
+        val arr = FloatArray(3)
+        android.graphics.Color.RGBToHSV(
+            (startColor.red * 255f).toInt().coerceIn(0, 255),
+            (startColor.green * 255f).toInt().coerceIn(0, 255),
+            (startColor.blue * 255f).toInt().coerceIn(0, 255),
+            arr
+        )
+        arr
+    }
+    var hueDeg by remember(initialHex) { mutableStateOf(initialHsv[0]) }
+    var satFrac by remember(initialHex) { mutableStateOf(initialHsv[1]) }
+    var valFrac by remember(initialHex) { mutableStateOf(initialHsv[2]) }
     var red by remember(initialHex) { mutableStateOf((startColor.red * 255f).toInt().coerceIn(0, 255)) }
     var green by remember(initialHex) { mutableStateOf((startColor.green * 255f).toInt().coerceIn(0, 255)) }
     var blue by remember(initialHex) { mutableStateOf((startColor.blue * 255f).toInt().coerceIn(0, 255)) }
@@ -8928,84 +9606,165 @@ private fun FullSpectrumColorPickerDialog(
         mutableStateOf("#%02X%02X%02X".format(java.util.Locale.US, red, green, blue))
     }
 
-    fun syncHexFromRgb(r: Int, g: Int, b: Int) {
+    fun syncFromRgb(r: Int, g: Int, b: Int, updateHsv: Boolean = true) {
         red = r.coerceIn(0, 255)
         green = g.coerceIn(0, 255)
         blue = b.coerceIn(0, 255)
         hexInput = "#%02X%02X%02X".format(java.util.Locale.US, red, green, blue)
+        if (updateHsv) {
+            val hsv = FloatArray(3)
+            android.graphics.Color.RGBToHSV(red, green, blue, hsv)
+            hueDeg = hsv[0]
+            satFrac = hsv[1]
+            valFrac = hsv[2]
+        }
+    }
+
+    fun syncFromHsv(h: Float, s: Float, v: Float) {
+        hueDeg = h.coerceIn(0f, 360f)
+        satFrac = s.coerceIn(0f, 1f)
+        valFrac = v.coerceIn(0f, 1f)
+        val c = Color.hsv(hueDeg, satFrac, valFrac)
+        syncFromRgb(
+            (c.red * 255f).toInt(),
+            (c.green * 255f).toInt(),
+            (c.blue * 255f).toInt(),
+            updateHsv = false
+        )
     }
 
     val liveColor = Color(red / 255f, green / 255f, blue / 255f, 1f)
-    val standardSwatches = listOf(
-        "#0F172A", "#334155", "#64748B", "#FFFFFF",
-        "#DBEAFE", "#3B82F6", "#1D4ED8", "#1E3A8A",
-        "#DCFCE7", "#22C55E", "#15803D", "#065F46",
-        "#FEF9C3", "#FACC15", "#D97706", "#B45309",
-        "#FEE2E2", "#EF4444", "#DC2626", "#991B1B",
-        "#F3E8FF", "#A855F7", "#7C3AED", "#5B21B6"
-    )
+
+    // 8 columns × 5 rows Visio Office Theme Matrix (Neutrals, Blues, Teals, Greens, Ambers, Reds, Purples, Slates)
+    val themeMatrixRows = remember {
+        listOf(
+            listOf("#FFFFFF", "#EFF6FF", "#ECFEFF", "#ECFDF5", "#FEFCE8", "#FEF2F2", "#FAF5FF", "#F8FAFC"),
+            listOf("#E2E8F0", "#BFDBFE", "#A5F3FC", "#BBF7D0", "#FEF08A", "#FECACA", "#E9D5FF", "#CBD5E1"),
+            listOf("#94A3B8", "#60A5FA", "#22D3EE", "#4ADE80", "#FACC15", "#F87171", "#C084FC", "#64748B"),
+            listOf("#475569", "#2563EB", "#0891B2", "#16A34A", "#D97706", "#DC2626", "#9333EA", "#334155"),
+            listOf("#0F172A", "#1E3A8A", "#164E63", "#14532D", "#78350F", "#7F1D1D", "#581C87", "#020617")
+        )
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(title, maxLines = 1, softWrap = false) },
+        title = { Text(title, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false) },
         text = {
             Column(
                 verticalArrangement = Arrangement.spacedBy(10.dp),
-                modifier = Modifier.verticalScroll(rememberScrollState())
+                modifier = Modifier
+                    .width(316.dp)
+                    .verticalScroll(rememberScrollState())
             ) {
-                // Live Color Preview + Hex Input
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(44.dp)
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(liveColor)
-                            .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(10.dp))
-                    )
-                    OutlinedTextField(
-                        value = hexInput,
-                        onValueChange = { raw ->
-                            hexInput = raw
-                            val clean = raw.trim().removePrefix("#")
-                            if (clean.length == 6) {
-                                val parsed = clean.toIntOrNull(16)
-                                if (parsed != null) {
-                                    red = (parsed shr 16) and 0xFF
-                                    green = (parsed shr 8) and 0xFF
-                                    blue = parsed and 0xFF
-                                }
+                // 1. Visio Theme & Standard Swatch Matrix FIRST (1-Click Selection!)
+                Text(
+                    text = VexioI18n.themePaletteHeading(lang).uppercase(),
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    letterSpacing = 0.5.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    themeMatrixRows.forEach { rowHexes ->
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(5.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            rowHexes.forEach { swHex ->
+                                val swColor = parseColorHexOrFallback(swHex, Color.Black)
+                                val isCurrent = swHex.equals(hexInput, ignoreCase = true)
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(24.dp)
+                                        .clip(RoundedCornerShape(5.dp))
+                                        .background(swColor)
+                                        .border(
+                                            width = if (isCurrent) 2.dp else 0.75.dp,
+                                            color = if (isCurrent) {
+                                                MaterialTheme.colorScheme.primary
+                                            } else {
+                                                MaterialTheme.colorScheme.outlineVariant
+                                            },
+                                            shape = RoundedCornerShape(5.dp)
+                                        )
+                                        .clickable {
+                                            val normalized = swHex.uppercase(java.util.Locale.US)
+                                            onColorSelected(normalized)
+                                        }
+                                )
                             }
-                        },
-                        singleLine = true,
-                        label = { Text("HEX (#RRGGBB)") },
-                        modifier = Modifier.weight(1f)
-                    )
+                        }
+                    }
                 }
 
-                // Interactive Hue Spectrum Strip (Tap anywhere along 360° HSV spectrum)
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
+
+                // 2. Interactive 2D Saturation / Brightness Square + Hue Bar
+                Text(
+                    text = VexioI18n.customColorHeading(lang).uppercase(),
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    letterSpacing = 0.5.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
                 androidx.compose.foundation.Canvas(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(26.dp)
+                        .height(104.dp)
                         .clip(RoundedCornerShape(8.dp))
-                        .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(8.dp))
-                        .pointerInput(Unit) {
+                        .border(0.85.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(8.dp))
+                        .pointerInput(hueDeg) {
+                            awaitPointerEventScope {
+                                while (true) {
+                                    val ev = awaitPointerEvent()
+                                    val ch = ev.changes.firstOrNull()
+                                    if (ch != null && ch.pressed && size.width > 0 && size.height > 0) {
+                                        val s = (ch.position.x / size.width.toFloat()).coerceIn(0f, 1f)
+                                        val v = (1f - (ch.position.y / size.height.toFloat())).coerceIn(0f, 1f)
+                                        syncFromHsv(hueDeg, s, v)
+                                    }
+                                }
+                            }
+                        }
+                ) {
+                    val cols = 20
+                    val rows = 12
+                    val cw = size.width / cols
+                    val ch = size.height / rows
+                    for (r in 0 until rows) {
+                        val v = 1f - (r + 0.5f) / rows
+                        for (c in 0 until cols) {
+                            val s = (c + 0.5f) / cols
+                            drawRect(
+                                color = Color.hsv(hueDeg, s, v),
+                                topLeft = Offset(c * cw, r * ch),
+                                size = androidx.compose.ui.geometry.Size(cw + 1f, ch + 1f)
+                            )
+                        }
+                    }
+                    val cx = satFrac * size.width
+                    val cy = (1f - valFrac) * size.height
+                    drawCircle(Color.White, radius = 6.dp.toPx(), center = Offset(cx, cy), style = Stroke(2.dp.toPx()))
+                    drawCircle(Color.Black.copy(alpha = 0.5f), radius = 7.dp.toPx(), center = Offset(cx, cy), style = Stroke(1.dp.toPx()))
+                }
+
+                // 360° Hue Strip
+                androidx.compose.foundation.Canvas(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(18.dp)
+                        .clip(RoundedCornerShape(6.dp))
+                        .border(0.85.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(6.dp))
+                        .pointerInput(satFrac, valFrac) {
                             awaitPointerEventScope {
                                 while (true) {
                                     val ev = awaitPointerEvent()
                                     val change = ev.changes.firstOrNull()
                                     if (change != null && change.pressed && size.width > 0) {
-                                        val hue = ((change.position.x / size.width.toFloat()).coerceIn(0f, 1f)) * 360f
-                                        val c = Color.hsv(hue, 0.85f, 0.92f)
-                                        syncHexFromRgb(
-                                            (c.red * 255f).toInt(),
-                                            (c.green * 255f).toInt(),
-                                            (c.blue * 255f).toInt()
-                                        )
+                                        val h = ((change.position.x / size.width.toFloat()).coerceIn(0f, 1f)) * 360f
+                                        syncFromHsv(h, satFrac.coerceAtLeast(0.15f), valFrac.coerceAtLeast(0.2f))
                                     }
                                 }
                             }
@@ -9014,71 +9773,48 @@ private fun FullSpectrumColorPickerDialog(
                     val steps = 36
                     val segW = size.width / steps
                     for (i in 0 until steps) {
-                        val hue = i * (360f / steps)
                         drawRect(
-                            color = Color.hsv(hue, 0.85f, 0.92f),
+                            color = Color.hsv(i * (360f / steps), 0.9f, 0.95f),
                             topLeft = Offset(i * segW, 0f),
                             size = androidx.compose.ui.geometry.Size(segW + 1f, size.height)
                         )
                     }
+                    val hx = (hueDeg / 360f).coerceIn(0f, 1f) * size.width
+                    drawLine(Color.White, Offset(hx, 0f), Offset(hx, size.height), strokeWidth = 2.5.dp.toPx())
                 }
 
-                // Fine RGB Channel Sliders (0..255)
-                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(VexioI18n.redChannel(red, lang), style = MaterialTheme.typography.labelSmall)
-                    Slider(
-                        value = red.toFloat(),
-                        onValueChange = { syncHexFromRgb(it.toInt(), green, blue) },
-                        valueRange = 0f..255f
+                // 3. Compact Live Preview Swatch + HEX Input
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(32.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(liveColor)
+                            .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(8.dp))
                     )
-                    Text(VexioI18n.greenChannel(green, lang), style = MaterialTheme.typography.labelSmall)
-                    Slider(
-                        value = green.toFloat(),
-                        onValueChange = { syncHexFromRgb(red, it.toInt(), blue) },
-                        valueRange = 0f..255f
-                    )
-                    Text(VexioI18n.blueChannel(blue, lang), style = MaterialTheme.typography.labelSmall)
-                    Slider(
-                        value = blue.toFloat(),
-                        onValueChange = { syncHexFromRgb(red, green, it.toInt()) },
-                        valueRange = 0f..255f
-                    )
-                }
-
-                // 24 Visio Theme & Standard Swatches
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    standardSwatches.chunked(8).forEach { rowHexes ->
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            rowHexes.forEach { swHex ->
-                                val swColor = parseColorHexOrFallback(swHex, Color.Black)
-                                Box(
-                                    modifier = Modifier
-                                        .size(26.dp)
-                                        .clip(CircleShape)
-                                        .background(swColor)
-                                        .border(
-                                            width = if (swHex.equals(hexInput, ignoreCase = true)) 2.dp else 1.dp,
-                                            color = if (swHex.equals(hexInput, ignoreCase = true)) {
-                                                MaterialTheme.colorScheme.primary
-                                            } else {
-                                                MaterialTheme.colorScheme.outlineVariant
-                                            },
-                                            shape = CircleShape
-                                        )
-                                        .clickable {
-                                            syncHexFromRgb(
-                                                (swColor.red * 255f).toInt(),
-                                                (swColor.green * 255f).toInt(),
-                                                (swColor.blue * 255f).toInt()
-                                            )
-                                        }
-                                )
+                    CompactPropertyField(
+                        label = "HEX",
+                        value = hexInput,
+                        onValueChange = { raw ->
+                            hexInput = raw
+                            val clean = raw.trim().removePrefix("#")
+                            if (clean.length == 6) {
+                                val parsed = clean.toIntOrNull(16)
+                                if (parsed != null) {
+                                    syncFromRgb(
+                                        (parsed shr 16) and 0xFF,
+                                        (parsed shr 8) and 0xFF,
+                                        parsed and 0xFF
+                                    )
+                                }
                             }
-                        }
-                    }
+                        },
+                        modifier = Modifier.weight(1f)
+                    )
                 }
             }
         },

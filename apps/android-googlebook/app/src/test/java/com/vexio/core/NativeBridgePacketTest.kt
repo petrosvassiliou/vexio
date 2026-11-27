@@ -730,8 +730,8 @@ class NativeBridgePacketTest {
         assertEquals(33, vm.uiState.value.stencilCategories.size)
         assertTrue(vm.uiState.value.stencilMasters.isNotEmpty())
         assertTrue(
-            "Expected 0.9.2-beta in updateStatusMessage, got: ${vm.uiState.value.updateStatusMessage}",
-            vm.uiState.value.updateStatusMessage.contains("0.9.2-beta")
+            "Expected 0.9.3-beta in updateStatusMessage, got: ${vm.uiState.value.updateStatusMessage}",
+            vm.uiState.value.updateStatusMessage.contains("0.9.3-beta")
         )
 
         val sampleNativeJson = """
@@ -1001,6 +1001,65 @@ class NativeBridgePacketTest {
         } finally {
             tempDir.deleteRecursively()
         }
+    }
+
+    @Test
+    fun workstationPolishIconsI18nRulersAndStencilGridTogglesVerifyCleanly() {
+        val icons = listOf(
+            com.vexio.ui.icons.VexioIcons.Pointer,
+            com.vexio.ui.icons.VexioIcons.PanHand,
+            com.vexio.ui.icons.VexioIcons.ConnectorOrthogonal,
+            com.vexio.ui.icons.VexioIcons.ConnectorCurved,
+            com.vexio.ui.icons.VexioIcons.LineSegment,
+            com.vexio.ui.icons.VexioIcons.CircularArc,
+            com.vexio.ui.icons.VexioIcons.FreeformSpline,
+            com.vexio.ui.icons.VexioIcons.Rectangle,
+            com.vexio.ui.icons.VexioIcons.RoundedRect,
+            com.vexio.ui.icons.VexioIcons.Ellipse,
+            com.vexio.ui.icons.VexioIcons.Diamond,
+            com.vexio.ui.icons.VexioIcons.Triangle,
+            com.vexio.ui.icons.VexioIcons.Hexagon,
+            com.vexio.ui.icons.VexioIcons.Star,
+            com.vexio.ui.icons.VexioIcons.ArchitecturalWall,
+            com.vexio.ui.icons.VexioIcons.WallOpeningDoor,
+            com.vexio.ui.icons.VexioIcons.AssociativeDimension,
+            com.vexio.ui.icons.VexioIcons.InkEraser,
+            com.vexio.ui.icons.VexioIcons.GroupShapes,
+            com.vexio.ui.icons.VexioIcons.UngroupShapes,
+            com.vexio.ui.icons.VexioIcons.EyeVisible,
+            com.vexio.ui.icons.VexioIcons.EyeHidden,
+            com.vexio.ui.icons.VexioIcons.RulerCorner,
+            com.vexio.ui.icons.VexioIcons.Grid2Col,
+            com.vexio.ui.icons.VexioIcons.FitToPage
+        )
+        icons.forEach { vec ->
+            assertEquals(24f, vec.viewportWidth, 0.01f)
+            assertEquals(24f, vec.viewportHeight, 0.01f)
+        }
+
+        for (lang in VexioAppLanguage.entries) {
+            assertTrue(com.vexio.ui.i18n.VexioI18n.bordersAndTitlesLabel(lang).isNotBlank())
+            assertTrue(com.vexio.ui.i18n.VexioI18n.externalDataGroupTitle(lang).isNotBlank())
+            assertTrue(com.vexio.ui.i18n.VexioI18n.localizeStencilTitle("Rectangle", lang).isNotBlank())
+            assertTrue(com.vexio.ui.i18n.VexioI18n.findReplaceTitle(lang).isNotBlank())
+            assertTrue(com.vexio.ui.i18n.VexioI18n.rulersLabel(lang).isNotBlank())
+        }
+
+        val vm = VexioSessionViewModel()
+        assertTrue(vm.uiState.value.isStencilGridMode)
+        assertTrue(vm.uiState.value.showCanvasRulers)
+        vm.toggleStencilViewMode()
+        assertFalse(vm.uiState.value.isStencilGridMode)
+        vm.toggleCanvasRulers()
+        assertFalse(vm.uiState.value.showCanvasRulers)
+
+        // Verify Heading 2 resets stale Right-Align (2) back to crisp Left-Align (0)
+        vm.applyRichTextStyle(horizAlign = 2)
+        assertEquals(2, vm.uiState.value.textHorizAlign)
+        vm.applyOrInsertHeading("h2", forceInsert = true)
+        assertEquals(0, vm.uiState.value.textHorizAlign)
+        vm.applyOrInsertHeading("title", forceInsert = true)
+        assertEquals(1, vm.uiState.value.textHorizAlign)
     }
 }
 
