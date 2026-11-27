@@ -32,7 +32,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.draganddrop.dragAndDropTarget
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
@@ -196,10 +195,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draganddrop.DragAndDropEvent
-import androidx.compose.ui.draganddrop.DragAndDropTarget
-import androidx.compose.ui.draganddrop.mimeTypes
-import androidx.compose.ui.draganddrop.toAndroidDragEvent
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.FocusRequester
@@ -6774,7 +6769,7 @@ private fun VulkanCanvasDropZone(
     val semanticColors = LocalVexioSemanticColors.current
 
     val lang = uiState.language
-    var isDragHovering by remember { mutableStateOf(false) }
+    var isExternalFileDragHovering by remember { mutableStateOf(false) }
     var contextMenuVisible by remember { mutableStateOf(false) }
     var contextMenuOffsetDp by remember { mutableStateOf(DpOffset.Zero) }
     var lastRightClickPageIn by remember { mutableStateOf(5.5 to 4.25) }
@@ -6783,8 +6778,32 @@ private fun VulkanCanvasDropZone(
         resolveHardwarePointerIcon(context, uiState.activeCursor)
     }
 
+    fun isStencilPayloadDrag(dragEvent: DragEvent): Boolean {
+        if (dragEvent.localState is String) return true
+        val desc = dragEvent.clipDescription ?: return false
+        return desc.hasMimeType(VEXIO_MASTER_CLIP_MIME)
+    }
+
+    fun isSupportedCanvasDrag(dragEvent: DragEvent): Boolean {
+        if (dragEvent.localState is String) return true
+        val desc = dragEvent.clipDescription ?: return true
+        if (desc.mimeTypeCount == 0) return true
+        if (desc.hasMimeType(VEXIO_MASTER_CLIP_MIME) ||
+            desc.hasMimeType(ClipDescription.MIMETYPE_TEXT_PLAIN)
+        ) {
+            return true
+        }
+        for (i in 0 until desc.mimeTypeCount) {
+            val mime = desc.getMimeType(i)
+            if (mime.startsWith("application/") || mime.startsWith("image/") || mime == "*/*") {
+                return true
+            }
+        }
+        return false
+    }
+
     fun handleAndroidDragDrop(dragEvent: DragEvent): Boolean {
-        isDragHovering = false
+        isExternalFileDragHovering = false
         val localPayloadJson = dragEvent.localState as? String
         val clipData = dragEvent.clipData
         if ((clipData == null || clipData.itemCount == 0) && localPayloadJson.isNullOrBlank()) {
@@ -6792,7 +6811,11 @@ private fun VulkanCanvasDropZone(
         }
 
         val activity = context as? Activity
-        val dragPermissions = if (clipData != null) activity?.requestDragAndDropPermissions(dragEvent) else null
+        val dragPermissions = if (clipData != null && localPayloadJson == null) {
+            activity?.requestDragAndDropPermissions(dragEvent)
+        } else {
+            null
+        }
 
         try {
             val firstItem = if (clipData != null && clipData.itemCount > 0) clipData.getItemAt(0) else null
@@ -6837,49 +6860,19 @@ private fun VulkanCanvasDropZone(
         return false
     }
 
-    val dragAndDropTarget = remember(context, density) {
-        object : DragAndDropTarget {
-            override fun onEntered(event: DragAndDropEvent) {
-                isDragHovering = true
-            }
-
-            override fun onExited(event: DragAndDropEvent) {
-                isDragHovering = false
-            }
-
-            override fun onEnded(event: DragAndDropEvent) {
-                isDragHovering = false
-            }
-
-            override fun onDrop(event: DragAndDropEvent): Boolean {
-                return handleAndroidDragDrop(event.toAndroidDragEvent())
-            }
-        }
-    }
-
     Box(
         modifier = modifier
             .pointerHoverIcon(PointerIcon(hardwarePointerIcon))
-            .dragAndDropTarget(
-                shouldStartDragAndDrop = { startEvent ->
-                    val mimes = startEvent.mimeTypes()
-                    mimes.isEmpty() ||
-                        mimes.contains(VEXIO_MASTER_CLIP_MIME) ||
-                        mimes.contains(ClipDescription.MIMETYPE_TEXT_PLAIN) ||
-                        mimes.any {
-                            it.startsWith("application/") ||
-                                it.startsWith("image/") ||
-                                it == "*/*"
-                        }
-                },
-                target = dragAndDropTarget
-            )
     ) {
         AndroidView(
             factory = { ctx ->
                 SurfaceView(ctx).apply {
                     isFocusable = false
                     isFocusableInTouchMode = false
+                    isSelected = false
+                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                        defaultFocusHighlightEnabled = false
+                    }
                     val predictor = MotionEventPredictor.newInstance(this)
                     val doubleTapDetector = GestureDetector(
                         ctx,
@@ -6893,19 +6886,22 @@ private fun VulkanCanvasDropZone(
 
                     setOnDragListener { _, dragEvent ->
                         when (dragEvent.action) {
-                            DragEvent.ACTION_DRAG_STARTED -> true
+                            DragEvent.ACTION_DRAG_STARTED -> {
+                                isExternalFileDragHovering = false
+                                isSupportedCanvasDrag(dragEvent)
+                            }
                             DragEvent.ACTION_DRAG_ENTERED -> {
-                                isDragHovering = true
+                                isExternalFileDragHovering = !isStencilPayloadDrag(dragEvent)
                                 true
                             }
                             DragEvent.ACTION_DRAG_LOCATION -> true
                             DragEvent.ACTION_DRAG_EXITED -> {
-                                isDragHovering = false
+                                isExternalFileDragHovering = false
                                 true
                             }
                             DragEvent.ACTION_DROP -> handleAndroidDragDrop(dragEvent)
                             DragEvent.ACTION_DRAG_ENDED -> {
-                                isDragHovering = false
+                                isExternalFileDragHovering = false
                                 true
                             }
                             else -> false
@@ -7114,35 +7110,24 @@ private fun VulkanCanvasDropZone(
             }
         }
 
-        // Cross-window Drag & Drop active highlight overlay
-        if (isDragHovering) {
-            Box(
-                contentAlignment = Alignment.Center,
+        // Subtle top pill ONLY when dragging an external file (.vsdx / .vsd / .dwg) from OS Files app;
+        // never tint or cover the canvas during or after stencil drag-and-drop.
+        if (isExternalFileDragHovering) {
+            Surface(
+                shape = RoundedCornerShape(999.dp),
+                color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                border = BorderStroke(1.dp, semanticColors.dropZoneHighlightBorder),
+                shadowElevation = 4.dp,
                 modifier = Modifier
-                    .fillMaxSize()
-                    .padding(12.dp)
-                    .border(
-                        width = 2.5.dp,
-                        color = semanticColors.dropZoneHighlightBorder,
-                        shape = RoundedCornerShape(20.dp)
-                    )
-                    .background(
-                        color = semanticColors.dropZoneHighlightFill,
-                        shape = RoundedCornerShape(20.dp)
-                    )
+                    .align(Alignment.TopCenter)
+                    .padding(top = 12.dp)
             ) {
-                Surface(
-                    shape = RoundedCornerShape(16.dp),
-                    color = MaterialTheme.colorScheme.surfaceContainerHighest,
-                    shadowElevation = 6.dp
-                ) {
-                    Text(
-                        text = VexioI18n.dropOverlayBanner(lang),
-                        style = MaterialTheme.typography.titleSmall,
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp)
-                    )
-                }
+                Text(
+                    text = VexioI18n.dropOverlayBanner(lang),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                )
             }
         }
 

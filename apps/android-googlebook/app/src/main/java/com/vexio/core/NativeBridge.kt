@@ -2225,7 +2225,7 @@ data class WorkstationUiState(
     val inlineTextEditor: InlineCanvasEditorModel? = null,
     val smartGuidesEnabled: Boolean = true,
     val autoCheckUpdates: Boolean = true,
-    val updateStatusMessage: String = "Vexio v0.9.3-beta • Automatic update check enabled",
+    val updateStatusMessage: String = "Vexio v0.9.4-beta • Automatic update check enabled",
     val availableUpdateTag: String? = null,
     val availableUpdateUrl: String? = null,
     val showUpdateDialog: Boolean = false,
@@ -4209,7 +4209,7 @@ class VexioSessionViewModel(
         pinYInches: Float,
         category: String = ""
     ) {
-        val pageId = _uiState.value.activePageId
+        val pageId = resolveNativePageId(_uiState.value.activePageId)
         val pinXStr = "${"%.2f".format(Locale.US, pinXInches)} in"
         val pinYStr = "${"%.2f".format(Locale.US, pinYInches)} in"
 
@@ -4282,7 +4282,7 @@ class VexioSessionViewModel(
         centerXIn: Double = 5.5,
         centerYIn: Double = 4.25
     ) {
-        val pageId = _uiState.value.activePageId
+        val pageId = resolveNativePageId(_uiState.value.activePageId)
         val created = if (NativeBridge.isNativeAvailable && docPtr != 0L) {
             NativeBridge.nativeDrawPrimitive(
                 docPtr = docPtr,
@@ -6270,7 +6270,7 @@ class VexioSessionViewModel(
             "org_chart" -> "1,,Alex Rivera,Chief Executive Officer,Executive\n2,1,Priya Patel,VP Engineering,Engineering\n3,1,Marcus Chen,VP Product,Product\n4,2,Elena Rostova,Principal Architect,Core"
             "rack_42u" -> "41,2,Core Spine Switch,Switch,320,12\n37,4,GPU Compute Node A,Compute,1400,48\n33,4,NVMe Storage Array,Storage,850,38\n1,2,Dual Redundant UPS,UPS,1800,62"
             "arch_room" -> "Conference Suite A,2.0,3.0,5.0,3.5"
-            "calendar" -> "2026-11,monday\n2026-11-03|Architecture Freeze\n2026-11-12|Security Audit\n2026-11-27|v0.9.3-beta Release"
+            "calendar" -> "2026-11,monday\n2026-11-03|Architecture Freeze\n2026-11-12|Security Audit\n2026-11-27|v0.9.4-beta Release"
             "pivot_diagram" -> "GROUP=Region>Service;METRIC=Cost;AGG=SUM\nRegion,Service,Cost\nEMEA,Compute,42000\nEMEA,Storage,18000\nAmericas,Compute,64000\nAmericas,AI_GPU,51000\nAPAC,Compute,29000"
             "mind_map" -> "# Vexio 1.0 Launch\n## Core Engine\n### Associative Dimensions\n### Wall Auto-Healing\n## Native Apps\n### Windows WinUI 3\n### macOS Liquid Glass\n### Android Vulkan\n### ChromeOS Offline PWA"
             "mind_map_radial" -> "# Product Strategy\n## Enterprise CAD\n### DWG R2024\n### Scale Locking\n## Process Intelligence\n### Lean VSM\n### Fault Tree MOCUS"
@@ -7011,7 +7011,7 @@ class VexioSessionViewModel(
     }
 
     // -------------------------------------------------------------------------
-    // Milestone 4 (`v0.9.3-beta`): Associative Architectural Dimensions,
+    // Milestone 4 (`v0.9.4-beta`): Associative Architectural Dimensions,
     // Wall Miter/T-Join Auto-Healing, Door/Window Openings, Mind Map Topics & VSM/FTA
     // -------------------------------------------------------------------------
     @Synchronized
@@ -7506,7 +7506,7 @@ class VexioSessionViewModel(
                     instanceFollowRedirects = true
                     connectTimeout = 20_000
                     readTimeout = 45_000
-                    setRequestProperty("User-Agent", "Vexio-Android-Workstation/0.9.3-beta")
+                    setRequestProperty("User-Agent", "Vexio-Android-Workstation/0.9.4-beta")
                 }
                 try {
                     val code = conn.responseCode
@@ -8468,7 +8468,7 @@ class VexioSessionViewModel(
             }
         }
         viewModelScope.launch(ioDispatcher) {
-            val currentVersion = "0.9.3-beta"
+            val currentVersion = "0.9.4-beta"
             var latestTag: String? = null
             var downloadUrl = "https://github.com/petrosvassiliou/vexio/releases"
             var ok = false
@@ -8479,7 +8479,7 @@ class VexioSessionViewModel(
                     requestMethod = "GET"
                     connectTimeout = 4500
                     readTimeout = 4500
-                    setRequestProperty("User-Agent", "Vexio-Android-Googlebook/0.9.3-beta")
+                    setRequestProperty("User-Agent", "Vexio-Android-Googlebook/0.9.4-beta")
                     setRequestProperty("Accept", "application/vnd.github+json")
                 }
                 if (conn.responseCode in 200..299) {

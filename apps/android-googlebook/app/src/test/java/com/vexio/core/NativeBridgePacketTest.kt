@@ -730,8 +730,8 @@ class NativeBridgePacketTest {
         assertEquals(33, vm.uiState.value.stencilCategories.size)
         assertTrue(vm.uiState.value.stencilMasters.isNotEmpty())
         assertTrue(
-            "Expected 0.9.3-beta in updateStatusMessage, got: ${vm.uiState.value.updateStatusMessage}",
-            vm.uiState.value.updateStatusMessage.contains("0.9.3-beta")
+            "Expected 0.9.4-beta in updateStatusMessage, got: ${vm.uiState.value.updateStatusMessage}",
+            vm.uiState.value.updateStatusMessage.contains("0.9.4-beta")
         )
 
         val sampleNativeJson = """
@@ -1060,6 +1060,35 @@ class NativeBridgePacketTest {
         assertEquals(0, vm.uiState.value.textHorizAlign)
         vm.applyOrInsertHeading("title", forceInsert = true)
         assertEquals(1, vm.uiState.value.textHorizAlign)
+    }
+
+    @Test
+    fun stencilDropAtCanvasLocalPixelsSelectsSingleShapeAndResolvesActivePage() {
+        val vm = VexioSessionViewModel()
+        vm.resizeVulkanViewport(width = 1000, height = 800, density = 1.0f)
+        vm.addPage()
+        val secondPageId = vm.uiState.value.activePageId
+        assertTrue("Second page ID must be non-negative", secondPageId >= 0)
+
+        vm.dropStencilAtScreenPx(
+            title = "Process",
+            widthFormula = "1.50 in",
+            heightFormula = "0.90 in",
+            fillFormula = "RGB(255,255,255)",
+            category = "Basic Flowchart",
+            screenXPx = 500f,
+            screenYPx = 400f
+        )
+
+        val state = vm.uiState.value
+        assertEquals(VexioTool.POINTER, state.activeTool)
+        assertEquals(1, state.selectedShapeIds.size)
+        assertTrue(state.selectedShapeId > 0L)
+        assertTrue(state.isDirty)
+        val pinX = state.shapeSheetCells.first { it.cellName == "PinX" }.formula
+        val pinY = state.shapeSheetCells.first { it.cellName == "PinY" }.formula
+        assertTrue("Dropped PinX ($pinX) should map near page center", pinX.contains("5."))
+        assertTrue("Dropped PinY ($pinY) should map near page center", pinY.contains("4."))
     }
 }
 
