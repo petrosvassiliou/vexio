@@ -1,6 +1,6 @@
 # yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.6.0.schema.json
 PackageIdentifier: PetrosVassiliou.Vexio
-PackageVersion: 0.6.0-beta
+PackageVersion: 0.7.0-beta
 Platform:
   - Windows.Desktop
 MinimumOSVersion: 10.0.19041.0
@@ -29,10 +29,10 @@ FileExtensions:
   - dot
 Installers:
   - Architecture: x64
-    InstallerUrl: https://github.com/petrosvassiliou/vexio/releases/download/v0.6.0-beta/Vexio-Windows-v0.6.0-beta-x64.msix
-    InstallerSha256: 39F1EAD58D9EE6058A9921B5F878953186E79D43B17C5F0582B390966533BAC5
+    InstallerUrl: https://github.com/petrosvassiliou/vexio/releases/download/v0.7.0-beta/Vexio-Windows-v0.7.0-beta-x64.msix
+    InstallerSha256: AC9AB2F9CDABEFD1181C39438A14865AFE8D5D350E27CA90A609819BCE146611
   - Architecture: arm64
-    InstallerUrl: https://github.com/petrosvassiliou/vexio/releases/download/v0.6.0-beta/Vexio-Windows-v0.6.0-beta-arm64.msix
-    InstallerSha256: A953471CC2CF9F1A1E3A16605B1509EE52EF0E16E51BC1872F46D895B00B0B73
+    InstallerUrl: https://github.com/petrosvassiliou/vexio/releases/download/v0.7.0-beta/Vexio-Windows-v0.7.0-beta-arm64.msix
+    InstallerSha256: 8E56AEC68180B1288519C4D2BC90B50E73D7D4640081A812EB86A74BC8176651
 ManifestType: installer
 ManifestVersion: 1.6.0
