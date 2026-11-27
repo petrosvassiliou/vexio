@@ -283,7 +283,13 @@ impl ResolvedFontData {
 
     #[inline]
     pub fn parse_face(&self) -> Option<Face<'_>> {
-        Face::parse(self.as_bytes(), self.face_index).ok()
+        let mut face = Face::parse(self.as_bytes(), self.face_index).ok()?;
+        if face.is_variable() {
+            let wght = if self.native_bold { 700.0 } else { 400.0 };
+            let _ = face.set_variation(ttf_parser::Tag::from_bytes(b"wght"), wght);
+            let _ = face.set_variation(ttf_parser::Tag::from_bytes(b"opsz"), 12.0);
+        }
+        Some(face)
     }
 }
 
@@ -609,7 +615,7 @@ pub fn tessellate_glyph_outline_batch(
     lyon_buf: &mut VertexBuffers<GpuVertex, u32>,
 ) {
     let font_in = (font_size_pt.clamp(4.0, 288.0) / 72.0) as f32;
-    let tol = (font_in * 0.012).clamp(0.00018, 0.0025);
+    let tol = (font_in * 0.0035).clamp(0.00004, 0.0010);
     let rgba = color.to_linear_f32();
 
     let _ = fill_tess.tessellate_path(

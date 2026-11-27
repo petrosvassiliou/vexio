@@ -216,59 +216,132 @@ public struct VibrancySidebarContainer<Content: View>: NSViewRepresentable {
     }
 }
 
-// MARK: - Refractive Floating Tool Palette (16 Visio Drawing & Diagramming Tools)
+// MARK: - Refractive Floating & Dockable Tool Palette (Visio Authoring & CAD Tools)
 
 public struct LiquidGlassFloatingPalette: View {
+    public static let overlayCoordinateSpaceName = "VexioCanvasOverlaySpace"
+
     @Binding var selectedTool: VexioCanvasTool
+    @Binding var isDocked: Bool
+    let containerSize: CGSize
+
     @ObservedObject private var i18n: VexioLocalization = .shared
     @Namespace private var activeLensNamespace
-    @State private var dragDisplacement: CGSize = .zero
-    @State private var committedOffset: CGSize = .zero
+    @AppStorage("vexio.macos.paletteX") private var storedX: Double = 10
+    @AppStorage("vexio.macos.paletteY") private var storedY: Double = 10
+    @State private var dragDelta: CGSize = .zero
+    @State private var isDraggingPalette: Bool = false
+    @State private var isGrabHovering: Bool = false
     @State private var hoveredTool: VexioCanvasTool? = nil
     @State private var visibleTooltipTool: VexioCanvasTool? = nil
     @State private var hoveredRowIndex: Int = 0
     @State private var tooltipDelayTask: Task<Void, Never>? = nil
 
+    private let paletteWidth: CGFloat = 82
     private let paletteColumns = [
         GridItem(.fixed(32), spacing: 4),
         GridItem(.fixed(32), spacing: 4),
     ]
 
-    public init(selectedTool: Binding<VexioCanvasTool>) {
+    public init(
+        selectedTool: Binding<VexioCanvasTool>,
+        isDocked: Binding<Bool> = .constant(false),
+        containerSize: CGSize = CGSize(width: 1280, height: 800)
+    ) {
         self._selectedTool = selectedTool
+        self._isDocked = isDocked
+        self.containerSize = containerSize
+    }
+
+    private func clampPosition(rawX: CGFloat, rawY: CGFloat, rowCount: Int) -> CGPoint {
+        let estHeight = CGFloat(32 + rowCount * 34)
+        let maxX = max(6, containerSize.width - paletteWidth - 6)
+        let maxY = max(8, containerSize.height - estHeight - 44)
+        return CGPoint(
+            x: min(max(rawX, 6), maxX),
+            y: min(max(rawY, 8), maxY)
+        )
     }
 
     public var body: some View {
         let allTools = Array(VexioCanvasTool.allCases.enumerated())
+        let rowCount = (allTools.count + 1) / 2
+        let livePos = clampPosition(
+            rawX: CGFloat(storedX) + dragDelta.width,
+            rawY: CGFloat(storedY) + dragDelta.height,
+            rowCount: rowCount
+        )
+        let showTooltipOnLeft = livePos.x > max(260, containerSize.width - 250)
 
-        VStack(spacing: 5) {
-            // Dedicated tactile grab handle for repositioning over the Metal canvas (does not intercept tool button hover/tooltips)
-            HStack {
-                Spacer(minLength: 0)
+        let paletteDragGesture = DragGesture(
+            minimumDistance: 2,
+            coordinateSpace: .named(Self.overlayCoordinateSpaceName)
+        )
+        .onChanged { value in
+            if !isDraggingPalette {
+                isDraggingPalette = true
+                tooltipDelayTask?.cancel()
+                visibleTooltipTool = nil
+                NSCursor.closedHand.push()
+            }
+            dragDelta = value.translation
+        }
+        .onEnded { value in
+            if isDraggingPalette {
+                NSCursor.pop()
+                isDraggingPalette = false
+            }
+            let settled = clampPosition(
+                rawX: CGFloat(storedX) + value.translation.width,
+                rawY: CGFloat(storedY) + value.translation.height,
+                rowCount: rowCount
+            )
+            storedX = Double(settled.x)
+            storedY = Double(settled.y)
+            dragDelta = .zero
+        }
+
+        VStack(spacing: 4) {
+            // Enlarged tactile grab bar + 1-click Dock-to-Left-Rail button
+            HStack(spacing: 4) {
+                Spacer(minLength: 12)
                 Capsule()
-                    .fill(Color.secondary.opacity(0.42))
+                    .fill(Color.secondary.opacity(isGrabHovering || isDraggingPalette ? 0.72 : 0.45))
                     .frame(width: 28, height: 4.5)
                 Spacer(minLength: 0)
+                Button {
+                    tooltipDelayTask?.cancel()
+                    visibleTooltipTool = nil
+                    withAnimation(LiquidGlassPhysics.standardSpring) {
+                        isDocked = true
+                    }
+                } label: {
+                    Image(systemName: "sidebar.leading")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 16, height: 16)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Dock tool palette to left edge (never overlaps page)")
             }
-            .padding(.top, 6)
-            .padding(.bottom, 2)
+            .frame(height: 20)
             .contentShape(Rectangle())
-            .help("Drag to reposition tool palette")
-            .gesture(
-                DragGesture()
-                    .onChanged { value in
-                        dragDisplacement = value.translation
-                    }
-                    .onEnded { value in
-                        withAnimation(LiquidGlassPhysics.standardSpring) {
-                            committedOffset = CGSize(
-                                width: min(max(committedOffset.width + value.translation.width, -12), 520),
-                                height: min(max(committedOffset.height + value.translation.height, -120), 260)
-                            )
-                            dragDisplacement = .zero
-                        }
-                    }
-            )
+            .onHover { hovering in
+                isGrabHovering = hovering
+                if hovering && !isDraggingPalette {
+                    NSCursor.openHand.set()
+                } else if !hovering && !isDraggingPalette {
+                    NSCursor.arrow.set()
+                }
+            }
+            .onTapGesture(count: 2) {
+                withAnimation(LiquidGlassPhysics.standardSpring) {
+                    isDocked = true
+                }
+            }
+            .highPriorityGesture(paletteDragGesture)
+            .help("Drag anywhere on header to move • Double-click to dock to left rail")
 
             LazyVGrid(columns: paletteColumns, spacing: 4) {
                 ForEach(allTools, id: \.element.id) { idx, tool in
@@ -341,11 +414,14 @@ public struct LiquidGlassFloatingPalette: View {
             }
         }
         .padding(.horizontal, 7)
+        .padding(.top, 3)
         .padding(.bottom, 8)
-        .frame(width: 82)
+        .frame(width: paletteWidth)
+        .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .gesture(paletteDragGesture)
         .liquidGlassSurface(cornerRadius: 16, elevation: .floatingPalette)
-        .overlay(alignment: .topLeading) {
-            if let tool = visibleTooltipTool {
+        .overlay(alignment: showTooltipOnLeft ? .topTrailing : .topLeading) {
+            if let tool = visibleTooltipTool, !isDraggingPalette {
                 HStack(spacing: 5) {
                     Text(tool.localizedTitle(i18n.language))
                         .font(.system(size: 11, weight: .medium))
@@ -372,16 +448,81 @@ public struct LiquidGlassFloatingPalette: View {
                         .strokeBorder(Color.primary.opacity(0.12), lineWidth: 0.75)
                 )
                 .shadow(color: .black.opacity(0.14), radius: 6, x: 0, y: 2)
-                .offset(x: 88, y: CGFloat(19 + hoveredRowIndex * 34))
+                .offset(
+                    x: showTooltipOnLeft ? -88 : 88,
+                    y: CGFloat(24 + hoveredRowIndex * 34)
+                )
                 .allowsHitTesting(false)
-                .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .leading)))
+                .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: showTooltipOnLeft ? .trailing : .leading)))
             }
         }
         .zIndex(20)
-        .offset(
-            x: committedOffset.width + dragDisplacement.width,
-            y: committedOffset.height + dragDisplacement.height
-        )
+        .padding(.leading, livePos.x)
+        .padding(.top, livePos.y)
+    }
+}
+
+public struct VexioDockedToolRail: View {
+    @Binding var selectedTool: VexioCanvasTool
+    @Binding var isDocked: Bool
+    @ObservedObject private var i18n: VexioLocalization = .shared
+
+    public init(selectedTool: Binding<VexioCanvasTool>, isDocked: Binding<Bool>) {
+        self._selectedTool = selectedTool
+        self._isDocked = isDocked
+    }
+
+    public var body: some View {
+        VStack(spacing: 4) {
+            Button {
+                withAnimation(LiquidGlassPhysics.standardSpring) {
+                    isDocked = false
+                }
+            } label: {
+                Image(systemName: "pip.exit")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 32, height: 24)
+                    .background(
+                        RoundedRectangle(cornerRadius: 7, style: .continuous)
+                            .fill(Color.primary.opacity(0.05))
+                    )
+            }
+            .buttonStyle(.plain)
+            .padding(.top, 6)
+            .help("Undock into floating Liquid Glass tool palette")
+
+            Divider()
+                .frame(width: 24)
+                .padding(.vertical, 2)
+
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(spacing: 3) {
+                    ForEach(VexioCanvasTool.allCases) { tool in
+                        let isSelected = (selectedTool == tool)
+                        Button {
+                            withAnimation(LiquidGlassPhysics.standardSpring) {
+                                selectedTool = tool
+                            }
+                        } label: {
+                            Image(systemName: tool.symbolName)
+                                .font(.system(size: 13.5, weight: isSelected ? .semibold : .medium))
+                                .foregroundStyle(isSelected ? Color.white : Color.primary)
+                                .frame(width: 32, height: 29)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                        .fill(isSelected ? Color.accentColor : Color.clear)
+                                )
+                        }
+                        .buttonStyle(.plain)
+                        .help("\(tool.localizedTitle(i18n.language)) (\(tool.shortcutHint))")
+                    }
+                }
+                .padding(.bottom, 8)
+            }
+        }
+        .frame(width: 44)
+        .background(.thinMaterial)
     }
 }
 

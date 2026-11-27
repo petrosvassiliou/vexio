@@ -446,6 +446,8 @@ public struct VexioWorkspaceView: View {
             }
     }
 
+    @AppStorage("vexio.macos.toolPaletteDocked") private var isToolPaletteDocked: Bool = false
+
     private var workspaceGeometryContent: some View {
         GeometryReader { windowGeo in
             let isCompactStageManagerWidth = windowGeo.size.width < 1160
@@ -485,6 +487,14 @@ public struct VexioWorkspaceView: View {
                             .frame(width: isCompactStageManagerWidth ? 258 : 288)
                             .transition(.move(edge: .leading).combined(with: .opacity))
 
+                            Divider()
+                        }
+
+                        if isToolPaletteDocked {
+                            VexioDockedToolRail(
+                                selectedTool: $session.activeTool,
+                                isDocked: $isToolPaletteDocked
+                            )
                             Divider()
                         }
 
@@ -597,17 +607,16 @@ public struct VexioWorkspaceView: View {
     // MARK: - Refractive Canvas Overlays (Tool Palette, Guard Banner, Compare Pill, Force Touch Popover, Bottom Pills)
 
     private var canvasRefractiveOverlays: some View {
-        ZStack {
-            // Left Floating Liquid Glass Tool Palette
-            HStack {
-                VStack {
-                    Spacer().frame(height: 12)
-                    LiquidGlassFloatingPalette(selectedTool: $session.activeTool)
-                    Spacer()
+        GeometryReader { canvasGeo in
+            ZStack(alignment: .topLeading) {
+                // Left Floating Liquid Glass Tool Palette (when not docked to left rail)
+                if !isToolPaletteDocked {
+                    LiquidGlassFloatingPalette(
+                        selectedTool: $session.activeTool,
+                        isDocked: $isToolPaletteDocked,
+                        containerSize: canvasGeo.size
+                    )
                 }
-                .padding(.leading, 14)
-                Spacer()
-            }
 
             // Top GUARD / Formula Diagnostic Banner
             if let bannerError = session.lastBannerError {
@@ -721,8 +730,11 @@ public struct VexioWorkspaceView: View {
                 .transition(.scale(scale: 0.90).combined(with: .opacity))
             }
 
-            // Bottom Page Switcher (Single-Line Scrollable + Inline Rename), Subprocess, Compare & Zoom Liquid Glass Pill Controls
-            bottomLiquidGlassBar
+                // Bottom Page Switcher (Single-Line Scrollable + Inline Rename), Subprocess, Compare & Zoom Liquid Glass Pill Controls
+                bottomLiquidGlassBar
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .coordinateSpace(name: LiquidGlassFloatingPalette.overlayCoordinateSpaceName)
         }
     }
 
