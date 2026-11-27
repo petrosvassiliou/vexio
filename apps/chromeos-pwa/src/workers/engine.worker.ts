@@ -506,6 +506,81 @@ interface WasmSessionInstance {
     master_name: string
   ): number;
   export_custom_stencil_vssx?(stencil_title: string): Uint8Array;
+  list_arrowheads_json?(): string;
+  set_connector_arrowheads?(
+    page_id: number,
+    shape_ids: Uint32Array,
+    begin_arrow: number,
+    end_arrow: number,
+    arrow_size: number
+  ): number;
+  set_page_line_jumps?(
+    page_id: number,
+    jump_code: number,
+    jump_style: number,
+    factor_x: number,
+    factor_y: number
+  ): boolean;
+  insert_text_field?(
+    page_id: number,
+    shape_id: number,
+    preset_or_formula: string,
+    format_spec: string,
+    prefix_label: string
+  ): number;
+  list_text_fields_json?(page_id: number, shape_id: number): string;
+  set_shape_rich_runs_json?(page_id: number, shape_id: number, runs_json: string): void;
+  set_text_block_transform?(
+    page_id: number,
+    shape_id: number,
+    txt_pin_x_in: number,
+    txt_pin_y_in: number,
+    txt_width_in: number,
+    txt_height_in: number,
+    txt_angle_deg: number
+  ): void;
+  list_ruler_guides_json?(page_id: number): string;
+  add_ruler_guide?(page_id: number, is_vertical: boolean, coord_in: number): number;
+  move_ruler_guide?(page_id: number, guide_id: number, coord_in: number): boolean;
+  delete_ruler_guide?(page_id: number, guide_id: number): boolean;
+  get_snap_glue_json?(page_id: number): string;
+  set_snap_glue?(
+    page_id: number,
+    snap_enabled: boolean,
+    glue_enabled: boolean,
+    snap_targets_mask: number,
+    glue_types_mask: number
+  ): boolean;
+  find_in_document_json?(
+    active_page_id: number,
+    query: string,
+    match_case: boolean,
+    whole_word: boolean,
+    all_pages: boolean
+  ): string;
+  replace_in_document?(
+    active_page_id: number,
+    find_str: string,
+    replace_str: string,
+    match_case: boolean,
+    whole_word: boolean,
+    all_pages: boolean
+  ): number;
+  copy_shape_format_json?(page_id: number, shape_id: number): string;
+  apply_format_painter?(
+    page_id: number,
+    target_ids: Uint32Array,
+    format_json: string
+  ): number;
+  number_shapes_on_page?(
+    page_id: number,
+    shape_ids: Uint32Array,
+    order_mode: string,
+    start_num: number,
+    interval: number,
+    prefix: string,
+    target_mode: string
+  ): number;
   apply_title_block_border(page_id: number, project_code: string, author: string, revision: string): number;
   compare_with_vsdx_bytes(baseline_vsdx: Uint8Array): string;
   import_data_visualizer(page_id: number, bytes: Uint8Array): number;
@@ -2190,6 +2265,223 @@ self.onmessage = async (ev: MessageEvent) => {
             ? session.export_custom_stencil_vssx(String(payload.stencilTitle ?? 'My Shapes'))
             : new Uint8Array(0);
         self.postMessage({ id, ok: true, bytes }, [bytes.buffer]);
+        break;
+      }
+      case 'listArrowheads': {
+        const items =
+          typeof session.list_arrowheads_json === 'function'
+            ? JSON.parse(session.list_arrowheads_json())
+            : [];
+        self.postMessage({ id, ok: true, items });
+        break;
+      }
+      case 'setConnectorArrowheads': {
+        const count =
+          typeof session.set_connector_arrowheads === 'function'
+            ? session.set_connector_arrowheads(
+                activePageId,
+                new Uint32Array(payload.shapeIds ?? []),
+                Number(payload.beginArrow ?? 0),
+                Number(payload.endArrow ?? 4),
+                Number(payload.arrowSize ?? 2)
+              )
+            : 0;
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, count, wal, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'setPageLineJumps': {
+        const ok =
+          typeof session.set_page_line_jumps === 'function'
+            ? session.set_page_line_jumps(
+                activePageId,
+                Number(payload.jumpCode ?? 1),
+                Number(payload.jumpStyle ?? 0),
+                Number(payload.factorX ?? 0.666),
+                Number(payload.factorY ?? 0.666)
+              )
+            : false;
+        const wal = session.export_wal();
+        self.postMessage({ id, ok, wal, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'insertTextField': {
+        const fieldIx =
+          typeof session.insert_text_field === 'function'
+            ? session.insert_text_field(
+                activePageId,
+                Number(payload.shapeId ?? 0),
+                String(payload.presetOrFormula ?? '=Width'),
+                String(payload.formatSpec ?? ''),
+                String(payload.prefixLabel ?? '')
+              )
+            : 0;
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, fieldIx, wal, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'setTextBlockTransform': {
+        if (typeof session.set_text_block_transform === 'function') {
+          session.set_text_block_transform(
+            activePageId,
+            Number(payload.shapeId ?? 0),
+            Number(payload.txtPinXIn ?? 0.5),
+            Number(payload.txtPinYIn ?? 0.5),
+            Number(payload.txtWidthIn ?? 1.5),
+            Number(payload.txtHeightIn ?? 0.6),
+            Number(payload.txtAngleDeg ?? 0)
+          );
+        }
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, wal, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'listRulerGuides': {
+        const guides =
+          typeof session.list_ruler_guides_json === 'function'
+            ? JSON.parse(session.list_ruler_guides_json(activePageId))
+            : [];
+        self.postMessage({ id, ok: true, guides });
+        break;
+      }
+      case 'addRulerGuide': {
+        const guideId =
+          typeof session.add_ruler_guide === 'function'
+            ? session.add_ruler_guide(
+                activePageId,
+                Boolean(payload.isVertical),
+                Number(payload.coordIn ?? 2.0)
+              )
+            : 0;
+        const guides =
+          typeof session.list_ruler_guides_json === 'function'
+            ? JSON.parse(session.list_ruler_guides_json(activePageId))
+            : [];
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, guideId, guides, wal, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'moveRulerGuide': {
+        const moved =
+          typeof session.move_ruler_guide === 'function'
+            ? session.move_ruler_guide(
+                activePageId,
+                Number(payload.guideId ?? 0),
+                Number(payload.coordIn ?? 2.0)
+              )
+            : false;
+        const guides =
+          typeof session.list_ruler_guides_json === 'function'
+            ? JSON.parse(session.list_ruler_guides_json(activePageId))
+            : [];
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, moved, guides, wal, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'deleteRulerGuide': {
+        const deleted =
+          typeof session.delete_ruler_guide === 'function'
+            ? session.delete_ruler_guide(activePageId, Number(payload.guideId ?? 0))
+            : false;
+        const guides =
+          typeof session.list_ruler_guides_json === 'function'
+            ? JSON.parse(session.list_ruler_guides_json(activePageId))
+            : [];
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, deleted, guides, wal, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'getSnapGlue': {
+        const settings =
+          typeof session.get_snap_glue_json === 'function'
+            ? JSON.parse(session.get_snap_glue_json(activePageId))
+            : { snapEnabled: true, glueEnabled: true, snapTargetsMask: 127, glueTypesMask: 15 };
+        self.postMessage({ id, ok: true, settings });
+        break;
+      }
+      case 'setSnapGlue': {
+        const ok =
+          typeof session.set_snap_glue === 'function'
+            ? session.set_snap_glue(
+                activePageId,
+                Boolean(payload.snapEnabled ?? true),
+                Boolean(payload.glueEnabled ?? true),
+                Number(payload.snapTargetsMask ?? 127),
+                Number(payload.glueTypesMask ?? 15)
+              )
+            : false;
+        const wal = session.export_wal();
+        self.postMessage({ id, ok, wal, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'findInDocument': {
+        const matches =
+          typeof session.find_in_document_json === 'function'
+            ? JSON.parse(
+                session.find_in_document_json(
+                  activePageId,
+                  String(payload.query ?? ''),
+                  Boolean(payload.matchCase),
+                  Boolean(payload.wholeWord),
+                  Boolean(payload.allPages ?? true)
+                )
+              )
+            : [];
+        self.postMessage({ id, ok: true, matches });
+        break;
+      }
+      case 'replaceInDocument': {
+        const count =
+          typeof session.replace_in_document === 'function'
+            ? session.replace_in_document(
+                activePageId,
+                String(payload.findStr ?? ''),
+                String(payload.replaceStr ?? ''),
+                Boolean(payload.matchCase),
+                Boolean(payload.wholeWord),
+                Boolean(payload.allPages ?? true)
+              )
+            : 0;
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, count, wal, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'copyShapeFormat': {
+        const formatJson =
+          typeof session.copy_shape_format_json === 'function'
+            ? session.copy_shape_format_json(activePageId, Number(payload.shapeId ?? 0))
+            : '';
+        self.postMessage({ id, ok: true, formatJson });
+        break;
+      }
+      case 'applyFormatPainter': {
+        const count =
+          typeof session.apply_format_painter === 'function'
+            ? session.apply_format_painter(
+                activePageId,
+                new Uint32Array(payload.targetIds ?? []),
+                String(payload.formatJson ?? '')
+              )
+            : 0;
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, count, wal, snapshot: buildSnapshot(session) });
+        break;
+      }
+      case 'numberShapes': {
+        const count =
+          typeof session.number_shapes_on_page === 'function'
+            ? session.number_shapes_on_page(
+                activePageId,
+                new Uint32Array(payload.shapeIds ?? []),
+                String(payload.orderMode ?? 'top_to_bottom_left_to_right'),
+                Number(payload.startNum ?? 1),
+                Number(payload.interval ?? 1),
+                String(payload.prefix ?? ''),
+                String(payload.targetMode ?? 'both')
+              )
+            : 0;
+        const wal = session.export_wal();
+        self.postMessage({ id, ok: true, count, wal, snapshot: buildSnapshot(session) });
         break;
       }
     }

@@ -175,6 +175,10 @@ public struct VexioWorkspaceView: View {
     @State private var initialWizardSlug: String = "gantt"
     @State private var isCadToolsSheetPresented: Bool = false
     @State private var isSmartActionsSheetPresented: Bool = false
+    @State private var isInsertFieldSheetPresented: Bool = false
+    @State private var isFindReplaceSheetPresented: Bool = false
+    @State private var isSnapGlueSheetPresented: Bool = false
+    @State private var isNumberShapesSheetPresented: Bool = false
 
     // ShapeSheet Editor State
     @State private var selectedShapeSheetSection: ShapeSheetSectionCategory?
@@ -305,6 +309,26 @@ public struct VexioWorkspaceView: View {
                     isSmartActionsSheetPresented = false
                 }
             }
+            .sheet(isPresented: $isInsertFieldSheetPresented) {
+                VexioInsertFieldSheet(session: session) {
+                    isInsertFieldSheetPresented = false
+                }
+            }
+            .sheet(isPresented: $isFindReplaceSheetPresented) {
+                VexioFindReplaceSheet(session: session) {
+                    isFindReplaceSheetPresented = false
+                }
+            }
+            .sheet(isPresented: $isSnapGlueSheetPresented) {
+                VexioSnapGlueSheet(session: session) {
+                    isSnapGlueSheetPresented = false
+                }
+            }
+            .sheet(isPresented: $isNumberShapesSheetPresented) {
+                VexioNumberShapesSheet(session: session) {
+                    isNumberShapesSheetPresented = false
+                }
+            }
     }
 
     private var workspaceWithLifecycleNotifications: some View {
@@ -395,6 +419,18 @@ public struct VexioWorkspaceView: View {
             }
             .onReceive(NotificationCenter.default.publisher(for: .vexioOpenSmartActionsSheet)) { _ in
                 isSmartActionsSheetPresented = true
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .vexioOpenInsertFieldSheet)) { _ in
+                isInsertFieldSheetPresented = true
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .vexioOpenFindReplaceSheet)) { _ in
+                isFindReplaceSheetPresented = true
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .vexioOpenSnapGlueSheet)) { _ in
+                isSnapGlueSheetPresented = true
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .vexioOpenNumberShapesSheet)) { _ in
+                isNumberShapesSheetPresented = true
             }
             .onReceive(NotificationCenter.default.publisher(for: .vexioOpenPageSetupSheet)) { note in
                 if let pid = note.object as? UInt32 {
@@ -1242,6 +1278,10 @@ public extension Notification.Name {
     static let vexioOpenDomainWizardsSheet = Notification.Name("app.vexio.openDomainWizardsSheet")
     static let vexioOpenCadToolsSheet = Notification.Name("app.vexio.openCadToolsSheet")
     static let vexioOpenSmartActionsSheet = Notification.Name("app.vexio.openSmartActionsSheet")
+    static let vexioOpenInsertFieldSheet = Notification.Name("app.vexio.openInsertFieldSheet")
+    static let vexioOpenFindReplaceSheet = Notification.Name("app.vexio.openFindReplaceSheet")
+    static let vexioOpenSnapGlueSheet = Notification.Name("app.vexio.openSnapGlueSheet")
+    static let vexioOpenNumberShapesSheet = Notification.Name("app.vexio.openNumberShapesSheet")
     static let vexioExportFormatRequested = Notification.Name("app.vexio.exportFormatRequested")
     static let vexioOpenExternalURL = Notification.Name("app.vexio.openExternalURL")
 }
@@ -4983,5 +5023,227 @@ private struct VexioSmartActionsSheet: View {
         }
         .padding(18)
         .frame(width: 560)
+    }
+}
+
+// MARK: - Milestone 3 (`v0.8.0-beta`) Sheets: Insert Field, Find & Replace, Snap & Glue, Number Shapes
+
+private struct VexioInsertFieldSheet: View {
+    @ObservedObject var session: VexioDocumentSession
+    @Environment(\.undoManager) private var undoManager
+    var onClose: () -> Void
+    @State private var preset: String = "width"
+    @State private var prefixLabel: String = ""
+    @State private var formatSpec: String = "0.00 in"
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Insert Dynamic Text Field (<fld>)").font(.system(size: 14, weight: .bold))
+                Spacer()
+                Button("Close", action: onClose)
+            }
+            Picker("Field Formula", selection: $preset) {
+                Text("Geometry — Width (=Width)").tag("width")
+                Text("Geometry — Height (=Height)").tag("height")
+                Text("Geometry — Angle (=Angle)").tag("angle")
+                Text("Page — Page Name (=PAGENAME())").tag("page_name")
+                Text("Page — Page Number (=PAGENUMBER())").tag("page_number")
+                Text("Page — Page Count (=PAGECOUNT())").tag("page_count")
+                Text("Document — Title (=TITLE())").tag("doc_title")
+                Text("Document — Creator (=CREATOR())").tag("creator")
+                Text("Object Info — Name (=NAME())").tag("shape_name")
+            }
+            TextField("Prefix Label (e.g. W: )", text: $prefixLabel).textFieldStyle(.roundedBorder)
+            TextField("Display Format (e.g. 0.00 in)", text: $formatSpec).textFieldStyle(.roundedBorder)
+            HStack {
+                Spacer()
+                Button("Insert Field") {
+                    session.insertDynamicTextField(presetOrFormula: preset, formatSpec: formatSpec, prefixLabel: prefixLabel, undoManager: undoManager)
+                    onClose()
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(session.selectedShapeId == 0)
+            }
+        }
+        .padding(18)
+        .frame(width: 460)
+    }
+}
+
+private struct VexioFindReplaceSheet: View {
+    @ObservedObject var session: VexioDocumentSession
+    @Environment(\.undoManager) private var undoManager
+    var onClose: () -> Void
+    @State private var query: String = ""
+    @State private var replacement: String = ""
+    @State private var matchCase: Bool = false
+    @State private var wholeWord: Bool = false
+    @State private var allPages: Bool = true
+    @State private var summary: String = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Find & Replace (⌘F)").font(.system(size: 14, weight: .bold))
+                Spacer()
+                Button("Close", action: onClose)
+            }
+            TextField("Find text, Prop.*, or shape name", text: $query).textFieldStyle(.roundedBorder)
+            TextField("Replace with", text: $replacement).textFieldStyle(.roundedBorder)
+            HStack(spacing: 14) {
+                Toggle("Match Case", isOn: $matchCase)
+                Toggle("Whole Word", isOn: $wholeWord)
+                Toggle("All Pages", isOn: $allPages)
+            }
+            if !summary.isEmpty {
+                Text(summary).font(.system(size: 11.5)).foregroundStyle(.secondary)
+            }
+            HStack {
+                Spacer()
+                Button("Find All") {
+                    let hits = session.searchDocumentMatches(query: query, matchCase: matchCase, wholeWord: wholeWord, allPages: allPages)
+                    summary = "Found \(hits.count) match(es)."
+                    if let first = hits.first, let sid = first["shapeId"] as? Int, sid > 0 {
+                        if let pid = first["pageId"] as? Int, pid > 0 {
+                            session.activePageId = UInt32(pid)
+                        }
+                        session.selectSingleShape(UInt64(sid))
+                    }
+                }
+                Button("Replace All") {
+                    let n = session.replaceDocumentMatches(findStr: query, replaceStr: replacement, matchCase: matchCase, wholeWord: wholeWord, allPages: allPages, undoManager: undoManager)
+                    summary = "Replaced \(n) occurrence(s)."
+                }
+                .buttonStyle(.borderedProminent)
+            }
+        }
+        .padding(18)
+        .frame(width: 480)
+    }
+}
+
+private struct VexioSnapGlueSheet: View {
+    @ObservedObject var session: VexioDocumentSession
+    @Environment(\.undoManager) private var undoManager
+    var onClose: () -> Void
+    @State private var snapEnabled: Bool = true
+    @State private var glueEnabled: Bool = true
+    @State private var snapGrid: Bool = true
+    @State private var snapGuides: Bool = true
+    @State private var snapGeom: Bool = true
+    @State private var snapAlignBox: Bool = true
+    @State private var snapPorts: Bool = true
+    @State private var gluePorts: Bool = true
+    @State private var glueGuides: Bool = true
+    @State private var glueGeom: Bool = true
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Snap & Glue Matrix").font(.system(size: 14, weight: .bold))
+                Spacer()
+                Button("Close", action: onClose)
+            }
+            HStack(spacing: 18) {
+                Toggle("Enable Snap", isOn: $snapEnabled)
+                Toggle("Enable Glue", isOn: $glueEnabled)
+            }
+            Divider()
+            HStack(alignment: .top, spacing: 24) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Snap To").font(.system(size: 12, weight: .semibold))
+                    Toggle("Grid", isOn: $snapGrid)
+                    Toggle("Ruler Guides", isOn: $snapGuides)
+                    Toggle("Shape Geometry", isOn: $snapGeom)
+                    Toggle("Alignment Box", isOn: $snapAlignBox)
+                    Toggle("Connection Points", isOn: $snapPorts)
+                }
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Glue To").font(.system(size: 12, weight: .semibold))
+                    Toggle("Connection Points", isOn: $gluePorts)
+                    Toggle("Ruler Guides", isOn: $glueGuides)
+                    Toggle("Shape Geometry", isOn: $glueGeom)
+                }
+            }
+            HStack {
+                Spacer()
+                Button("Apply") {
+                    var sMask: UInt32 = 0
+                    if snapGrid { sMask |= 1 }
+                    if snapGuides { sMask |= 4 }
+                    if snapGeom { sMask |= 8 }
+                    if snapAlignBox { sMask |= 16 }
+                    if snapPorts { sMask |= 64 }
+                    var gMask: UInt32 = 0
+                    if gluePorts { gMask |= 1 }
+                    if glueGuides { gMask |= 2 }
+                    if glueGeom { gMask |= 4 }
+                    session.applySnapGlueSettings(snapEnabled: snapEnabled, glueEnabled: glueEnabled, snapTargetsMask: sMask, glueTypesMask: gMask, undoManager: undoManager)
+                    onClose()
+                }
+                .buttonStyle(.borderedProminent)
+            }
+        }
+        .padding(18)
+        .frame(width: 460)
+        .onAppear {
+            let (se, ge, st, gt) = session.readSnapGlueTuple()
+            snapEnabled = se
+            glueEnabled = ge
+            snapGrid = (st & 1) != 0
+            snapGuides = (st & 4) != 0
+            snapGeom = (st & 8) != 0
+            snapAlignBox = (st & 16) != 0
+            snapPorts = (st & 64) != 0
+            gluePorts = (gt & 1) != 0
+            glueGuides = (gt & 2) != 0
+            glueGeom = (gt & 4) != 0
+        }
+    }
+}
+
+private struct VexioNumberShapesSheet: View {
+    @ObservedObject var session: VexioDocumentSession
+    @Environment(\.undoManager) private var undoManager
+    var onClose: () -> Void
+    @State private var orderMode: String = "top_to_bottom_left_to_right"
+    @State private var startNum: Int = 1
+    @State private var interval: Int = 1
+    @State private var prefix: String = ""
+    @State private var targetMode: String = "both"
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Number Shapes Wizard").font(.system(size: 14, weight: .bold))
+                Spacer()
+                Button("Close", action: onClose)
+            }
+            Picker("Order", selection: $orderMode) {
+                Text("Top-to-Bottom, Left-to-Right").tag("top_to_bottom_left_to_right")
+                Text("Left-to-Right, Top-to-Bottom").tag("left_to_right_top_to_bottom")
+                Text("Connected Flow (BFS)").tag("connected_flow")
+                Text("Z-Order").tag("z_order")
+            }
+            Stepper("Start Number: \(startNum)", value: $startNum, in: 0...9999)
+            Stepper("Interval: \(interval)", value: $interval, in: 1...100)
+            TextField("Prefix (optional, e.g. P-)", text: $prefix).textFieldStyle(.roundedBorder)
+            Picker("Output Target", selection: $targetMode) {
+                Text("Shape Text + Prop.ShapeNumber").tag("both")
+                Text("Shape Text Only").tag("text_prefix")
+                Text("Prop.ShapeNumber Only").tag("shape_data")
+            }
+            HStack {
+                Spacer()
+                Button("Apply Numbering") {
+                    session.numberShapesOnActivePage(orderMode: orderMode, startNum: Int32(startNum), interval: Int32(interval), prefix: prefix, targetMode: targetMode, undoManager: undoManager)
+                    onClose()
+                }
+                .buttonStyle(.borderedProminent)
+            }
+        }
+        .padding(18)
+        .frame(width: 440)
     }
 }

@@ -202,6 +202,22 @@ pub struct EvaluatedDataGraphicOverlay {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EvaluatedTextRun {
+    pub text: String,
+    pub font_family: String,
+    pub font_size_pt: f64,
+    pub color: RgbaColor,
+    pub bold: bool,
+    pub italic: bool,
+    pub underline: bool,
+    pub strikethrough: bool,
+    pub superscript: bool,
+    pub subscript: bool,
+    pub horiz_align: u8,
+    pub bullet_style: u8,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct EvaluatedShapeVisual {
     pub shape_id: u64,
     pub kind: ShapeKind,
@@ -237,6 +253,8 @@ pub struct EvaluatedShapeVisual {
     pub txt_width: Option<f64>,
     #[serde(default)]
     pub txt_height: Option<f64>,
+    #[serde(default)]
+    pub txt_angle_rad: f64,
     pub font_size_pt: f64,
     pub text_color: RgbaColor,
     pub font_family: String,
@@ -249,6 +267,8 @@ pub struct EvaluatedShapeVisual {
     /// `0 = None`, `1 = Disc`, `2 = Numbered`.
     pub bullet_style: u8,
     pub text_bg_color: Option<RgbaColor>,
+    #[serde(default)]
+    pub evaluated_text_runs: Vec<EvaluatedTextRun>,
     #[serde(default)]
     pub foreign_media: Option<ForeignMediaData>,
     #[serde(default)]
@@ -324,6 +344,9 @@ impl ReactiveEngine {
                 break;
             }
         }
+
+        // Refresh live `<fld>` cached text runs across all pages so `shape.text` and `text_runs` stay synchronized!
+        refresh_document_text_field_runs(doc);
 
         // Keep any live Page Legend shapes (`User.msvStructureType == "Legend"` + `User.vexioLegendProp`)
         // automatically synchronized with the page's current `Prop.*` categories, swatches, and counts!
@@ -3020,6 +3043,11 @@ fn collect_shape_visuals(
         .filter(|v| v.is_finite() && *v > 0.05);
     let mut txt_local_center = [w * 0.5, h * 0.5];
 
+    let txt_angle_rad = ss
+        .get_f64("TxtAngle")
+        .or_else(|| master_shape.and_then(|ms| ms.sheet.get_f64("TxtAngle")))
+        .unwrap_or(0.0);
+
     let (txt_px, txt_py) = if shape.kind == ShapeKind::Connector1D
         && ss.get_cell("TxtPinX").is_none()
         && ss.get_cell("TxtPinY").is_none()
@@ -3074,11 +3102,7 @@ fn collect_shape_visuals(
             .get_f64("TxtLocPinY")
             .or_else(|| master_shape.and_then(|ms| ms.sheet.get_f64("TxtLocPinY")))
             .unwrap_or(th_ref * 0.5);
-        let txt_ang = ss
-            .get_f64("TxtAngle")
-            .or_else(|| master_shape.and_then(|ms| ms.sheet.get_f64("TxtAngle")))
-            .unwrap_or(0.0);
-        let (tsa, tca) = txt_ang.sin_cos();
+        let (tsa, tca) = txt_angle_rad.sin_cos();
         let off_x = tw_ref * 0.5 - txt_lpx;
         let off_y = th_ref * 0.5 - txt_lpy;
         let cx_l = txt_lx + off_x * tca - off_y * tsa;
@@ -3124,7 +3148,7 @@ fn collect_shape_visuals(
         .get_bool("HideText")
         .or_else(|| master_shape.and_then(|ms| ms.sheet.get_bool("HideText")))
         .unwrap_or(false);
-    let effective_text = if hide_text {
+    let raw_effective_text = if hide_text {
         String::new()
     } else if !shape.text.is_empty() {
         shape.text.clone()
@@ -3140,6 +3164,11 @@ fn collect_shape_visuals(
         }
     } else {
         String::new()
+    };
+    let effective_text = if hide_text || raw_effective_text.is_empty() {
+        String::new()
+    } else {
+        evaluate_inline_formula_tokens(doc, page.id, shape.id, &raw_effective_text)
     };
 
     let base_geom_aabb_min = aabb_min;
@@ -3364,6 +3393,45 @@ fn collect_shape_visuals(
         .round()
         .clamp(0.0, 6.0) as u8;
 
+    let base_font_size_pt = ss
+        .get_f64("Char.Size")
+        .map(|inches| inches * 72.0)
+        .unwrap_or(10.0);
+    let base_font_family = ss
+        .get_str("Char.Font")
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| active_theme.body_font.clone());
+    let base_horiz_align = ss
+        .get_f64("Para.HorzAlign")
+        .unwrap_or(1.0)
+        .round()
+        .clamp(0.0, 3.0) as u8;
+    let base_bullet_style = ss
+        .get_f64("Para.Bullet")
+        .or_else(|| master_shape.and_then(|ms| ms.sheet.get_f64("Para.Bullet")))
+        .unwrap_or(0.0)
+        .round()
+        .clamp(0.0, 4.0) as u8;
+
+    let (final_effective_text, evaluated_text_runs) = if hide_text {
+        (String::new(), Vec::new())
+    } else {
+        build_evaluated_shape_text_runs(
+            doc,
+            page.id,
+            shape,
+            master_shape,
+            &ss,
+            &effective_text,
+            &base_font_family,
+            base_font_size_pt,
+            resolved_text_color,
+            char_style,
+            base_horiz_align,
+            base_bullet_style,
+        )
+    };
+
     out.push(EvaluatedShapeVisual {
         shape_id: shape.id,
         kind: shape.kind,
@@ -3385,37 +3453,24 @@ fn collect_shape_visuals(
         begin_arrow: ss.get_f64("BeginArrow").unwrap_or(0.0) as u8,
         end_arrow_size,
         begin_arrow_size,
-        text: effective_text,
+        text: final_effective_text,
         txt_pos: [txt_px, txt_py],
         txt_width,
         txt_height,
-        font_size_pt: ss
-            .get_f64("Char.Size")
-            .map(|inches| inches * 72.0)
-            .unwrap_or(10.0),
+        txt_angle_rad,
+        font_size_pt: base_font_size_pt,
         text_color: resolved_text_color,
-        font_family: ss
-            .get_str("Char.Font")
-            .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| active_theme.body_font.clone()),
+        font_family: base_font_family,
         char_style,
-        horiz_align: ss
-            .get_f64("Para.HorzAlign")
-            .unwrap_or(1.0)
-            .round()
-            .clamp(0.0, 3.0) as u8,
+        horiz_align: base_horiz_align,
         vert_align: ss
             .get_f64("VerticalAlign")
             .unwrap_or(1.0)
             .round()
             .clamp(0.0, 2.0) as u8,
-        bullet_style: ss
-            .get_f64("Para.Bullet")
-            .or_else(|| master_shape.and_then(|ms| ms.sheet.get_f64("Para.Bullet")))
-            .unwrap_or(0.0)
-            .round()
-            .clamp(0.0, 4.0) as u8,
+        bullet_style: base_bullet_style,
         text_bg_color,
+        evaluated_text_runs,
         foreign_media,
         connection_points,
         control_handles,
@@ -3442,6 +3497,397 @@ fn collect_shape_visuals(
             collect_shape_visuals(doc, page, child, Some(&world_tf), out);
         }
     }
+}
+
+fn format_field_cell_value(val: &CellValue, format_spec: &str) -> String {
+    let fmt = format_spec.trim().trim_matches('"').trim();
+    match val {
+        CellValue::Err(e) => e.to_string(),
+        CellValue::Str(s) => s.trim_matches('"').to_string(),
+        CellValue::Bool(b) => if *b { "TRUE" } else { "FALSE" }.to_string(),
+        CellValue::Color(c) => c.to_hex_rgb(),
+        CellValue::Point { x, y } => format!(
+            "PNT({}, {})",
+            crate::units::format_clean_f64(*x),
+            crate::units::format_clean_f64(*y)
+        ),
+        CellValue::Ref(r) => r.clone(),
+        CellValue::Num { internal, unit } => {
+            if !internal.is_finite() {
+                return "#VALUE!".to_string();
+            }
+            if fmt.ends_with('%') {
+                let decimals = fmt
+                    .split_once('.')
+                    .map(|(_, frac)| frac.trim_end_matches('%').chars().filter(|c| *c == '0' || *c == '#').count())
+                    .unwrap_or(0);
+                return format!("{:.prec$}%", internal * 100.0, prec = decimals);
+            }
+            // Check explicit unit suffix in format string (e.g. `0.00 in`, `0.0 mm`, `0 deg`)
+            let explicit_unit = fmt
+                .split_whitespace()
+                .nth(1)
+                .and_then(Unit::from_token);
+            let target_unit = explicit_unit.unwrap_or(*unit);
+            let display_num = target_unit.from_internal(*internal);
+            let num_pattern = fmt.split_whitespace().next().unwrap_or("");
+            if num_pattern.starts_with('0') && num_pattern.chars().all(|c| c == '0' || c == '.' || c == '#') {
+                let decimals = num_pattern
+                    .split_once('.')
+                    .map(|(_, frac)| frac.len())
+                    .unwrap_or(0);
+                let factor = 10f64.powi(decimals.min(12) as i32);
+                let rounded = (display_num * factor).round() / factor;
+                let formatted = format!("{:.prec$}", rounded, prec = decimals);
+                if let Some(u) = explicit_unit {
+                    let suffix = match u {
+                        Unit::Inch => " in",
+                        Unit::Millimeter => " mm",
+                        Unit::Centimeter => " cm",
+                        Unit::Meter => " m",
+                        Unit::Foot => " ft",
+                        Unit::Point => " pt",
+                        Unit::Degree => " deg",
+                        Unit::Radian => " rad",
+                        Unit::Percent => "%",
+                        _ => "",
+                    };
+                    return format!("{formatted}{suffix}");
+                }
+                return formatted;
+            }
+            let clean = crate::units::format_clean_f64(display_num);
+            match target_unit {
+                Unit::Inch => format!("{clean} in"),
+                Unit::Millimeter => format!("{clean} mm"),
+                Unit::Centimeter => format!("{clean} cm"),
+                Unit::Meter => format!("{clean} m"),
+                Unit::Foot => format!("{clean} ft"),
+                Unit::Point => format!("{clean} pt"),
+                Unit::Pica => format!("{clean} pt"),
+                Unit::Degree => format!("{clean}°"),
+                Unit::Percent => format!("{clean}%"),
+                _ => clean,
+            }
+        }
+    }
+}
+
+fn evaluate_single_field_formula(
+    doc: &VisioDocument,
+    page_id: u32,
+    shape_id: u64,
+    formula_raw: &str,
+    format_spec: &str,
+) -> String {
+    let trimmed = formula_raw.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+    let expr_src = if trimmed.starts_with('=') {
+        trimmed.to_string()
+    } else if crate::units::parse_scalar_with_unit(trimmed).is_some()
+        || (trimmed.starts_with('"') && trimmed.ends_with('"'))
+    {
+        trimmed.to_string()
+    } else {
+        format!("={trimmed}")
+    };
+    let Ok(expr) = crate::parser::parse_formula(&expr_src) else {
+        return trimmed.trim_matches('"').to_string();
+    };
+    let ctx_sheet = SheetKey::Shape { page_id, shape_id };
+    let mut eval = EvalSession {
+        doc,
+        cache: BTreeMap::new(),
+        visiting: HashSet::new(),
+        pending_setf: Vec::new(),
+    };
+    let val = eval.eval_expr(&ctx_sheet, "__field_eval", &expr);
+    format_field_cell_value(&val, format_spec)
+}
+
+pub fn evaluate_inline_formula_tokens(
+    doc: &VisioDocument,
+    page_id: u32,
+    shape_id: u64,
+    raw_text: &str,
+) -> String {
+    if !raw_text.contains("{{=") {
+        return raw_text.to_string();
+    }
+    let mut out = String::with_capacity(raw_text.len());
+    let mut rest = raw_text;
+    while let Some(open_idx) = rest.find("{{=") {
+        out.push_str(&rest[..open_idx]);
+        let after_open = &rest[open_idx + 3..];
+        if let Some(close_idx) = after_open.find("}}") {
+            let inner = after_open[..close_idx].trim();
+            let (formula_part, fmt_part) = match inner.split_once('|') {
+                Some((f, fmt)) => (f.trim(), fmt.trim()),
+                None => (inner, ""),
+            };
+            let evaluated = evaluate_single_field_formula(doc, page_id, shape_id, formula_part, fmt_part);
+            out.push_str(&evaluated);
+            rest = &after_open[close_idx + 2..];
+        } else {
+            out.push_str(&rest[open_idx..]);
+            rest = "";
+            break;
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+fn refresh_document_text_field_runs(doc: &mut VisioDocument) {
+    let page_ids: Vec<u32> = doc.pages.iter().map(|p| p.id).collect();
+    for pid in page_ids {
+        let Some(p_idx) = doc.pages.iter().position(|p| p.id == pid) else {
+            continue;
+        };
+        let shape_ids: Vec<u64> = collect_all_page_shape_ids(&doc.pages[p_idx].shapes);
+        for sid in shape_ids {
+            let updates: Option<(Vec<crate::sections::VisioTextRun>, bool)> = {
+                let Some(shape) = doc.page(pid).and_then(|p| p.find_shape(sid)) else {
+                    continue;
+                };
+                if shape.sheet.text_runs.is_empty() {
+                    None
+                } else {
+                    let prev_plain = crate::sections::runs_plain_text(&shape.sheet.text_runs);
+                    let synced_with_text = shape.text.is_empty() || shape.text == prev_plain;
+                    if !synced_with_text {
+                        // Shape plain text was directly overridden outside `text_runs`; clear stale runs!
+                        Some((Vec::new(), false))
+                    } else {
+                        let has_field = shape
+                            .sheet
+                            .text_runs
+                            .iter()
+                            .any(|r| matches!(r, crate::sections::VisioTextRun::Field { .. }));
+                        if !has_field {
+                            None
+                        } else {
+                            let mut next_runs = shape.sheet.text_runs.clone();
+                            for run in &mut next_runs {
+                                if let crate::sections::VisioTextRun::Field {
+                                    field_ix, cached, ..
+                                } = run
+                                {
+                                    if let Some(tf) =
+                                        shape.sheet.text_fields.iter().find(|f| f.ix == *field_ix)
+                                    {
+                                        *cached = evaluate_single_field_formula(
+                                            doc,
+                                            pid,
+                                            sid,
+                                            &tf.value,
+                                            &tf.format,
+                                        );
+                                    }
+                                }
+                            }
+                            Some((next_runs, true))
+                        }
+                    }
+                }
+            };
+            if let Some((next_runs, update_plain_text)) = updates {
+                if let Some(shape_mut) = doc.page_mut(pid).and_then(|p| p.find_shape_mut(sid)) {
+                    if update_plain_text {
+                        shape_mut.text = crate::sections::runs_plain_text(&next_runs);
+                    }
+                    shape_mut.sheet.text_runs = next_runs;
+                }
+            }
+        }
+    }
+}
+
+fn collect_all_page_shape_ids(shapes: &[VisioShape]) -> Vec<u64> {
+    let mut ids = Vec::new();
+    fn visit(s: &VisioShape, out: &mut Vec<u64>) {
+        out.push(s.id);
+        for c in &s.children {
+            visit(c, out);
+        }
+    }
+    for s in shapes {
+        visit(s, &mut ids);
+    }
+    ids
+}
+
+#[allow(clippy::too_many_arguments)]
+fn build_evaluated_shape_text_runs(
+    doc: &VisioDocument,
+    page_id: u32,
+    shape: &VisioShape,
+    master_shape: Option<&VisioShape>,
+    merged_sheet: &ShapeSheet,
+    fallback_effective_text: &str,
+    base_font_family: &str,
+    base_font_size_pt: f64,
+    base_color: RgbaColor,
+    base_char_style: u8,
+    base_horiz_align: u8,
+    base_bullet_style: u8,
+) -> (String, Vec<EvaluatedTextRun>) {
+    let source_runs = if !shape.sheet.text_runs.is_empty()
+        && (shape.text.is_empty()
+            || crate::sections::runs_plain_text(&shape.sheet.text_runs) == shape.text)
+    {
+        Some((&shape.sheet.text_runs, &shape.sheet.text_fields))
+    } else if shape.text.is_empty() {
+        master_shape.and_then(|ms| {
+            if !ms.sheet.text_runs.is_empty()
+                && (ms.text.is_empty()
+                    || crate::sections::runs_plain_text(&ms.sheet.text_runs) == ms.text)
+            {
+                Some((&ms.sheet.text_runs, &ms.sheet.text_fields))
+            } else {
+                None
+            }
+        })
+    } else {
+        None
+    };
+
+    let Some((runs, fields)) = source_runs else {
+        return (fallback_effective_text.to_string(), Vec::new());
+    };
+
+    let mut full_text = String::new();
+    let mut eval_runs = Vec::with_capacity(runs.len());
+
+    for run in runs {
+        let (raw_piece, cp_ix, pp_ix) = match run {
+            crate::sections::VisioTextRun::Text {
+                text,
+                cp_ix,
+                pp_ix,
+            } => (
+                evaluate_inline_formula_tokens(doc, page_id, shape.id, text),
+                *cp_ix,
+                *pp_ix,
+            ),
+            crate::sections::VisioTextRun::Field {
+                field_ix,
+                cp_ix,
+                pp_ix,
+                cached,
+            } => {
+                let resolved = fields
+                    .iter()
+                    .find(|f| f.ix == *field_ix)
+                    .or_else(|| {
+                        master_shape.and_then(|ms| {
+                            ms.sheet.text_fields.iter().find(|f| f.ix == *field_ix)
+                        })
+                    })
+                    .map(|tf| {
+                        evaluate_single_field_formula(doc, page_id, shape.id, &tf.value, &tf.format)
+                    })
+                    .unwrap_or_else(|| cached.clone());
+                (resolved, *cp_ix, *pp_ix)
+            }
+        };
+
+        if raw_piece.is_empty() {
+            continue;
+        }
+
+        // Resolve `Character[cp_ix]` formatting with fallback to shape defaults
+        let font_key = format!("Char.Row_{cp_ix}.Font");
+        let size_key = format!("Char.Row_{cp_ix}.Size");
+        let color_key = format!("Char.Row_{cp_ix}.Color");
+        let style_key = format!("Char.Row_{cp_ix}.Style");
+        let strike_key = format!("Char.Row_{cp_ix}.Strikethru");
+        let pos_key = format!("Char.Row_{cp_ix}.Pos");
+        let case_key = format!("Char.Row_{cp_ix}.Case");
+
+        let font_family = merged_sheet
+            .get_str(&font_key)
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| base_font_family.to_string());
+        let font_size_pt = merged_sheet
+            .get_f64(&size_key)
+            .map(|inches| inches * 72.0)
+            .unwrap_or(base_font_size_pt)
+            .clamp(4.0, 288.0);
+        let color = merged_sheet.get_color(&color_key).unwrap_or(base_color);
+        let style_bits = merged_sheet
+            .get_f64(&style_key)
+            .map(|v| v.round().clamp(0.0, 31.0) as u8)
+            .unwrap_or(base_char_style);
+        let strike = merged_sheet
+            .get_bool(&strike_key)
+            .unwrap_or((base_char_style & 8) != 0);
+        let pos_code = merged_sheet
+            .get_f64(&pos_key)
+            .map(|v| v.round() as i32)
+            .unwrap_or(0);
+        let case_code = merged_sheet
+            .get_f64(&case_key)
+            .map(|v| v.round() as i32)
+            .unwrap_or(0);
+
+        let piece = match case_code {
+            1 => raw_piece.to_uppercase(),
+            2 => to_initial_caps(&raw_piece),
+            _ => raw_piece,
+        };
+
+        // Resolve `Paragraph[pp_ix]` formatting
+        let ha_key = format!("Para.Row_{pp_ix}.HorzAlign");
+        let bul_key = format!("Para.Row_{pp_ix}.Bullet");
+        let horiz_align = merged_sheet
+            .get_f64(&ha_key)
+            .map(|v| v.round().clamp(0.0, 3.0) as u8)
+            .unwrap_or(base_horiz_align);
+        let bullet_style = merged_sheet
+            .get_f64(&bul_key)
+            .map(|v| v.round().clamp(0.0, 4.0) as u8)
+            .unwrap_or(base_bullet_style);
+
+        full_text.push_str(&piece);
+        eval_runs.push(EvaluatedTextRun {
+            text: piece,
+            font_family,
+            font_size_pt,
+            color,
+            bold: (style_bits & 1) != 0,
+            italic: (style_bits & 2) != 0,
+            underline: (style_bits & 4) != 0,
+            strikethrough: strike,
+            superscript: pos_code == 1,
+            subscript: pos_code == 2,
+            horiz_align,
+            bullet_style,
+        });
+    }
+
+    (full_text, eval_runs)
+}
+
+fn to_initial_caps(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut new_word = true;
+    for ch in s.chars() {
+        if ch.is_whitespace() || ch == '-' || ch == '_' {
+            new_word = true;
+            out.push(ch);
+        } else if new_word {
+            for up in ch.to_uppercase() {
+                out.push(up);
+            }
+            new_word = false;
+        } else {
+            out.push(ch);
+        }
+    }
+    out
 }
 
 // ============================================================================

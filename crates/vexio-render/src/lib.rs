@@ -19,22 +19,23 @@ pub use pipeline::{
 pub use spatial::{SpatialEntry, SpatialIndex};
 pub use tessellate::{
     autoconnect_arrow_center_in, compute_visual_content_hash, emit_lod_bounding_quad,
-    extract_connector_polyline_in, tessellate_autoconnect_triangles,
+    extract_connector_polyline_in, list_visio_arrowheads, tessellate_autoconnect_triangles,
     tessellate_connector_1d_handles, tessellate_ink_stroke, tessellate_interactive_overlay,
     tessellate_multi_selection_frame, tessellate_ruler_and_grid_ticks,
     tessellate_selection_handles, tessellate_shape, tessellate_shape_full,
-    visio_arrow_size_scale, AutoConnectDir, GpuVertex, InteractiveCanvasOverlay, MeshCache,
-    SmartGuideLine, TessellatedMesh, PRIM_FLAG_MARKUP_INK, PRIM_FLAG_OVERLAY_UI,
-    PRIM_FLAG_PAGE_GRID, PRIM_FLAG_SHAPE, PRIM_FLAG_TEXT_GLYPH,
+    visio_arrow_size_scale, AutoConnectDir, EditableTextBlockOverlay, GpuVertex,
+    InteractiveCanvasOverlay, MeshCache, RulerGuideOverlay, SmartGuideLine, TessellatedMesh,
+    VisioArrowheadInfo, PRIM_FLAG_MARKUP_INK, PRIM_FLAG_OVERLAY_UI, PRIM_FLAG_PAGE_GRID,
+    PRIM_FLAG_SHAPE, PRIM_FLAG_TEXT_GLYPH,
 };
 pub use ttf_shaper::{
     measure_text_width_in, register_font_bytes, shape_line_to_pdf_contours, PdfContourOp,
 };
 pub use typography::{
-    measure_rich_text_bounds_in, parse_inline_rich_text, parse_inline_rich_text_styled,
-    parse_inline_rich_text_styled_with_font, reorder_bidi_visual_line,
-    tessellate_rich_text_in_box, BulletStyle, FontFamilyClass, RichTextBlock, RichTextRun,
-    TextDirection,
+    build_rich_text_block_from_evaluated_runs, measure_rich_text_bounds_in, parse_inline_rich_text,
+    parse_inline_rich_text_styled, parse_inline_rich_text_styled_with_font,
+    reorder_bidi_visual_line, tessellate_rich_text_in_box, BulletStyle, FontFamilyClass,
+    RichTextBlock, RichTextRun, TextDirection,
 };
 pub use vexio_shapesheet::VisioDocument;
 
@@ -104,6 +105,7 @@ mod tests {
             txt_pos: [x_in + w_in * 0.5, y_in + h_in * 0.5],
             txt_width: None,
             txt_height: None,
+            txt_angle_rad: 0.0,
             font_size_pt: 10.0,
             text_color: RgbaColor::BLACK,
             font_family: "Inter".into(),
@@ -112,6 +114,7 @@ mod tests {
             vert_align: 1,
             bullet_style: 0,
             text_bg_color: None,
+            evaluated_text_runs: Vec::new(),
             foreign_media: None,
             connection_points: Vec::new(),
             control_handles: Vec::new(),
@@ -305,6 +308,7 @@ mod tests {
             txt_pos: [4.0, 4.0],
             txt_width: None,
             txt_height: None,
+            txt_angle_rad: 0.0,
             font_size_pt: 12.0,
             text_color: RgbaColor::BLACK,
             font_family: "Inter".into(),
@@ -313,6 +317,7 @@ mod tests {
             vert_align: 1,
             bullet_style: 0,
             text_bg_color: None,
+            evaluated_text_runs: Vec::new(),
             foreign_media: None,
             connection_points: Vec::new(),
             control_handles: Vec::new(),
@@ -385,6 +390,39 @@ mod tests {
         assert!(!sel_mesh.is_empty());
         let ruler_mesh = tessellate_ruler_and_grid_ticks([0.0, 0.0], [11.0, 8.5], 0.25, 96.0);
         assert!(!ruler_mesh.is_empty());
+
+        // Verify all 45 Visio arrowheads (`1..=45`) and all 7 sizes (`0..=6`) tessellate finite non-empty geometry!
+        let catalog = list_visio_arrowheads();
+        assert_eq!(catalog.len(), 46);
+        let mut conn_vis = complex_visual.clone();
+        conn_vis.paths = vec![EvaluatedGeometryPath {
+            no_fill: true,
+            no_line: false,
+            no_show: false,
+            fill_color: None,
+            stroke_color: None,
+            stroke_weight_in: None,
+            verbs_page_space: vec![
+                EvaluatedPathVerb::MoveTo([1.0, 2.0]),
+                EvaluatedPathVerb::LineTo([5.0, 2.0]),
+            ],
+        }];
+        conn_vis.text.clear();
+        let base_line_verts = {
+            conn_vis.begin_arrow = 0;
+            conn_vis.end_arrow = 0;
+            tessellate_shape(&conn_vis, 96.0).vertices.len()
+        };
+        for code in 1u8..=45u8 {
+            conn_vis.end_arrow = code;
+            conn_vis.end_arrow_size = code % 7;
+            let m = tessellate_shape(&conn_vis, 96.0);
+            assert!(
+                m.vertices.len() > base_line_verts,
+                "arrowhead code {code} must emit extra vertices"
+            );
+            assert_eq!(m.indices.len() % 3, 0);
+        }
     }
 
     #[test]

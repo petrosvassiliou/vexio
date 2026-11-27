@@ -6,7 +6,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/petrosvassiliou/vexio/releases/tag/v0.7.0-beta"><img src="https://img.shields.io/badge/release-v0.7.0--beta-2563eb?style=for-the-badge" alt="Release v0.7.0-beta" /></a>
+  <a href="https://github.com/petrosvassiliou/vexio/releases/tag/v0.8.0-beta"><img src="https://img.shields.io/badge/release-v0.8.0--beta-2563eb?style=for-the-badge" alt="Release v0.8.0-beta" /></a>
   <a href="https://github.com/petrosvassiliou/vexio/actions"><img src="https://img.shields.io/badge/Rust_Engine-Zero_Stubs_%E2%80%A2_120_FPS-0f766e?style=for-the-badge" alt="Rust Core" /></a>
   <a href="https://vexio-chromeos-suite.web.app"><img src="https://img.shields.io/badge/Live_PWA-Offline--First_WASM_SIMD-4f46e5?style=for-the-badge" alt="Live ChromeOS PWA" /></a>
   <img src="https://img.shields.io/badge/Stencils-33_Packs_%E2%80%A2_756%2B_Masters-b45309?style=for-the-badge" alt="33 Built-In Stencil Packs" />
@@ -24,18 +24,18 @@ Every file codec, reactive ShapeSheet formula, A\* connector router, AutoCAD `.d
 
 ---
 
-## Download Installers (`v0.7.0-beta`)
+## Download Installers (`v0.8.0-beta`)
 
-All compiled native installers and offline bundles are published on the [**`v0.7.0-beta` Releases Page**](https://github.com/petrosvassiliou/vexio/releases/tag/v0.7.0-beta):
+All compiled native installers and offline bundles are published on the [**`v0.8.0-beta` Releases Page**](https://github.com/petrosvassiliou/vexio/releases/tag/v0.8.0-beta):
 
 | Platform | Architecture & Graphics Stack | Direct Installer Download |
 | :--- | :--- | :--- |
-| **Windows 11 Native** | `x64` (`WinUI 3` + `DirectX 12`) | [**`Vexio-Windows-v0.7.0-beta-x64.msix`**](https://github.com/petrosvassiliou/vexio/releases/download/v0.7.0-beta/Vexio-Windows-v0.7.0-beta-x64.msix) |
-| **Windows 11 Native** | `ARM64` (`WinUI 3` + `DirectX 12`) | [**`Vexio-Windows-v0.7.0-beta-arm64.msix`**](https://github.com/petrosvassiliou/vexio/releases/download/v0.7.0-beta/Vexio-Windows-v0.7.0-beta-arm64.msix) |
-| **macOS 15+ Native** | `Universal2` Apple Silicon + Intel (`Swift 6 Liquid Glass` + `Metal` + `Quick Look`) | [**`Vexio-v0.7.0-beta-Universal2.dmg`**](https://github.com/petrosvassiliou/vexio/releases/download/v0.7.0-beta/Vexio-v0.7.0-beta-Universal2.dmg) |
-| **Android & Googlebook OS** | `arm64-v8a` + `x86_64` APK (`Jetpack Compose M3E` + `Vulkan`) | [**`Vexio-Android-Googlebook-v0.7.0-beta.apk`**](https://github.com/petrosvassiliou/vexio/releases/download/v0.7.0-beta/Vexio-Android-Googlebook-v0.7.0-beta.apk) |
-| **Android & Googlebook OS** | `arm64-v8a` + `x86_64` Play App Bundle (`AAB`) | [**`Vexio-Android-Googlebook-v0.7.0-beta.aab`**](https://github.com/petrosvassiliou/vexio/releases/download/v0.7.0-beta/Vexio-Android-Googlebook-v0.7.0-beta.aab) |
-| **ChromeOS Offline-First PWA** | Live Hosted App + Offline Bundle (`WASM SIMD` + `WebGPU` + `OPFS WAL`) | [**Launch Live App**](https://vexio-chromeos-suite.web.app) · [**`Vexio-ChromeOS-PWA-v0.7.0-beta.zip`**](https://github.com/petrosvassiliou/vexio/releases/download/v0.7.0-beta/Vexio-ChromeOS-PWA-v0.7.0-beta.zip) |
+| **Windows 11 Native** | `x64` (`WinUI 3` + `DirectX 12`) | [**`Vexio-Windows-v0.8.0-beta-x64.msix`**](https://github.com/petrosvassiliou/vexio/releases/download/v0.8.0-beta/Vexio-Windows-v0.8.0-beta-x64.msix) |
+| **Windows 11 Native** | `ARM64` (`WinUI 3` + `DirectX 12`) | [**`Vexio-Windows-v0.8.0-beta-arm64.msix`**](https://github.com/petrosvassiliou/vexio/releases/download/v0.8.0-beta/Vexio-Windows-v0.8.0-beta-arm64.msix) |
+| **macOS 15+ Native** | `Universal2` Apple Silicon + Intel (`Swift 6 Liquid Glass` + `Metal` + `Quick Look`) | [**`Vexio-v0.8.0-beta-Universal2.dmg`**](https://github.com/petrosvassiliou/vexio/releases/download/v0.8.0-beta/Vexio-v0.8.0-beta-Universal2.dmg) |
+| **Android & Googlebook OS** | `arm64-v8a` + `x86_64` APK (`Jetpack Compose M3E` + `Vulkan`) | [**`Vexio-Android-Googlebook-v0.8.0-beta.apk`**](https://github.com/petrosvassiliou/vexio/releases/download/v0.8.0-beta/Vexio-Android-Googlebook-v0.8.0-beta.apk) |
+| **Android & Googlebook OS** | `arm64-v8a` + `x86_64` Play App Bundle (`AAB`) | [**`Vexio-Android-Googlebook-v0.8.0-beta.aab`**](https://github.com/petrosvassiliou/vexio/releases/download/v0.8.0-beta/Vexio-Android-Googlebook-v0.8.0-beta.aab) |
+| **ChromeOS Offline-First PWA** | Live Hosted App + Offline Bundle (`WASM SIMD` + `WebGPU` + `OPFS WAL`) | [**Launch Live App**](https://vexio-chromeos-suite.web.app) · [**`Vexio-ChromeOS-PWA-v0.8.0-beta.zip`**](https://github.com/petrosvassiliou/vexio/releases/download/v0.8.0-beta/Vexio-ChromeOS-PWA-v0.8.0-beta.zip) |
 
 ### Package Manager Manifests (`Homebrew` & `WinGet`)
 - **macOS (`Homebrew Cask` — [`packaging/homebrew/Casks/vexio.rb`](packaging/homebrew/Casks/vexio.rb)):**
@@ -94,7 +94,7 @@ Deployed via **Firebase Hosting** with `COOP: same-origin` / `COEP: require-corp
 
 ---
 
-## Complete Feature Matrix (`v0.7.0-beta`)
+## Complete Feature Matrix (`v0.8.0-beta`)
 
 ### 1. Lossless Visio, Legacy Binary, Diagram-as-Code & Offline AutoCAD Interop
 - **OpenXML Visio Packages (`vexio-vsdx`):** Lossless read/write for `.vsdx`, `.vssx`, `.vstx`, `.vsdm`, `.vssm`, and `.vstm`. Preserves unrecognized XML elements, custom OPC relationships, embedded raster/vector media, document metadata, themes/variants, master stencils, background pages, headers/footers, and `vbaProject.bin` streams across load → edit → save cycles.
@@ -109,7 +109,9 @@ Deployed via **Firebase Hosting** with `COOP: same-origin` / `COEP: require-corp
 - **`GUARD(expr)` & Cross-Page Topological DAG:** Enforces Visio `GUARD` write protection against interactive canvas drags while permitting `SETF` / explicit ShapeSheet formula overrides. Supports cross-shape and cross-page references (`Sheet.N!Cell`, `Pages[PageName]!Sheet.N!Cell`, `TheDoc!Cell`, `ThePage!Cell`) with incremental dirty-subgraph invalidation and deterministic Visio error tokens (`#DIV/0!`, `#VALUE!`, `#NAME?`, `#REF!`).
 
 ### 3. Visio Authoring, Typography, Headings & Page Design
-- **19 Precision Authoring, Connection Point, Sub-Shape Vertex & Markup Tools (`v0.7.0-beta`):** Pointer & marquee select, hand pan, dynamic connector, **Interactive Connection Point Tool (`Shift+Ctrl+1`)** (click shape to add proportional `Connections.*` port, drag `#DB2777` `×` grip with live connector re-routing, right-click to delete), straight line, circular/elliptical arc, freeform Bézier/spline curve (with 120 FPS live stroke preview), interactive **Edit Sub-Shape Vertices** (`Drag` grip, `Alt+Click` insert vertex, `Right-Click` delete vertex), rectangle, rounded rectangle, ellipse/circle, decision diamond, triangle, hexagon, 5-point star, rich text box, pressure-sensitive pen ink, highlighter, and **Markup Ink Eraser**.
+- **21 Precision Authoring, Text Block, Format Painter, Connection Point, Sub-Shape Vertex & Markup Tools (`v0.8.0-beta`):** Pointer & marquee select, hand pan, dynamic connector, **Independent Text Block Tool (`Shift+Ctrl+4`)** (drag emerald `(TxtPinX, TxtPinY, TxtWidth, TxtHeight, TxtAngle)` box to move, resize, and rotate text independently from shape geometry), **Format Painter (`Ctrl+Shift+P`)** (single-click or `Shift` multi-paint respecting `GUARD` & `LockFormat`), **Interactive Connection Point Tool (`Shift+Ctrl+1`)** (click shape to add proportional `Connections.*` port, drag `#DB2777` `×` grip with live connector re-routing, right-click to delete), straight line, circular/elliptical arc, freeform Bézier/spline curve, interactive **Edit Sub-Shape Vertices**, rectangle, rounded rectangle, ellipse/circle, decision diamond, triangle, hexagon, 5-point star, rich text box, pressure-sensitive pen ink, highlighter, and **Markup Ink Eraser**.
+- **Multi-Run `Character[0..N]` / `Paragraph[0..N]` Rich Text & Dynamic `<fld>` Fields (`v0.8.0-beta`):** Lossless `.vsdx` `<Section N="Character">`, `<Section N="Paragraph">`, `<Section N="Field">`, and `<Text><pp/><cp/><fld>...</fld></Text>` round-trip with live reactive formula fields (`=Width`, `=Height`, `=PAGENAME()`, `=PAGENUMBER()`, `=TITLE()`, custom expressions, and inline `{{=Formula}}` tokens) plus superscript/subscript GPU vector rendering.
+- **Draggable Ruler Guides, Configurable `Snap & Glue` Matrix, `Find & Replace` & `Number Shapes…` Wizard (`v0.8.0-beta`):** Full-viewport horizontal & vertical `ShapeKind::Guide` ruler guides with glued-shape propagation, Visio `SnapTargets` & `GlueTypes` bitmask matrix persisted in `PageSheet`, cross-page `Find & Replace` (`Ctrl+F` / `Ctrl+H` across text, `Prop.*`, and shape names), and spatial/Z-order/BFS-flow **Number Shapes Wizard**.
 - **`"My Shapes"` Custom Stencil Authoring, Master Propagation & `.vssx` Export (`v0.7.0-beta`):** Save any selected canvas shape or group into `"My Shapes"` as a reusable `VisioMaster` with auto-generated vector SVG & PNG previews, rename/delete custom masters, **Update Master** (propagating updated geometry, `Actions.*`, connection ports, and styles to all inheriting `master_id` instances across pages), and export standalone OpenXML **`.vssx`** stencil packages across all 4 platforms.
 - **Visio Text Headings, Titles & Typography:**
   - **8 Built-In Visio Text Styles (`Home -> Headings` & `Insert -> Title / Heading`):** `Title` (`24 pt` bold), `Subtitle` (`14 pt`), `Heading 1` (`18 pt` bold with bottom rule), `Heading 2` (`15 pt` bold), `Heading 3` (`12.5 pt` uppercase accent), `Section Header Banner` (filled pill banner), `Accent Callout Header` (tinted left-accent callout), `Body`, and `Caption`.
@@ -136,7 +138,7 @@ Every installation ships **100% offline** with **33 deterministic OpenXML `.vssx
 | **AEC, Electrical, P&ID, IoT & UX** | `Floor Plan & Architecture` (live area calculation) · `Electrical & Electronic (IEEE / IEC)` · `P&ID Process Engineering` · `Smart Home, IoT, Digital Logic & GDS IA/UX` · `UI & Application Wireframes` |
 
 ### 5. Visio Plan 2 Enterprise Intelligence, Routing, Validation & Exports
-- **Dynamic Connector Routing & Walking Glue:** A\* orthogonal, curved, and straight routing with real-time obstacle avoidance, configurable horizontal/vertical line jumps (`Arc`, `Gap`, `Square`, `2-Sides`), static port-to-port glue, shape-to-shape dynamic walking glue, and outward **AutoConnect** quick-shape triangles.
+- **Dynamic Connector Routing, 45 Canonical Arrowheads & Full Line Jumps (`v0.8.0-beta`):** A\* orthogonal, curved, and straight routing with real-time obstacle avoidance, **all 45 canonical Visio arrowheads (`0..=45`) across 7 sizes (`0..=6`)**, configurable horizontal/vertical/higher-Z line jumps (`Arc`, `Gap`, `Square`, `2-Sides`, `3-Sides`, `4-Sides`, `5-Sides` + `PageLineJumpFactorX/Y`), static port-to-port glue, shape-to-shape dynamic walking glue, and outward **AutoConnect** quick-shape triangles.
 - **Structural Diagram Validation:** Built-in rule engines for **BPMN 2.0**, **UML 2.5**, and **SharePoint / Workflow** returning structured `ValidationIssue` diagnostics with one-click canvas focus.
 - **Two-Way Data Linking, Data Visualizer & Live Data Graphics:**
   - Bidirectional binding to `.xlsx`, `.csv`, `.sqlite`/`.db`, and `.json` sources with **Two-Way Writeback** from `Prop.*` ShapeSheet edits back to external files.

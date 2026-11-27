@@ -492,8 +492,21 @@ fun GooglebookWorkstationScreen(
                         true
                     }
                     // Ctrl + P -> Native OS Vector PDF PrintManager
-                    ctrlOrMeta && keyEvent.key == Key.P -> {
+                    ctrlOrMeta && !shift && keyEvent.key == Key.P -> {
                         onPrintRequested()
+                        true
+                    }
+                    // Ctrl + Shift + P -> Format Painter (Visio Ctrl+Shift+P Parity)
+                    ctrlOrMeta && shift && keyEvent.key == Key.P -> {
+                        viewModel.copySelectedShapeFormat()
+                        viewModel.selectTool(
+                            if (uiState.activeTool == VexioTool.FORMAT_PAINTER) VexioTool.POINTER else VexioTool.FORMAT_PAINTER
+                        )
+                        true
+                    }
+                    // Ctrl + F / Ctrl + H -> Find & Replace Dialog
+                    ctrlOrMeta && !shift && (keyEvent.key == Key.F || keyEvent.key == Key.H) -> {
+                        viewModel.setFindReplaceDialogVisible(true)
                         true
                     }
                     // Ctrl + D -> Duplicate Selected Shape
@@ -526,6 +539,13 @@ fun GooglebookWorkstationScreen(
                         )
                         true
                     }
+                    // Ctrl + Shift + 4 -> Text Block Transform Tool (Visio Shift+Ctrl+4 Parity)
+                    ctrlOrMeta && shift && keyEvent.key == Key.Four -> {
+                        viewModel.selectTool(
+                            if (uiState.activeTool == VexioTool.TEXT_BLOCK_TRANSFORM) VexioTool.POINTER else VexioTool.TEXT_BLOCK_TRANSFORM
+                        )
+                        true
+                    }
                     // Ctrl + 1..9 -> Visio Authoring Tool Parity
                     ctrlOrMeta && !shift && keyEvent.key == Key.One -> {
                         viewModel.selectTool(VexioTool.POINTER)
@@ -539,7 +559,7 @@ fun GooglebookWorkstationScreen(
                         viewModel.selectTool(VexioTool.CONNECTOR)
                         true
                     }
-                    ctrlOrMeta && keyEvent.key == Key.Four -> {
+                    ctrlOrMeta && !shift && keyEvent.key == Key.Four -> {
                         viewModel.selectTool(VexioTool.STYLUS_INK)
                         true
                     }
@@ -1396,6 +1416,261 @@ fun GooglebookWorkstationScreen(
                     TextButton(onClick = { viewModel.setSmartActionsDialogVisible(false) }) {
                         Text("Done")
                     }
+                }
+            )
+        }
+
+        // Milestone 3 (`v0.8.0-beta`): Insert Dynamic <fld> Text Field Dialog
+        if (uiState.showInsertFieldDialog) {
+            var presetDraft by remember { mutableStateOf("width") }
+            var prefixDraft by remember { mutableStateOf("W: ") }
+            var formatDraft by remember { mutableStateOf("0.00 in") }
+            val fieldChoices = listOf(
+                "width" to "=Width",
+                "height" to "=Height",
+                "angle" to "=Angle",
+                "page_name" to "Page Name",
+                "page_number" to "Page #",
+                "doc_title" to "Doc Title",
+                "shape_name" to "Shape Name"
+            )
+            AlertDialog(
+                onDismissRequest = { viewModel.setInsertFieldDialogVisible(false) },
+                title = { Text("Insert Dynamic Text Field (<fld>)") },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            modifier = Modifier.horizontalScroll(rememberScrollState())
+                        ) {
+                            fieldChoices.forEach { (slug, label) ->
+                                ExpressivePlan2ActionPill(
+                                    label = label,
+                                    selected = presetDraft == slug,
+                                    onClick = { presetDraft = slug }
+                                )
+                            }
+                        }
+                        OutlinedTextField(
+                            value = presetDraft,
+                            onValueChange = { presetDraft = it },
+                            singleLine = true,
+                            label = { Text("Preset or Formula (e.g. =Width*Height)") },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        OutlinedTextField(
+                            value = prefixDraft,
+                            onValueChange = { prefixDraft = it },
+                            singleLine = true,
+                            label = { Text("Prefix Label") },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        OutlinedTextField(
+                            value = formatDraft,
+                            onValueChange = { formatDraft = it },
+                            singleLine = true,
+                            label = { Text("Display Format") },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                },
+                confirmButton = {
+                    FilledTonalButton(onClick = {
+                        viewModel.insertDynamicTextField(presetDraft, formatDraft, prefixDraft)
+                        viewModel.setInsertFieldDialogVisible(false)
+                    }) { Text("Insert Field") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { viewModel.setInsertFieldDialogVisible(false) }) { Text("Cancel") }
+                }
+            )
+        }
+
+        // Milestone 3 (`v0.8.0-beta`): Find & Replace Dialog
+        if (uiState.showFindReplaceDialog) {
+            var queryDraft by remember { mutableStateOf("") }
+            var replaceDraft by remember { mutableStateOf("") }
+            var matchCaseDraft by remember { mutableStateOf(false) }
+            var wholeWordDraft by remember { mutableStateOf(false) }
+            var allPagesDraft by remember { mutableStateOf(true) }
+            AlertDialog(
+                onDismissRequest = { viewModel.setFindReplaceDialogVisible(false) },
+                title = { Text("Find & Replace (Ctrl+F)") },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(
+                            value = queryDraft,
+                            onValueChange = { queryDraft = it },
+                            singleLine = true,
+                            label = { Text("Find text, Prop.*, or shape name") },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        OutlinedTextField(
+                            value = replaceDraft,
+                            onValueChange = { replaceDraft = it },
+                            singleLine = true,
+                            label = { Text("Replace with") },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Checkbox(checked = matchCaseDraft, onCheckedChange = { matchCaseDraft = it })
+                                Text("Case", style = MaterialTheme.typography.bodySmall)
+                            }
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Checkbox(checked = wholeWordDraft, onCheckedChange = { wholeWordDraft = it })
+                                Text("Word", style = MaterialTheme.typography.bodySmall)
+                            }
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Checkbox(checked = allPagesDraft, onCheckedChange = { allPagesDraft = it })
+                                Text("All Pages", style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                        if (uiState.lastFindMatches.isNotEmpty()) {
+                            Text(
+                                "Matches: ${uiState.lastFindMatches.size} (first: Sheet.${uiState.lastFindMatches.first().shapeId})",
+                                style = MaterialTheme.typography.labelSmall
+                            )
+                        }
+                    }
+                },
+                confirmButton = {
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        TextButton(onClick = {
+                            viewModel.findInDocument(queryDraft, matchCaseDraft, wholeWordDraft, allPagesDraft)
+                        }) { Text("Find All") }
+                        FilledTonalButton(onClick = {
+                            viewModel.replaceInDocument(queryDraft, replaceDraft, matchCaseDraft, wholeWordDraft, allPagesDraft)
+                        }) { Text("Replace All") }
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { viewModel.setFindReplaceDialogVisible(false) }) { Text("Close") }
+                }
+            )
+        }
+
+        // Milestone 3 (`v0.8.0-beta`): Snap & Glue Matrix Dialog
+        if (uiState.showSnapGlueDialog) {
+            var snapOn by remember(uiState.snapEnabled) { mutableStateOf(uiState.snapEnabled) }
+            var glueOn by remember(uiState.glueEnabled) { mutableStateOf(uiState.glueEnabled) }
+            var snapMask by remember(uiState.snapTargetsMask) { mutableStateOf(uiState.snapTargetsMask) }
+            var glueMask by remember(uiState.glueTypesMask) { mutableStateOf(uiState.glueTypesMask) }
+            AlertDialog(
+                onDismissRequest = { viewModel.setSnapGlueDialogVisible(false) },
+                title = { Text("Snap & Glue Matrix") },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Checkbox(checked = snapOn, onCheckedChange = { snapOn = it })
+                            Text("Enable Snap", style = MaterialTheme.typography.bodySmall)
+                            Spacer(Modifier.width(12.dp))
+                            Checkbox(checked = glueOn, onCheckedChange = { glueOn = it })
+                            Text("Enable Glue", style = MaterialTheme.typography.bodySmall)
+                        }
+                        listOf(
+                            1 to "Snap to Page Grid",
+                            4 to "Snap to Ruler Guides",
+                            8 to "Snap to Shape Geometry",
+                            16 to "Snap to Alignment Box",
+                            64 to "Snap to Connection Points"
+                        ).forEach { (bit, label) ->
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Checkbox(
+                                    checked = (snapMask and bit) != 0,
+                                    onCheckedChange = { checked ->
+                                        snapMask = if (checked) (snapMask or bit) else (snapMask and bit.inv())
+                                    }
+                                )
+                                Text(label, style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                        listOf(
+                            1 to "Glue to Connection Points",
+                            2 to "Glue to Ruler Guides",
+                            4 to "Glue to Shape Geometry"
+                        ).forEach { (bit, label) ->
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Checkbox(
+                                    checked = (glueMask and bit) != 0,
+                                    onCheckedChange = { checked ->
+                                        glueMask = if (checked) (glueMask or bit) else (glueMask and bit.inv())
+                                    }
+                                )
+                                Text(label, style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    FilledTonalButton(onClick = {
+                        viewModel.setSnapGlueSettings(snapOn, glueOn, snapMask, glueMask)
+                        viewModel.setSnapGlueDialogVisible(false)
+                    }) { Text("Apply") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { viewModel.setSnapGlueDialogVisible(false) }) { Text("Cancel") }
+                }
+            )
+        }
+
+        // Milestone 3 (`v0.8.0-beta`): Number Shapes Wizard Dialog
+        if (uiState.showNumberShapesDialog) {
+            var orderDraft by remember { mutableStateOf("top_to_bottom_left_to_right") }
+            var prefixDraft by remember { mutableStateOf("") }
+            var startDraft by remember { mutableStateOf("1") }
+            AlertDialog(
+                onDismissRequest = { viewModel.setNumberShapesDialogVisible(false) },
+                title = { Text("Number Shapes Wizard") },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            modifier = Modifier.horizontalScroll(rememberScrollState())
+                        ) {
+                            listOf(
+                                "top_to_bottom_left_to_right" to "Top→Bottom",
+                                "left_to_right_top_to_bottom" to "Left→Right",
+                                "connected_flow" to "Flow BFS",
+                                "z_order" to "Z-Order"
+                            ).forEach { (slug, label) ->
+                                ExpressivePlan2ActionPill(
+                                    label = label,
+                                    selected = orderDraft == slug,
+                                    onClick = { orderDraft = slug }
+                                )
+                            }
+                        }
+                        OutlinedTextField(
+                            value = startDraft,
+                            onValueChange = { startDraft = it },
+                            singleLine = true,
+                            label = { Text("Start Number") },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        OutlinedTextField(
+                            value = prefixDraft,
+                            onValueChange = { prefixDraft = it },
+                            singleLine = true,
+                            label = { Text("Optional Prefix (e.g. P-)") },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                },
+                confirmButton = {
+                    FilledTonalButton(onClick = {
+                        viewModel.numberShapesOnPage(
+                            orderMode = orderDraft,
+                            startNum = startDraft.toIntOrNull() ?: 1,
+                            interval = 1,
+                            prefix = prefixDraft,
+                            targetMode = "both"
+                        )
+                        viewModel.setNumberShapesDialogVisible(false)
+                    }) { Text("Apply Numbering") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { viewModel.setNumberShapesDialogVisible(false) }) { Text("Cancel") }
                 }
             )
         }
@@ -2896,6 +3171,55 @@ private fun ClassicVisioM3Ribbon(
                                 }
                             )
                             ExpressivePlan2ActionPill(
+                                label = "Text Block (Ctrl+Shift+4)",
+                                selected = uiState.activeTool == VexioTool.TEXT_BLOCK_TRANSFORM,
+                                onClick = {
+                                    viewModel.selectTool(
+                                        if (uiState.activeTool == VexioTool.TEXT_BLOCK_TRANSFORM) VexioTool.POINTER else VexioTool.TEXT_BLOCK_TRANSFORM
+                                    )
+                                }
+                            )
+                            ExpressivePlan2ActionPill(
+                                label = "Format Painter",
+                                selected = uiState.activeTool == VexioTool.FORMAT_PAINTER,
+                                onClick = {
+                                    viewModel.copySelectedShapeFormat()
+                                    viewModel.selectTool(
+                                        if (uiState.activeTool == VexioTool.FORMAT_PAINTER) VexioTool.POINTER else VexioTool.FORMAT_PAINTER
+                                    )
+                                }
+                            )
+                            ExpressivePlan2ActionPill(
+                                label = "Insert Field (<fld>)",
+                                selected = uiState.showInsertFieldDialog,
+                                onClick = { viewModel.setInsertFieldDialogVisible(true) }
+                            )
+                            ExpressivePlan2ActionPill(
+                                label = "Find & Replace",
+                                selected = uiState.showFindReplaceDialog,
+                                onClick = { viewModel.setFindReplaceDialogVisible(true) }
+                            )
+                            ExpressivePlan2ActionPill(
+                                label = "Snap & Glue",
+                                selected = uiState.showSnapGlueDialog,
+                                onClick = { viewModel.setSnapGlueDialogVisible(true) }
+                            )
+                            ExpressivePlan2ActionPill(
+                                label = "+ H Guide",
+                                selected = false,
+                                onClick = { viewModel.addRulerGuide(false, 4.0) }
+                            )
+                            ExpressivePlan2ActionPill(
+                                label = "+ V Guide",
+                                selected = false,
+                                onClick = { viewModel.addRulerGuide(true, 5.5) }
+                            )
+                            ExpressivePlan2ActionPill(
+                                label = "Number Shapes",
+                                selected = uiState.showNumberShapesDialog,
+                                onClick = { viewModel.setNumberShapesDialogVisible(true) }
+                            )
+                            ExpressivePlan2ActionPill(
                                 label = "Smart Actions (${uiState.selectedShapeActions.size})",
                                 selected = uiState.showSmartActionsDialog,
                                 onClick = { viewModel.setSmartActionsDialogVisible(true) }
@@ -3626,6 +3950,8 @@ private fun resolveToolIcon(tool: VexioTool): ImageVector = when (tool) {
     VexioTool.EDIT_VERTICES -> Icons.Default.Tune
     VexioTool.INK_ERASER -> Icons.Default.DeleteOutline
     VexioTool.CONNECTION_POINT -> Icons.Default.Add
+    VexioTool.TEXT_BLOCK_TRANSFORM -> Icons.Default.TextFields
+    VexioTool.FORMAT_PAINTER -> Icons.Default.Brush
 }
 
 /**

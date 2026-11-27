@@ -418,7 +418,7 @@ pub fn build_page_scene_mesh_with_overlay(
                     scene.append(&tessellate_connector_1d_handles(
                         vis, ui_ppi, beg_glued, end_glued,
                     ));
-                } else {
+                } else if vis.kind != ShapeKind::Guide {
                     scene.append(&tessellate_selection_handles(vis, ui_ppi));
                     if selected_shapes.len() == 1 {
                         let hov_dir = overlay
@@ -444,7 +444,57 @@ pub fn build_page_scene_mesh_with_overlay(
         }
     }
 
-    // Transient interactive overlays (smart guides, marquee box, connection-point snap targets, connector preview).
+    // Render persistent page `ShapeKind::Guide` ruler guides across the visible viewport unless already provided in `overlay.ruler_guides`.
+    let (vmin_g, vmax_g) = camera.visible_aabb_in();
+    let mut synthesized_guides = Vec::new();
+    for gshape in &page.shapes {
+        if gshape.kind != ShapeKind::Guide {
+            continue;
+        }
+        if gshape.sheet.get_bool("DontShow").unwrap_or(false) {
+            continue;
+        }
+        if overlay.is_some_and(|ov| ov.ruler_guides.iter().any(|rg| rg.shape_id == gshape.id)) {
+            continue;
+        }
+        let ang_deg = gshape
+            .sheet
+            .get_f64("Angle")
+            .unwrap_or(0.0)
+            .to_degrees()
+            .rem_euclid(180.0);
+        let is_vert = (45.0..135.0).contains(&ang_deg);
+        let coord = if is_vert {
+            gshape.sheet.get_f64("PinX").unwrap_or(0.0)
+        } else {
+            gshape.sheet.get_f64("PinY").unwrap_or(0.0)
+        };
+        synthesized_guides.push(crate::tessellate::RulerGuideOverlay {
+            shape_id: gshape.id,
+            is_vertical: is_vert,
+            coord_in: coord,
+            span_min_in: if is_vert {
+                vmin_g[1].min(0.0)
+            } else {
+                vmin_g[0].min(0.0)
+            },
+            span_max_in: if is_vert {
+                vmax_g[1].max(page_h)
+            } else {
+                vmax_g[0].max(page_w)
+            },
+            selected: selected_shapes.contains(&gshape.id),
+        });
+    }
+    if !synthesized_guides.is_empty() {
+        let tmp_ov = InteractiveCanvasOverlay {
+            ruler_guides: synthesized_guides,
+            ..InteractiveCanvasOverlay::default()
+        };
+        scene.append(&tessellate_interactive_overlay(&tmp_ov, ui_ppi));
+    }
+
+    // Transient interactive overlays (smart guides, marquee box, connection-point snap targets, connector preview, text block frame).
     if let Some(ov) = overlay {
         scene.append(&tessellate_interactive_overlay(ov, ui_ppi));
     }

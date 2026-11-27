@@ -10,8 +10,8 @@ pub mod units;
 pub use dag::{
     DataGraphicIconKind, EvaluatedConnectionPort, EvaluatedControlHandle, EvaluatedDataBar,
     EvaluatedDataGraphicOverlay, EvaluatedGeometryPath, EvaluatedGradientStop, EvaluatedIconBadge,
-    EvaluatedPathVerb, EvaluatedShapeVisual, EvaluatedTextCallout, GlobalCellId, PendingSetf,
-    ReactiveEngine, ShapeTransform2D, SheetKey, parse_prop_numeric_value,
+    EvaluatedPathVerb, EvaluatedShapeVisual, EvaluatedTextCallout, EvaluatedTextRun, GlobalCellId,
+    PendingSetf, ReactiveEngine, ShapeTransform2D, SheetKey, parse_prop_numeric_value,
     resolve_categorical_data_color, resolve_icon_badge_kind, resolve_shape_prop_cell,
     sanitize_prop_identifier,
 };
@@ -27,9 +27,10 @@ pub use parser::{
     parse_formula,
 };
 pub use sections::{
-    ActionRow, Cell, ConnectionPointRow, ControlRow, GeometryRow, GeometryRowKind, GeometrySection,
-    GradientStopRow, HyperlinkRow, ShapeDataRow, ShapeDataType, ShapeSheet, TextFieldRow,
-    UserCellRow, visio_standard_palette_color,
+    ActionRow, Cell, CharacterRow, ConnectionPointRow, ControlRow, GeometryRow, GeometryRowKind,
+    GeometrySection, GradientStopRow, HyperlinkRow, ParagraphRow, ShapeDataRow, ShapeDataType,
+    ShapeSheet, TextFieldRow, UserCellRow, VisioTextRun, runs_plain_text,
+    visio_standard_palette_color,
 };
 pub use units::{CellError, CellValue, RgbaColor, Unit, format_clean_f64, parse_scalar_with_unit};
 

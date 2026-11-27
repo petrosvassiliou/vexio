@@ -43,6 +43,10 @@ pub struct RichTextRun {
     pub strikethrough: bool,
     pub font_size_pt: f64,
     pub color: RgbaColor,
+    #[serde(default)]
+    pub font_family: String,
+    #[serde(default)]
+    pub baseline_shift_em: f64,
 }
 
 /// Visual font family classification used to adapt vector glyph serifs and pitch to OS fonts.
@@ -115,6 +119,7 @@ pub struct StyledCharCell {
     pub font_size_pt: f64,
     pub color: RgbaColor,
     pub family_class: FontFamilyClass,
+    pub baseline_shift_em: f64,
 }
 
 /// Parse lightweight inline markdown / Visio rich-text markup (`**bold**`, `*italic*`,
@@ -242,6 +247,78 @@ pub fn parse_inline_rich_text_styled_with_font(
     block
 }
 
+/// Build a multi-run `RichTextBlock` directly from evaluated `Character[0..N]` / `Paragraph[0..N]` / `<fld>` runs.
+pub fn build_rich_text_block_from_evaluated_runs(
+    evaluated_runs: &[vexio_shapesheet::EvaluatedTextRun],
+    default_font_family: &str,
+    horiz_align: u8,
+    vert_align: u8,
+    bullet_style: u8,
+) -> RichTextBlock {
+    let mut runs: Vec<RichTextRun> = Vec::with_capacity(evaluated_runs.len());
+    let mut joined = String::new();
+    for er in evaluated_runs {
+        if er.text.is_empty() {
+            continue;
+        }
+        joined.push_str(&er.text);
+        let (eff_size, shift_em) = if er.superscript {
+            ((er.font_size_pt * 0.68).clamp(4.0, 288.0), 0.36)
+        } else if er.subscript {
+            ((er.font_size_pt * 0.68).clamp(4.0, 288.0), -0.20)
+        } else {
+            (er.font_size_pt.clamp(4.0, 288.0), 0.0)
+        };
+        let mut sub_runs = parse_styled_runs(&er.text, eff_size, er.color);
+        for sr in &mut sub_runs {
+            sr.bold |= er.bold;
+            sr.italic |= er.italic;
+            sr.underline |= er.underline;
+            sr.strikethrough |= er.strikethrough;
+            if sr.font_family.is_empty() {
+                sr.font_family = er.font_family.clone();
+            }
+            if sr.baseline_shift_em.abs() < 1e-9 {
+                sr.baseline_shift_em = shift_em;
+            }
+        }
+        runs.extend(sub_runs);
+    }
+
+    let direction = if joined.trim_start().starts_with("[vert]") {
+        TextDirection::VerticalTopToBottom
+    } else if contains_primary_rtl_script(&joined) {
+        TextDirection::RightToLeft
+    } else {
+        TextDirection::LeftToRight
+    };
+
+    let first_align = evaluated_runs
+        .first()
+        .map(|r| r.horiz_align)
+        .unwrap_or(horiz_align);
+    let first_bullet = evaluated_runs
+        .first()
+        .map(|r| r.bullet_style)
+        .unwrap_or(bullet_style);
+
+    RichTextBlock {
+        runs,
+        direction,
+        bullet: match first_bullet {
+            1 => BulletStyle::Disc,
+            2 => BulletStyle::Numbered,
+            3 => BulletStyle::Circle,
+            4 => BulletStyle::Square,
+            _ => BulletStyle::None,
+        },
+        horiz_align: first_align.min(3),
+        vert_align: vert_align.min(2),
+        line_spacing: 1.35,
+        font_family: default_font_family.to_string(),
+    }
+}
+
 fn strip_line_bullet_prefix(line: &str) -> (BulletStyle, &str) {
     let t = line.trim_start_matches([' ', '\t']);
     if let Some(rest) = t.strip_prefix("- ").or_else(|| t.strip_prefix("• ")) {
@@ -309,13 +386,19 @@ fn parse_styled_runs(text: &str, size_pt: f64, default_color: RgbaColor) -> Vec<
     let mut underline = false;
     let mut strikethrough = false;
     let mut color_stack: Vec<RgbaColor> = vec![default_color];
+    let mut size_stack: Vec<f64> = vec![size_pt];
+    let mut font_stack: Vec<String> = vec![String::new()];
 
+    #[allow(clippy::too_many_arguments)]
     let flush = |buf: &mut String,
                  b: bool,
                  i: bool,
                  u: bool,
                  s: bool,
                  col: RgbaColor,
+                 sz: f64,
+                 fam: &str,
+                 shift_em: f64,
                  out: &mut Vec<RichTextRun>| {
         if buf.is_empty() {
             return;
@@ -327,7 +410,9 @@ fn parse_styled_runs(text: &str, size_pt: f64, default_color: RgbaColor) -> Vec<
                 && last.underline == u
                 && last.strikethrough == s
                 && last.color == col
-                && (last.font_size_pt - size_pt).abs() < 1e-9
+                && (last.font_size_pt - sz).abs() < 1e-9
+                && last.font_family == fam
+                && (last.baseline_shift_em - shift_em).abs() < 1e-9
             {
                 last.text.push_str(&chunk);
                 return;
@@ -339,8 +424,10 @@ fn parse_styled_runs(text: &str, size_pt: f64, default_color: RgbaColor) -> Vec<
             italic: i,
             underline: u,
             strikethrough: s,
-            font_size_pt: size_pt,
+            font_size_pt: sz,
             color: col,
+            font_family: fam.to_string(),
+            baseline_shift_em: shift_em,
         });
     };
 
@@ -352,7 +439,9 @@ fn parse_styled_runs(text: &str, size_pt: f64, default_color: RgbaColor) -> Vec<
         if let Some(after) = rest.strip_prefix("***") {
             if (bold && italic) || (!bold && !italic && after.contains("***")) {
                 let col = *color_stack.last().unwrap_or(&default_color);
-                flush(&mut cur_text, bold, italic, underline, strikethrough, col, &mut runs);
+                let sz = *size_stack.last().unwrap_or(&size_pt);
+                let fam = font_stack.last().map(String::as_str).unwrap_or("");
+                flush(&mut cur_text, bold, italic, underline, strikethrough, col, sz, fam, 0.0, &mut runs);
                 bold = !bold;
                 italic = !italic;
                 pos += 3;
@@ -364,7 +453,9 @@ fn parse_styled_runs(text: &str, size_pt: f64, default_color: RgbaColor) -> Vec<
         if let Some(after) = rest.strip_prefix("**") {
             if bold || after.contains("**") {
                 let col = *color_stack.last().unwrap_or(&default_color);
-                flush(&mut cur_text, bold, italic, underline, strikethrough, col, &mut runs);
+                let sz = *size_stack.last().unwrap_or(&size_pt);
+                let fam = font_stack.last().map(String::as_str).unwrap_or("");
+                flush(&mut cur_text, bold, italic, underline, strikethrough, col, sz, fam, 0.0, &mut runs);
                 bold = !bold;
                 pos += 2;
                 continue;
@@ -375,7 +466,9 @@ fn parse_styled_runs(text: &str, size_pt: f64, default_color: RgbaColor) -> Vec<
         if let Some(after) = rest.strip_prefix("__") {
             if underline || after.contains("__") {
                 let col = *color_stack.last().unwrap_or(&default_color);
-                flush(&mut cur_text, bold, italic, underline, strikethrough, col, &mut runs);
+                let sz = *size_stack.last().unwrap_or(&size_pt);
+                let fam = font_stack.last().map(String::as_str).unwrap_or("");
+                flush(&mut cur_text, bold, italic, underline, strikethrough, col, sz, fam, 0.0, &mut runs);
                 underline = !underline;
                 pos += 2;
                 continue;
@@ -386,14 +479,70 @@ fn parse_styled_runs(text: &str, size_pt: f64, default_color: RgbaColor) -> Vec<
         if let Some(after) = rest.strip_prefix("~~") {
             if strikethrough || after.contains("~~") {
                 let col = *color_stack.last().unwrap_or(&default_color);
-                flush(&mut cur_text, bold, italic, underline, strikethrough, col, &mut runs);
+                let sz = *size_stack.last().unwrap_or(&size_pt);
+                let fam = font_stack.last().map(String::as_str).unwrap_or("");
+                flush(&mut cur_text, bold, italic, underline, strikethrough, col, sz, fam, 0.0, &mut runs);
                 strikethrough = !strikethrough;
                 pos += 2;
                 continue;
             }
         }
 
-        // `[color=#RRGGBB]` and `[/color]` tags (byte-level ASCII check avoids multi-byte UTF-8 boundary panics).
+        // Inline superscript `^{...}` and subscript `_{...}`.
+        if let Some(after_sup) = rest.strip_prefix("^{") {
+            if let Some(close_brace) = after_sup.find('}') {
+                let sup_txt = &after_sup[..close_brace];
+                if !sup_txt.is_empty() && !sup_txt.contains('\n') {
+                    let col = *color_stack.last().unwrap_or(&default_color);
+                    let sz = *size_stack.last().unwrap_or(&size_pt);
+                    let fam = font_stack.last().map(String::as_str).unwrap_or("");
+                    flush(&mut cur_text, bold, italic, underline, strikethrough, col, sz, fam, 0.0, &mut runs);
+                    let mut sup_buf = sup_txt.to_string();
+                    flush(
+                        &mut sup_buf,
+                        bold,
+                        italic,
+                        underline,
+                        strikethrough,
+                        col,
+                        (sz * 0.68).clamp(4.0, 288.0),
+                        fam,
+                        0.36,
+                        &mut runs,
+                    );
+                    pos += 2 + close_brace + 1;
+                    continue;
+                }
+            }
+        }
+        if let Some(after_sub) = rest.strip_prefix("_{") {
+            if let Some(close_brace) = after_sub.find('}') {
+                let sub_txt = &after_sub[..close_brace];
+                if !sub_txt.is_empty() && !sub_txt.contains('\n') {
+                    let col = *color_stack.last().unwrap_or(&default_color);
+                    let sz = *size_stack.last().unwrap_or(&size_pt);
+                    let fam = font_stack.last().map(String::as_str).unwrap_or("");
+                    flush(&mut cur_text, bold, italic, underline, strikethrough, col, sz, fam, 0.0, &mut runs);
+                    let mut sub_buf = sub_txt.to_string();
+                    flush(
+                        &mut sub_buf,
+                        bold,
+                        italic,
+                        underline,
+                        strikethrough,
+                        col,
+                        (sz * 0.68).clamp(4.0, 288.0),
+                        fam,
+                        -0.20,
+                        &mut runs,
+                    );
+                    pos += 2 + close_brace + 1;
+                    continue;
+                }
+            }
+        }
+
+        // `[color=#RRGGBB]`, `[size=14]`, `[font=Consolas]` and closing tags.
         if rest.as_bytes().first() == Some(&b'[') {
             if rest.len() >= 14 && rest.as_bytes()[..7].eq_ignore_ascii_case(b"[color=") {
                 if let Some(close_bracket) = rest[7..].find(']') {
@@ -402,6 +551,8 @@ fn parse_styled_runs(text: &str, size_pt: f64, default_color: RgbaColor) -> Vec<
                     if let Some(parsed_col) = RgbaColor::from_hex(hex_str) {
                         if after_open.to_ascii_lowercase().contains("[/color]") {
                             let col = *color_stack.last().unwrap_or(&default_color);
+                            let sz = *size_stack.last().unwrap_or(&size_pt);
+                            let fam = font_stack.last().map(String::as_str).unwrap_or("");
                             flush(
                                 &mut cur_text,
                                 bold,
@@ -409,6 +560,9 @@ fn parse_styled_runs(text: &str, size_pt: f64, default_color: RgbaColor) -> Vec<
                                 underline,
                                 strikethrough,
                                 col,
+                                sz,
+                                fam,
+                                0.0,
                                 &mut runs,
                             );
                             color_stack.push(parsed_col);
@@ -423,9 +577,67 @@ fn parse_styled_runs(text: &str, size_pt: f64, default_color: RgbaColor) -> Vec<
                 && color_stack.len() > 1
             {
                 let col = *color_stack.last().unwrap_or(&default_color);
-                flush(&mut cur_text, bold, italic, underline, strikethrough, col, &mut runs);
+                let sz = *size_stack.last().unwrap_or(&size_pt);
+                let fam = font_stack.last().map(String::as_str).unwrap_or("");
+                flush(&mut cur_text, bold, italic, underline, strikethrough, col, sz, fam, 0.0, &mut runs);
                 color_stack.pop();
                 pos += 8;
+                continue;
+            }
+            if rest.len() >= 14 && rest.as_bytes()[..6].eq_ignore_ascii_case(b"[size=") {
+                if let Some(close_bracket) = rest[6..].find(']') {
+                    let sz_str = rest[6..6 + close_bracket].trim().trim_end_matches("pt").trim();
+                    let after_open = &rest[6 + close_bracket + 1..];
+                    if let Ok(parsed_sz) = sz_str.parse::<f64>() {
+                        if after_open.to_ascii_lowercase().contains("[/size]") {
+                            let col = *color_stack.last().unwrap_or(&default_color);
+                            let sz = *size_stack.last().unwrap_or(&size_pt);
+                            let fam = font_stack.last().map(String::as_str).unwrap_or("");
+                            flush(&mut cur_text, bold, italic, underline, strikethrough, col, sz, fam, 0.0, &mut runs);
+                            size_stack.push(parsed_sz.clamp(4.0, 288.0));
+                            pos += 6 + close_bracket + 1;
+                            continue;
+                        }
+                    }
+                }
+            }
+            if rest.len() >= 7
+                && rest.as_bytes()[..7].eq_ignore_ascii_case(b"[/size]")
+                && size_stack.len() > 1
+            {
+                let col = *color_stack.last().unwrap_or(&default_color);
+                let sz = *size_stack.last().unwrap_or(&size_pt);
+                let fam = font_stack.last().map(String::as_str).unwrap_or("");
+                flush(&mut cur_text, bold, italic, underline, strikethrough, col, sz, fam, 0.0, &mut runs);
+                size_stack.pop();
+                pos += 7;
+                continue;
+            }
+            if rest.len() >= 14 && rest.as_bytes()[..6].eq_ignore_ascii_case(b"[font=") {
+                if let Some(close_bracket) = rest[6..].find(']') {
+                    let f_str = rest[6..6 + close_bracket].trim().trim_matches('"');
+                    let after_open = &rest[6 + close_bracket + 1..];
+                    if !f_str.is_empty() && after_open.to_ascii_lowercase().contains("[/font]") {
+                        let col = *color_stack.last().unwrap_or(&default_color);
+                        let sz = *size_stack.last().unwrap_or(&size_pt);
+                        let fam = font_stack.last().map(String::as_str).unwrap_or("");
+                        flush(&mut cur_text, bold, italic, underline, strikethrough, col, sz, fam, 0.0, &mut runs);
+                        font_stack.push(f_str.to_string());
+                        pos += 6 + close_bracket + 1;
+                        continue;
+                    }
+                }
+            }
+            if rest.len() >= 7
+                && rest.as_bytes()[..7].eq_ignore_ascii_case(b"[/font]")
+                && font_stack.len() > 1
+            {
+                let col = *color_stack.last().unwrap_or(&default_color);
+                let sz = *size_stack.last().unwrap_or(&size_pt);
+                let fam = font_stack.last().map(String::as_str).unwrap_or("");
+                flush(&mut cur_text, bold, italic, underline, strikethrough, col, sz, fam, 0.0, &mut runs);
+                font_stack.pop();
+                pos += 7;
                 continue;
             }
         }
@@ -436,7 +648,9 @@ fn parse_styled_runs(text: &str, size_pt: f64, default_color: RgbaColor) -> Vec<
                 let line_rem = after.split('\n').next().unwrap_or(after);
                 if italic || has_single_star(line_rem) {
                     let col = *color_stack.last().unwrap_or(&default_color);
-                    flush(&mut cur_text, bold, italic, underline, strikethrough, col, &mut runs);
+                    let sz = *size_stack.last().unwrap_or(&size_pt);
+                    let fam = font_stack.last().map(String::as_str).unwrap_or("");
+                    flush(&mut cur_text, bold, italic, underline, strikethrough, col, sz, fam, 0.0, &mut runs);
                     italic = !italic;
                     pos += 1;
                     continue;
@@ -450,7 +664,9 @@ fn parse_styled_runs(text: &str, size_pt: f64, default_color: RgbaColor) -> Vec<
     }
 
     let col = *color_stack.last().unwrap_or(&default_color);
-    flush(&mut cur_text, bold, italic, underline, strikethrough, col, &mut runs);
+    let sz = *size_stack.last().unwrap_or(&size_pt);
+    let fam = font_stack.last().map(String::as_str).unwrap_or("");
+    flush(&mut cur_text, bold, italic, underline, strikethrough, col, sz, fam, 0.0, &mut runs);
     runs
 }
 
@@ -780,6 +996,11 @@ fn expand_runs_into_paragraphs_with_class(
     let mut paragraphs: Vec<Vec<StyledCharCell>> = vec![Vec::new()];
     for run in runs {
         let size_pt = run.font_size_pt.clamp(4.0, 288.0);
+        let run_class = if run.font_family.is_empty() {
+            family_class
+        } else {
+            FontFamilyClass::from_family_name(&run.font_family)
+        };
         for ch in run.text.chars() {
             if ch == '\r' {
                 continue;
@@ -795,7 +1016,8 @@ fn expand_runs_into_paragraphs_with_class(
                     strikethrough: run.strikethrough,
                     font_size_pt: size_pt,
                     color: run.color,
-                    family_class,
+                    family_class: run_class,
+                    baseline_shift_em: run.baseline_shift_em,
                 });
             }
         }
@@ -1060,6 +1282,7 @@ fn layout_horizontal_lines(
         };
 
         for cell in &visual_cells {
+            let cell_y = base_y + cell.baseline_shift_em * line.cap_h_in;
             let (cap_h, fallback_gw, fallback_adv, stroke_w) = metrics_for_cell(cell);
             let pri_entry = match (cell.bold, cell.italic) {
                 (true, true) => bold_italic_face.as_ref().map(|f| {
@@ -1108,7 +1331,7 @@ fn layout_horizontal_lines(
                         gid,
                         cell.ch,
                         cx,
-                        base_y,
+                        cell_y,
                         cell.font_size_pt,
                         syn_i,
                         pin_x_in,
@@ -1162,7 +1385,7 @@ fn layout_horizontal_lines(
                             gid,
                             cell.ch,
                             cx,
-                            base_y,
+                            cell_y,
                             cell.font_size_pt,
                             syn_i,
                             pin_x_in,
@@ -1192,7 +1415,7 @@ fn layout_horizontal_lines(
                         .map(|pt| {
                             let y_off = (pt[1] as f64) * cap_h;
                             let x_off = (pt[0] as f64) * fallback_gw + shear * y_off;
-                            [cx + x_off, base_y + y_off]
+                            [cx + x_off, cell_y + y_off]
                         })
                         .collect();
                     commands.push(StrokeCommand {
@@ -1206,7 +1429,7 @@ fn layout_horizontal_lines(
 
             let deco_sw = (stroke_w * 0.72).max(0.003);
             if cell.underline {
-                let uy = base_y - 0.14 * cap_h;
+                let uy = cell_y - 0.14 * cap_h;
                 commands.push(StrokeCommand {
                     polyline_local: vec![[cx, uy], [cx + advance, uy]],
                     stroke_w_in: deco_sw,
@@ -1214,7 +1437,7 @@ fn layout_horizontal_lines(
                 });
             }
             if cell.strikethrough {
-                let sy = base_y + 0.36 * cap_h;
+                let sy = cell_y + 0.36 * cap_h;
                 commands.push(StrokeCommand {
                     polyline_local: vec![[cx, sy], [cx + advance, sy]],
                     stroke_w_in: deco_sw,

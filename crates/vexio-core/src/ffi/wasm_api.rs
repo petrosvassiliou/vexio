@@ -2902,4 +2902,234 @@ impl WasmVexioSession {
             .export_custom_stencil_vssx(stencil_title)
             .map_err(|e| JsValue::from_str(&e.to_string()))
     }
+
+    // --- v0.8.0-beta: Multi-Run Rich Text, Dynamic `<fld>` Fields, `Shift+Ctrl+4` Text Block, 45 Arrowheads, Line Jumps, Ruler Guides, Snap & Glue, Find/Replace, Format Painter & Number Shapes ---
+
+    pub fn list_arrowheads_json(&self) -> String {
+        DocumentSession::list_arrowheads_json()
+    }
+
+    pub fn set_connector_arrowheads(
+        &mut self,
+        page_id: u32,
+        shape_ids: &[u32],
+        begin_arrow: u8,
+        end_arrow: u8,
+        arrow_size: u8,
+    ) -> u32 {
+        let ids: Vec<u64> = shape_ids.iter().map(|&id| id as u64).collect();
+        self.inner
+            .set_connector_arrowheads(page_id, &ids, begin_arrow, end_arrow, arrow_size)
+            .unwrap_or(0) as u32
+    }
+
+    pub fn set_page_line_jumps(
+        &mut self,
+        page_id: u32,
+        jump_code: u8,
+        jump_style: u8,
+        factor_x: f64,
+        factor_y: f64,
+    ) -> bool {
+        self.inner
+            .set_page_line_jump_settings(page_id, jump_code, jump_style, factor_x, factor_y)
+            .is_ok()
+    }
+
+    pub fn insert_text_field(
+        &mut self,
+        page_id: u32,
+        shape_id: u32,
+        preset_or_formula: &str,
+        format_spec: &str,
+        prefix_label: &str,
+    ) -> Result<u32, JsValue> {
+        self.inner
+            .insert_shape_text_field(
+                page_id,
+                shape_id as u64,
+                preset_or_formula,
+                format_spec,
+                prefix_label,
+            )
+            .map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
+    pub fn list_text_fields_json(&self, page_id: u32, shape_id: u32) -> String {
+        self.inner
+            .list_shape_text_fields_json(page_id, shape_id as u64)
+    }
+
+    pub fn set_shape_rich_runs_json(
+        &mut self,
+        page_id: u32,
+        shape_id: u32,
+        runs_json: &str,
+    ) -> Result<(), JsValue> {
+        self.inner
+            .set_shape_rich_runs_json(page_id, shape_id as u64, runs_json)
+            .map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn set_text_block_transform(
+        &mut self,
+        page_id: u32,
+        shape_id: u32,
+        txt_pin_x_in: f64,
+        txt_pin_y_in: f64,
+        txt_width_in: f64,
+        txt_height_in: f64,
+        txt_angle_deg: f64,
+    ) -> Result<(), JsValue> {
+        self.inner
+            .set_shape_text_block_transform(
+                page_id,
+                shape_id as u64,
+                txt_pin_x_in,
+                txt_pin_y_in,
+                txt_width_in,
+                txt_height_in,
+                txt_angle_deg,
+            )
+            .map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
+    pub fn get_text_block_overlay_json(&self, page_id: u32, shape_id: u32, zoom_ppi: f64) -> String {
+        let visuals = ReactiveEngine::evaluate_page_visuals(&self.inner.doc, page_id);
+        let Some(vis) = visuals.iter().find(|v| v.shape_id == shape_id as u64) else {
+            return "null".into();
+        };
+        let ov = crate::ffi::c_abi::compute_editable_text_block_overlay(vis, zoom_ppi.max(1.0));
+        serde_json::to_string(&ov).unwrap_or_else(|_| "null".into())
+    }
+
+    pub fn list_ruler_guides_json(&self, page_id: u32) -> String {
+        self.inner.list_ruler_guides_json(page_id)
+    }
+
+    pub fn add_ruler_guide(
+        &mut self,
+        page_id: u32,
+        is_vertical: bool,
+        coord_in: f64,
+    ) -> Result<u32, JsValue> {
+        self.inner
+            .add_ruler_guide(page_id, is_vertical, coord_in)
+            .map(|id| id as u32)
+            .map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
+    pub fn move_ruler_guide(&mut self, page_id: u32, guide_id: u32, coord_in: f64) -> bool {
+        self.inner
+            .move_ruler_guide(page_id, guide_id as u64, coord_in)
+            .unwrap_or(false)
+    }
+
+    pub fn delete_ruler_guide(&mut self, page_id: u32, guide_id: u32) -> bool {
+        self.inner
+            .delete_ruler_guide(page_id, guide_id as u64)
+            .unwrap_or(false)
+    }
+
+    pub fn get_snap_glue_json(&self, page_id: u32) -> String {
+        self.inner.get_snap_glue_settings_json(page_id)
+    }
+
+    pub fn set_snap_glue(
+        &mut self,
+        page_id: u32,
+        snap_enabled: bool,
+        glue_enabled: bool,
+        snap_targets_mask: u32,
+        glue_types_mask: u32,
+    ) -> bool {
+        self.inner
+            .set_snap_glue_settings(
+                page_id,
+                snap_enabled,
+                glue_enabled,
+                snap_targets_mask,
+                glue_types_mask,
+            )
+            .is_ok()
+    }
+
+    pub fn find_in_document_json(
+        &self,
+        active_page_id: u32,
+        query: &str,
+        match_case: bool,
+        whole_word: bool,
+        all_pages: bool,
+    ) -> String {
+        self.inner
+            .find_in_document_json(active_page_id, query, match_case, whole_word, all_pages)
+    }
+
+    pub fn replace_in_document(
+        &mut self,
+        active_page_id: u32,
+        find_str: &str,
+        replace_str: &str,
+        match_case: bool,
+        whole_word: bool,
+        all_pages: bool,
+    ) -> u32 {
+        self.inner
+            .replace_in_document(
+                active_page_id,
+                find_str,
+                replace_str,
+                match_case,
+                whole_word,
+                all_pages,
+            )
+            .unwrap_or(0) as u32
+    }
+
+    pub fn copy_shape_format_json(&self, page_id: u32, shape_id: u32) -> Result<String, JsValue> {
+        self.inner
+            .copy_shape_format_json(page_id, shape_id as u64)
+            .map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
+    pub fn apply_format_painter(
+        &mut self,
+        page_id: u32,
+        target_ids: &[u32],
+        format_json: &str,
+    ) -> Result<u32, JsValue> {
+        let ids: Vec<u64> = target_ids.iter().map(|&id| id as u64).collect();
+        self.inner
+            .apply_format_painter(page_id, &ids, format_json)
+            .map(|n| n as u32)
+            .map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn number_shapes_on_page(
+        &mut self,
+        page_id: u32,
+        shape_ids: &[u32],
+        order_mode: &str,
+        start_num: i32,
+        interval: i32,
+        prefix: &str,
+        target_mode: &str,
+    ) -> Result<u32, JsValue> {
+        let ids: Vec<u64> = shape_ids.iter().map(|&id| id as u64).collect();
+        self.inner
+            .number_shapes_on_page(
+                page_id,
+                &ids,
+                order_mode,
+                start_num,
+                interval,
+                prefix,
+                target_mode,
+            )
+            .map(|n| n as u32)
+            .map_err(|e| JsValue::from_str(&e.to_string()))
+    }
 }

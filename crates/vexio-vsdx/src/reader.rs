@@ -5,10 +5,11 @@ use quick_xml::Reader;
 use quick_xml::events::{BytesStart, Event};
 use std::collections::BTreeMap;
 use vexio_shapesheet::{
-    ActionRow, CommentAnnotation, ConnectionPointRow, ControlRow, ForeignMediaData, GeometryRow,
-    GeometryRowKind, GeometrySection, GlueEndpoint, GradientStopRow, HyperlinkRow, LayerDef,
-    ReactiveEngine, RgbaColor, ShapeDataRow, ShapeDataType, ShapeKind, ShapeSheet, StencilPack,
-    StyleSheetDef, TextFieldRow, Unit, VisioDocument, VisioMaster, VisioPage, VisioShape,
+    ActionRow, CharacterRow, CommentAnnotation, ConnectionPointRow, ControlRow, ForeignMediaData,
+    GeometryRow, GeometryRowKind, GeometrySection, GlueEndpoint, GradientStopRow, HyperlinkRow,
+    LayerDef, ParagraphRow, ReactiveEngine, RgbaColor, ShapeDataRow, ShapeDataType, ShapeKind,
+    ShapeSheet, StencilPack, StyleSheetDef, TextFieldRow, Unit, VisioDocument, VisioMaster,
+    VisioPage, VisioShape, VisioTextRun,
 };
 
 pub fn read_vsdx(bytes: &[u8]) -> Result<(VisioDocument, VsdxPackageKind), VsdxError> {
@@ -800,6 +801,7 @@ fn parse_shape_bounded(
     let mut sheet = ShapeSheet::new();
     let mut children = Vec::new();
     let mut text = String::new();
+    let mut parsed_text_runs: Vec<VisioTextRun> = Vec::new();
     let mut has_explicit_text = false;
     let mut foreign_data = None;
     let mut opaque_xml_fragments = Vec::new();
@@ -817,7 +819,9 @@ fn parse_shape_bounded(
                 }
                 b"Text" => {
                     has_explicit_text = true;
-                    text = read_text_element(reader)?;
+                    let (t, runs) = read_text_element_and_runs(reader)?;
+                    text = t;
+                    parsed_text_runs = runs;
                 }
                 b"Shapes" => {
                     // Container for group child `<Shape>` elements
@@ -940,6 +944,10 @@ fn parse_shape_bounded(
                 }
             }
         }
+    }
+
+    if !parsed_text_runs.is_empty() {
+        sheet.text_runs = parsed_text_runs;
     }
 
     Ok(VisioShape {
@@ -1566,15 +1574,17 @@ fn parse_section_elem(
         }
         "Field" => {
             let mut buf = Vec::new();
+            let mut seq = 0u32;
             loop {
                 match reader.read_event_into(&mut buf)? {
                     Event::Start(e) if e.local_name().as_ref() == b"Row" => {
-                        let ix = attr_str(&e, b"IX").and_then(|s| s.parse().ok()).unwrap_or(0);
-                        let cells = read_row_cells(reader)?;
-                        sheet.text_fields.push(TextFieldRow {
+                        let ix = attr_str(&e, b"IX").and_then(|s| s.parse().ok()).unwrap_or(seq);
+                        seq = seq.max(ix + 1);
+                        let (val_f, fmt_s) = read_field_row_cells(reader, tables)?;
+                        sheet.upsert_text_field(TextFieldRow {
                             ix,
-                            value: cells.get("Value").cloned().unwrap_or_default(),
-                            format: cells.get("Format").cloned().unwrap_or_default(),
+                            value: val_f,
+                            format: fmt_s,
                         });
                     }
                     Event::End(e) if e.local_name().as_ref() == b"Section" => break,
@@ -1586,10 +1596,13 @@ fn parse_section_elem(
         }
         "Character" => {
             let mut buf = Vec::new();
+            let mut seq = 0u32;
             loop {
                 match reader.read_event_into(&mut buf)? {
                     Event::Start(e) if e.local_name().as_ref() == b"Row" => {
-                        parse_character_row_into_sheet(reader, sheet, tables)?;
+                        let ix = attr_str(&e, b"IX").and_then(|s| s.parse().ok()).unwrap_or(seq);
+                        seq = seq.max(ix + 1);
+                        parse_character_row_into_sheet(reader, ix, sheet, tables)?;
                     }
                     Event::End(e) if e.local_name().as_ref() == b"Section" => break,
                     Event::Eof => break,
@@ -1600,16 +1613,24 @@ fn parse_section_elem(
         }
         "Paragraph" => {
             let mut buf = Vec::new();
+            let mut seq = 0u32;
             loop {
                 match reader.read_event_into(&mut buf)? {
                     Event::Start(e) if e.local_name().as_ref() == b"Row" => {
+                        let ix = attr_str(&e, b"IX").and_then(|s| s.parse().ok()).unwrap_or(seq);
+                        seq = seq.max(ix + 1);
                         let cells = read_row_cells_opt(reader, tables)?;
-                        if let Some(ha) = cells.get("HorzAlign") {
-                            sheet.set_formula("Para.HorzAlign", ha.clone(), Some(Unit::Number));
-                        }
-                        if let Some(bul) = cells.get("Bullet") {
-                            sheet.set_formula("Para.Bullet", bul.clone(), Some(Unit::Number));
-                        }
+                        let prow = ParagraphRow {
+                            ix,
+                            horz_align: cells.get("HorzAlign").cloned().unwrap_or_default(),
+                            bullet: cells.get("Bullet").cloned().unwrap_or_default(),
+                            indent_first: cells.get("IndFirst").cloned().unwrap_or_default(),
+                            indent_left: cells.get("IndLeft").cloned().unwrap_or_default(),
+                            sp_line: cells.get("SpLine").cloned().unwrap_or_default(),
+                            sp_before: cells.get("SpBefore").cloned().unwrap_or_default(),
+                            sp_after: cells.get("SpAfter").cloned().unwrap_or_default(),
+                        };
+                        sheet.upsert_paragraph_row(prow);
                     }
                     Event::End(e) if e.local_name().as_ref() == b"Section" => break,
                     Event::Eof => break,
@@ -1664,19 +1685,58 @@ fn parse_section_elem(
     Ok(())
 }
 
-fn parse_character_row_into_sheet(
+fn read_field_row_cells(
     reader: &mut Reader<&[u8]>,
-    sheet: &mut ShapeSheet,
     tables: &DocParseTables,
-) -> Result<(), VsdxError> {
+) -> Result<(String, String), VsdxError> {
+    let mut val_formula = String::new();
+    let mut fmt_str = String::new();
     let mut buf = Vec::new();
+    let mut inspect_cell = |e: &BytesStart<'_>| {
+        let Some(cname) = attr_str(e, b"N") else {
+            return;
+        };
+        match cname.as_str() {
+            "Value" => {
+                if let Some(f) = attr_str(e, b"F") {
+                    if !f.eq_ignore_ascii_case("Inh") && !f.eq_ignore_ascii_case("No Formula") {
+                        val_formula = if f.starts_with('=') {
+                            f
+                        } else {
+                            format!("={f}")
+                        };
+                        return;
+                    }
+                }
+                if let Some(f) = cell_formula_from_attrs_opt(e, None, tables) {
+                    val_formula = f;
+                }
+            }
+            "Format" => {
+                if let Some(f) = attr_str(e, b"F") {
+                    if !f.eq_ignore_ascii_case("Inh") && !f.eq_ignore_ascii_case("No Formula") {
+                        fmt_str = if f.starts_with('=') {
+                            f
+                        } else if f.starts_with('"') && f.ends_with('"') {
+                            f.trim_matches('"').replace("\"\"", "\"")
+                        } else {
+                            format!("={f}")
+                        };
+                        return;
+                    }
+                }
+                if let Some(v) = attr_str(e, b"V") {
+                    fmt_str = v;
+                }
+            }
+            _ => {}
+        }
+    };
     loop {
         match reader.read_event_into(&mut buf)? {
-            Event::Empty(e) if e.local_name().as_ref() == b"Cell" => {
-                apply_character_cell_attrs(&e, sheet, tables);
-            }
+            Event::Empty(e) if e.local_name().as_ref() == b"Cell" => inspect_cell(&e),
             Event::Start(e) if e.local_name().as_ref() == b"Cell" => {
-                apply_character_cell_attrs(&e, sheet, tables);
+                inspect_cell(&e);
                 skip_to_end(reader, b"Cell")?;
             }
             Event::End(e) if e.local_name().as_ref() == b"Row" => break,
@@ -1685,7 +1745,127 @@ fn parse_character_row_into_sheet(
         }
         buf.clear();
     }
+    Ok((val_formula, fmt_str))
+}
+
+fn parse_character_row_into_sheet(
+    reader: &mut Reader<&[u8]>,
+    ix: u32,
+    sheet: &mut ShapeSheet,
+    tables: &DocParseTables,
+) -> Result<(), VsdxError> {
+    let apply_to_primary = ix == 0 || sheet.character_rows.is_empty();
+    let mut crow = CharacterRow {
+        ix,
+        ..CharacterRow::default()
+    };
+    let mut buf = Vec::new();
+    loop {
+        match reader.read_event_into(&mut buf)? {
+            Event::Empty(e) if e.local_name().as_ref() == b"Cell" => {
+                capture_character_cell_into_row(&e, &mut crow, tables);
+                if apply_to_primary {
+                    apply_character_cell_attrs(&e, sheet, tables);
+                }
+            }
+            Event::Start(e) if e.local_name().as_ref() == b"Cell" => {
+                capture_character_cell_into_row(&e, &mut crow, tables);
+                if apply_to_primary {
+                    apply_character_cell_attrs(&e, sheet, tables);
+                }
+                skip_to_end(reader, b"Cell")?;
+            }
+            Event::End(e) if e.local_name().as_ref() == b"Row" => break,
+            Event::Eof => break,
+            _ => {}
+        }
+        buf.clear();
+    }
+    sheet.upsert_character_row(crow);
     Ok(())
+}
+
+fn capture_character_cell_into_row(
+    e: &BytesStart<'_>,
+    crow: &mut CharacterRow,
+    tables: &DocParseTables,
+) {
+    let Some(cname) = attr_str(e, b"N") else {
+        return;
+    };
+    let val = attr_str(e, b"V");
+    let f_attr = attr_str(e, b"F");
+    if val.is_none() && matches!(f_attr.as_deref(), Some("Inh") | None) {
+        return;
+    }
+    match cname.as_str() {
+        "Font" => {
+            if let Some(vs) = &val {
+                let resolved_font = if let Ok(fid) = vs.trim().parse::<u32>() {
+                    tables
+                        .face_names
+                        .get(&fid)
+                        .cloned()
+                        .unwrap_or_else(|| "Segoe UI".into())
+                } else {
+                    vs.trim_matches('"').to_string()
+                };
+                if !resolved_font.is_empty() {
+                    crow.font = resolved_font;
+                }
+            }
+        }
+        "Size" => {
+            if let Some(formula) = cell_formula_from_attrs_opt(e, Some(Unit::Point), tables) {
+                crow.size = formula;
+            }
+        }
+        "Color" => {
+            let resolved_col = val.as_deref().and_then(|v| tables.resolve_color_token(v));
+            match f_attr.as_deref() {
+                Some("Inh") | Some("No Formula") | None => {
+                    if let Some(c) = resolved_col {
+                        crow.color = format!("=RGB({},{},{})", c.r, c.g, c.b);
+                    }
+                }
+                Some(f) => {
+                    crow.color = if f.starts_with('=') {
+                        f.to_string()
+                    } else {
+                        format!("={f}")
+                    };
+                }
+            }
+        }
+        "Style" => {
+            if let Some(vs) = &val {
+                if let Ok(raw_bits) = vs.parse::<f64>() {
+                    crow.style = ((raw_bits.round() as u32) & 0x0F).to_string();
+                    return;
+                }
+            }
+            if let Some(formula) = cell_formula_from_attrs_opt(e, Some(Unit::Number), tables) {
+                crow.style = formula;
+            }
+        }
+        "Strikethru" | "DoubleStrikethrough" => {
+            if let Some(vs) = &val {
+                let on = vs == "1" || vs.eq_ignore_ascii_case("true");
+                crow.strikethru = if on { "TRUE".into() } else { "FALSE".into() };
+            }
+        }
+        "Pos" => {
+            if let Some(formula) = cell_formula_from_attrs_opt(e, Some(Unit::Number), tables) {
+                crow.pos = formula;
+            }
+        }
+        "Case" => {
+            if let Some(formula) = cell_formula_from_attrs_opt(e, Some(Unit::Number), tables) {
+                crow.case_mode = formula;
+            }
+        }
+        _ => {}
+    }
 }
 
 fn apply_character_cell_attrs(e: &BytesStart<'_>, sheet: &mut ShapeSheet, tables: &DocParseTables) {
@@ -2390,19 +2570,88 @@ fn merge_master_geometries(master_geoms: &[GeometrySection], inst_sheet: &mut Sh
     inst_sheet.geometries = merged;
 }
 
-fn read_text_element(reader: &mut Reader<&[u8]>) -> Result<String, VsdxError> {
+fn read_text_element_and_runs(
+    reader: &mut Reader<&[u8]>,
+) -> Result<(String, Vec<VisioTextRun>), VsdxError> {
     let mut out = String::new();
+    let mut runs: Vec<VisioTextRun> = Vec::new();
+    let mut cur_text = String::new();
+    let mut cur_cp: u32 = 0;
+    let mut cur_pp: u32 = 0;
+    let mut has_structured_tags = false;
+    let mut in_fld: Option<(u32, String)> = None;
     let mut buf = Vec::new();
     let mut depth = 1usize;
+
+    let flush_text = |txt: &mut String, cp: u32, pp: u32, dst: &mut Vec<VisioTextRun>| {
+        if !txt.is_empty() {
+            dst.push(VisioTextRun::Text {
+                text: std::mem::take(txt),
+                cp_ix: cp,
+                pp_ix: pp,
+            });
+        }
+    };
+
     loop {
         match reader.read_event_into(&mut buf)? {
+            Event::Empty(e) => match e.local_name().as_ref() {
+                b"cp" => {
+                    has_structured_tags = true;
+                    flush_text(&mut cur_text, cur_cp, cur_pp, &mut runs);
+                    cur_cp = attr_str(&e, b"IX").and_then(|s| s.parse().ok()).unwrap_or(0);
+                }
+                b"pp" => {
+                    has_structured_tags = true;
+                    flush_text(&mut cur_text, cur_cp, cur_pp, &mut runs);
+                    cur_pp = attr_str(&e, b"IX").and_then(|s| s.parse().ok()).unwrap_or(0);
+                }
+                b"fld" => {
+                    has_structured_tags = true;
+                    flush_text(&mut cur_text, cur_cp, cur_pp, &mut runs);
+                    let fix = attr_str(&e, b"IX").and_then(|s| s.parse().ok()).unwrap_or(0);
+                    runs.push(VisioTextRun::Field {
+                        field_ix: fix,
+                        cp_ix: cur_cp,
+                        pp_ix: cur_pp,
+                        cached: String::new(),
+                    });
+                }
+                _ => {}
+            },
             Event::Start(e) => {
-                if e.local_name().as_ref() == b"pp" && !out.is_empty() && !out.ends_with('\n') {
-                    // Preserve paragraph breaks if Visio emitted `<pp IX="..."/>` between paragraphs without newline
+                match e.local_name().as_ref() {
+                    b"cp" => {
+                        has_structured_tags = true;
+                        flush_text(&mut cur_text, cur_cp, cur_pp, &mut runs);
+                        cur_cp = attr_str(&e, b"IX").and_then(|s| s.parse().ok()).unwrap_or(0);
+                    }
+                    b"pp" => {
+                        has_structured_tags = true;
+                        flush_text(&mut cur_text, cur_cp, cur_pp, &mut runs);
+                        cur_pp = attr_str(&e, b"IX").and_then(|s| s.parse().ok()).unwrap_or(0);
+                    }
+                    b"fld" => {
+                        has_structured_tags = true;
+                        flush_text(&mut cur_text, cur_cp, cur_pp, &mut runs);
+                        let fix = attr_str(&e, b"IX").and_then(|s| s.parse().ok()).unwrap_or(0);
+                        in_fld = Some((fix, String::new()));
+                    }
+                    _ => {}
                 }
                 depth += 1;
             }
             Event::End(e) => {
+                if e.local_name().as_ref() == b"fld" {
+                    if let Some((fix, cached)) = in_fld.take() {
+                        runs.push(VisioTextRun::Field {
+                            field_ix: fix,
+                            cp_ix: cur_cp,
+                            pp_ix: cur_pp,
+                            cached,
+                        });
+                    }
+                }
                 depth = depth.saturating_sub(1);
                 if depth == 0 && e.local_name().as_ref() == b"Text" {
                     break;
@@ -2411,6 +2660,20 @@ fn read_text_element(reader: &mut Reader<&[u8]>) -> Result<String, VsdxError> {
             Event::Text(t) => {
                 if let Ok(s) = t.unescape() {
                     out.push_str(&s);
+                    if let Some((_, fbuf)) = &mut in_fld {
+                        fbuf.push_str(&s);
+                    } else {
+                        cur_text.push_str(&s);
+                    }
+                }
+            }
+            Event::CData(c) => {
+                let s = String::from_utf8_lossy(c.as_ref());
+                out.push_str(&s);
+                if let Some((_, fbuf)) = &mut in_fld {
+                    fbuf.push_str(&s);
+                } else {
+                    cur_text.push_str(&s);
                 }
             }
             Event::Eof => break,
@@ -2418,7 +2681,9 @@ fn read_text_element(reader: &mut Reader<&[u8]>) -> Result<String, VsdxError> {
         }
         buf.clear();
     }
-    Ok(out)
+    flush_text(&mut cur_text, cur_cp, cur_pp, &mut runs);
+    let final_runs = if has_structured_tags { runs } else { Vec::new() };
+    Ok((out, final_runs))
 }
 
 fn read_foreign_data_body(reader: &mut Reader<&[u8]>) -> Result<(Option<String>, String), VsdxError> {

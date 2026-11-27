@@ -675,6 +675,21 @@ public final class VexioMetalNSView: NSView {
             refreshActiveCursor()
             return
         }
+        if flags.contains(.control) && flags.contains(.shift) && (event.charactersIgnoringModifiers == "4" || event.charactersIgnoringModifiers == "$") {
+            session.activeTool = (session.activeTool == .textBlock) ? .pointer : .textBlock
+            refreshActiveCursor()
+            return
+        }
+        if flags.contains(.control) && flags.contains(.shift) && event.charactersIgnoringModifiers?.lowercased() == "p" {
+            session.activeTool = (session.activeTool == .formatPainter) ? .pointer : .formatPainter
+            refreshActiveCursor()
+            return
+        }
+        if flags.intersection([.command, .shift, .control, .option]) == [.command],
+           event.charactersIgnoringModifiers?.lowercased() == "f" {
+            NotificationCenter.default.post(name: .vexioOpenFindReplaceSheet, object: nil)
+            return
+        }
         // Delete (51) or Forward Delete (117)
         if event.keyCode == 51 || event.keyCode == 117 {
             session.deleteSelectedShapes(undoManager: activeUndoManager)

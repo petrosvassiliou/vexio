@@ -27,6 +27,24 @@ pub enum LineJumpStyle {
     Arc,
     Gap,
     Square,
+    TwoSides,
+    ThreeSides,
+    FourSides,
+    FiveSides,
+}
+
+impl LineJumpStyle {
+    pub fn from_visio_code(code: i32) -> Self {
+        match code {
+            1 => Self::Gap,
+            2 => Self::Square,
+            3 => Self::TwoSides,
+            4 => Self::ThreeSides,
+            5 => Self::FourSides,
+            6 => Self::FiveSides,
+            _ => Self::Arc,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -81,13 +99,20 @@ pub fn route_page_connectors(doc: &mut VisioDocument, page_id: u32) {
     let Some(page) = doc.page_mut(page_id) else {
         return;
     };
-    let jump_code = page.page_sheet.get_f64("PageLineJumpCode").unwrap_or(1.0) as i32;
-    let jump_style = match page.page_sheet.get_f64("PageLineJumpStyle").unwrap_or(0.0) as i32 {
-        _ if jump_code == 0 => LineJumpStyle::None,
-        1 => LineJumpStyle::Gap,
-        2 => LineJumpStyle::Square,
-        _ => LineJumpStyle::Arc,
-    };
+    let jump_code = page.page_sheet.get_f64("PageLineJumpCode").unwrap_or(1.0).round() as i32;
+    let page_style_code = page.page_sheet.get_f64("PageLineJumpStyle").unwrap_or(0.0).round() as i32;
+    let jump_factor_x = page
+        .page_sheet
+        .get_f64("PageLineJumpFactorX")
+        .unwrap_or(0.666)
+        .clamp(0.15, 3.0);
+    let jump_factor_y = page
+        .page_sheet
+        .get_f64("PageLineJumpFactorY")
+        .unwrap_or(0.666)
+        .clamp(0.15, 3.0);
+    let jump_rx = (0.08 * (jump_factor_x / 0.666)).clamp(0.03, 0.35);
+    let jump_ry = (0.08 * (jump_factor_y / 0.666)).clamp(0.03, 0.35);
 
     // 1. Collect 2D obstacle AABBs and world-space shape centers (including group subshapes)
     let mut obstacles = Vec::new();
@@ -331,11 +356,40 @@ pub fn route_page_connectors(doc: &mut VisioDocument, page_id: u32) {
         routed_polylines.push((s.id, mode, poly));
     }
 
-    // 4. Write routed Geometry1 (including horizontal connector Line Jumps over vertical segments!)
+    // 4. Write routed Geometry1 (including horizontal/vertical/Z-ordered Line Jumps across all 7 Visio jump styles!)
     let vertical_segments = collect_vertical_segments(&routed_polylines);
+    let horizontal_segments = collect_horizontal_segments(&routed_polylines);
+    let z_rank_by_id: BTreeMap<u64, usize> = routed_polylines
+        .iter()
+        .enumerate()
+        .map(|(z, (cid, _, _))| (*cid, z))
+        .collect();
+
     for (conn_id, mode, poly) in routed_polylines {
+        let own_z = z_rank_by_id.get(&conn_id).copied().unwrap_or(0);
         let Some(s) = page.find_shape_mut(conn_id) else {
             continue;
+        };
+        // Per-connector `ConLineJumpCode`: `1` = Page Default, `2` = Never, `3` = Always (or `0` when explicitly set to `0` while `User.ConJumpExplicit == 1`).
+        let conn_jump_code = s.sheet.get_f64("ConLineJumpCode").unwrap_or(1.0).round() as i32;
+        let explicit_conn_off = conn_jump_code == 2
+            || (conn_jump_code == 0
+                && s.sheet.get_f64("User.ConJumpExplicit").unwrap_or(0.0) > 0.5);
+        let eff_jump_code = if explicit_conn_off {
+            0
+        } else if conn_jump_code == 3 {
+            if jump_code == 0 { 1 } else { jump_code }
+        } else {
+            jump_code
+        };
+        let conn_style_raw = s.sheet.get_f64("ConLineJumpStyle").unwrap_or(0.0).round() as i32;
+        let explicit_style = s.sheet.get_f64("User.ConJumpStyleExplicit").unwrap_or(0.0) > 0.5;
+        let jump_style = if eff_jump_code == 0 {
+            LineJumpStyle::None
+        } else if explicit_style || conn_style_raw > 0 {
+            LineJumpStyle::from_visio_code(conn_style_raw)
+        } else {
+            LineJumpStyle::from_visio_code(page_style_code)
         };
         let bx = poly.first().map(|p| p[0]).unwrap_or(0.0);
         let by = poly.first().map(|p| p[1]).unwrap_or(0.0);
@@ -401,68 +455,61 @@ pub fn route_page_connectors(doc: &mut VisioDocument, page_id: u32) {
                 let p0 = seg[0];
                 let p1 = seg[1];
                 let is_horiz = (p0[1] - p1[1]).abs() < 1e-6 && (p1[0] - p0[0]).abs() > 0.25;
-                if is_horiz && jump_style != LineJumpStyle::None {
-                    let mut crossings = find_crossings_on_horizontal(
+                let is_vert = (p0[0] - p1[0]).abs() < 1e-6 && (p1[1] - p0[1]).abs() > 0.25;
+
+                if is_horiz && jump_style != LineJumpStyle::None && matches!(eff_jump_code, 1 | 3) {
+                    let mut crossings = find_crossings_on_horizontal_filtered(
                         conn_id,
+                        own_z,
+                        eff_jump_code == 3,
                         p0[0],
                         p1[0],
                         p0[1],
                         &vertical_segments,
+                        &z_rank_by_id,
                     );
                     if p1[0] < p0[0] {
                         crossings.reverse();
                     }
                     let dir = if p1[0] >= p0[0] { 1.0 } else { -1.0 };
-                    let r = 0.08; // 0.08 in jump radius
                     for cx in crossings {
-                        let pre_x = cx - dir * r;
-                        let post_x = cx + dir * r;
-                        geom.rows.push(GeometryRow::line_to(
-                            ix,
-                            format!("{} in", format_clean_f64(pre_x - bx)),
-                            format!("{} in", format_clean_f64(p0[1] - by)),
-                        ));
-                        ix += 1;
-                        match jump_style {
-                            LineJumpStyle::Arc => {
-                                geom.rows.push(GeometryRow::arc_to(
-                                    ix,
-                                    format!("{} in", format_clean_f64(post_x - bx)),
-                                    format!("{} in", format_clean_f64(p0[1] - by)),
-                                    format!("{} in", format_clean_f64(r * dir)),
-                                ));
-                                ix += 1;
-                            }
-                            LineJumpStyle::Gap => {
-                                geom.rows.push(GeometryRow::move_to(
-                                    ix,
-                                    format!("{} in", format_clean_f64(post_x - bx)),
-                                    format!("{} in", format_clean_f64(p0[1] - by)),
-                                ));
-                                ix += 1;
-                            }
-                            LineJumpStyle::Square => {
-                                geom.rows.push(GeometryRow::line_to(
-                                    ix,
-                                    format!("{} in", format_clean_f64(pre_x - bx)),
-                                    format!("{} in", format_clean_f64(p0[1] + r - by)),
-                                ));
-                                ix += 1;
-                                geom.rows.push(GeometryRow::line_to(
-                                    ix,
-                                    format!("{} in", format_clean_f64(post_x - bx)),
-                                    format!("{} in", format_clean_f64(p0[1] + r - by)),
-                                ));
-                                ix += 1;
-                                geom.rows.push(GeometryRow::line_to(
-                                    ix,
-                                    format!("{} in", format_clean_f64(post_x - bx)),
-                                    format!("{} in", format_clean_f64(p0[1] - by)),
-                                ));
-                                ix += 1;
-                            }
-                            LineJumpStyle::None => {}
-                        }
+                        emit_line_jump_rows(
+                            &mut geom.rows,
+                            &mut ix,
+                            jump_style,
+                            [cx - dir * jump_rx, p0[1]],
+                            [cx + dir * jump_rx, p0[1]],
+                            [0.0, jump_ry],
+                            jump_ry * dir,
+                            [bx, by],
+                        );
+                    }
+                } else if is_vert && jump_style != LineJumpStyle::None && matches!(eff_jump_code, 2 | 3) {
+                    let mut crossings = find_crossings_on_vertical_filtered(
+                        conn_id,
+                        own_z,
+                        eff_jump_code == 3,
+                        p0[1],
+                        p1[1],
+                        p0[0],
+                        &horizontal_segments,
+                        &z_rank_by_id,
+                    );
+                    if p1[1] < p0[1] {
+                        crossings.reverse();
+                    }
+                    let dir = if p1[1] >= p0[1] { 1.0 } else { -1.0 };
+                    for cy in crossings {
+                        emit_line_jump_rows(
+                            &mut geom.rows,
+                            &mut ix,
+                            jump_style,
+                            [p0[0], cy - dir * jump_ry],
+                            [p0[0], cy + dir * jump_ry],
+                            [-jump_rx, 0.0],
+                            jump_rx * dir,
+                            [bx, by],
+                        );
                     }
                 }
                 geom.rows.push(GeometryRow::line_to(
@@ -1004,12 +1051,32 @@ fn collect_vertical_segments(
     out
 }
 
-fn find_crossings_on_horizontal(
+fn collect_horizontal_segments(
+    polylines: &[(u64, ConnectorRouteMode, Vec<[f64; 2]>)],
+) -> Vec<(u64, f64, f64, f64)> {
+    let mut out = Vec::new();
+    for (id, _, pts) in polylines {
+        for seg in pts.windows(2) {
+            if (seg[0][1] - seg[1][1]).abs() < 1e-6 && (seg[0][0] - seg[1][0]).abs() > 1e-4 {
+                let x_min = seg[0][0].min(seg[1][0]);
+                let x_max = seg[0][0].max(seg[1][0]);
+                out.push((*id, seg[0][1], x_min, x_max));
+            }
+        }
+    }
+    out
+}
+
+#[allow(clippy::too_many_arguments)]
+fn find_crossings_on_horizontal_filtered(
     own_id: u64,
+    own_z: usize,
+    only_higher_z: bool,
     x0: f64,
     x1: f64,
     y: f64,
     verticals: &[(u64, f64, f64, f64)],
+    z_ranks: &BTreeMap<u64, usize>,
 ) -> Vec<f64> {
     let min_x = x0.min(x1) + 0.12;
     let max_x = x0.max(x1) - 0.12;
@@ -1019,9 +1086,134 @@ fn find_crossings_on_horizontal(
     let mut xs = Vec::new();
     for &(vid, vx, vy0, vy1) in verticals {
         if vid != own_id && vx > min_x && vx < max_x && y > vy0 + 0.05 && y < vy1 - 0.05 {
+            if only_higher_z && own_z <= z_ranks.get(&vid).copied().unwrap_or(0) {
+                continue;
+            }
             xs.push(vx);
         }
     }
     dedup_sorted_f64(&mut xs);
     xs
+}
+
+#[allow(clippy::too_many_arguments)]
+fn find_crossings_on_vertical_filtered(
+    own_id: u64,
+    own_z: usize,
+    only_higher_z: bool,
+    y0: f64,
+    y1: f64,
+    x: f64,
+    horizontals: &[(u64, f64, f64, f64)],
+    z_ranks: &BTreeMap<u64, usize>,
+) -> Vec<f64> {
+    let min_y = y0.min(y1) + 0.12;
+    let max_y = y0.max(y1) - 0.12;
+    if min_y >= max_y {
+        return Vec::new();
+    }
+    let mut ys = Vec::new();
+    for &(hid, hy, hx0, hx1) in horizontals {
+        if hid != own_id && hy > min_y && hy < max_y && x > hx0 + 0.05 && x < hx1 - 0.05 {
+            if only_higher_z && own_z <= z_ranks.get(&hid).copied().unwrap_or(0) {
+                continue;
+            }
+            ys.push(hy);
+        }
+    }
+    dedup_sorted_f64(&mut ys);
+    ys
+}
+
+#[allow(clippy::too_many_arguments)]
+fn emit_line_jump_rows(
+    rows: &mut Vec<GeometryRow>,
+    ix: &mut u32,
+    style: LineJumpStyle,
+    pre: [f64; 2],
+    post: [f64; 2],
+    ortho_off: [f64; 2],
+    arc_bow: f64,
+    origin: [f64; 2],
+) {
+    let fmt_pt = |pt: [f64; 2]| -> (String, String) {
+        (
+            format!("{} in", format_clean_f64(pt[0] - origin[0])),
+            format!("{} in", format_clean_f64(pt[1] - origin[1])),
+        )
+    };
+    let (pre_sx, pre_sy) = fmt_pt(pre);
+    rows.push(GeometryRow::line_to(*ix, pre_sx, pre_sy));
+    *ix += 1;
+
+    match style {
+        LineJumpStyle::None => {}
+        LineJumpStyle::Arc => {
+            let (post_sx, post_sy) = fmt_pt(post);
+            rows.push(GeometryRow::arc_to(
+                *ix,
+                post_sx,
+                post_sy,
+                format!("{} in", format_clean_f64(arc_bow)),
+            ));
+            *ix += 1;
+        }
+        LineJumpStyle::Gap => {
+            let (post_sx, post_sy) = fmt_pt(post);
+            rows.push(GeometryRow::move_to(*ix, post_sx, post_sy));
+            *ix += 1;
+        }
+        LineJumpStyle::Square => {
+            for pt in [
+                [pre[0] + ortho_off[0], pre[1] + ortho_off[1]],
+                [post[0] + ortho_off[0], post[1] + ortho_off[1]],
+                post,
+            ] {
+                let (sx, sy) = fmt_pt(pt);
+                rows.push(GeometryRow::line_to(*ix, sx, sy));
+                *ix += 1;
+            }
+        }
+        LineJumpStyle::TwoSides => {
+            let mid = [
+                (pre[0] + post[0]) * 0.5 + ortho_off[0],
+                (pre[1] + post[1]) * 0.5 + ortho_off[1],
+            ];
+            for pt in [mid, post] {
+                let (sx, sy) = fmt_pt(pt);
+                rows.push(GeometryRow::line_to(*ix, sx, sy));
+                *ix += 1;
+            }
+        }
+        LineJumpStyle::ThreeSides => {
+            let p_a = [
+                pre[0] + (post[0] - pre[0]) * 0.25 + ortho_off[0],
+                pre[1] + (post[1] - pre[1]) * 0.25 + ortho_off[1],
+            ];
+            let p_b = [
+                pre[0] + (post[0] - pre[0]) * 0.75 + ortho_off[0],
+                pre[1] + (post[1] - pre[1]) * 0.75 + ortho_off[1],
+            ];
+            for pt in [p_a, p_b, post] {
+                let (sx, sy) = fmt_pt(pt);
+                rows.push(GeometryRow::line_to(*ix, sx, sy));
+                *ix += 1;
+            }
+        }
+        LineJumpStyle::FourSides | LineJumpStyle::FiveSides => {
+            let segments = if style == LineJumpStyle::FourSides { 4 } else { 5 };
+            for step in 1..=segments {
+                let theta = std::f64::consts::PI * (step as f64) / (segments as f64);
+                let u = (1.0 - theta.cos()) * 0.5;
+                let h = theta.sin();
+                let pt = [
+                    pre[0] + (post[0] - pre[0]) * u + ortho_off[0] * h,
+                    pre[1] + (post[1] - pre[1]) * u + ortho_off[1] * h,
+                ];
+                let (sx, sy) = fmt_pt(pt);
+                rows.push(GeometryRow::line_to(*ix, sx, sy));
+                *ix += 1;
+            }
+        }
+    }
 }

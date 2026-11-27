@@ -134,6 +134,8 @@ pub enum NativeCanvasTool {
     EditVertices = 16,
     InkEraser = 17,
     ConnectionPoint = 18,
+    TextBlock = 19,
+    FormatPainter = 20,
 }
 
 impl NativeCanvasTool {
@@ -157,6 +159,8 @@ impl NativeCanvasTool {
             16 => Self::EditVertices,
             17 => Self::InkEraser,
             18 => Self::ConnectionPoint,
+            19 => Self::TextBlock,
+            20 => Self::FormatPainter,
             _ => Self::Select,
         }
     }
@@ -614,6 +618,92 @@ pub enum NativeDragState {
         orig_dy: String,
         cur_page: [f64; 2],
     },
+    DragRulerGuide {
+        guide_id: u64,
+        is_vertical: bool,
+        orig_coord_in: f64,
+        cur_coord_in: f64,
+    },
+    DragTextBlock {
+        shape_id: u64,
+        mode: TextBlockDragMode,
+        start_page: [f64; 2],
+        orig_local_pin: [f64; 2],
+        orig_size: [f64; 2],
+        orig_angle_deg: f64,
+        cur_local_pin: [f64; 2],
+        cur_size: [f64; 2],
+        cur_angle_deg: f64,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TextBlockDragMode {
+    Move,
+    ResizeCorner(usize),
+    Rotate,
+}
+
+pub(crate) fn compute_editable_text_block_overlay(
+    vis: &vexio_shapesheet::EvaluatedShapeVisual,
+    logical_ppi: f64,
+) -> vexio_render::EditableTextBlockOverlay {
+    let default_w = vis.transform.width.abs().max(0.45);
+    let default_h = vis.transform.height.abs().max(0.28);
+    let tw = vis.txt_width.unwrap_or(default_w).abs().max(0.30);
+    let th = vis.txt_height.unwrap_or(default_h).abs().max(0.22);
+    let ang = vis.transform.angle_rad + vis.txt_angle_rad;
+    let (sa, ca) = ang.sin_cos();
+    let cx = vis.txt_pos[0];
+    let cy = vis.txt_pos[1];
+    let map_pt = |lx: f64, ly: f64| -> [f64; 2] { [cx + lx * ca - ly * sa, cy + lx * sa + ly * ca] };
+    let hw = tw * 0.5;
+    let hh = th * 0.5;
+    let corners = [
+        map_pt(-hw, -hh),
+        map_pt(hw, -hh),
+        map_pt(hw, hh),
+        map_pt(-hw, hh),
+    ];
+    let top_mid = map_pt(0.0, hh);
+    let stem = 24.0 / logical_ppi.max(1.0);
+    let rot_knob = map_pt(0.0, hh + stem);
+    vexio_render::EditableTextBlockOverlay {
+        corners_page_in: corners,
+        top_mid_page_in: top_mid,
+        rot_knob_page_in: rot_knob,
+    }
+}
+
+fn hit_test_ruler_guide(
+    doc: &VisioDocument,
+    page_id: u32,
+    page_pt: [f64; 2],
+    logical_ppi: f64,
+) -> Option<(u64, bool, f64)> {
+    let page = doc.page(page_id)?;
+    let tol = (7.5 / logical_ppi.max(12.0)).clamp(0.04, 0.22);
+    for sh in page.shapes.iter().rev() {
+        if sh.kind != ShapeKind::Guide || sh.sheet.get_bool("DontShow").unwrap_or(false) {
+            continue;
+        }
+        let ang_deg = sh.sheet.get_f64("Angle").unwrap_or(0.0).to_degrees().rem_euclid(180.0);
+        let is_vert = (45.0..135.0).contains(&ang_deg);
+        let coord = if is_vert {
+            sh.sheet.get_f64("PinX").unwrap_or(0.0)
+        } else {
+            sh.sheet.get_f64("PinY").unwrap_or(0.0)
+        };
+        let dist = if is_vert {
+            (page_pt[0] - coord).abs()
+        } else {
+            (page_pt[1] - coord).abs()
+        };
+        if dist <= tol {
+            return Some((sh.id, is_vert, coord));
+        }
+    }
+    None
 }
 
 pub struct VexioEngine {
@@ -702,6 +792,8 @@ pub struct VexioViewport {
     pub smart_guides_enabled: bool,
     pub pending_fit: bool,
     pub overlay: vexio_render::InteractiveCanvasOverlay,
+    /// Sampled format JSON when using interactive `FormatPainter` (`tool 20`).
+    pub sampled_format_json: Option<String>,
     /// Retained Android `ANativeWindow*` released on `Drop` when created via `jni_bridge`.
     pub android_native_window: *mut std::ffi::c_void,
 }
@@ -731,6 +823,7 @@ impl VexioViewport {
             smart_guides_enabled: true,
             pending_fit,
             overlay: vexio_render::InteractiveCanvasOverlay::default(),
+            sampled_format_json: None,
             android_native_window: ptr::null_mut(),
         }
     }
@@ -802,6 +895,19 @@ impl VexioViewport {
             }
         } else {
             self.overlay.editable_connection_points.clear();
+        }
+        if self.active_tool == NativeCanvasTool::TextBlock {
+            if let Some(&sid) = self.selected_ids.first() {
+                let visuals = ReactiveEngine::evaluate_page_visuals(doc, self.page_id);
+                self.overlay.editable_text_block = visuals
+                    .iter()
+                    .find(|v| v.shape_id == sid)
+                    .map(|vis| compute_editable_text_block_overlay(vis, self.camera.zoom_ppi.max(1.0)));
+            } else {
+                self.overlay.editable_text_block = None;
+            }
+        } else {
+            self.overlay.editable_text_block = None;
         }
         let Some(r) = &mut self.gpu_renderer else {
             return false;
@@ -1049,7 +1155,28 @@ impl VexioViewport {
                             }
                         }
 
-                        // 3. Hit a shape -> select / multi-select & enter multi-shape MoveShapes
+                        // 3. Hit a Ruler Guide (`ShapeKind::Guide`) -> select & drag (or right-click / Alt+Shift delete)!
+                        if let Some((gid, is_vert, gcoord)) =
+                            hit_test_ruler_guide(&session.doc, pid, page_pt, logical_ppi)
+                        {
+                            if (ev.buttons & 2) != 0 || (is_alt && is_shift) {
+                                let _ = session.delete_ruler_guide(pid, gid);
+                                self.selected_ids.retain(|&id| id != gid);
+                                self.present_if_attached(&session.doc);
+                                return 0;
+                            }
+                            self.selected_ids = vec![gid];
+                            self.drag_state = Some(NativeDragState::DragRulerGuide {
+                                guide_id: gid,
+                                is_vertical: is_vert,
+                                orig_coord_in: gcoord,
+                                cur_coord_in: gcoord,
+                            });
+                            self.present_if_attached(&session.doc);
+                            return if is_vert { 6 } else { 5 };
+                        }
+
+                        // 3b. Hit a shape -> select / multi-select & enter multi-shape MoveShapes
                         if let Some(sid) = top_hit {
                             if is_multi_toggle {
                                 if let Some(pos) = self.selected_ids.iter().position(|&x| x == sid)
@@ -1291,6 +1418,86 @@ impl VexioViewport {
                                     page_pt[1],
                                     2,
                                 );
+                            }
+                            self.present_if_attached(&session.doc);
+                        }
+                        return 2;
+                    }
+                    NativeCanvasTool::TextBlock => {
+                        let cand_sid = self.selected_ids.first().copied().or(top_hit);
+                        if let Some(sid) = cand_sid {
+                            self.selected_ids = vec![sid];
+                            if let Some(vis) = visuals.iter().find(|v| v.shape_id == sid) {
+                                let tb_ov = compute_editable_text_block_overlay(vis, logical_ppi);
+                                let tol_in = (11.5 / logical_ppi.max(12.0)).max(0.065);
+                                let default_w = vis.transform.width.abs().max(0.45);
+                                let default_h = vis.transform.height.abs().max(0.28);
+                                let orig_w = vis.txt_width.unwrap_or(default_w).abs().max(0.30);
+                                let orig_h = vis.txt_height.unwrap_or(default_h).abs().max(0.22);
+                                let orig_ang = vis.txt_angle_rad.to_degrees();
+                                let (lx, ly) = session
+                                    .doc
+                                    .page(pid)
+                                    .and_then(|p| p.find_shape(sid))
+                                    .map(|sh| {
+                                        (
+                                            sh.sheet
+                                                .get_f64("TxtPinX")
+                                                .unwrap_or(vis.transform.width * 0.5),
+                                            sh.sheet
+                                                .get_f64("TxtPinY")
+                                                .unwrap_or(vis.transform.height * 0.5),
+                                        )
+                                    })
+                                    .unwrap_or((vis.transform.width * 0.5, vis.transform.height * 0.5));
+                                let drag_mode = if (page_pt[0] - tb_ov.rot_knob_page_in[0])
+                                    .hypot(page_pt[1] - tb_ov.rot_knob_page_in[1])
+                                    <= tol_in * 1.35
+                                {
+                                    Some(TextBlockDragMode::Rotate)
+                                } else if let Some((c_idx, _)) = tb_ov
+                                    .corners_page_in
+                                    .iter()
+                                    .enumerate()
+                                    .find(|(_, cp)| {
+                                        (page_pt[0] - cp[0]).hypot(page_pt[1] - cp[1]) <= tol_in
+                                    })
+                                {
+                                    Some(TextBlockDragMode::ResizeCorner(c_idx))
+                                } else {
+                                    Some(TextBlockDragMode::Move)
+                                };
+                                if let Some(m) = drag_mode {
+                                    self.drag_state = Some(NativeDragState::DragTextBlock {
+                                        shape_id: sid,
+                                        mode: m,
+                                        start_page: page_pt,
+                                        orig_local_pin: [lx, ly],
+                                        orig_size: [orig_w, orig_h],
+                                        orig_angle_deg: orig_ang,
+                                        cur_local_pin: [lx, ly],
+                                        cur_size: [orig_w, orig_h],
+                                        cur_angle_deg: orig_ang,
+                                    });
+                                }
+                            }
+                            self.present_if_attached(&session.doc);
+                            return 1;
+                        }
+                        return 2;
+                    }
+                    NativeCanvasTool::FormatPainter => {
+                        if let Some(sid) = top_hit {
+                            if let Some(ref fmt_json) = self.sampled_format_json.clone() {
+                                let _ = session.apply_format_painter(pid, &[sid], fmt_json);
+                                self.selected_ids = vec![sid];
+                                if !is_shift {
+                                    self.sampled_format_json = None;
+                                    self.active_tool = NativeCanvasTool::Select;
+                                }
+                            } else if let Ok(copied) = session.copy_shape_format_json(pid, sid) {
+                                self.sampled_format_json = Some(copied);
+                                self.selected_ids = vec![sid];
                             }
                             self.present_if_attached(&session.doc);
                         }
@@ -1886,6 +2093,132 @@ impl VexioViewport {
                                 self.present_if_attached(&session.doc);
                             }
                             return 2;
+                        }
+                        NativeDragState::DragRulerGuide {
+                            guide_id,
+                            is_vertical,
+                            cur_coord_in,
+                            ..
+                        } => {
+                            let gid = *guide_id;
+                            let is_v = *is_vertical;
+                            let nc = if is_v { page_pt[0] } else { page_pt[1] };
+                            *cur_coord_in = nc;
+                            if let Some(g) = session.doc.page_mut(pid).and_then(|p| p.find_shape_mut(gid)) {
+                                if is_v {
+                                    g.sheet.set_formula(
+                                        "PinX",
+                                        format!("{} in", format_clean_f64(nc)),
+                                        Some(vexio_shapesheet::Unit::Inch),
+                                    );
+                                } else {
+                                    g.sheet.set_formula(
+                                        "PinY",
+                                        format!("{} in", format_clean_f64(nc)),
+                                        Some(vexio_shapesheet::Unit::Inch),
+                                    );
+                                }
+                            }
+                            ReactiveEngine::recalculate_document(&mut session.doc);
+                            self.present_if_attached(&session.doc);
+                            return if is_v { 6 } else { 5 };
+                        }
+                        NativeDragState::DragTextBlock {
+                            shape_id,
+                            mode,
+                            start_page,
+                            orig_local_pin,
+                            orig_size,
+                            orig_angle_deg,
+                            cur_local_pin,
+                            cur_size,
+                            cur_angle_deg,
+                        } => {
+                            let sid = *shape_id;
+                            let m_copy = *mode;
+                            let sp = *start_page;
+                            let olp = *orig_local_pin;
+                            let osz = *orig_size;
+                            let oang = *orig_angle_deg;
+                            if let Some(vis) = visuals.iter().find(|v| v.shape_id == sid) {
+                                let (local_now_x, local_now_y) =
+                                    vis.transform.parent_to_local(page_pt[0], page_pt[1]);
+                                let (local_start_x, local_start_y) =
+                                    vis.transform.parent_to_local(sp[0], sp[1]);
+                                match m_copy {
+                                    TextBlockDragMode::Move => {
+                                        let nlx = olp[0] + (local_now_x - local_start_x);
+                                        let nly = olp[1] + (local_now_y - local_start_y);
+                                        *cur_local_pin = [nlx, nly];
+                                    }
+                                    TextBlockDragMode::ResizeCorner(_) => {
+                                        let nw = ((local_now_x - olp[0]).abs() * 2.0).max(0.25);
+                                        let nh = ((local_now_y - olp[1]).abs() * 2.0).max(0.20);
+                                        *cur_size = [nw, nh];
+                                    }
+                                    TextBlockDragMode::Rotate => {
+                                        let dx = local_now_x - olp[0];
+                                        let dy = local_now_y - olp[1];
+                                        let raw_deg = dy.atan2(dx).to_degrees() - 90.0;
+                                        *cur_angle_deg = if is_alt {
+                                            raw_deg
+                                        } else {
+                                            (raw_deg / 5.0).round() * 5.0
+                                        };
+                                    }
+                                }
+                            } else {
+                                *cur_local_pin = olp;
+                                *cur_size = osz;
+                                *cur_angle_deg = oang;
+                            }
+                            let nlp = *cur_local_pin;
+                            let nsz = *cur_size;
+                            let nang = *cur_angle_deg;
+                            if let Some(sh) = session.doc.page_mut(pid).and_then(|p| p.find_shape_mut(sid)) {
+                                let _ = sh.sheet.try_set_formula_respecting_guard(
+                                    "TxtPinX",
+                                    format!("{} in", format_clean_f64(nlp[0])),
+                                    false,
+                                );
+                                let _ = sh.sheet.try_set_formula_respecting_guard(
+                                    "TxtPinY",
+                                    format!("{} in", format_clean_f64(nlp[1])),
+                                    false,
+                                );
+                                let _ = sh.sheet.try_set_formula_respecting_guard(
+                                    "TxtWidth",
+                                    format!("{} in", format_clean_f64(nsz[0])),
+                                    false,
+                                );
+                                let _ = sh.sheet.try_set_formula_respecting_guard(
+                                    "TxtHeight",
+                                    format!("{} in", format_clean_f64(nsz[1])),
+                                    false,
+                                );
+                                let _ = sh.sheet.try_set_formula_respecting_guard(
+                                    "TxtLocPinX",
+                                    "=TxtWidth*0.5",
+                                    false,
+                                );
+                                let _ = sh.sheet.try_set_formula_respecting_guard(
+                                    "TxtLocPinY",
+                                    "=TxtHeight*0.5",
+                                    false,
+                                );
+                                let _ = sh.sheet.try_set_formula_respecting_guard(
+                                    "TxtAngle",
+                                    format!("{} deg", format_clean_f64(nang)),
+                                    false,
+                                );
+                            }
+                            ReactiveEngine::recalculate_document(&mut session.doc);
+                            self.present_if_attached(&session.doc);
+                            return match m_copy {
+                                TextBlockDragMode::Rotate => 13,
+                                TextBlockDragMode::ResizeCorner(_) => 11,
+                                TextBlockDragMode::Move => 1,
+                            };
                         }
                     }
                 } else if self.active_tool == NativeCanvasTool::Connector {
@@ -2528,6 +2861,75 @@ impl VexioViewport {
                                 ix,
                                 cur_page[0],
                                 cur_page[1],
+                            );
+                        }
+                        NativeDragState::DragRulerGuide {
+                            guide_id,
+                            is_vertical,
+                            orig_coord_in,
+                            cur_coord_in,
+                        } => {
+                            if let Some(g) =
+                                session.doc.page_mut(pid).and_then(|p| p.find_shape_mut(guide_id))
+                            {
+                                let cell = if is_vertical { "PinX" } else { "PinY" };
+                                g.sheet.set_formula(
+                                    cell,
+                                    format!("{} in", format_clean_f64(orig_coord_in)),
+                                    Some(vexio_shapesheet::Unit::Inch),
+                                );
+                            }
+                            ReactiveEngine::recalculate_document(&mut session.doc);
+                            let _ = session.move_ruler_guide(pid, guide_id, cur_coord_in);
+                        }
+                        NativeDragState::DragTextBlock {
+                            shape_id,
+                            orig_local_pin,
+                            orig_size,
+                            orig_angle_deg,
+                            cur_local_pin,
+                            cur_size,
+                            cur_angle_deg,
+                            ..
+                        } => {
+                            if let Some(sh) =
+                                session.doc.page_mut(pid).and_then(|p| p.find_shape_mut(shape_id))
+                            {
+                                sh.sheet.set_formula(
+                                    "TxtPinX",
+                                    format!("{} in", format_clean_f64(orig_local_pin[0])),
+                                    Some(vexio_shapesheet::Unit::Inch),
+                                );
+                                sh.sheet.set_formula(
+                                    "TxtPinY",
+                                    format!("{} in", format_clean_f64(orig_local_pin[1])),
+                                    Some(vexio_shapesheet::Unit::Inch),
+                                );
+                                sh.sheet.set_formula(
+                                    "TxtWidth",
+                                    format!("{} in", format_clean_f64(orig_size[0])),
+                                    Some(vexio_shapesheet::Unit::Inch),
+                                );
+                                sh.sheet.set_formula(
+                                    "TxtHeight",
+                                    format!("{} in", format_clean_f64(orig_size[1])),
+                                    Some(vexio_shapesheet::Unit::Inch),
+                                );
+                                sh.sheet.set_formula(
+                                    "TxtAngle",
+                                    format!("{} deg", format_clean_f64(orig_angle_deg)),
+                                    Some(vexio_shapesheet::Unit::Degree),
+                                );
+                            }
+                            ReactiveEngine::recalculate_document(&mut session.doc);
+                            let _ = session.set_shape_text_block_transform(
+                                pid,
+                                shape_id,
+                                cur_local_pin[0],
+                                cur_local_pin[1],
+                                cur_size[0],
+                                cur_size[1],
+                                cur_angle_deg,
                             );
                         }
                     }
@@ -5953,6 +6355,528 @@ pub unsafe extern "C" fn vexio_doc_export_custom_stencil_vssx(
         match d.session.export_custom_stencil_vssx(st_title) {
             Ok(bytes) => {
                 unsafe { *out_vssx_bytes = VexioOwnedBuffer::from_vec(bytes) };
+                VexioStatus::Ok
+            }
+            Err(e) => map_core_err(e),
+        }
+    })
+}
+
+// =========================================================================
+// v0.8.0-beta C-ABI Entry Points
+// =========================================================================
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_list_arrowheads_json(
+    out_json: *mut VexioOwnedBuffer,
+) -> VexioStatus {
+    catch_ffi_status(|| {
+        if out_json.is_null() {
+            return VexioStatus::ErrInvalidArg;
+        }
+        let json = DocumentSession::list_arrowheads_json();
+        // SAFETY: `out_json` verified non-null.
+        unsafe { *out_json = VexioOwnedBuffer::from_vec(json.into_bytes()) };
+        VexioStatus::Ok
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_doc_set_connector_arrowheads(
+    doc: *mut VexioDoc,
+    page_id: u32,
+    shape_ids_ptr: *const u64,
+    shape_ids_len: usize,
+    begin_arrow: u8,
+    end_arrow: u8,
+    arrow_size: u8,
+    out_modified_count: *mut u32,
+) -> VexioStatus {
+    catch_ffi_status(|| {
+        if doc.is_null() {
+            return VexioStatus::ErrInvalidArg;
+        }
+        let ids: &[u64] = if shape_ids_ptr.is_null() || shape_ids_len == 0 {
+            &[]
+        } else {
+            // SAFETY: `shape_ids_ptr` verified non-null with `shape_ids_len` elements.
+            unsafe { std::slice::from_raw_parts(shape_ids_ptr, shape_ids_len) }
+        };
+        // SAFETY: `doc` verified non-null.
+        let d = unsafe { &mut *doc };
+        match d
+            .session
+            .set_connector_arrowheads(page_id, ids, begin_arrow, end_arrow, arrow_size)
+        {
+            Ok(n) => {
+                if !out_modified_count.is_null() {
+                    unsafe { *out_modified_count = n as u32 };
+                }
+                VexioStatus::Ok
+            }
+            Err(e) => map_core_err(e),
+        }
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_doc_set_page_line_jumps(
+    doc: *mut VexioDoc,
+    page_id: u32,
+    jump_code: u8,
+    jump_style: u8,
+    factor_x: f64,
+    factor_y: f64,
+) -> VexioStatus {
+    catch_ffi_status(|| {
+        if doc.is_null() {
+            return VexioStatus::ErrInvalidArg;
+        }
+        // SAFETY: `doc` verified non-null.
+        let d = unsafe { &mut *doc };
+        match d
+            .session
+            .set_page_line_jump_settings(page_id, jump_code, jump_style, factor_x, factor_y)
+        {
+            Ok(()) => VexioStatus::Ok,
+            Err(e) => map_core_err(e),
+        }
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_doc_insert_text_field(
+    doc: *mut VexioDoc,
+    page_id: u32,
+    shape_id: u64,
+    preset_or_formula_utf8: *const c_char,
+    format_utf8: *const c_char,
+    prefix_utf8: *const c_char,
+    out_field_ix: *mut u32,
+) -> VexioStatus {
+    catch_ffi_status(|| {
+        if doc.is_null() || preset_or_formula_utf8.is_null() {
+            return VexioStatus::ErrInvalidArg;
+        }
+        // SAFETY: `preset_or_formula_utf8` verified non-null.
+        let Ok(preset_s) = unsafe { CStr::from_ptr(preset_or_formula_utf8) }.to_str() else {
+            return VexioStatus::ErrInvalidArg;
+        };
+        let fmt_s = if format_utf8.is_null() {
+            ""
+        } else {
+            unsafe { CStr::from_ptr(format_utf8) }.to_str().unwrap_or("")
+        };
+        let pfx_s = if prefix_utf8.is_null() {
+            ""
+        } else {
+            unsafe { CStr::from_ptr(prefix_utf8) }.to_str().unwrap_or("")
+        };
+        // SAFETY: `doc` verified non-null.
+        let d = unsafe { &mut *doc };
+        match d
+            .session
+            .insert_shape_text_field(page_id, shape_id, preset_s, fmt_s, pfx_s)
+        {
+            Ok(ix) => {
+                if !out_field_ix.is_null() {
+                    unsafe { *out_field_ix = ix };
+                }
+                VexioStatus::Ok
+            }
+            Err(e) => map_core_err(e),
+        }
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_doc_list_text_fields_json(
+    doc: *const VexioDoc,
+    page_id: u32,
+    shape_id: u64,
+    out_json: *mut VexioOwnedBuffer,
+) -> VexioStatus {
+    catch_ffi_status(|| {
+        if doc.is_null() || out_json.is_null() {
+            return VexioStatus::ErrInvalidArg;
+        }
+        // SAFETY: `doc` and `out_json` verified non-null.
+        let d = unsafe { &*doc };
+        let json = d.session.list_shape_text_fields_json(page_id, shape_id);
+        unsafe { *out_json = VexioOwnedBuffer::from_vec(json.into_bytes()) };
+        VexioStatus::Ok
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_doc_set_shape_rich_runs_json(
+    doc: *mut VexioDoc,
+    page_id: u32,
+    shape_id: u64,
+    runs_json_utf8: *const c_char,
+) -> VexioStatus {
+    catch_ffi_status(|| {
+        if doc.is_null() || runs_json_utf8.is_null() {
+            return VexioStatus::ErrInvalidArg;
+        }
+        // SAFETY: `runs_json_utf8` verified non-null.
+        let Ok(json_s) = unsafe { CStr::from_ptr(runs_json_utf8) }.to_str() else {
+            return VexioStatus::ErrInvalidArg;
+        };
+        // SAFETY: `doc` verified non-null.
+        let d = unsafe { &mut *doc };
+        match d.session.set_shape_rich_runs_json(page_id, shape_id, json_s) {
+            Ok(()) => VexioStatus::Ok,
+            Err(e) => map_core_err(e),
+        }
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_doc_set_text_block_transform(
+    doc: *mut VexioDoc,
+    page_id: u32,
+    shape_id: u64,
+    txt_pin_x_in: f64,
+    txt_pin_y_in: f64,
+    txt_width_in: f64,
+    txt_height_in: f64,
+    txt_angle_deg: f64,
+) -> VexioStatus {
+    catch_ffi_status(|| {
+        if doc.is_null() {
+            return VexioStatus::ErrInvalidArg;
+        }
+        // SAFETY: `doc` verified non-null.
+        let d = unsafe { &mut *doc };
+        match d.session.set_shape_text_block_transform(
+            page_id,
+            shape_id,
+            txt_pin_x_in,
+            txt_pin_y_in,
+            txt_width_in,
+            txt_height_in,
+            txt_angle_deg,
+        ) {
+            Ok(()) => VexioStatus::Ok,
+            Err(e) => map_core_err(e),
+        }
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_doc_list_ruler_guides_json(
+    doc: *const VexioDoc,
+    page_id: u32,
+    out_json: *mut VexioOwnedBuffer,
+) -> VexioStatus {
+    catch_ffi_status(|| {
+        if doc.is_null() || out_json.is_null() {
+            return VexioStatus::ErrInvalidArg;
+        }
+        // SAFETY: `doc` and `out_json` verified non-null.
+        let d = unsafe { &*doc };
+        let json = d.session.list_ruler_guides_json(page_id);
+        unsafe { *out_json = VexioOwnedBuffer::from_vec(json.into_bytes()) };
+        VexioStatus::Ok
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_doc_add_ruler_guide(
+    doc: *mut VexioDoc,
+    page_id: u32,
+    is_vertical: bool,
+    coord_in: f64,
+    out_guide_id: *mut u64,
+) -> VexioStatus {
+    catch_ffi_status(|| {
+        if doc.is_null() {
+            return VexioStatus::ErrInvalidArg;
+        }
+        // SAFETY: `doc` verified non-null.
+        let d = unsafe { &mut *doc };
+        match d.session.add_ruler_guide(page_id, is_vertical, coord_in) {
+            Ok(gid) => {
+                if !out_guide_id.is_null() {
+                    unsafe { *out_guide_id = gid };
+                }
+                VexioStatus::Ok
+            }
+            Err(e) => map_core_err(e),
+        }
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_doc_move_ruler_guide(
+    doc: *mut VexioDoc,
+    page_id: u32,
+    guide_id: u64,
+    coord_in: f64,
+) -> VexioStatus {
+    catch_ffi_status(|| {
+        if doc.is_null() {
+            return VexioStatus::ErrInvalidArg;
+        }
+        // SAFETY: `doc` verified non-null.
+        let d = unsafe { &mut *doc };
+        match d.session.move_ruler_guide(page_id, guide_id, coord_in) {
+            Ok(true) => VexioStatus::Ok,
+            Ok(false) => VexioStatus::ErrInvalidArg,
+            Err(e) => map_core_err(e),
+        }
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_doc_delete_ruler_guide(
+    doc: *mut VexioDoc,
+    page_id: u32,
+    guide_id: u64,
+) -> VexioStatus {
+    catch_ffi_status(|| {
+        if doc.is_null() {
+            return VexioStatus::ErrInvalidArg;
+        }
+        // SAFETY: `doc` verified non-null.
+        let d = unsafe { &mut *doc };
+        match d.session.delete_ruler_guide(page_id, guide_id) {
+            Ok(true) => VexioStatus::Ok,
+            Ok(false) => VexioStatus::ErrInvalidArg,
+            Err(e) => map_core_err(e),
+        }
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_doc_get_snap_glue_json(
+    doc: *const VexioDoc,
+    page_id: u32,
+    out_json: *mut VexioOwnedBuffer,
+) -> VexioStatus {
+    catch_ffi_status(|| {
+        if doc.is_null() || out_json.is_null() {
+            return VexioStatus::ErrInvalidArg;
+        }
+        // SAFETY: `doc` and `out_json` verified non-null.
+        let d = unsafe { &*doc };
+        let json = d.session.get_snap_glue_settings_json(page_id);
+        unsafe { *out_json = VexioOwnedBuffer::from_vec(json.into_bytes()) };
+        VexioStatus::Ok
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_doc_set_snap_glue(
+    doc: *mut VexioDoc,
+    page_id: u32,
+    snap_enabled: bool,
+    glue_enabled: bool,
+    snap_targets_mask: u32,
+    glue_types_mask: u32,
+) -> VexioStatus {
+    catch_ffi_status(|| {
+        if doc.is_null() {
+            return VexioStatus::ErrInvalidArg;
+        }
+        // SAFETY: `doc` verified non-null.
+        let d = unsafe { &mut *doc };
+        match d.session.set_snap_glue_settings(
+            page_id,
+            snap_enabled,
+            glue_enabled,
+            snap_targets_mask,
+            glue_types_mask,
+        ) {
+            Ok(()) => VexioStatus::Ok,
+            Err(e) => map_core_err(e),
+        }
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_doc_find_json(
+    doc: *const VexioDoc,
+    active_page_id: u32,
+    query_utf8: *const c_char,
+    match_case: bool,
+    whole_word: bool,
+    all_pages: bool,
+    out_json: *mut VexioOwnedBuffer,
+) -> VexioStatus {
+    catch_ffi_status(|| {
+        if doc.is_null() || query_utf8.is_null() || out_json.is_null() {
+            return VexioStatus::ErrInvalidArg;
+        }
+        // SAFETY: `doc`, `query_utf8`, `out_json` verified non-null.
+        let d = unsafe { &*doc };
+        let Ok(q_s) = unsafe { CStr::from_ptr(query_utf8) }.to_str() else {
+            return VexioStatus::ErrInvalidArg;
+        };
+        let json = d
+            .session
+            .find_in_document_json(active_page_id, q_s, match_case, whole_word, all_pages);
+        unsafe { *out_json = VexioOwnedBuffer::from_vec(json.into_bytes()) };
+        VexioStatus::Ok
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_doc_replace(
+    doc: *mut VexioDoc,
+    active_page_id: u32,
+    find_utf8: *const c_char,
+    replace_utf8: *const c_char,
+    match_case: bool,
+    whole_word: bool,
+    all_pages: bool,
+    out_replaced_count: *mut u32,
+) -> VexioStatus {
+    catch_ffi_status(|| {
+        if doc.is_null() || find_utf8.is_null() {
+            return VexioStatus::ErrInvalidArg;
+        }
+        // SAFETY: `find_utf8` verified non-null.
+        let Ok(find_s) = unsafe { CStr::from_ptr(find_utf8) }.to_str() else {
+            return VexioStatus::ErrInvalidArg;
+        };
+        let rep_s = if replace_utf8.is_null() {
+            ""
+        } else {
+            unsafe { CStr::from_ptr(replace_utf8) }.to_str().unwrap_or("")
+        };
+        // SAFETY: `doc` verified non-null.
+        let d = unsafe { &mut *doc };
+        match d
+            .session
+            .replace_in_document(active_page_id, find_s, rep_s, match_case, whole_word, all_pages)
+        {
+            Ok(n) => {
+                if !out_replaced_count.is_null() {
+                    unsafe { *out_replaced_count = n as u32 };
+                }
+                VexioStatus::Ok
+            }
+            Err(e) => map_core_err(e),
+        }
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_doc_copy_shape_format_json(
+    doc: *const VexioDoc,
+    page_id: u32,
+    shape_id: u64,
+    out_json: *mut VexioOwnedBuffer,
+) -> VexioStatus {
+    catch_ffi_status(|| {
+        if doc.is_null() || out_json.is_null() {
+            return VexioStatus::ErrInvalidArg;
+        }
+        // SAFETY: `doc` and `out_json` verified non-null.
+        let d = unsafe { &*doc };
+        match d.session.copy_shape_format_json(page_id, shape_id) {
+            Ok(json) => {
+                unsafe { *out_json = VexioOwnedBuffer::from_vec(json.into_bytes()) };
+                VexioStatus::Ok
+            }
+            Err(e) => map_core_err(e),
+        }
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_doc_apply_format_painter(
+    doc: *mut VexioDoc,
+    page_id: u32,
+    target_ids_ptr: *const u64,
+    target_ids_len: usize,
+    format_json_utf8: *const c_char,
+    out_modified_count: *mut u32,
+) -> VexioStatus {
+    catch_ffi_status(|| {
+        if doc.is_null() || format_json_utf8.is_null() {
+            return VexioStatus::ErrInvalidArg;
+        }
+        let ids: &[u64] = if target_ids_ptr.is_null() || target_ids_len == 0 {
+            &[]
+        } else {
+            unsafe { std::slice::from_raw_parts(target_ids_ptr, target_ids_len) }
+        };
+        let Ok(fmt_s) = unsafe { CStr::from_ptr(format_json_utf8) }.to_str() else {
+            return VexioStatus::ErrInvalidArg;
+        };
+        // SAFETY: `doc` verified non-null.
+        let d = unsafe { &mut *doc };
+        match d.session.apply_format_painter(page_id, ids, fmt_s) {
+            Ok(n) => {
+                if !out_modified_count.is_null() {
+                    unsafe { *out_modified_count = n as u32 };
+                }
+                VexioStatus::Ok
+            }
+            Err(e) => map_core_err(e),
+        }
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vexio_doc_number_shapes(
+    doc: *mut VexioDoc,
+    page_id: u32,
+    shape_ids_ptr: *const u64,
+    shape_ids_len: usize,
+    order_mode_utf8: *const c_char,
+    start_num: i32,
+    interval: i32,
+    prefix_utf8: *const c_char,
+    target_mode_utf8: *const c_char,
+    out_numbered_count: *mut u32,
+) -> VexioStatus {
+    catch_ffi_status(|| {
+        if doc.is_null() {
+            return VexioStatus::ErrInvalidArg;
+        }
+        let ids: &[u64] = if shape_ids_ptr.is_null() || shape_ids_len == 0 {
+            &[]
+        } else {
+            unsafe { std::slice::from_raw_parts(shape_ids_ptr, shape_ids_len) }
+        };
+        let order_s = if order_mode_utf8.is_null() {
+            "top_to_bottom_left_to_right"
+        } else {
+            unsafe { CStr::from_ptr(order_mode_utf8) }
+                .to_str()
+                .unwrap_or("top_to_bottom_left_to_right")
+        };
+        let pfx_s = if prefix_utf8.is_null() {
+            ""
+        } else {
+            unsafe { CStr::from_ptr(prefix_utf8) }.to_str().unwrap_or("")
+        };
+        let tgt_s = if target_mode_utf8.is_null() {
+            "both"
+        } else {
+            unsafe { CStr::from_ptr(target_mode_utf8) }
+                .to_str()
+                .unwrap_or("both")
+        };
+        // SAFETY: `doc` verified non-null.
+        let d = unsafe { &mut *doc };
+        match d.session.number_shapes_on_page(
+            page_id,
+            ids,
+            order_s,
+            start_num,
+            interval,
+            pfx_s,
+            tgt_s,
+        ) {
+            Ok(n) => {
+                if !out_numbered_count.is_null() {
+                    unsafe { *out_numbered_count = n as u32 };
+                }
                 VexioStatus::Ok
             }
             Err(e) => map_core_err(e),

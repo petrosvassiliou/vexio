@@ -46,7 +46,9 @@ type ActiveTool =
   | 'text'
   | 'pen'
   | 'highlighter'
-  | 'connection_point';
+  | 'connection_point'
+  | 'text_block'
+  | 'format_painter';
 type InspectorTab = 'props' | 'sizepos' | 'data' | 'layers' | 'comments' | 'validate';
 type ActiveModal =
   | null
@@ -66,7 +68,11 @@ type ActiveModal =
   | 'cadTools'
   | 'smartActions'
   | 'stencilCatalog'
-  | 'unsavedConfirm';
+  | 'unsavedConfirm'
+  | 'insertField'
+  | 'findReplace'
+  | 'snapGlue'
+  | 'numberShapes';
 type ResizeHandleDir = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w';
 
 interface StarterTemplateCard {
@@ -586,6 +592,8 @@ const UI_ICONS = {
   pen: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11.2 2.2 L13.8 4.8 L5.5 13.1 L2.2 13.8 L2.9 10.5 Z"/></svg>',
   highlighter: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9.8 2.4 L13.6 6.2 L6.8 13 L3 9.2 Z"/><path d="M2 14 H7"/></svg>',
   connection_point: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="8" cy="8" r="5.6" stroke-dasharray="2.4 2"/><path d="M5.6 5.6 L10.4 10.4 M10.4 5.6 L5.6 10.4"/></svg>',
+  text_block: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><rect x="2.2" y="3.2" width="11.6" height="9.6" stroke-dasharray="2.2 1.8"/><path d="M5.2 6 H10.8 M8 6 V10.8"/></svg>',
+  format_painter: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="2.2" width="9" height="4.2" rx="1"/><path d="M12 4.3 H13.5 V7.5 H7.5 V10 M6.2 10 H8.8 V13.8 H6.2 Z"/></svg>',
   duplicate: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><rect x="5.2" y="5.2" width="8.5" height="8.5" rx="1.4"/><path d="M10.5 5.2 V3.3 A1 1 0 0 0 9.5 2.3 H3.3 A1 1 0 0 0 2.3 3.3 V9.5 A1 1 0 0 0 3.3 10.5 H5.2"/></svg>',
   trash: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M3 4.5 H13 M6 4.5 V2.8 H10 V4.5 M4.5 4.5 L5.2 13.5 H10.8 L11.5 4.5"/></svg>',
   open: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M2 4.2 H6.2 L7.6 5.8 H14 V12.8 H2 Z"/></svg>',
@@ -793,7 +801,27 @@ class VexioChromeOsApp {
       return true;
     }
   })();
-  private updateStatusText = 'Vexio v0.7.0-beta • Automatic updates enabled';
+  private updateStatusText = 'Vexio v0.8.0-beta • Automatic updates enabled';
+  private sampledFormatJson = '';
+  private fieldPresetDraft = 'width';
+  private fieldFormatDraft = '0.00 in';
+  private fieldPrefixDraft = '';
+  private findQueryDraft = '';
+  private replaceTextDraft = '';
+  private findMatchCase = false;
+  private findWholeWord = false;
+  private findAllPages = true;
+  private findMatches: Array<{ pageId: number; pageName: string; shapeId: number; shapeName: string; targetKind: string; excerpt: string }> = [];
+  private snapEnabledState = true;
+  private glueEnabledState = true;
+  private snapTargetsMaskState = 127;
+  private glueTypesMaskState = 15;
+  private rulerGuidesList: Array<{ id: number; name: string; isVertical: boolean; coordIn: number }> = [];
+  private numberOrderDraft = 'top_to_bottom_left_to_right';
+  private numberStartDraft = 1;
+  private numberIntervalDraft = 1;
+  private numberPrefixDraft = '';
+  private numberTargetDraft = 'both';
   private latestReleaseTag: string | null = null;
   private latestReleaseUrl = 'https://github.com/petrosvassiliou/vexio/releases';
 
@@ -1320,7 +1348,7 @@ class VexioChromeOsApp {
       return;
     }
 
-    const currentVersion = '0.7.0-beta';
+    const currentVersion = '0.8.0-beta';
     try {
       const resp = await fetch('https://api.github.com/repos/petrosvassiliou/vexio/releases', {
         headers: { Accept: 'application/vnd.github+json' },
@@ -2163,6 +2191,29 @@ class VexioChromeOsApp {
         this.render();
         return;
       }
+      if (!inInput && (e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === '4' || e.key === '$' || e.code === 'Digit4')) {
+        e.preventDefault();
+        this.activeTool = this.activeTool === 'text_block' ? 'pointer' : 'text_block';
+        this.render();
+        return;
+      }
+      if (!inInput && (e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'p') {
+        e.preventDefault();
+        if (this.primarySelectedId) {
+          const copied = await this.callEngine('copyShapeFormat', { shapeId: this.primarySelectedId });
+          this.sampledFormatJson = copied.formatJson ?? '';
+        }
+        this.activeTool = this.activeTool === 'format_painter' ? 'pointer' : 'format_painter';
+        this.render();
+        return;
+      }
+      if (!inInput && (e.ctrlKey || e.metaKey) && (e.key.toLowerCase() === 'f' || e.key.toLowerCase() === 'h')) {
+        e.preventDefault();
+        this.activeModal = 'findReplace';
+        this.modalOutputMessage = '';
+        this.render();
+        return;
+      }
       if (!inInput && (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'g') {
         e.preventDefault();
         if (e.shiftKey) {
@@ -2658,6 +2709,8 @@ class VexioChromeOsApp {
         ${btn('star', UI_ICONS.star, 'Star', '5-Point Star — Click and drag on canvas (S)')}
         <div class="rail-divider"></div>
         ${btn('text', UI_ICONS.text, 'Text', 'Text Box — Click or drag on canvas to type immediately, or double-click any stencil (T)')}
+        ${btn('text_block', UI_ICONS.text_block, 'TxtBlk', 'Text Block Tool — Move or rotate shape label independently (Ctrl+Shift+4)')}
+        ${btn('format_painter', UI_ICONS.format_painter, 'Painter', 'Format Painter — Sample Fill/Line/Text formatting & click target shape (Ctrl+Shift+P)')}
         ${btn('pen', UI_ICONS.pen, 'Pen', 'Freehand Markup Ink Pen (I)')}
         ${btn('highlighter', UI_ICONS.highlighter, 'Marker', 'Markup Highlighter')}
       </aside>
@@ -2855,6 +2908,8 @@ class VexioChromeOsApp {
           <span class="ribbon-group-label">Clipboard</span>
           <button class="m3-btn" id="btn-paste-sel" ${hasClip ? '' : 'disabled'} title="Paste (Ctrl+V)">Paste</button>
           <button class="m3-btn" id="btn-copy-sel" ${selDisabled} title="Copy (Ctrl+C)">Copy</button>
+          <button class="m3-btn ${this.activeTool === 'format_painter' ? 'active' : ''}" id="btn-format-painter" title="Format Painter — Copy Fill/Line/Text style &amp; click target shape (Ctrl+Shift+P)">Painter</button>
+          <button class="m3-btn tonal" id="btn-open-find-modal" title="Find &amp; Replace across Page or Document (Ctrl+F / Ctrl+H)">Find</button>
           <button class="m3-btn" id="btn-duplicate-sel" ${selDisabled} title="Duplicate Selected (Ctrl+D)">${UI_ICONS.duplicate}</button>
           <button class="m3-btn" id="btn-delete-sel" ${selDisabled} title="Delete Selected (Del)">${UI_ICONS.trash}</button>
           <div class="ribbon-divider"></div>
@@ -2927,6 +2982,29 @@ class VexioChromeOsApp {
             <span>Line</span>
             <input type="color" id="ribbon-line-color-picker" class="native-color-input" value="${this.shapeLineHex}" />
           </label>
+          <select class="cell-input" id="ribbon-end-arrow-select" style="width:118px;height:26px;padding:1px 5px;font-size:11px" ${selDisabled} title="All 45 Canonical Visio End Arrowheads (0..45)">
+            <option value="">Arrows (45) ▾</option>
+            <option value="0">0 — None</option>
+            <option value="1">1 — Open Arrow</option>
+            <option value="2">2 — Hollow Triangle</option>
+            <option value="4">4 — Filled Triangle</option>
+            <option value="5">5 — Stealth Arrow</option>
+            <option value="9">9 — Dimension Slash</option>
+            <option value="10">10 — Filled Dot</option>
+            <option value="11">11 — Filled Diamond</option>
+            <option value="14">14 — Hollow Stealth</option>
+            <option value="22">22 — Hollow Diamond</option>
+            <option value="24">24 — Dim Arrow + Bar</option>
+            <option value="25">25 — ERD Double Bar ||</option>
+            <option value="27">27 — Crow's Foot &lt;</option>
+            <option value="28">28 — One &amp; Many |&lt;</option>
+            <option value="29">29 — Zero or Many o&lt;</option>
+            <option value="30">30 — Zero or One o|</option>
+            <option value="31">31 — Hollow Circle</option>
+            <option value="36">36 — Double Triangle</option>
+            <option value="41">41 — Circle Cross ⊕</option>
+            <option value="45">45 — Triple Feather</option>
+          </select>
           <div class="swatch-row">
             ${['255,255,255', '239,246,255', '219,234,254', '220,252,231', '254,243,199', '243,232,255', '254,226,226']
               .map(
@@ -2978,6 +3056,7 @@ class VexioChromeOsApp {
           <button class="m3-btn tonal" id="btn-ins-callout">Callout Note</button>
           <button class="m3-btn" id="btn-ins-image">Image...</button>
           <button class="m3-btn" id="btn-ins-ctrl-handle" ${this.primarySelectedId ? '' : 'disabled'}>Control Handle</button>
+          <button class="m3-btn tonal" id="btn-open-field-modal" ${this.primarySelectedId ? '' : 'disabled'} title="Insert Dynamic Formula Text Field (&lt;fld&gt;)">Field…</button>
           <button class="m3-btn" id="btn-open-link-modal" ${this.primarySelectedId ? '' : 'disabled'}>Hyperlink...</button>
           <div class="ribbon-divider"></div>
           <span class="ribbon-group-label">Engineering &amp; CAD</span>
@@ -3036,6 +3115,17 @@ class VexioChromeOsApp {
             <option value="pill_banner">Rounded Pill Banner</option>
             <option value="iso_engineering">ISO 7200 Engineering Block</option>
             <option value="none">None (Remove Border/Title)</option>
+          </select>
+          <select class="cell-input" id="ribbon-line-jump-select" style="width:142px;height:28px;padding:2px 6px;font-size:11.5px" title="Configure Visio Connector Line Jumps">
+            <option value="">Line Jumps ▾</option>
+            <option value="1:0">Horiz — Arc Jump</option>
+            <option value="1:1">Horiz — Gap Jump</option>
+            <option value="1:2">Horiz — Square Jump</option>
+            <option value="1:3">Horiz — 2-Side Bridge</option>
+            <option value="1:4">Horiz — 3-Side Bridge</option>
+            <option value="2:0">Vertical — Arc Jump</option>
+            <option value="3:0">Last Routed — Arc Jump</option>
+            <option value="0:0">No Line Jumps</option>
           </select>
         `;
       case 'Data': {
@@ -3099,6 +3189,10 @@ class VexioChromeOsApp {
           <button class="m3-btn ${this.showRulers ? 'active' : ''}" id="btn-toggle-rulers">Rulers</button>
           <button class="m3-btn ${this.showGrid ? 'active' : ''}" id="btn-toggle-grid">Dot Grid</button>
           <button class="m3-btn ${this.showSmartGuides ? 'active' : ''}" id="btn-toggle-smart-guides" title="Toggle Dynamic Grid Smart Alignment &amp; Equal-Spacing Guides (Hold Alt to bypass)">Smart Guides</button>
+          <button class="m3-btn tonal" id="btn-add-h-guide" title="Add Draggable Horizontal Ruler Guide">+ H Guide</button>
+          <button class="m3-btn tonal" id="btn-add-v-guide" title="Add Draggable Vertical Ruler Guide">+ V Guide</button>
+          <button class="m3-btn tonal" id="btn-open-snap-glue-modal" title="Configure Visio Snap &amp; Glue Matrix">Snap &amp; Glue…</button>
+          <button class="m3-btn tonal" id="btn-open-number-shapes-modal" title="Automatic Shape Numbering Wizard">Number Shapes…</button>
           <button class="m3-btn" id="btn-open-layers">Layers (${snap.layers.length})</button>
           <button class="m3-btn" id="btn-fit-window">Fit Sheet</button>
           <button class="m3-btn" id="btn-zoom-100">100%</button>
@@ -4751,7 +4845,7 @@ class VexioChromeOsApp {
             </div>
             <div class="list-row-card" style="flex-direction:column;align-items:flex-start;gap:6px">
               <strong>${this.updateStatusText}</strong>
-              <span style="font-size:11.5px;color:var(--m3-text-muted)">Installed build: Vexio v0.7.0-beta • Offline-First Workbox PWA + GitHub Releases channel</span>
+              <span style="font-size:11.5px;color:var(--m3-text-muted)">Installed build: Vexio v0.8.0-beta • Offline-First Workbox PWA + GitHub Releases channel</span>
             </div>
             <label style="display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer">
               <input type="checkbox" id="chk-auto-updates" ${this.autoCheckUpdates ? 'checked' : ''} />
@@ -5272,6 +5366,185 @@ class VexioChromeOsApp {
             ${this.modalOutputMessage ? `<div style="color:var(--m3-secondary);font-size:12px">${this.modalOutputMessage}</div>` : ''}
             <div style="display:flex;justify-content:flex-end;gap:8px">
               <button class="m3-btn active" id="btn-save-smart-action" ${sh ? '' : 'disabled'}>Save Smart Action Row</button>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    if (this.activeModal === 'insertField') {
+      return `
+        <div class="modal-backdrop">
+          <div class="modal-card">
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <strong>Insert Dynamic Text Field (&lt;fld&gt;)</strong>
+              <button class="m3-btn" id="btn-close-modal">Close</button>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+              <label style="font-size:11.5px;display:flex;flex-direction:column;gap:3px;grid-column:span 2">Field Category / Formula
+                <select class="cell-input" id="field-preset-select">
+                  <option value="width" ${this.fieldPresetDraft === 'width' ? 'selected' : ''}>Geometry — Width (=Width)</option>
+                  <option value="height" ${this.fieldPresetDraft === 'height' ? 'selected' : ''}>Geometry — Height (=Height)</option>
+                  <option value="angle" ${this.fieldPresetDraft === 'angle' ? 'selected' : ''}>Geometry — Angle (=Angle)</option>
+                  <option value="page_name" ${this.fieldPresetDraft === 'page_name' ? 'selected' : ''}>Page — Page Name (=PAGENAME())</option>
+                  <option value="page_number" ${this.fieldPresetDraft === 'page_number' ? 'selected' : ''}>Page — Page Number (=PAGENUMBER())</option>
+                  <option value="page_count" ${this.fieldPresetDraft === 'page_count' ? 'selected' : ''}>Page — Page Count (=PAGECOUNT())</option>
+                  <option value="doc_title" ${this.fieldPresetDraft === 'doc_title' ? 'selected' : ''}>Document — Title (=TITLE())</option>
+                  <option value="creator" ${this.fieldPresetDraft === 'creator' ? 'selected' : ''}>Document — Creator (=CREATOR())</option>
+                  <option value="shape_name" ${this.fieldPresetDraft === 'shape_name' ? 'selected' : ''}>Object Info — Name (=NAME())</option>
+                </select>
+              </label>
+              <label style="font-size:11.5px;display:flex;flex-direction:column;gap:3px">Prefix Label (optional)
+                <input class="cell-input" id="field-prefix-input" value="${this.fieldPrefixDraft.replace(/"/g, '&quot;')}" placeholder="W: " />
+              </label>
+              <label style="font-size:11.5px;display:flex;flex-direction:column;gap:3px">Display Format
+                <input class="cell-input" id="field-format-input" value="${this.fieldFormatDraft.replace(/"/g, '&quot;')}" placeholder="0.00 in" />
+              </label>
+            </div>
+            ${this.modalOutputMessage ? `<div style="color:var(--m3-secondary);font-size:12px">${this.modalOutputMessage}</div>` : ''}
+            <div style="display:flex;justify-content:flex-end;gap:8px">
+              <button class="m3-btn active" id="btn-confirm-insert-field" ${this.primarySelectedId ? '' : 'disabled'}>Insert Field</button>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    if (this.activeModal === 'findReplace') {
+      return `
+        <div class="modal-backdrop">
+          <div class="modal-card">
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <strong>Find &amp; Replace (Ctrl+F / Ctrl+H)</strong>
+              <button class="m3-btn" id="btn-close-modal">Close</button>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+              <label style="font-size:11.5px;display:flex;flex-direction:column;gap:3px">Find What
+                <input class="cell-input" id="find-query-input" value="${this.findQueryDraft.replace(/"/g, '&quot;')}" placeholder="Search text, Prop.*, or shape name" />
+              </label>
+              <label style="font-size:11.5px;display:flex;flex-direction:column;gap:3px">Replace With
+                <input class="cell-input" id="replace-text-input" value="${this.replaceTextDraft.replace(/"/g, '&quot;')}" placeholder="Replacement text" />
+              </label>
+            </div>
+            <div style="display:flex;gap:14px;flex-wrap:wrap;font-size:12px">
+              <label><input type="checkbox" id="chk-find-case" ${this.findMatchCase ? 'checked' : ''} /> Match case</label>
+              <label><input type="checkbox" id="chk-find-word" ${this.findWholeWord ? 'checked' : ''} /> Whole word</label>
+              <label><input type="checkbox" id="chk-find-all-pages" ${this.findAllPages ? 'checked' : ''} /> All pages</label>
+            </div>
+            ${
+              this.findMatches.length > 0
+                ? `<div style="display:flex;flex-direction:column;gap:4px;max-height:170px;overflow:auto">
+                    ${this.findMatches
+                      .map(
+                        (m) =>
+                          `<button class="list-row-card" data-jump-match-page="${m.pageId}" data-jump-match-shape="${m.shapeId}" style="text-align:left;cursor:pointer">
+                            <strong>${m.pageName} • ${m.shapeName}</strong> <span style="font-size:11px;color:var(--m3-text-muted)">[${m.targetKind}] ${m.excerpt}</span>
+                          </button>`
+                      )
+                      .join('')}
+                  </div>`
+                : ''
+            }
+            ${this.modalOutputMessage ? `<div style="color:var(--m3-secondary);font-size:12px">${this.modalOutputMessage}</div>` : ''}
+            <div style="display:flex;justify-content:flex-end;gap:8px">
+              <button class="m3-btn tonal" id="btn-exec-find">Find All</button>
+              <button class="m3-btn active" id="btn-exec-replace-all">Replace All</button>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    if (this.activeModal === 'snapGlue') {
+      const st = this.snapTargetsMaskState;
+      const gt = this.glueTypesMaskState;
+      return `
+        <div class="modal-backdrop">
+          <div class="modal-card">
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <strong>Snap &amp; Glue Matrix &amp; Ruler Guides</strong>
+              <button class="m3-btn" id="btn-close-modal">Close</button>
+            </div>
+            <div style="display:flex;gap:18px;font-size:12.5px;font-weight:600">
+              <label><input type="checkbox" id="chk-snap-enabled" ${this.snapEnabledState ? 'checked' : ''} /> Enable Snap</label>
+              <label><input type="checkbox" id="chk-glue-enabled" ${this.glueEnabledState ? 'checked' : ''} /> Enable Glue</label>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:12px">
+              <div style="display:flex;flex-direction:column;gap:4px">
+                <strong>Snap To:</strong>
+                <label><input type="checkbox" data-snap-bit="1" ${(st & 1) ? 'checked' : ''} /> Grid</label>
+                <label><input type="checkbox" data-snap-bit="4" ${(st & 4) ? 'checked' : ''} /> Ruler Guides</label>
+                <label><input type="checkbox" data-snap-bit="8" ${(st & 8) ? 'checked' : ''} /> Shape Geometry</label>
+                <label><input type="checkbox" data-snap-bit="16" ${(st & 16) ? 'checked' : ''} /> Alignment Box / Dynamic Grid</label>
+                <label><input type="checkbox" data-snap-bit="64" ${(st & 64) ? 'checked' : ''} /> Connection Points</label>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:4px">
+                <strong>Glue To:</strong>
+                <label><input type="checkbox" data-glue-bit="1" ${(gt & 1) ? 'checked' : ''} /> Connection Points</label>
+                <label><input type="checkbox" data-glue-bit="2" ${(gt & 2) ? 'checked' : ''} /> Ruler Guides</label>
+                <label><input type="checkbox" data-glue-bit="4" ${(gt & 4) ? 'checked' : ''} /> Shape Geometry (Walking)</label>
+                <label><input type="checkbox" data-glue-bit="8" ${(gt & 8) ? 'checked' : ''} /> Shape Vertices</label>
+              </div>
+            </div>
+            ${
+              this.rulerGuidesList.length > 0
+                ? `<div style="display:flex;flex-direction:column;gap:4px;max-height:120px;overflow:auto">
+                    ${this.rulerGuidesList
+                      .map(
+                        (g) =>
+                          `<div class="list-row-card" style="justify-content:space-between">
+                            <span style="font-size:11.5px">${g.isVertical ? 'Vertical' : 'Horizontal'} Guide (${g.name}) @ ${g.coordIn.toFixed(2)} in</span>
+                            <button class="m3-btn danger" data-del-guide-id="${g.id}" style="height:22px;padding:0 8px;font-size:11px">Delete</button>
+                          </div>`
+                      )
+                      .join('')}
+                  </div>`
+                : ''
+            }
+            <div style="display:flex;justify-content:flex-end;gap:8px">
+              <button class="m3-btn active" id="btn-save-snap-glue">Apply Snap &amp; Glue</button>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    if (this.activeModal === 'numberShapes') {
+      return `
+        <div class="modal-backdrop">
+          <div class="modal-card">
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <strong>Number Shapes Wizard</strong>
+              <button class="m3-btn" id="btn-close-modal">Close</button>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+              <label style="font-size:11.5px;display:flex;flex-direction:column;gap:3px;grid-column:span 2">Numbering Order
+                <select class="cell-input" id="num-order-select">
+                  <option value="top_to_bottom_left_to_right" ${this.numberOrderDraft === 'top_to_bottom_left_to_right' ? 'selected' : ''}>Top-to-Bottom, Left-to-Right</option>
+                  <option value="left_to_right_top_to_bottom" ${this.numberOrderDraft === 'left_to_right_top_to_bottom' ? 'selected' : ''}>Left-to-Right, Top-to-Bottom</option>
+                  <option value="connected_flow" ${this.numberOrderDraft === 'connected_flow' ? 'selected' : ''}>Connected Process Flow (BFS)</option>
+                  <option value="z_order" ${this.numberOrderDraft === 'z_order' ? 'selected' : ''}>Page Z-Order</option>
+                </select>
+              </label>
+              <label style="font-size:11.5px;display:flex;flex-direction:column;gap:3px">Start Number
+                <input type="number" class="cell-input" id="num-start-input" value="${this.numberStartDraft}" />
+              </label>
+              <label style="font-size:11.5px;display:flex;flex-direction:column;gap:3px">Interval
+                <input type="number" class="cell-input" id="num-interval-input" value="${this.numberIntervalDraft}" />
+              </label>
+              <label style="font-size:11.5px;display:flex;flex-direction:column;gap:3px">Prefix (optional)
+                <input class="cell-input" id="num-prefix-input" value="${this.numberPrefixDraft.replace(/"/g, '&quot;')}" placeholder="P-" />
+              </label>
+              <label style="font-size:11.5px;display:flex;flex-direction:column;gap:3px">Output Target
+                <select class="cell-input" id="num-target-select">
+                  <option value="both" ${this.numberTargetDraft === 'both' ? 'selected' : ''}>Shape Text + Prop.ShapeNumber</option>
+                  <option value="text_prefix" ${this.numberTargetDraft === 'text_prefix' ? 'selected' : ''}>Prepend to Shape Text Only</option>
+                  <option value="shape_data" ${this.numberTargetDraft === 'shape_data' ? 'selected' : ''}>Prop.ShapeNumber Only</option>
+                </select>
+              </label>
+            </div>
+            <div style="display:flex;justify-content:flex-end;gap:8px">
+              <button class="m3-btn active" id="btn-apply-number-shapes">Apply Numbering</button>
             </div>
           </div>
         </div>
@@ -6088,6 +6361,101 @@ class VexioChromeOsApp {
     document.getElementById('btn-open-smart-actions-modal')?.addEventListener('click', () => {
       this.activeModal = 'smartActions';
       this.modalOutputMessage = '';
+      this.render();
+    });
+
+    document.getElementById('btn-format-painter')?.addEventListener('click', async () => {
+      if (this.primarySelectedId) {
+        const res = await this.callEngine('copyShapeFormat', { shapeId: this.primarySelectedId });
+        this.sampledFormatJson = res.formatJson ?? '';
+      }
+      this.activeTool = this.activeTool === 'format_painter' ? 'pointer' : 'format_painter';
+      this.render();
+    });
+
+    document.getElementById('btn-open-find-modal')?.addEventListener('click', () => {
+      this.activeModal = 'findReplace';
+      this.modalOutputMessage = '';
+      this.render();
+    });
+
+    document.getElementById('btn-open-field-modal')?.addEventListener('click', () => {
+      this.activeModal = 'insertField';
+      this.modalOutputMessage = '';
+      this.render();
+    });
+
+    document.getElementById('btn-open-snap-glue-modal')?.addEventListener('click', async () => {
+      const [sg, rg] = await Promise.all([
+        this.callEngine('getSnapGlue'),
+        this.callEngine('listRulerGuides'),
+      ]);
+      if (sg.settings) {
+        this.snapEnabledState = Boolean(sg.settings.snapEnabled);
+        this.glueEnabledState = Boolean(sg.settings.glueEnabled);
+        this.snapTargetsMaskState = Number(sg.settings.snapTargetsMask ?? 127);
+        this.glueTypesMaskState = Number(sg.settings.glueTypesMask ?? 15);
+      }
+      this.rulerGuidesList = rg.guides ?? [];
+      this.activeModal = 'snapGlue';
+      this.modalOutputMessage = '';
+      this.render();
+    });
+
+    document.getElementById('btn-open-number-shapes-modal')?.addEventListener('click', () => {
+      this.activeModal = 'numberShapes';
+      this.modalOutputMessage = '';
+      this.render();
+    });
+
+    document.getElementById('btn-add-h-guide')?.addEventListener('click', async () => {
+      const ph = this.snapshot?.pageHeightIn ?? 8.5;
+      const res = await this.callEngine('addRulerGuide', { isVertical: false, coordIn: ph * 0.5 });
+      this.rulerGuidesList = res.guides ?? [];
+      this.snapshot = res.snapshot;
+      this.persistMutationSideEffects(res.wal);
+      this.showToast(`Added Horizontal Guide @ ${(ph * 0.5).toFixed(2)} in`, 'info');
+      this.render();
+    });
+
+    document.getElementById('btn-add-v-guide')?.addEventListener('click', async () => {
+      const pw = this.snapshot?.pageWidthIn ?? 11.0;
+      const res = await this.callEngine('addRulerGuide', { isVertical: true, coordIn: pw * 0.5 });
+      this.rulerGuidesList = res.guides ?? [];
+      this.snapshot = res.snapshot;
+      this.persistMutationSideEffects(res.wal);
+      this.showToast(`Added Vertical Guide @ ${(pw * 0.5).toFixed(2)} in`, 'info');
+      this.render();
+    });
+
+    document.getElementById('ribbon-end-arrow-select')?.addEventListener('change', async (e) => {
+      const val = (e.target as HTMLSelectElement).value;
+      if (!val || this.selectedShapeIds.length === 0) return;
+      const code = Number(val);
+      const res = await this.callEngine('setConnectorArrowheads', {
+        shapeIds: this.selectedShapeIds,
+        beginArrow: 0,
+        endArrow: code,
+        arrowSize: 2,
+      });
+      this.snapshot = res.snapshot;
+      this.persistMutationSideEffects(res.wal);
+      this.render();
+    });
+
+    document.getElementById('ribbon-line-jump-select')?.addEventListener('change', async (e) => {
+      const val = (e.target as HTMLSelectElement).value;
+      if (!val) return;
+      const [jc, js] = val.split(':').map(Number);
+      const res = await this.callEngine('setPageLineJumps', {
+        jumpCode: jc,
+        jumpStyle: js,
+        factorX: 0.666,
+        factorY: 0.666,
+      });
+      this.snapshot = res.snapshot;
+      this.persistMutationSideEffects(res.wal);
+      this.showToast('Updated Page Connector Line Jumps', 'info');
       this.render();
     });
 
@@ -7484,6 +7852,131 @@ class VexioChromeOsApp {
       this.render();
     });
 
+    document.getElementById('btn-confirm-insert-field')?.addEventListener('click', async () => {
+      if (!this.primarySelectedId) return;
+      this.fieldPresetDraft = (document.getElementById('field-preset-select') as HTMLSelectElement)?.value ?? 'width';
+      this.fieldPrefixDraft = (document.getElementById('field-prefix-input') as HTMLInputElement)?.value ?? '';
+      this.fieldFormatDraft = (document.getElementById('field-format-input') as HTMLInputElement)?.value ?? '';
+      const res = await this.callEngine('insertTextField', {
+        shapeId: this.primarySelectedId,
+        presetOrFormula: this.fieldPresetDraft,
+        formatSpec: this.fieldFormatDraft,
+        prefixLabel: this.fieldPrefixDraft,
+      });
+      this.snapshot = res.snapshot;
+      this.persistMutationSideEffects(res.wal);
+      this.activeModal = null;
+      this.showToast(`Inserted Dynamic Field (#${res.fieldIx})`, 'info');
+      this.render();
+    });
+
+    document.getElementById('btn-exec-find')?.addEventListener('click', async () => {
+      this.findQueryDraft = (document.getElementById('find-query-input') as HTMLInputElement)?.value ?? '';
+      this.findMatchCase = Boolean((document.getElementById('chk-find-case') as HTMLInputElement)?.checked);
+      this.findWholeWord = Boolean((document.getElementById('chk-find-word') as HTMLInputElement)?.checked);
+      this.findAllPages = Boolean((document.getElementById('chk-find-all-pages') as HTMLInputElement)?.checked);
+      const res = await this.callEngine('findInDocument', {
+        query: this.findQueryDraft,
+        matchCase: this.findMatchCase,
+        wholeWord: this.findWholeWord,
+        allPages: this.findAllPages,
+      });
+      this.findMatches = res.matches ?? [];
+      this.modalOutputMessage = `Found ${this.findMatches.length} match(es).`;
+      this.render();
+    });
+
+    document.getElementById('btn-exec-replace-all')?.addEventListener('click', async () => {
+      this.findQueryDraft = (document.getElementById('find-query-input') as HTMLInputElement)?.value ?? '';
+      this.replaceTextDraft = (document.getElementById('replace-text-input') as HTMLInputElement)?.value ?? '';
+      this.findMatchCase = Boolean((document.getElementById('chk-find-case') as HTMLInputElement)?.checked);
+      this.findWholeWord = Boolean((document.getElementById('chk-find-word') as HTMLInputElement)?.checked);
+      this.findAllPages = Boolean((document.getElementById('chk-find-all-pages') as HTMLInputElement)?.checked);
+      const res = await this.callEngine('replaceInDocument', {
+        findStr: this.findQueryDraft,
+        replaceStr: this.replaceTextDraft,
+        matchCase: this.findMatchCase,
+        wholeWord: this.findWholeWord,
+        allPages: this.findAllPages,
+      });
+      this.snapshot = res.snapshot;
+      this.persistMutationSideEffects(res.wal);
+      this.modalOutputMessage = `Replaced ${res.count ?? 0} occurrence(s).`;
+      this.render();
+    });
+
+    document.querySelectorAll('[data-jump-match-shape]').forEach((el) => {
+      el.addEventListener('click', async () => {
+        const pid = Number((el as HTMLElement).dataset.jumpMatchPage ?? 1);
+        const sid = Number((el as HTMLElement).dataset.jumpMatchShape ?? 0);
+        if (pid > 0 && pid !== this.snapshot?.activePageId) {
+          const r = await this.callEngine('selectPage', { pageId: pid });
+          this.snapshot = r.snapshot;
+        }
+        if (sid > 0) this.setSingleSelection(sid);
+        this.activeModal = null;
+        this.render();
+      });
+    });
+
+    document.getElementById('btn-save-snap-glue')?.addEventListener('click', async () => {
+      this.snapEnabledState = Boolean((document.getElementById('chk-snap-enabled') as HTMLInputElement)?.checked);
+      this.glueEnabledState = Boolean((document.getElementById('chk-glue-enabled') as HTMLInputElement)?.checked);
+      let sMask = 0;
+      document.querySelectorAll('[data-snap-bit]').forEach((cb) => {
+        if ((cb as HTMLInputElement).checked) sMask |= Number((cb as HTMLElement).dataset.snapBit ?? 0);
+      });
+      let gMask = 0;
+      document.querySelectorAll('[data-glue-bit]').forEach((cb) => {
+        if ((cb as HTMLInputElement).checked) gMask |= Number((cb as HTMLElement).dataset.glueBit ?? 0);
+      });
+      this.snapTargetsMaskState = sMask;
+      this.glueTypesMaskState = gMask;
+      const res = await this.callEngine('setSnapGlue', {
+        snapEnabled: this.snapEnabledState,
+        glueEnabled: this.glueEnabledState,
+        snapTargetsMask: sMask,
+        glueTypesMask: gMask,
+      });
+      this.snapshot = res.snapshot;
+      this.persistMutationSideEffects(res.wal);
+      this.activeModal = null;
+      this.showToast('Saved Snap & Glue Matrix', 'info');
+      this.render();
+    });
+
+    document.querySelectorAll('[data-del-guide-id]').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const gid = Number((btn as HTMLElement).dataset.delGuideId ?? 0);
+        const res = await this.callEngine('deleteRulerGuide', { guideId: gid });
+        this.rulerGuidesList = res.guides ?? [];
+        this.snapshot = res.snapshot;
+        this.persistMutationSideEffects(res.wal);
+        this.render();
+      });
+    });
+
+    document.getElementById('btn-apply-number-shapes')?.addEventListener('click', async () => {
+      this.numberOrderDraft = (document.getElementById('num-order-select') as HTMLSelectElement)?.value ?? 'top_to_bottom_left_to_right';
+      this.numberStartDraft = Number((document.getElementById('num-start-input') as HTMLInputElement)?.value ?? 1);
+      this.numberIntervalDraft = Number((document.getElementById('num-interval-input') as HTMLInputElement)?.value ?? 1);
+      this.numberPrefixDraft = (document.getElementById('num-prefix-input') as HTMLInputElement)?.value ?? '';
+      this.numberTargetDraft = (document.getElementById('num-target-select') as HTMLSelectElement)?.value ?? 'both';
+      const res = await this.callEngine('numberShapes', {
+        shapeIds: this.selectedShapeIds,
+        orderMode: this.numberOrderDraft,
+        startNum: this.numberStartDraft,
+        interval: this.numberIntervalDraft,
+        prefix: this.numberPrefixDraft,
+        targetMode: this.numberTargetDraft,
+      });
+      this.snapshot = res.snapshot;
+      this.persistMutationSideEffects(res.wal);
+      this.activeModal = null;
+      this.showToast(`Numbered ${res.count ?? 0} shape(s)`, 'info');
+      this.render();
+    });
+
     // Backstage Template Cards, Version Snapshots & Workspaces
     document.querySelectorAll('[data-template-id]').forEach((card) => {
       card.addEventListener('click', async () => {
@@ -8220,6 +8713,63 @@ class VexioChromeOsApp {
             shapeId,
             portIx: ix,
           };
+          return;
+        }
+
+        if (this.activeTool === 'format_painter') {
+          const hitAny = this.hitTestSnapshotSync(ptIn[0], ptIn[1], false);
+          if (hitAny > 0) {
+            ev.stopPropagation();
+            if (!this.sampledFormatJson) {
+              void this.callEngine('copyShapeFormat', { shapeId: hitAny }).then((res) => {
+                this.sampledFormatJson = res.formatJson ?? '';
+                this.setSingleSelection(hitAny);
+                this.showToast(`Sampled format from Sheet.${hitAny} — click target shape`, 'info');
+                this.render();
+              });
+            } else {
+              void this.callEngine('applyFormatPainter', {
+                targetIds: [hitAny],
+                formatJson: this.sampledFormatJson,
+              }).then((res) => {
+                this.snapshot = res.snapshot;
+                this.persistMutationSideEffects(res.wal);
+                this.setSingleSelection(hitAny);
+                if (!ev.shiftKey) {
+                  this.sampledFormatJson = '';
+                  this.activeTool = 'pointer';
+                }
+                this.render();
+              });
+            }
+          }
+          return;
+        }
+
+        if (this.activeTool === 'text_block') {
+          const hit2D = this.hitTestSnapshotSync(ptIn[0], ptIn[1], true);
+          const targetId = this.primarySelectedId ?? (hit2D > 0 ? hit2D : 0);
+          if (targetId > 0) {
+            ev.stopPropagation();
+            this.setSingleSelection(targetId);
+            const sh = this.snapshot?.shapes.find((s) => s.id === targetId);
+            if (sh) {
+              const localX = ptIn[0] - (sh.pinX - sh.width * 0.5);
+              const localY = ptIn[1] - (sh.pinY - sh.height * 0.5);
+              void this.callEngine('setTextBlockTransform', {
+                shapeId: targetId,
+                txtPinXIn: localX,
+                txtPinYIn: localY,
+                txtWidthIn: sh.width,
+                txtHeightIn: sh.height,
+                txtAngleDeg: ev.altKey ? 15 : 0,
+              }).then((res) => {
+                this.snapshot = res.snapshot;
+                this.persistMutationSideEffects(res.wal);
+                this.render();
+              });
+            }
+          }
           return;
         }
 

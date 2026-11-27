@@ -26,6 +26,10 @@
             <KeyboardAccelerator Key="G" Modifiers="Control" Invoked="OnGroupAccelerator" />
             <KeyboardAccelerator Key="G" Modifiers="Control,Shift" Invoked="OnUngroupAccelerator" />
             <KeyboardAccelerator Key="Number1" Modifiers="Control,Shift" Invoked="OnConnectionPointToolAccelerator" />
+            <KeyboardAccelerator Key="Number4" Modifiers="Control,Shift" Invoked="OnTextBlockToolAccelerator" />
+            <KeyboardAccelerator Key="P" Modifiers="Control,Shift" Invoked="OnFormatPainterAccelerator" />
+            <KeyboardAccelerator Key="F" Modifiers="Control" Invoked="OnFindReplaceAccelerator" />
+            <KeyboardAccelerator Key="H" Modifiers="Control" Invoked="OnFindReplaceAccelerator" />
         </Grid.KeyboardAccelerators>
 
         <Grid.RowDefinitions>
@@ -248,6 +252,10 @@
                                         <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnDuplicateShapeClick" Content="Duplicate" Padding="6,2" />
                                         <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnDeleteShapeClick" Content="Delete" Padding="6,2" />
                                     </StackPanel>
+                                    <StackPanel Spacing="2" VerticalAlignment="Center">
+                                        <ToggleButton x:Name="FormatPainterToggle" Style="{StaticResource VexioRibbonToggleButtonStyle}" Click="OnFormatPainterToggleClick" Content="Format Painter" Padding="6,2" ToolTipService.ToolTip="Format Painter (Ctrl+Shift+P)" />
+                                        <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnOpenFindReplaceClick" Content="Find (Ctrl+F)" Padding="6,2" ToolTipService.ToolTip="Find &amp; Replace across Page or Document (Ctrl+F / Ctrl+H)" />
+                                    </StackPanel>
                                 </StackPanel>
                                 <TextBlock Text="Clipboard" Style="{StaticResource VexioRibbonGroupLabelStyle}" />
                             </StackPanel>
@@ -392,6 +400,13 @@
                                             <TextBlock Text="Rectangle" FontSize="11" />
                                         </StackPanel>
                                     </ToggleButton>
+                                    <ToggleButton x:Name="TextBlockToolToggle" Style="{StaticResource VexioRibbonToggleButtonStyle}"
+                                                  Click="OnTextBlockToggleClick" ToolTipService.ToolTip="Text Block Transform Tool (Ctrl+Shift+4)">
+                                        <StackPanel Spacing="3">
+                                            <PathIcon Width="16" Height="16" Data="M 2,2 L 14,2 L 14,14 L 2,14 Z M 5,5 L 11,5 M 8,5 L 8,11" />
+                                            <TextBlock Text="Text Block" FontSize="11" />
+                                        </StackPanel>
+                                    </ToggleButton>
                                 </StackPanel>
                                 <TextBlock Text="Tools" Style="{StaticResource VexioRibbonGroupLabelStyle}" />
                             </StackPanel>
@@ -436,6 +451,22 @@
                                     </Button>
                                     <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnQuickStyleAccentClick" Content="Accent Fill" />
                                     <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnQuickStyleNeutralClick" Content="Clean Outline" />
+                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Content="Arrows ▾" ToolTipService.ToolTip="45 Canonical Visio Connector Arrowheads (BeginArrow / EndArrow)">
+                                        <Button.Flyout>
+                                            <MenuFlyout>
+                                                <MenuFlyoutItem Text="End: Filled Triangle (4)" Tag="0,4" Click="OnArrowheadPresetMenuClick" />
+                                                <MenuFlyoutItem Text="End: Open Arrow (1)" Tag="0,1" Click="OnArrowheadPresetMenuClick" />
+                                                <MenuFlyoutItem Text="End: Stealth Arrow (5)" Tag="0,5" Click="OnArrowheadPresetMenuClick" />
+                                                <MenuFlyoutItem Text="Both: Filled Triangles (4,4)" Tag="4,4" Click="OnArrowheadPresetMenuClick" />
+                                                <MenuFlyoutItem Text="UML Aggregation Diamond → Triangle (22,14)" Tag="22,14" Click="OnArrowheadPresetMenuClick" />
+                                                <MenuFlyoutItem Text="UML Composition Diamond → Open (11,1)" Tag="11,1" Click="OnArrowheadPresetMenuClick" />
+                                                <MenuFlyoutItem Text="ERD Mandatory 1 → Crow's Foot Many (29,27)" Tag="29,27" Click="OnArrowheadPresetMenuClick" />
+                                                <MenuFlyoutItem Text="Filled Circle → Filled Arrow (13,4)" Tag="13,4" Click="OnArrowheadPresetMenuClick" />
+                                                <MenuFlyoutSeparator />
+                                                <MenuFlyoutItem Text="None — Plain Line (0,0)" Tag="0,0" Click="OnArrowheadPresetMenuClick" />
+                                            </MenuFlyout>
+                                        </Button.Flyout>
+                                    </Button>
                                 </StackPanel>
                                 <TextBlock Text="Shape Styles &amp; Routing" Style="{StaticResource VexioRibbonGroupLabelStyle}" />
                             </StackPanel>
@@ -513,7 +544,9 @@
                                     <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnInsertSwimlaneClick" Content="Swimlane" />
                                     <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnInsertCalloutClick" Content="Callout" />
                                     <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnInsertLegendClick" Content="Data Legend" />
+                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnOpenInsertFieldClick" FontWeight="SemiBold" Content="Field… (&lt;fld&gt;)" ToolTipService.ToolTip="Insert Dynamic Live-Evaluated Visio Text Field (&lt;fld&gt;)" />
                                     <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnInsertHyperlinkClick" Content="Hyperlink &amp; Tip… (Ctrl+K)" />
+                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnOpenNumberShapesClick" Content="Number Shapes…" ToolTipService.ToolTip="Auto-Number Shapes on Page (Spatial, Z-Order, or Connected BFS)" />
                                     <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnOpenDomainWizardsClick" FontWeight="SemiBold" Content="Diagram Wizards…" />
                                 </StackPanel>
                                 <TextBlock Text="Diagram Parts &amp; Wizards" Style="{StaticResource VexioRibbonGroupLabelStyle}" />
@@ -591,10 +624,13 @@
                                         <x:String>Variant 3</x:String>
                                         <x:String>Variant 4</x:String>
                                     </ComboBox>
-                                    <ComboBox x:Name="LineJumpStyleCombo" SelectedIndex="0" Width="124" VerticalAlignment="Center" SelectionChanged="OnLineJumpStyleChanged">
+                                    <ComboBox x:Name="LineJumpStyleCombo" SelectedIndex="0" Width="138" VerticalAlignment="Center" SelectionChanged="OnLineJumpStyleChanged">
                                         <x:String>Arc Line Jumps</x:String>
                                         <x:String>Gap Line Jumps</x:String>
                                         <x:String>Square Bridges</x:String>
+                                        <x:String>2-Side Bridges</x:String>
+                                        <x:String>3-Side Bridges</x:String>
+                                        <x:String>4-Side Bridges</x:String>
                                         <x:String>No Line Jumps</x:String>
                                     </ComboBox>
                                 </StackPanel>
@@ -748,6 +784,9 @@
                                     <CheckBox x:Name="ViewGridCheck" Content="Grid" IsChecked="True" Checked="OnViewGridChanged" Unchecked="OnViewGridChanged" />
                                     <CheckBox x:Name="ViewSmartGuidesCheck" Content="Smart Guides" IsChecked="True" Checked="OnViewSmartGuidesChanged" Unchecked="OnViewSmartGuidesChanged" />
                                     <CheckBox x:Name="ViewAutoConnectCheck" Content="AutoConnect" IsChecked="True" Checked="OnViewAutoConnectChanged" Unchecked="OnViewAutoConnectChanged" />
+                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnAddHorizGuideClick" Content="+ H Guide" ToolTipService.ToolTip="Add Draggable Horizontal Ruler Guide" />
+                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnAddVertGuideClick" Content="+ V Guide" ToolTipService.ToolTip="Add Draggable Vertical Ruler Guide" />
+                                    <Button Style="{StaticResource VexioRibbonButtonStyle}" Click="OnOpenSnapGlueClick" FontWeight="SemiBold" Content="Snap &amp; Glue…" ToolTipService.ToolTip="Configure Visio Snap Targets &amp; Glue Types Matrix" />
                                 </StackPanel>
                                 <TextBlock Text="Show &amp; Visual Aids" Style="{StaticResource VexioRibbonGroupLabelStyle}" />
                             </StackPanel>
@@ -991,6 +1030,12 @@
                         </ToggleButton>
                         <ToggleButton Tag="18" Click="OnRailToolClick" HorizontalAlignment="Stretch" Padding="2,4" ToolTipService.ToolTip="Connection Point Tool (Ctrl+Shift+1)">
                             <StackPanel Spacing="1"><PathIcon Width="13" Height="13" Data="M 4,4 L 12,12 M 12,4 L 4,12 M 8,1 L 8,15 M 1,8 L 15,8" /><TextBlock Text="Ports" FontSize="9.5" HorizontalAlignment="Center" /></StackPanel>
+                        </ToggleButton>
+                        <ToggleButton Tag="19" Click="OnRailToolClick" HorizontalAlignment="Stretch" Padding="2,4" ToolTipService.ToolTip="Text Block Transform Tool (Ctrl+Shift+4)">
+                            <StackPanel Spacing="1"><PathIcon Width="13" Height="13" Data="M 2,2 L 14,2 L 14,14 L 2,14 Z M 5,5 L 11,5 M 8,5 L 8,11" /><TextBlock Text="TxtBlk" FontSize="9.5" HorizontalAlignment="Center" /></StackPanel>
+                        </ToggleButton>
+                        <ToggleButton Tag="20" Click="OnRailToolClick" HorizontalAlignment="Stretch" Padding="2,4" ToolTipService.ToolTip="Format Painter (Ctrl+Shift+P)">
+                            <StackPanel Spacing="1"><PathIcon Width="13" Height="13" Data="M 3,2 L 13,2 L 13,7 L 3,7 Z M 8,7 L 8,14" /><TextBlock Text="Paint" FontSize="9.5" HorizontalAlignment="Center" /></StackPanel>
                         </ToggleButton>
                     </StackPanel>
                 </ScrollViewer>
@@ -1558,7 +1603,7 @@
                                 </StackPanel>
                                 <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
                                     <Button Click="OnCheckUpdatesClick" Content="Check for Updates Now" />
-                                    <TextBlock x:Name="BackstageUpdateStatusText" Text="Vexio v0.7.0-beta • Automatic background update check enabled."
+                                    <TextBlock x:Name="BackstageUpdateStatusText" Text="Vexio v0.8.0-beta • Automatic background update check enabled."
                                                FontSize="12" Opacity="0.8" VerticalAlignment="Center" />
                                 </StackPanel>
                             </StackPanel>

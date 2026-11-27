@@ -668,7 +668,9 @@ void MainWindow::OnCanvasPointerReleased(IInspectable const&, PointerRoutedEvent
         m_activeTool != ActiveCanvasTool::InkHighlighter &&
         m_activeTool != ActiveCanvasTool::InkEraser &&
         m_activeTool != ActiveCanvasTool::EditVertices &&
-        m_activeTool != ActiveCanvasTool::ConnectionPoint)
+        m_activeTool != ActiveCanvasTool::ConnectionPoint &&
+        m_activeTool != ActiveCanvasTool::TextBlockTransform &&
+        m_activeTool != ActiveCanvasTool::FormatPainter)
     {
         SetActiveTool(ActiveCanvasTool::Pointer);
     } else if (m_viewport) {
@@ -2410,6 +2412,8 @@ void MainWindow::SetActiveTool(ActiveCanvasTool tool) {
     InkEraserToggle().IsChecked(tool == ActiveCanvasTool::InkEraser);
     EditVerticesToggle().IsChecked(tool == ActiveCanvasTool::EditVertices);
     ConnectionPointToggle().IsChecked(tool == ActiveCanvasTool::ConnectionPoint);
+    TextBlockToolToggle().IsChecked(tool == ActiveCanvasTool::TextBlockTransform);
+    FormatPainterToggle().IsChecked(tool == ActiveCanvasTool::FormatPainter);
 
     if (auto rail = DrawingToolRailPanel()) {
         for (auto const& child : rail.Children()) {
@@ -2480,13 +2484,21 @@ void MainWindow::SetActiveTool(ActiveCanvasTool tool) {
             CanvasOverlayHudText().Text(L"Connection Point Tool (Ctrl+Shift+1) • Click Shape to Add • Drag × Port • Right-Click to Delete");
             ApplyCanvasCursor(static_cast<uint32_t>(vexio::win::ViewportCursor::Crosshair));
             break;
+        case ActiveCanvasTool::TextBlockTransform:
+            CanvasOverlayHudText().Text(L"Text Block Tool (Ctrl+Shift+4) • Drag Emerald Box to Move, Resize, or Rotate Text Independently");
+            ApplyCanvasCursor(static_cast<uint32_t>(vexio::win::ViewportCursor::Crosshair));
+            break;
+        case ActiveCanvasTool::FormatPainter:
+            CanvasOverlayHudText().Text(L"Format Painter (Ctrl+Shift+P) • Click Source Shape then Target Shape (Hold Shift to Multi-Paint)");
+            ApplyCanvasCursor(static_cast<uint32_t>(vexio::win::ViewportCursor::Crosshair));
+            break;
     }
 }
 
 void MainWindow::OnRailToolClick(IInspectable const& sender, RoutedEventArgs const&) {
     if (auto tb = sender.try_as<ToggleButton>()) {
         const hstring tagStr = unbox_value_or<hstring>(tb.Tag(), L"0");
-        const uint32_t code = std::min<uint32_t>(18u, static_cast<uint32_t>(std::wcstoul(tagStr.c_str(), nullptr, 10)));
+        const uint32_t code = std::min<uint32_t>(20u, static_cast<uint32_t>(std::wcstoul(tagStr.c_str(), nullptr, 10)));
         SetActiveTool(static_cast<ActiveCanvasTool>(code));
     }
 }
@@ -2505,6 +2517,74 @@ void MainWindow::OnInkEraserToggleClick(IInspectable const&, RoutedEventArgs con
 }
 void MainWindow::OnConnectionPointToggleClick(IInspectable const&, RoutedEventArgs const&) {
     SetActiveTool(m_activeTool == ActiveCanvasTool::ConnectionPoint ? ActiveCanvasTool::Pointer : ActiveCanvasTool::ConnectionPoint);
+}
+void MainWindow::OnTextBlockToggleClick(IInspectable const&, RoutedEventArgs const&) {
+    SetActiveTool(m_activeTool == ActiveCanvasTool::TextBlockTransform ? ActiveCanvasTool::Pointer : ActiveCanvasTool::TextBlockTransform);
+}
+void MainWindow::OnFormatPainterToggleClick(IInspectable const&, RoutedEventArgs const&) {
+    if (m_doc && m_selectedShapeId > 0) {
+        const auto res = m_doc.CopyShapeFormatJson(m_activePageId, m_selectedShapeId);
+        if (res.ok()) {
+            m_copiedFormatPacketJson = vexio::win::ToUtf8(*res.value);
+        }
+    }
+    SetActiveTool(m_activeTool == ActiveCanvasTool::FormatPainter ? ActiveCanvasTool::Pointer : ActiveCanvasTool::FormatPainter);
+}
+void MainWindow::OnArrowheadPresetMenuClick(IInspectable const& sender, RoutedEventArgs const&) {
+    if (!m_doc) return;
+    auto item = sender.try_as<MenuFlyoutItem>();
+    if (!item) return;
+    const std::string tagUtf8 = vexio::win::ToUtf8(unbox_value_or<hstring>(item.Tag(), L"0,4"));
+    uint8_t beginCode = 0;
+    uint8_t endCode = 4;
+    const auto comma = tagUtf8.find(',');
+    if (comma != std::string::npos) {
+        beginCode = static_cast<uint8_t>(std::clamp(std::atoi(tagUtf8.substr(0, comma).c_str()), 0, 45));
+        endCode = static_cast<uint8_t>(std::clamp(std::atoi(tagUtf8.substr(comma + 1).c_str()), 0, 45));
+    }
+    const auto ids = ResolveTargetSelectionIds();
+    if (ids.empty()) return;
+    const auto res = m_doc.SetConnectorArrowheads(m_activePageId, ids, beginCode, endCode, 2);
+    if (res.ok()) {
+        MarkDocumentDirty(true);
+        PresentViewportFrame();
+        RefreshShapeSheetSectionRows();
+        ShowBanner(InfoBarSeverity::Success, L"Visio Arrowheads Applied",
+                   std::format(L"Updated BeginArrow={} and EndArrow={} on {} connector/line shape(s).",
+                               static_cast<int>(beginCode), static_cast<int>(endCode), *res.value));
+    }
+}
+void MainWindow::OnOpenInsertFieldClick(IInspectable const&, RoutedEventArgs const&) {
+    ShowInsertFieldDialogAsync();
+}
+void MainWindow::OnOpenFindReplaceClick(IInspectable const&, RoutedEventArgs const&) {
+    ShowFindReplaceDialogAsync();
+}
+void MainWindow::OnOpenSnapGlueClick(IInspectable const&, RoutedEventArgs const&) {
+    ShowSnapGlueDialogAsync();
+}
+void MainWindow::OnOpenNumberShapesClick(IInspectable const&, RoutedEventArgs const&) {
+    ShowNumberShapesDialogAsync();
+}
+void MainWindow::OnAddHorizGuideClick(IInspectable const&, RoutedEventArgs const&) {
+    if (!m_doc) return;
+    const auto res = m_doc.AddRulerGuide(m_activePageId, false, 4.0);
+    if (res.ok()) {
+        MarkDocumentDirty(true);
+        PresentViewportFrame();
+        ShowBanner(InfoBarSeverity::Informational, L"Horizontal Ruler Guide Added",
+                   std::format(L"Added draggable horizontal guide (Sheet.{}) at Y = 4.00 in.", *res.value));
+    }
+}
+void MainWindow::OnAddVertGuideClick(IInspectable const&, RoutedEventArgs const&) {
+    if (!m_doc) return;
+    const auto res = m_doc.AddRulerGuide(m_activePageId, true, 5.5);
+    if (res.ok()) {
+        MarkDocumentDirty(true);
+        PresentViewportFrame();
+        ShowBanner(InfoBarSeverity::Informational, L"Vertical Ruler Guide Added",
+                   std::format(L"Added draggable vertical guide (Sheet.{}) at X = 5.50 in.", *res.value));
+    }
 }
 
 void MainWindow::OnTouchMouseModeToggle(IInspectable const&, RoutedEventArgs const&) {
@@ -3155,8 +3235,14 @@ void MainWindow::OnVisualPresetSketchyClick(IInspectable const&, RoutedEventArgs
 
 void MainWindow::OnLineJumpStyleChanged(IInspectable const&, SelectionChangedEventArgs const&) {
     if (!m_isInitialized || !m_doc) return;
-    const int32_t idx = std::clamp(LineJumpStyleCombo().SelectedIndex(), 0, 3);
-    (void)m_doc.SetCellFormula(m_activePageId, 0, "PageLineJumpStyle", std::to_string(idx), true);
+    const int32_t idx = std::clamp(LineJumpStyleCombo().SelectedIndex(), 0, 6);
+    // Visio PageLineJumpStyle: 0=Arc, 1=Gap, 2=Square, 3=2Sides, 4=3Sides, 5=4Sides; idx==6 disables PageLineJumpCode=0
+    if (idx == 6) {
+        (void)m_doc.SetPageLineJumps(m_activePageId, 0, 0, 0.66, 0.66);
+    } else {
+        (void)m_doc.SetPageLineJumps(m_activePageId, 1, static_cast<uint8_t>(idx), 0.66, 0.66);
+    }
+    MarkDocumentDirty(true);
     PresentViewportFrame();
 }
 
@@ -4553,6 +4639,21 @@ void MainWindow::OnConnectionPointToolAccelerator(KeyboardAccelerator const&, Ke
     args.Handled(true);
 }
 
+void MainWindow::OnTextBlockToolAccelerator(KeyboardAccelerator const&, KeyboardAcceleratorInvokedEventArgs const& args) {
+    SetActiveTool(m_activeTool == ActiveCanvasTool::TextBlockTransform ? ActiveCanvasTool::Pointer : ActiveCanvasTool::TextBlockTransform);
+    args.Handled(true);
+}
+
+void MainWindow::OnFormatPainterAccelerator(KeyboardAccelerator const&, KeyboardAcceleratorInvokedEventArgs const& args) {
+    OnFormatPainterToggleClick(nullptr, nullptr);
+    args.Handled(true);
+}
+
+void MainWindow::OnFindReplaceAccelerator(KeyboardAccelerator const&, KeyboardAcceleratorInvokedEventArgs const& args) {
+    ShowFindReplaceDialogAsync();
+    args.Handled(true);
+}
+
 void MainWindow::OnUndoAccelerator(KeyboardAccelerator const&, KeyboardAcceleratorInvokedEventArgs const& args) {
     OnUndoClick(nullptr, nullptr);
     args.Handled(true);
@@ -5517,7 +5618,7 @@ fire_and_forget MainWindow::ShowOfficialStencilCatalogDialogAsync() {
     }
 
     Windows::Web::Http::HttpClient client{};
-    client.DefaultRequestHeaders().UserAgent().TryParseAdd(L"Vexio-Windows/0.7.0-beta");
+    client.DefaultRequestHeaders().UserAgent().TryParseAdd(L"Vexio-Windows/0.8.0-beta");
     uint32_t installedCount = 0;
 
     for (auto const& target : targets) {
@@ -5779,7 +5880,7 @@ void MainWindow::OnCheckUpdatesClick(IInspectable const&, RoutedEventArgs const&
 }
 
 fire_and_forget MainWindow::CheckForUpdatesAsync(bool userInitiated) {
-    constexpr std::wstring_view kCurrentVersion = L"0.7.0-beta";
+    constexpr std::wstring_view kCurrentVersion = L"0.8.0-beta";
     const auto weakSelf = get_weak();
 
     if (userInitiated) {
@@ -5793,7 +5894,7 @@ fire_and_forget MainWindow::CheckForUpdatesAsync(bool userInitiated) {
 
     try {
         Windows::Web::Http::HttpClient client{};
-        client.DefaultRequestHeaders().UserAgent().TryParseAdd(L"Vexio-Windows/0.7.0-beta");
+        client.DefaultRequestHeaders().UserAgent().TryParseAdd(L"Vexio-Windows/0.8.0-beta");
         client.DefaultRequestHeaders().Accept().TryParseAdd(L"application/vnd.github+json");
 
         const Uri apiUri{L"https://api.github.com/repos/petrosvassiliou/vexio/releases"};
@@ -5802,7 +5903,7 @@ fire_and_forget MainWindow::CheckForUpdatesAsync(bool userInitiated) {
         Windows::Data::Json::JsonArray releasesArr{nullptr};
         if (Windows::Data::Json::JsonArray::TryParse(body, releasesArr) && releasesArr.Size() > 0) {
             const auto relObj = releasesArr.GetObjectAt(0);
-            latestTag = relObj.GetNamedString(L"tag_name", L"v0.7.0-beta").c_str();
+            latestTag = relObj.GetNamedString(L"tag_name", L"v0.8.0-beta").c_str();
             releaseUrl = relObj.GetNamedString(L"html_url", releaseUrl).c_str();
             if (relObj.HasKey(L"assets")) {
                 const auto assets = relObj.GetNamedArray(L"assets");
@@ -5864,7 +5965,7 @@ fire_and_forget MainWindow::CheckForUpdatesAsync(bool userInitiated) {
         }
     } else {
         self->BackstageUpdateStatusText().Text(hstring{
-            std::format(L"Vexio is up to date ({}).", latestTag.empty() ? L"v0.7.0-beta" : latestTag)
+            std::format(L"Vexio is up to date ({}).", latestTag.empty() ? L"v0.8.0-beta" : latestTag)
         });
         if (userInitiated) {
             ContentDialog dlg{};
@@ -5872,7 +5973,7 @@ fire_and_forget MainWindow::CheckForUpdatesAsync(bool userInitiated) {
             dlg.Title(box_value(L"Vexio is Up to Date"));
             dlg.Content(box_value(hstring{std::format(
                 L"You are running the latest version of Vexio Professional ({}).",
-                latestTag.empty() ? L"v0.7.0-beta" : latestTag)}));
+                latestTag.empty() ? L"v0.8.0-beta" : latestTag)}));
             dlg.PrimaryButtonText(L"View Release Notes");
             dlg.CloseButtonText(L"OK");
             dlg.DefaultButton(ContentDialogButton::Close);
@@ -6643,6 +6744,364 @@ winrt::fire_and_forget MainWindow::ShowSmartActionsDialogAsync() {
     dlg.Content(panel);
     dlg.CloseButtonText(L"Done");
     (void)co_await dlg.ShowAsync();
+}
+
+winrt::fire_and_forget MainWindow::ShowInsertFieldDialogAsync() {
+    if (!m_doc || m_selectedShapeId == 0 || !RootWorkstationGrid().XamlRoot()) {
+        ShowBanner(InfoBarSeverity::Warning, L"Select a Shape First",
+                   L"Select a shape on the canvas before inserting a dynamic Visio <fld> text field.");
+        co_return;
+    }
+    const auto weakSelf = get_weak();
+
+    StackPanel panel{};
+    panel.Spacing(10.0);
+    panel.MinWidth(440.0);
+
+    static constexpr std::pair<const wchar_t*, const char*> kPresets[] = {
+        {L"Geometry — Width (=Width)", "width"},
+        {L"Geometry — Height (=Height)", "height"},
+        {L"Geometry — Angle (=Angle)", "angle"},
+        {L"Page — Page Name (=PAGENAME())", "page_name"},
+        {L"Page — Page Number (=PAGENUMBER())", "page_number"},
+        {L"Page — Page Count (=PAGECOUNT())", "page_count"},
+        {L"Document — Title (=TITLE())", "doc_title"},
+        {L"Document — Creator (=CREATOR())", "creator"},
+        {L"Object Info — Shape Name (=NAME())", "shape_name"},
+    };
+
+    ComboBox presetCombo{};
+    presetCombo.Header(box_value(L"Field Preset"));
+    presetCombo.HorizontalAlignment(HorizontalAlignment::Stretch);
+    for (auto const& [label, _] : kPresets) {
+        presetCombo.Items().Append(box_value(label));
+    }
+    presetCombo.SelectedIndex(0);
+
+    TextBox customFormulaBox{};
+    customFormulaBox.Header(box_value(L"Optional Custom Formula Override (e.g. =Width*Height or =Prop.Cost)"));
+    customFormulaBox.FontFamily(FontFamily{L"Consolas"});
+
+    TextBox prefixBox{};
+    prefixBox.Header(box_value(L"Prefix Label (optional)"));
+    prefixBox.Text(L"W: ");
+
+    TextBox formatBox{};
+    formatBox.Header(box_value(L"Display Format"));
+    formatBox.Text(L"0.00 in");
+
+    panel.Children().Append(presetCombo);
+    panel.Children().Append(customFormulaBox);
+    panel.Children().Append(prefixBox);
+    panel.Children().Append(formatBox);
+
+    ContentDialog dlg{};
+    dlg.XamlRoot(RootWorkstationGrid().XamlRoot());
+    dlg.Title(box_value(hstring{std::format(L"Insert Dynamic Text Field (<fld>) — Sheet.{}", m_selectedShapeId)}));
+    dlg.Content(panel);
+    dlg.PrimaryButtonText(L"Insert Field");
+    dlg.CloseButtonText(L"Cancel");
+    dlg.DefaultButton(ContentDialogButton::Primary);
+
+    if (co_await dlg.ShowAsync() == ContentDialogResult::Primary) {
+        auto self = weakSelf.get();
+        if (!self || !self->m_doc) co_return;
+        std::string expr = vexio::win::ToUtf8(customFormulaBox.Text());
+        if (expr.empty()) {
+            const int32_t idx = std::clamp(presetCombo.SelectedIndex(), 0, static_cast<int32_t>(std::size(kPresets) - 1));
+            expr = kPresets[idx].second;
+        }
+        const auto res = self->m_doc.InsertTextField(
+            self->m_activePageId,
+            self->m_selectedShapeId,
+            expr,
+            vexio::win::ToUtf8(formatBox.Text()),
+            vexio::win::ToUtf8(prefixBox.Text()));
+        if (res.ok()) {
+            self->MarkDocumentDirty(true);
+            self->PresentViewportFrame();
+            self->SyncInspectorFromShapeSheet();
+            self->RefreshShapeSheetSectionRows();
+            self->ShowBanner(InfoBarSeverity::Success, L"Dynamic <fld> Field Inserted",
+                             std::format(L"Inserted live Field[{}] on Sheet.{}.", *res.value, self->m_selectedShapeId));
+        }
+    }
+}
+
+winrt::fire_and_forget MainWindow::ShowFindReplaceDialogAsync() {
+    if (!m_doc || !RootWorkstationGrid().XamlRoot()) co_return;
+
+    StackPanel panel{};
+    panel.Spacing(10.0);
+    panel.MinWidth(480.0);
+
+    TextBox findBox{};
+    findBox.Header(box_value(L"Find what (Shape Text, Prop.*, or Shape Name)"));
+
+    TextBox replaceBox{};
+    replaceBox.Header(box_value(L"Replace with"));
+
+    StackPanel optsRow{};
+    optsRow.Orientation(Orientation::Horizontal);
+    optsRow.Spacing(14.0);
+    CheckBox matchCaseCheck{};
+    matchCaseCheck.Content(box_value(L"Match case"));
+    CheckBox wholeWordCheck{};
+    wholeWordCheck.Content(box_value(L"Whole word"));
+    CheckBox allPagesCheck{};
+    allPagesCheck.Content(box_value(L"All pages"));
+    allPagesCheck.IsChecked(true);
+    optsRow.Children().Append(matchCaseCheck);
+    optsRow.Children().Append(wholeWordCheck);
+    optsRow.Children().Append(allPagesCheck);
+
+    TextBlock statusLabel{};
+    statusLabel.Opacity(0.85);
+    statusLabel.Text(L"Enter search text and click Find All or Replace All.");
+
+    StackPanel actionRow{};
+    actionRow.Orientation(Orientation::Horizontal);
+    actionRow.Spacing(8.0);
+
+    Button findBtn{};
+    findBtn.Content(box_value(L"Find All"));
+    findBtn.Click([this, findBox, matchCaseCheck, wholeWordCheck, allPagesCheck, statusLabel](IInspectable const&, RoutedEventArgs const&) {
+        const std::string q = vexio::win::ToUtf8(findBox.Text());
+        if (q.empty()) return;
+        const auto res = m_doc.FindJson(
+            m_activePageId,
+            q,
+            matchCaseCheck.IsChecked().GetBoolean(),
+            wholeWordCheck.IsChecked().GetBoolean(),
+            allPagesCheck.IsChecked().GetBoolean());
+        if (!res.ok()) return;
+        Windows::Data::Json::JsonArray arr{nullptr};
+        if (Windows::Data::Json::JsonArray::TryParse(*res.value, arr)) {
+            statusLabel.Text(hstring{std::format(L"Found {} match(es).", arr.Size())});
+            if (arr.Size() > 0 && arr.GetAt(0).ValueType() == Windows::Data::Json::JsonValueType::Object) {
+                const auto first = arr.GetObjectAt(0);
+                const uint32_t pid = static_cast<uint32_t>(first.GetNamedNumber(L"pageId", m_activePageId));
+                const uint64_t sid = static_cast<uint64_t>(first.GetNamedNumber(L"shapeId", 0.0));
+                if (pid > 0 && pid != m_activePageId) {
+                    m_activePageId = pid;
+                    if (m_viewport) (void)m_viewport.SetPage(m_doc, pid);
+                    RebuildPageTabsStrip();
+                }
+                if (sid > 0) {
+                    m_selectedShapeId = sid;
+                    m_selectedShapeIds = {sid};
+                    if (m_viewport) (void)m_viewport.SetSelection(m_doc, m_selectedShapeIds);
+                    PresentViewportFrame();
+                    SyncInspectorFromShapeSheet();
+                    RefreshShapeSheetSectionRows();
+                }
+            }
+        }
+    });
+
+    Button replaceBtn{};
+    replaceBtn.Content(box_value(L"Replace All"));
+    replaceBtn.Click([this, findBox, replaceBox, matchCaseCheck, wholeWordCheck, allPagesCheck, statusLabel](IInspectable const&, RoutedEventArgs const&) {
+        const std::string f = vexio::win::ToUtf8(findBox.Text());
+        if (f.empty()) return;
+        const auto res = m_doc.Replace(
+            m_activePageId,
+            f,
+            vexio::win::ToUtf8(replaceBox.Text()),
+            matchCaseCheck.IsChecked().GetBoolean(),
+            wholeWordCheck.IsChecked().GetBoolean(),
+            allPagesCheck.IsChecked().GetBoolean());
+        if (res.ok()) {
+            statusLabel.Text(hstring{std::format(L"Replaced {} occurrence(s).", *res.value)});
+            if (*res.value > 0) {
+                MarkDocumentDirty(true);
+                PresentViewportFrame();
+                SyncInspectorFromShapeSheet();
+                RefreshShapeSheetSectionRows();
+            }
+        }
+    });
+
+    actionRow.Children().Append(findBtn);
+    actionRow.Children().Append(replaceBtn);
+
+    panel.Children().Append(findBox);
+    panel.Children().Append(replaceBox);
+    panel.Children().Append(optsRow);
+    panel.Children().Append(actionRow);
+    panel.Children().Append(statusLabel);
+
+    ContentDialog dlg{};
+    dlg.XamlRoot(RootWorkstationGrid().XamlRoot());
+    dlg.Title(box_value(L"Find & Replace (Ctrl+F / Ctrl+H)"));
+    dlg.Content(panel);
+    dlg.CloseButtonText(L"Close");
+    (void)co_await dlg.ShowAsync();
+}
+
+winrt::fire_and_forget MainWindow::ShowSnapGlueDialogAsync() {
+    if (!m_doc || !RootWorkstationGrid().XamlRoot()) co_return;
+    const auto weakSelf = get_weak();
+
+    bool snapEnabled = true;
+    bool glueEnabled = true;
+    uint32_t snapMask = 1u | 4u | 8u | 16u | 64u;
+    uint32_t glueMask = 1u | 2u | 4u;
+
+    const auto cur = m_doc.GetSnapGlueJson(m_activePageId);
+    if (cur.ok()) {
+        Windows::Data::Json::JsonObject obj{nullptr};
+        if (Windows::Data::Json::JsonObject::TryParse(*cur.value, obj)) {
+            snapEnabled = obj.GetNamedBoolean(L"snapEnabled", true);
+            glueEnabled = obj.GetNamedBoolean(L"glueEnabled", true);
+            snapMask = static_cast<uint32_t>(obj.GetNamedNumber(L"snapTargets", snapMask));
+            glueMask = static_cast<uint32_t>(obj.GetNamedNumber(L"glueTypes", glueMask));
+        }
+    }
+
+    StackPanel panel{};
+    panel.Spacing(8.0);
+    panel.MinWidth(430.0);
+
+    CheckBox snapEnableCheck{}; snapEnableCheck.Content(box_value(L"Enable Snap")); snapEnableCheck.IsChecked(snapEnabled);
+    CheckBox glueEnableCheck{}; glueEnableCheck.Content(box_value(L"Enable Glue")); glueEnableCheck.IsChecked(glueEnabled);
+    CheckBox snapGridCheck{}; snapGridCheck.Content(box_value(L"Snap to Page Grid")); snapGridCheck.IsChecked((snapMask & 1u) != 0);
+    CheckBox snapGuidesCheck{}; snapGuidesCheck.Content(box_value(L"Snap to Ruler Guides")); snapGuidesCheck.IsChecked((snapMask & 4u) != 0);
+    CheckBox snapGeomCheck{}; snapGeomCheck.Content(box_value(L"Snap to Shape Geometry")); snapGeomCheck.IsChecked((snapMask & 8u) != 0);
+    CheckBox snapBoxCheck{}; snapBoxCheck.Content(box_value(L"Snap to Alignment Box")); snapBoxCheck.IsChecked((snapMask & 16u) != 0);
+    CheckBox snapPortsCheck{}; snapPortsCheck.Content(box_value(L"Snap to Connection Points")); snapPortsCheck.IsChecked((snapMask & 64u) != 0);
+    CheckBox gluePortsCheck{}; gluePortsCheck.Content(box_value(L"Glue to Connection Points")); gluePortsCheck.IsChecked((glueMask & 1u) != 0);
+    CheckBox glueGuidesCheck{}; glueGuidesCheck.Content(box_value(L"Glue to Ruler Guides")); glueGuidesCheck.IsChecked((glueMask & 2u) != 0);
+    CheckBox glueGeomCheck{}; glueGeomCheck.Content(box_value(L"Glue to Shape Geometry (Dynamic)")); glueGeomCheck.IsChecked((glueMask & 4u) != 0);
+
+    panel.Children().Append(snapEnableCheck);
+    panel.Children().Append(glueEnableCheck);
+    panel.Children().Append(snapGridCheck);
+    panel.Children().Append(snapGuidesCheck);
+    panel.Children().Append(snapGeomCheck);
+    panel.Children().Append(snapBoxCheck);
+    panel.Children().Append(snapPortsCheck);
+    panel.Children().Append(gluePortsCheck);
+    panel.Children().Append(glueGuidesCheck);
+    panel.Children().Append(glueGeomCheck);
+
+    ContentDialog dlg{};
+    dlg.XamlRoot(RootWorkstationGrid().XamlRoot());
+    dlg.Title(box_value(L"Snap & Glue Matrix"));
+    dlg.Content(panel);
+    dlg.PrimaryButtonText(L"Apply");
+    dlg.CloseButtonText(L"Cancel");
+    dlg.DefaultButton(ContentDialogButton::Primary);
+
+    if (co_await dlg.ShowAsync() == ContentDialogResult::Primary) {
+        auto self = weakSelf.get();
+        if (!self || !self->m_doc) co_return;
+        uint32_t sOut = 0;
+        if (snapGridCheck.IsChecked().GetBoolean()) sOut |= 1u;
+        if (snapGuidesCheck.IsChecked().GetBoolean()) sOut |= 4u;
+        if (snapGeomCheck.IsChecked().GetBoolean()) sOut |= 8u;
+        if (snapBoxCheck.IsChecked().GetBoolean()) sOut |= 16u;
+        if (snapPortsCheck.IsChecked().GetBoolean()) sOut |= 64u;
+        uint32_t gOut = 0;
+        if (gluePortsCheck.IsChecked().GetBoolean()) gOut |= 1u;
+        if (glueGuidesCheck.IsChecked().GetBoolean()) gOut |= 2u;
+        if (glueGeomCheck.IsChecked().GetBoolean()) gOut |= 4u;
+        if (self->m_doc.SetSnapGlue(
+                self->m_activePageId,
+                snapEnableCheck.IsChecked().GetBoolean(),
+                glueEnableCheck.IsChecked().GetBoolean(),
+                sOut,
+                gOut) == VEXIO_OK)
+        {
+            self->MarkDocumentDirty(true);
+            self->ShowBanner(InfoBarSeverity::Success, L"Snap & Glue Matrix Updated",
+                             L"Persisted SnapTargets and GlueTypes bitmasks to active PageSheet.");
+        }
+    }
+}
+
+winrt::fire_and_forget MainWindow::ShowNumberShapesDialogAsync() {
+    if (!m_doc || !RootWorkstationGrid().XamlRoot()) co_return;
+    const auto weakSelf = get_weak();
+
+    static constexpr std::pair<const wchar_t*, const char*> kOrders[] = {
+        {L"Top-to-Bottom, Left-to-Right", "top_to_bottom_left_to_right"},
+        {L"Left-to-Right, Top-to-Bottom", "left_to_right_top_to_bottom"},
+        {L"Connected Flow (BFS)", "connected_flow"},
+        {L"Z-Order", "z_order"},
+    };
+    static constexpr std::pair<const wchar_t*, const char*> kTargets[] = {
+        {L"Shape Text + Prop.ShapeNumber", "both"},
+        {L"Prepended Shape Text Only", "text_prefix"},
+        {L"Prop.ShapeNumber Only", "shape_data"},
+    };
+
+    StackPanel panel{};
+    panel.Spacing(10.0);
+    panel.MinWidth(430.0);
+
+    ComboBox orderCombo{};
+    orderCombo.Header(box_value(L"Numbering Sequence"));
+    orderCombo.HorizontalAlignment(HorizontalAlignment::Stretch);
+    for (auto const& [label, _] : kOrders) orderCombo.Items().Append(box_value(label));
+    orderCombo.SelectedIndex(0);
+
+    TextBox startBox{};
+    startBox.Header(box_value(L"Starting Number"));
+    startBox.Text(L"1");
+
+    TextBox intervalBox{};
+    intervalBox.Header(box_value(L"Interval"));
+    intervalBox.Text(L"1");
+
+    TextBox prefixBox{};
+    prefixBox.Header(box_value(L"Optional Prefix (e.g. P-)"));
+
+    ComboBox targetCombo{};
+    targetCombo.Header(box_value(L"Write Number To"));
+    targetCombo.HorizontalAlignment(HorizontalAlignment::Stretch);
+    for (auto const& [label, _] : kTargets) targetCombo.Items().Append(box_value(label));
+    targetCombo.SelectedIndex(0);
+
+    panel.Children().Append(orderCombo);
+    panel.Children().Append(startBox);
+    panel.Children().Append(intervalBox);
+    panel.Children().Append(prefixBox);
+    panel.Children().Append(targetCombo);
+
+    ContentDialog dlg{};
+    dlg.XamlRoot(RootWorkstationGrid().XamlRoot());
+    dlg.Title(box_value(L"Number Shapes Wizard"));
+    dlg.Content(panel);
+    dlg.PrimaryButtonText(L"Number Shapes");
+    dlg.CloseButtonText(L"Cancel");
+    dlg.DefaultButton(ContentDialogButton::Primary);
+
+    if (co_await dlg.ShowAsync() == ContentDialogResult::Primary) {
+        auto self = weakSelf.get();
+        if (!self || !self->m_doc) co_return;
+        const int32_t ordIdx = std::clamp(orderCombo.SelectedIndex(), 0, static_cast<int32_t>(std::size(kOrders) - 1));
+        const int32_t tgtIdx = std::clamp(targetCombo.SelectedIndex(), 0, static_cast<int32_t>(std::size(kTargets) - 1));
+        const int32_t startN = std::atoi(vexio::win::ToUtf8(startBox.Text()).c_str());
+        const int32_t stepN = std::max(1, std::atoi(vexio::win::ToUtf8(intervalBox.Text()).c_str()));
+        std::span<const uint64_t> emptyAllShapes{};
+        const auto res = self->m_doc.NumberShapes(
+            self->m_activePageId,
+            emptyAllShapes,
+            kOrders[ordIdx].second,
+            startN,
+            stepN,
+            vexio::win::ToUtf8(prefixBox.Text()),
+            kTargets[tgtIdx].second);
+        if (res.ok()) {
+            self->MarkDocumentDirty(true);
+            self->PresentViewportFrame();
+            self->SyncInspectorFromShapeSheet();
+            self->RefreshShapeSheetSectionRows();
+            self->ShowBanner(InfoBarSeverity::Success, L"Shapes Numbered",
+                             std::format(L"Auto-numbered {} shape(s) on active page.", *res.value));
+        }
+    }
 }
 
 } // namespace winrt::VexioWindows::implementation

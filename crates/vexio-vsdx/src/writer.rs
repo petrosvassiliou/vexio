@@ -570,7 +570,39 @@ fn write_shape_xml(out: &mut String, shape: &VisioShape) {
 
     write_sheet_contents(out, &shape.sheet, &[]);
 
-    if !shape.text.is_empty() {
+    if !shape.sheet.text_runs.is_empty()
+        && (shape.text.is_empty()
+            || vexio_shapesheet::runs_plain_text(&shape.sheet.text_runs) == shape.text)
+    {
+        out.push_str("<Text>");
+        let mut active_pp: Option<u32> = None;
+        let mut active_cp: Option<u32> = None;
+        for run in &shape.sheet.text_runs {
+            let (cp_ix, pp_ix) = match run {
+                vexio_shapesheet::VisioTextRun::Text { cp_ix, pp_ix, .. }
+                | vexio_shapesheet::VisioTextRun::Field { cp_ix, pp_ix, .. } => (*cp_ix, *pp_ix),
+            };
+            if active_pp != Some(pp_ix) {
+                let _ = write!(out, "<pp IX=\"{pp_ix}\"/>");
+                active_pp = Some(pp_ix);
+            }
+            if active_cp != Some(cp_ix) {
+                let _ = write!(out, "<cp IX=\"{cp_ix}\"/>");
+                active_cp = Some(cp_ix);
+            }
+            match run {
+                vexio_shapesheet::VisioTextRun::Text { text, .. } => {
+                    out.push_str(&xml_escape(text));
+                }
+                vexio_shapesheet::VisioTextRun::Field {
+                    field_ix, cached, ..
+                } => {
+                    let _ = write!(out, "<fld IX=\"{field_ix}\">{}</fld>", xml_escape(cached));
+                }
+            }
+        }
+        out.push_str("</Text>\n");
+    } else if !shape.text.is_empty() {
         let _ = writeln!(out, "<Text>{}</Text>", xml_escape(&shape.text));
     }
 
@@ -617,6 +649,9 @@ fn is_section_synthesized_cell(key_lower: &str) -> bool {
         || key_lower.starts_with("user.")
         || key_lower.starts_with("prop.")
         || key_lower.starts_with("fillgradient.")
+        || key_lower.starts_with("char.row_")
+        || key_lower.starts_with("para.row_")
+        || key_lower.starts_with("fields.row_")
 }
 
 fn write_sheet_contents(out: &mut String, sheet: &ShapeSheet, layers: &[LayerDef]) {
@@ -858,6 +893,153 @@ fn write_sheet_contents(out: &mut String, sheet: &ShapeSheet, layers: &[LayerDef
                 "<Cell N=\"SubAddress\" V=\"{}\" U=\"STR\"/>",
                 xml_escape(&hl.sub_address)
             );
+            out.push_str("</Row>\n");
+        }
+        out.push_str("</Section>\n");
+    }
+
+    // 7b. Character, Paragraph & Field Sections (`<cp>`, `<pp>`, `<fld>`)
+    if !sheet.character_rows.is_empty() {
+        out.push_str("<Section N=\"Character\">\n");
+        for cr in &sheet.character_rows {
+            let _ = writeln!(out, "<Row IX=\"{}\">", cr.ix);
+            if !cr.font.is_empty() {
+                let _ = writeln!(
+                    out,
+                    "<Cell N=\"Font\" V=\"{}\" U=\"STR\"/>",
+                    xml_escape(cr.font.trim_matches('"'))
+                );
+            }
+            if !cr.size.is_empty() {
+                write_cell_tag(
+                    out,
+                    "Size",
+                    &cr.size,
+                    sheet
+                        .get_cell(&format!("Char.Row_{}.Size", cr.ix))
+                        .map(|c| &c.value),
+                );
+            }
+            if !cr.color.is_empty() {
+                write_cell_tag(
+                    out,
+                    "Color",
+                    &cr.color,
+                    sheet
+                        .get_cell(&format!("Char.Row_{}.Color", cr.ix))
+                        .map(|c| &c.value),
+                );
+            }
+            if !cr.style.is_empty() {
+                write_cell_tag(
+                    out,
+                    "Style",
+                    &cr.style,
+                    sheet
+                        .get_cell(&format!("Char.Row_{}.Style", cr.ix))
+                        .map(|c| &c.value),
+                );
+            }
+            if !cr.strikethru.is_empty() {
+                write_cell_tag(
+                    out,
+                    "Strikethru",
+                    &cr.strikethru,
+                    sheet
+                        .get_cell(&format!("Char.Row_{}.Strikethru", cr.ix))
+                        .map(|c| &c.value),
+                );
+            }
+            if !cr.pos.is_empty() {
+                write_cell_tag(
+                    out,
+                    "Pos",
+                    &cr.pos,
+                    sheet
+                        .get_cell(&format!("Char.Row_{}.Pos", cr.ix))
+                        .map(|c| &c.value),
+                );
+            }
+            if !cr.case_mode.is_empty() {
+                write_cell_tag(
+                    out,
+                    "Case",
+                    &cr.case_mode,
+                    sheet
+                        .get_cell(&format!("Char.Row_{}.Case", cr.ix))
+                        .map(|c| &c.value),
+                );
+            }
+            out.push_str("</Row>\n");
+        }
+        out.push_str("</Section>\n");
+    }
+
+    if !sheet.paragraph_rows.is_empty() {
+        out.push_str("<Section N=\"Paragraph\">\n");
+        for pr in &sheet.paragraph_rows {
+            let _ = writeln!(out, "<Row IX=\"{}\">", pr.ix);
+            if !pr.horz_align.is_empty() {
+                write_cell_tag(
+                    out,
+                    "HorzAlign",
+                    &pr.horz_align,
+                    sheet
+                        .get_cell(&format!("Para.Row_{}.HorzAlign", pr.ix))
+                        .map(|c| &c.value),
+                );
+            }
+            if !pr.bullet.is_empty() {
+                write_cell_tag(
+                    out,
+                    "Bullet",
+                    &pr.bullet,
+                    sheet
+                        .get_cell(&format!("Para.Row_{}.Bullet", pr.ix))
+                        .map(|c| &c.value),
+                );
+            }
+            if !pr.indent_first.is_empty() {
+                write_cell_tag(out, "IndFirst", &pr.indent_first, None);
+            }
+            if !pr.indent_left.is_empty() {
+                write_cell_tag(out, "IndLeft", &pr.indent_left, None);
+            }
+            if !pr.sp_line.is_empty() {
+                write_cell_tag(out, "SpLine", &pr.sp_line, None);
+            }
+            if !pr.sp_before.is_empty() {
+                write_cell_tag(out, "SpBefore", &pr.sp_before, None);
+            }
+            if !pr.sp_after.is_empty() {
+                write_cell_tag(out, "SpAfter", &pr.sp_after, None);
+            }
+            out.push_str("</Row>\n");
+        }
+        out.push_str("</Section>\n");
+    }
+
+    if !sheet.text_fields.is_empty() {
+        out.push_str("<Section N=\"Field\">\n");
+        for tf in &sheet.text_fields {
+            let _ = writeln!(out, "<Row IX=\"{}\">", tf.ix);
+            if !tf.value.is_empty() {
+                write_cell_tag(
+                    out,
+                    "Value",
+                    &tf.value,
+                    sheet
+                        .get_cell(&format!("Fields.Row_{}.Value", tf.ix))
+                        .map(|c| &c.value),
+                );
+            }
+            if !tf.format.is_empty() {
+                let _ = writeln!(
+                    out,
+                    "<Cell N=\"Format\" V=\"{}\" U=\"STR\"/>",
+                    xml_escape(tf.format.trim_matches('"'))
+                );
+            }
             out.push_str("</Row>\n");
         }
         out.push_str("</Section>\n");

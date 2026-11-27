@@ -1900,6 +1900,267 @@ public:
         return VexioResult<OwnedBufferGuard>{VEXIO_OK, std::move(buf)};
     }
 
+    // v0.8.0-beta: Multi-Run Rich Text, Dynamic <fld> Fields, Shift+Ctrl+4 Text Block,
+    // 45 Arrowheads, Line Jumps, Ruler Guides, Snap & Glue, Find/Replace, Format Painter & Number Shapes
+    [[nodiscard]] static VexioResult<winrt::hstring> ListArrowheadsJson() {
+        OwnedBufferGuard buf;
+        const VexioStatus status = vexio_list_arrowheads_json(buf.OutPtr());
+        if (status != VEXIO_OK) {
+            return VexioResult<winrt::hstring>{status, std::nullopt};
+        }
+        return VexioResult<winrt::hstring>{VEXIO_OK, buf.ToWinRtString()};
+    }
+
+    [[nodiscard]] VexioResult<uint32_t> SetConnectorArrowheads(
+        uint32_t pageId,
+        std::span<const uint64_t> shapeIds,
+        uint8_t beginArrow,
+        uint8_t endArrow,
+        uint8_t arrowSize = 2)
+    {
+        if (m_ptr == nullptr || shapeIds.empty()) {
+            return VexioResult<uint32_t>{VEXIO_ERR_INVALID_ARG, std::nullopt};
+        }
+        uint32_t modified = 0;
+        const VexioStatus status = vexio_doc_set_connector_arrowheads(
+            m_ptr, pageId, shapeIds.data(), shapeIds.size(), beginArrow, endArrow, arrowSize, &modified);
+        if (status != VEXIO_OK) {
+            return VexioResult<uint32_t>{status, std::nullopt};
+        }
+        return VexioResult<uint32_t>{VEXIO_OK, modified};
+    }
+
+    [[nodiscard]] VexioStatus SetPageLineJumps(
+        uint32_t pageId,
+        uint8_t jumpCode,
+        uint8_t jumpStyle,
+        double factorX = 0.66,
+        double factorY = 0.66)
+    {
+        if (m_ptr == nullptr) return VEXIO_ERR_INVALID_ARG;
+        return vexio_doc_set_page_line_jumps(m_ptr, pageId, jumpCode, jumpStyle, factorX, factorY);
+    }
+
+    [[nodiscard]] VexioResult<uint32_t> InsertTextField(
+        uint32_t pageId,
+        uint64_t shapeId,
+        std::string_view presetOrFormulaUtf8,
+        std::string_view formatUtf8 = "0.00 in",
+        std::string_view prefixUtf8 = "")
+    {
+        if (m_ptr == nullptr || shapeId == 0 || presetOrFormulaUtf8.empty()) {
+            return VexioResult<uint32_t>{VEXIO_ERR_INVALID_ARG, std::nullopt};
+        }
+        const std::string preset{presetOrFormulaUtf8};
+        const std::string fmt{formatUtf8};
+        const std::string pfx{prefixUtf8};
+        uint32_t fieldIx = 0;
+        const VexioStatus status = vexio_doc_insert_text_field(
+            m_ptr, pageId, shapeId, preset.c_str(), fmt.c_str(), pfx.c_str(), &fieldIx);
+        if (status != VEXIO_OK) {
+            return VexioResult<uint32_t>{status, std::nullopt};
+        }
+        return VexioResult<uint32_t>{VEXIO_OK, fieldIx};
+    }
+
+    [[nodiscard]] VexioResult<winrt::hstring> ListTextFieldsJson(uint32_t pageId, uint64_t shapeId) const {
+        if (m_ptr == nullptr || shapeId == 0) {
+            return VexioResult<winrt::hstring>{VEXIO_ERR_INVALID_ARG, std::nullopt};
+        }
+        OwnedBufferGuard buf;
+        const VexioStatus status = vexio_doc_list_text_fields_json(m_ptr, pageId, shapeId, buf.OutPtr());
+        if (status != VEXIO_OK) {
+            return VexioResult<winrt::hstring>{status, std::nullopt};
+        }
+        return VexioResult<winrt::hstring>{VEXIO_OK, buf.ToWinRtString()};
+    }
+
+    [[nodiscard]] VexioStatus SetShapeRichRunsJson(
+        uint32_t pageId,
+        uint64_t shapeId,
+        std::string_view runsJsonUtf8)
+    {
+        if (m_ptr == nullptr || shapeId == 0 || runsJsonUtf8.empty()) return VEXIO_ERR_INVALID_ARG;
+        const std::string runs{runsJsonUtf8};
+        return vexio_doc_set_shape_rich_runs_json(m_ptr, pageId, shapeId, runs.c_str());
+    }
+
+    [[nodiscard]] VexioStatus SetTextBlockTransform(
+        uint32_t pageId,
+        uint64_t shapeId,
+        double txtPinXIn,
+        double txtPinYIn,
+        double txtWidthIn,
+        double txtHeightIn,
+        double txtAngleDeg)
+    {
+        if (m_ptr == nullptr || shapeId == 0) return VEXIO_ERR_INVALID_ARG;
+        return vexio_doc_set_text_block_transform(
+            m_ptr, pageId, shapeId, txtPinXIn, txtPinYIn, txtWidthIn, txtHeightIn, txtAngleDeg);
+    }
+
+    [[nodiscard]] VexioResult<winrt::hstring> ListRulerGuidesJson(uint32_t pageId) const {
+        if (m_ptr == nullptr) {
+            return VexioResult<winrt::hstring>{VEXIO_ERR_INVALID_ARG, std::nullopt};
+        }
+        OwnedBufferGuard buf;
+        const VexioStatus status = vexio_doc_list_ruler_guides_json(m_ptr, pageId, buf.OutPtr());
+        if (status != VEXIO_OK) {
+            return VexioResult<winrt::hstring>{status, std::nullopt};
+        }
+        return VexioResult<winrt::hstring>{VEXIO_OK, buf.ToWinRtString()};
+    }
+
+    [[nodiscard]] VexioResult<uint64_t> AddRulerGuide(uint32_t pageId, bool isVertical, double coordIn) {
+        if (m_ptr == nullptr) {
+            return VexioResult<uint64_t>{VEXIO_ERR_INVALID_ARG, std::nullopt};
+        }
+        uint64_t guideId = 0;
+        const VexioStatus status = vexio_doc_add_ruler_guide(m_ptr, pageId, isVertical, coordIn, &guideId);
+        if (status != VEXIO_OK) {
+            return VexioResult<uint64_t>{status, std::nullopt};
+        }
+        return VexioResult<uint64_t>{VEXIO_OK, guideId};
+    }
+
+    [[nodiscard]] VexioStatus MoveRulerGuide(uint32_t pageId, uint64_t guideId, double coordIn) {
+        if (m_ptr == nullptr || guideId == 0) return VEXIO_ERR_INVALID_ARG;
+        return vexio_doc_move_ruler_guide(m_ptr, pageId, guideId, coordIn);
+    }
+
+    [[nodiscard]] VexioStatus DeleteRulerGuide(uint32_t pageId, uint64_t guideId) {
+        if (m_ptr == nullptr || guideId == 0) return VEXIO_ERR_INVALID_ARG;
+        return vexio_doc_delete_ruler_guide(m_ptr, pageId, guideId);
+    }
+
+    [[nodiscard]] VexioResult<winrt::hstring> GetSnapGlueJson(uint32_t pageId) const {
+        if (m_ptr == nullptr) {
+            return VexioResult<winrt::hstring>{VEXIO_ERR_INVALID_ARG, std::nullopt};
+        }
+        OwnedBufferGuard buf;
+        const VexioStatus status = vexio_doc_get_snap_glue_json(m_ptr, pageId, buf.OutPtr());
+        if (status != VEXIO_OK) {
+            return VexioResult<winrt::hstring>{status, std::nullopt};
+        }
+        return VexioResult<winrt::hstring>{VEXIO_OK, buf.ToWinRtString()};
+    }
+
+    [[nodiscard]] VexioStatus SetSnapGlue(
+        uint32_t pageId,
+        bool snapEnabled,
+        bool glueEnabled,
+        uint32_t snapTargetsMask,
+        uint32_t glueTypesMask)
+    {
+        if (m_ptr == nullptr) return VEXIO_ERR_INVALID_ARG;
+        return vexio_doc_set_snap_glue(m_ptr, pageId, snapEnabled, glueEnabled, snapTargetsMask, glueTypesMask);
+    }
+
+    [[nodiscard]] VexioResult<winrt::hstring> FindJson(
+        uint32_t activePageId,
+        std::string_view queryUtf8,
+        bool matchCase,
+        bool wholeWord,
+        bool allPages) const
+    {
+        if (m_ptr == nullptr || queryUtf8.empty()) {
+            return VexioResult<winrt::hstring>{VEXIO_ERR_INVALID_ARG, std::nullopt};
+        }
+        const std::string q{queryUtf8};
+        OwnedBufferGuard buf;
+        const VexioStatus status = vexio_doc_find_json(
+            m_ptr, activePageId, q.c_str(), matchCase, wholeWord, allPages, buf.OutPtr());
+        if (status != VEXIO_OK) {
+            return VexioResult<winrt::hstring>{status, std::nullopt};
+        }
+        return VexioResult<winrt::hstring>{VEXIO_OK, buf.ToWinRtString()};
+    }
+
+    [[nodiscard]] VexioResult<uint32_t> Replace(
+        uint32_t activePageId,
+        std::string_view findUtf8,
+        std::string_view replaceUtf8,
+        bool matchCase,
+        bool wholeWord,
+        bool allPages)
+    {
+        if (m_ptr == nullptr || findUtf8.empty()) {
+            return VexioResult<uint32_t>{VEXIO_ERR_INVALID_ARG, std::nullopt};
+        }
+        const std::string f{findUtf8};
+        const std::string r{replaceUtf8};
+        uint32_t replaced = 0;
+        const VexioStatus status = vexio_doc_replace(
+            m_ptr, activePageId, f.c_str(), r.c_str(), matchCase, wholeWord, allPages, &replaced);
+        if (status != VEXIO_OK) {
+            return VexioResult<uint32_t>{status, std::nullopt};
+        }
+        return VexioResult<uint32_t>{VEXIO_OK, replaced};
+    }
+
+    [[nodiscard]] VexioResult<winrt::hstring> CopyShapeFormatJson(uint32_t pageId, uint64_t shapeId) const {
+        if (m_ptr == nullptr || shapeId == 0) {
+            return VexioResult<winrt::hstring>{VEXIO_ERR_INVALID_ARG, std::nullopt};
+        }
+        OwnedBufferGuard buf;
+        const VexioStatus status = vexio_doc_copy_shape_format_json(m_ptr, pageId, shapeId, buf.OutPtr());
+        if (status != VEXIO_OK) {
+            return VexioResult<winrt::hstring>{status, std::nullopt};
+        }
+        return VexioResult<winrt::hstring>{VEXIO_OK, buf.ToWinRtString()};
+    }
+
+    [[nodiscard]] VexioResult<uint32_t> ApplyFormatPainter(
+        uint32_t pageId,
+        std::span<const uint64_t> targetIds,
+        std::string_view formatJsonUtf8)
+    {
+        if (m_ptr == nullptr || targetIds.empty() || formatJsonUtf8.empty()) {
+            return VexioResult<uint32_t>{VEXIO_ERR_INVALID_ARG, std::nullopt};
+        }
+        const std::string fmt{formatJsonUtf8};
+        uint32_t modified = 0;
+        const VexioStatus status = vexio_doc_apply_format_painter(
+            m_ptr, pageId, targetIds.data(), targetIds.size(), fmt.c_str(), &modified);
+        if (status != VEXIO_OK) {
+            return VexioResult<uint32_t>{status, std::nullopt};
+        }
+        return VexioResult<uint32_t>{VEXIO_OK, modified};
+    }
+
+    [[nodiscard]] VexioResult<uint32_t> NumberShapes(
+        uint32_t pageId,
+        std::span<const uint64_t> shapeIds,
+        std::string_view orderModeUtf8,
+        int32_t startNum,
+        int32_t interval,
+        std::string_view prefixUtf8,
+        std::string_view targetModeUtf8)
+    {
+        if (m_ptr == nullptr) {
+            return VexioResult<uint32_t>{VEXIO_ERR_INVALID_ARG, std::nullopt};
+        }
+        const std::string ord{orderModeUtf8.empty() ? "top_to_bottom_left_to_right" : orderModeUtf8};
+        const std::string pfx{prefixUtf8};
+        const std::string tgt{targetModeUtf8.empty() ? "both" : targetModeUtf8};
+        uint32_t count = 0;
+        const VexioStatus status = vexio_doc_number_shapes(
+            m_ptr,
+            pageId,
+            shapeIds.empty() ? nullptr : shapeIds.data(),
+            shapeIds.size(),
+            ord.c_str(),
+            startNum,
+            interval,
+            pfx.c_str(),
+            tgt.c_str(),
+            &count);
+        if (status != VEXIO_OK) {
+            return VexioResult<uint32_t>{status, std::nullopt};
+        }
+        return VexioResult<uint32_t>{VEXIO_OK, count};
+    }
+
 private:
     VexioDoc* m_ptr{nullptr};
 };

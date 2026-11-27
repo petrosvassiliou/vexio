@@ -213,4 +213,103 @@ mod tests {
         assert!(act.begin_group);
         assert!(!sh.sheet.connection_points.is_empty());
     }
+
+    #[test]
+    fn vsdx_multirun_character_paragraph_and_dynamic_fields_roundtrip() {
+        let mut doc = VisioDocument::new_blank("MultiRunFields");
+        doc.properties.title = "Fab-7 Layout".into();
+        let mut s = VisioShape::new_rect(1, "RackNode", 4.0, 5.0, 3.25, 1.5);
+        s.sheet.upsert_character_row(CharacterRow {
+            ix: 0,
+            font: "Inter".into(),
+            size: "10 pt".into(),
+            color: "=RGB(15,23,42)".into(),
+            style: "0".into(),
+            strikethru: "FALSE".into(),
+            pos: "0".into(),
+            case_mode: "0".into(),
+        });
+        s.sheet.upsert_character_row(CharacterRow {
+            ix: 1,
+            font: "Consolas".into(),
+            size: "14 pt".into(),
+            color: "=RGB(220,38,38)".into(),
+            style: "3".into(), // Bold + Italic
+            strikethru: "FALSE".into(),
+            pos: "1".into(), // Superscript
+            case_mode: "0".into(),
+        });
+        s.sheet.upsert_paragraph_row(ParagraphRow {
+            ix: 0,
+            horz_align: "0".into(),
+            bullet: "1".into(),
+            ..ParagraphRow::default()
+        });
+        s.sheet.upsert_text_field(TextFieldRow {
+            ix: 0,
+            value: "=Width".into(),
+            format: "0.00 in".into(),
+        });
+        s.sheet.upsert_text_field(TextFieldRow {
+            ix: 1,
+            value: "=PAGENAME()".into(),
+            format: "".into(),
+        });
+        s.sheet.text_runs = vec![
+            VisioTextRun::Text {
+                text: "Span: ".into(),
+                cp_ix: 0,
+                pp_ix: 0,
+            },
+            VisioTextRun::Field {
+                field_ix: 0,
+                cp_ix: 1,
+                pp_ix: 0,
+                cached: String::new(),
+            },
+            VisioTextRun::Text {
+                text: " @ ".into(),
+                cp_ix: 0,
+                pp_ix: 0,
+            },
+            VisioTextRun::Field {
+                field_ix: 1,
+                cp_ix: 1,
+                pp_ix: 0,
+                cached: String::new(),
+            },
+        ];
+        doc.page_mut(1).unwrap().shapes.push(s);
+        ReactiveEngine::recalculate_document(&mut doc);
+
+        // Verify live evaluation before round-trip
+        assert_eq!(doc.page(1).unwrap().find_shape(1).unwrap().text, "Span: 3.25 in @ Page-1");
+
+        // Round-trip `.vsdx` -> reload -> resize `Width` -> verify live reactive `<fld>` update!
+        let bytes = write_vsdx(&doc, VsdxPackageKind::Drawing).unwrap();
+        let (mut reloaded, _) = read_vsdx(&bytes).unwrap();
+        let sh = reloaded.page(1).unwrap().find_shape(1).unwrap();
+        assert_eq!(sh.sheet.character_rows.len(), 2);
+        assert_eq!(sh.sheet.character_rows[1].font, "Consolas");
+        assert_eq!(sh.sheet.paragraph_rows.len(), 1);
+        assert_eq!(sh.sheet.text_fields.len(), 2);
+        assert_eq!(sh.sheet.text_runs.len(), 4);
+
+        reloaded
+            .page_mut(1)
+            .unwrap()
+            .find_shape_mut(1)
+            .unwrap()
+            .sheet
+            .set_formula("Width", "6.5 in", Some(Unit::Inch));
+        ReactiveEngine::recalculate_document(&mut reloaded);
+
+        let visuals = ReactiveEngine::evaluate_page_visuals(&reloaded, 1);
+        let vis = visuals.iter().find(|v| v.shape_id == 1).unwrap();
+        assert_eq!(vis.text, "Span: 6.50 in @ Page-1");
+        assert_eq!(vis.evaluated_text_runs.len(), 4);
+        assert!(vis.evaluated_text_runs[1].bold && vis.evaluated_text_runs[1].italic);
+        assert!(vis.evaluated_text_runs[1].superscript);
+        assert!((vis.evaluated_text_runs[1].font_size_pt - 14.0).abs() < 1e-6);
+    }
 }

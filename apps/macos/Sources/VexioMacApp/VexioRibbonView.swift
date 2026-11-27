@@ -824,6 +824,15 @@ public struct VexioHeaderAndRibbonBar: View {
                     LiquidGlassIconButton(systemImage: "oval", title: "Ellipse (⌘5)", isActive: session.activeTool == .ellipse) {
                         session.activeTool = .ellipse
                     }
+                    LiquidGlassIconButton(systemImage: "textbox", title: "Text Block Tool (⌃⇧4)", isActive: session.activeTool == .textBlock) {
+                        session.activeTool = (session.activeTool == .textBlock) ? .pointer : .textBlock
+                    }
+                    LiquidGlassIconButton(systemImage: "paintbrush.pointed", title: "Format Painter (⌃⇧P)", isActive: session.activeTool == .formatPainter) {
+                        session.activeTool = (session.activeTool == .formatPainter) ? .pointer : .formatPainter
+                    }
+                    LiquidGlassIconButton(systemImage: "magnifyingglass", title: "Find & Replace… (⌘F)") {
+                        NotificationCenter.default.post(name: .vexioOpenFindReplaceSheet, object: nil)
+                    }
                 }
             }
 
@@ -999,6 +1008,9 @@ public struct VexioHeaderAndRibbonBar: View {
                     }
                     ribbonCompactButton("link", "Hyperlink…", tip: "Attach External URL, Page Link & Hover ScreenTip (⌘K)") {
                         NotificationCenter.default.post(name: .vexioOpenHyperlinkSheet, object: nil)
+                    }
+                    ribbonCompactButton("number.square", "Field…", tip: "Insert Dynamic ShapeSheet Text Field (<fld>)") {
+                        NotificationCenter.default.post(name: .vexioOpenInsertFieldSheet, object: nil)
                     }
                     ribbonCompactButton("wand.and.stars", "Wizards…", tip: "SQL ⇄ ERD, Gantt, Timeline, PERT/CPM, Org Chart, 42U Rack & Room Wizards") {
                         NotificationCenter.default.post(name: .vexioOpenDomainWizardsSheet, object: nil)
@@ -1355,6 +1367,18 @@ public struct VexioHeaderAndRibbonBar: View {
                         isActive: session.smartGuidesEnabled
                     ) {
                         session.smartGuidesEnabled.toggle()
+                    }
+                    ribbonCompactButton("line.horizontal.3", "+ H Guide", tip: "Add Draggable Horizontal Ruler Guide") {
+                        session.addPageRulerGuide(isVertical: false, undoManager: undoManager)
+                    }
+                    ribbonCompactButton("line.3.horizontal", "+ V Guide", tip: "Add Draggable Vertical Ruler Guide") {
+                        session.addPageRulerGuide(isVertical: true, undoManager: undoManager)
+                    }
+                    ribbonCompactButton("dot.squareshape.split.2x2", "Snap & Glue…", tip: "Configure Visio Snap & Glue Matrix") {
+                        NotificationCenter.default.post(name: .vexioOpenSnapGlueSheet, object: nil)
+                    }
+                    ribbonCompactButton("list.number", "Number Shapes…", tip: "Automatic Shape Numbering Wizard") {
+                        NotificationCenter.default.post(name: .vexioOpenNumberShapesSheet, object: nil)
                     }
                 }
             }

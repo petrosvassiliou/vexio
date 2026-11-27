@@ -217,6 +217,26 @@ VexioStatus vexio_doc_delete_custom_master(VexioDoc* doc, const char* stencil_ti
 VexioStatus vexio_doc_update_custom_master(VexioDoc* doc, uint32_t page_id, uint64_t source_shape_id, const char* stencil_title_utf8, const char* master_name_utf8, uint32_t* out_updated_count);
 VexioStatus vexio_doc_export_custom_stencil_vssx(const VexioDoc* doc, const char* stencil_title_utf8, VexioOwnedBuffer* out_vssx_bytes);
 
+/* v0.8.0-beta: Multi-Run Rich Text, Dynamic <fld> Fields, Shift+Ctrl+4 Text Block, 45 Arrowheads, Line Jumps, Ruler Guides, Snap & Glue, Find/Replace, Format Painter & Number Shapes */
+VexioStatus vexio_list_arrowheads_json(VexioOwnedBuffer* out_json);
+VexioStatus vexio_doc_set_connector_arrowheads(VexioDoc* doc, uint32_t page_id, const uint64_t* shape_ids_ptr, size_t shape_ids_len, uint8_t begin_arrow, uint8_t end_arrow, uint8_t arrow_size, uint32_t* out_modified_count);
+VexioStatus vexio_doc_set_page_line_jumps(VexioDoc* doc, uint32_t page_id, uint8_t jump_code, uint8_t jump_style, double factor_x, double factor_y);
+VexioStatus vexio_doc_insert_text_field(VexioDoc* doc, uint32_t page_id, uint64_t shape_id, const char* preset_or_formula_utf8, const char* format_utf8, const char* prefix_utf8, uint32_t* out_field_ix);
+VexioStatus vexio_doc_list_text_fields_json(const VexioDoc* doc, uint32_t page_id, uint64_t shape_id, VexioOwnedBuffer* out_json);
+VexioStatus vexio_doc_set_shape_rich_runs_json(VexioDoc* doc, uint32_t page_id, uint64_t shape_id, const char* runs_json_utf8);
+VexioStatus vexio_doc_set_text_block_transform(VexioDoc* doc, uint32_t page_id, uint64_t shape_id, double txt_pin_x_in, double txt_pin_y_in, double txt_width_in, double txt_height_in, double txt_angle_deg);
+VexioStatus vexio_doc_list_ruler_guides_json(const VexioDoc* doc, uint32_t page_id, VexioOwnedBuffer* out_json);
+VexioStatus vexio_doc_add_ruler_guide(VexioDoc* doc, uint32_t page_id, bool is_vertical, double coord_in, uint64_t* out_guide_id);
+VexioStatus vexio_doc_move_ruler_guide(VexioDoc* doc, uint32_t page_id, uint64_t guide_id, double coord_in);
+VexioStatus vexio_doc_delete_ruler_guide(VexioDoc* doc, uint32_t page_id, uint64_t guide_id);
+VexioStatus vexio_doc_get_snap_glue_json(const VexioDoc* doc, uint32_t page_id, VexioOwnedBuffer* out_json);
+VexioStatus vexio_doc_set_snap_glue(VexioDoc* doc, uint32_t page_id, bool snap_enabled, bool glue_enabled, uint32_t snap_targets_mask, uint32_t glue_types_mask);
+VexioStatus vexio_doc_find_json(const VexioDoc* doc, uint32_t active_page_id, const char* query_utf8, bool match_case, bool whole_word, bool all_pages, VexioOwnedBuffer* out_json);
+VexioStatus vexio_doc_replace(VexioDoc* doc, uint32_t active_page_id, const char* find_utf8, const char* replace_utf8, bool match_case, bool whole_word, bool all_pages, uint32_t* out_replaced_count);
+VexioStatus vexio_doc_copy_shape_format_json(const VexioDoc* doc, uint32_t page_id, uint64_t shape_id, VexioOwnedBuffer* out_json);
+VexioStatus vexio_doc_apply_format_painter(VexioDoc* doc, uint32_t page_id, const uint64_t* target_ids_ptr, size_t target_ids_len, const char* format_json_utf8, uint32_t* out_modified_count);
+VexioStatus vexio_doc_number_shapes(VexioDoc* doc, uint32_t page_id, const uint64_t* shape_ids_ptr, size_t shape_ids_len, const char* order_mode_utf8, int32_t start_num, int32_t interval, const char* prefix_utf8, const char* target_mode_utf8, uint32_t* out_numbered_count);
+
 #ifdef __cplusplus
 }
 #endif

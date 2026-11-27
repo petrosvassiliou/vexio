@@ -291,6 +291,24 @@ class NativeBridgePacketTest {
         verifyNative("nativeDeleteCustomMaster", boolT, longT, String::class.java, String::class.java)
         verifyNative("nativeUpdateCustomMaster", intT, longT, intT, longT, String::class.java, String::class.java)
         verifyNative("nativeExportCustomStencilVssx", ByteArray::class.java, longT, String::class.java)
+        verifyNative("nativeListArrowheadsJson", String::class.java)
+        verifyNative("nativeSetConnectorArrowheads", intT, longT, intT, LongArray::class.java, intT, intT, intT)
+        verifyNative("nativeSetPageLineJumps", boolT, longT, intT, intT, intT, doubleT, doubleT)
+        verifyNative("nativeInsertTextField", intT, longT, intT, longT, String::class.java, String::class.java, String::class.java)
+        verifyNative("nativeListTextFieldsJson", String::class.java, longT, intT, longT)
+        verifyNative("nativeSetShapeRichRunsJson", boolT, longT, intT, longT, String::class.java)
+        verifyNative("nativeSetTextBlockTransform", boolT, longT, intT, longT, doubleT, doubleT, doubleT, doubleT, doubleT)
+        verifyNative("nativeListRulerGuidesJson", String::class.java, longT, intT)
+        verifyNative("nativeAddRulerGuide", longT, longT, intT, boolT, doubleT)
+        verifyNative("nativeMoveRulerGuide", boolT, longT, intT, longT, doubleT)
+        verifyNative("nativeDeleteRulerGuide", boolT, longT, intT, longT)
+        verifyNative("nativeGetSnapGlueJson", String::class.java, longT, intT)
+        verifyNative("nativeSetSnapGlue", boolT, longT, intT, boolT, boolT, intT, intT)
+        verifyNative("nativeFindInDocumentJson", String::class.java, longT, intT, String::class.java, boolT, boolT, boolT)
+        verifyNative("nativeReplaceInDocument", intT, longT, intT, String::class.java, String::class.java, boolT, boolT, boolT)
+        verifyNative("nativeCopyShapeFormatJson", String::class.java, longT, intT, longT)
+        verifyNative("nativeApplyFormatPainter", intT, longT, intT, LongArray::class.java, String::class.java)
+        verifyNative("nativeNumberShapes", intT, longT, intT, LongArray::class.java, String::class.java, intT, intT, String::class.java, String::class.java)
     }
 
     @Test
@@ -319,9 +337,9 @@ class NativeBridgePacketTest {
         assertTrue(state.isStencilDrawerExpanded)
         assertTrue(state.isInspectorExpanded)
 
-        // All 19 drawing, vertex, connection point & markup tools map 1:1 to engine tool codes 0..18
-        assertEquals(19, VexioTool.entries.size)
-        assertEquals((0..18).toSet(), VexioTool.entries.map { it.nativeCode }.toSet())
+        // All 21 drawing, vertex, connection point, text block, format painter & markup tools map 1:1 to engine tool codes 0..20
+        assertEquals(21, VexioTool.entries.size)
+        assertEquals((0..20).toSet(), VexioTool.entries.map { it.nativeCode }.toSet())
 
         // All 33 Visio Professional & Awesome-Visio stencil categories are present
         assertEquals(33, BuiltInStencilCatalog.categories.size)
@@ -705,8 +723,8 @@ class NativeBridgePacketTest {
         assertEquals(33, vm.uiState.value.stencilCategories.size)
         assertTrue(vm.uiState.value.stencilMasters.isNotEmpty())
         assertTrue(
-            "Expected 0.7.0-beta in updateStatusMessage, got: ${vm.uiState.value.updateStatusMessage}",
-            vm.uiState.value.updateStatusMessage.contains("0.7.0-beta")
+            "Expected 0.8.0-beta in updateStatusMessage, got: ${vm.uiState.value.updateStatusMessage}",
+            vm.uiState.value.updateStatusMessage.contains("0.8.0-beta")
         )
 
         val sampleNativeJson = """
@@ -864,6 +882,44 @@ class NativeBridgePacketTest {
         assertEquals('P'.code.toByte(), vssxBytes[0])
         assertEquals('K'.code.toByte(), vssxBytes[1])
         assertTrue(vm.deleteCustomStencilMaster("Redundant Pump"))
+    }
+
+    @Test
+    fun v080Milestone3FieldsGuidesSnapGlueFindReplaceFormatPainterAndNumberShapesWork() {
+        val vm = VexioSessionViewModel()
+
+        // 1. Shift+Ctrl+4 Text Block Transform (19) & Ctrl+Shift+P Format Painter (20)
+        vm.selectTool(VexioTool.TEXT_BLOCK_TRANSFORM)
+        assertEquals(19, vm.uiState.value.activeTool.nativeCode)
+        assertEquals("Ctrl+Shift+4", VexioTool.TEXT_BLOCK_TRANSFORM.shortcutHint)
+        vm.selectTool(VexioTool.FORMAT_PAINTER)
+        assertEquals(20, vm.uiState.value.activeTool.nativeCode)
+        assertEquals("Ctrl+Shift+P", VexioTool.FORMAT_PAINTER.shortcutHint)
+
+        // 2. Dynamic <fld> text field, 45 arrowheads & line jumps
+        assertTrue(vm.insertDynamicTextField("width", "0.00 in", "W: ") >= 0)
+        assertEquals(1, vm.setConnectorArrowheads(29, 27, 2))
+        assertTrue(vm.setPageLineJumps(1, 2, 0.66, 0.66))
+
+        // 3. Draggable ruler guides & Snap/Glue matrix
+        val gid = vm.addRulerGuide(isVertical = true, coordIn = 5.25)
+        assertTrue(gid > 0L)
+        assertEquals(1, vm.uiState.value.rulerGuides.size)
+        assertTrue(vm.moveRulerGuide(gid, 6.0))
+        assertEquals(6.0, vm.uiState.value.rulerGuides.first().coordIn, 1e-6)
+        assertTrue(vm.deleteRulerGuide(gid))
+        assertTrue(vm.uiState.value.rulerGuides.isEmpty())
+        assertTrue(vm.setSnapGlueSettings(snapEnabled = true, glueEnabled = false, snapTargetsMask = 12, glueTypesMask = 1))
+        assertFalse(vm.uiState.value.glueEnabled)
+        assertEquals(12, vm.uiState.value.snapTargetsMask)
+
+        // 4. Find & Replace, Format Painter & Number Shapes Wizard
+        val hits = vm.findInDocument("Process")
+        assertTrue(hits.isNotEmpty())
+        assertTrue(vm.replaceInDocument("Process", "Gateway") >= 1)
+        assertTrue(vm.copySelectedShapeFormat().contains("FillForegnd"))
+        assertEquals(1, vm.applyFormatPainter())
+        assertTrue(vm.numberShapesOnPage("connected_flow", startNum = 10, interval = 5, prefix = "P-") >= 1)
     }
 }
 

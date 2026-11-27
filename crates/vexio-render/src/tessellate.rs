@@ -489,18 +489,32 @@ pub fn tessellate_shape_full(
         };
         let box_w = visual.txt_width.unwrap_or(default_w).abs().max(0.45);
         let box_h = visual.txt_height.unwrap_or(default_h).abs().max(0.28);
-        let text_angle = readable_text_angle_rad(visual.transform.angle_rad);
+        let text_angle = if visual.txt_angle_rad.abs() > 1e-6 {
+            visual.transform.angle_rad + visual.txt_angle_rad
+        } else {
+            readable_text_angle_rad(visual.transform.angle_rad)
+        };
 
-        let block = crate::typography::parse_inline_rich_text_styled_with_font(
-            trimmed_txt,
-            visual.font_size_pt,
-            visual.text_color,
-            visual.char_style,
-            visual.horiz_align,
-            visual.vert_align,
-            visual.bullet_style,
-            &visual.font_family,
-        );
+        let block = if !visual.evaluated_text_runs.is_empty() {
+            crate::typography::build_rich_text_block_from_evaluated_runs(
+                &visual.evaluated_text_runs,
+                &visual.font_family,
+                visual.horiz_align,
+                visual.vert_align,
+                visual.bullet_style,
+            )
+        } else {
+            crate::typography::parse_inline_rich_text_styled_with_font(
+                trimmed_txt,
+                visual.font_size_pt,
+                visual.text_color,
+                visual.char_style,
+                visual.horiz_align,
+                visual.vert_align,
+                visual.bullet_style,
+                &visual.font_family,
+            )
+        };
 
         if let Some(bg) = visual.text_bg_color {
             let bg_rgba = bg.to_linear_f32();
@@ -1785,6 +1799,66 @@ fn compute_corner_fillet(
     (t_in, t_out, true)
 }
 
+/// Descriptor entry for Visio's canonical 46-entry `BeginArrow` / `EndArrow` catalog (`0..=45`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VisioArrowheadInfo {
+    pub code: u8,
+    pub name: &'static str,
+    pub category: &'static str,
+}
+
+/// Complete catalog of all 46 canonical Visio arrowhead styles (`0..=45`).
+pub fn list_visio_arrowheads() -> Vec<VisioArrowheadInfo> {
+    vec![
+        VisioArrowheadInfo { code: 0, name: "None", category: "Standard" },
+        VisioArrowheadInfo { code: 1, name: "Open Arrow (60°)", category: "Standard" },
+        VisioArrowheadInfo { code: 2, name: "Hollow Triangle", category: "UML / Standard" },
+        VisioArrowheadInfo { code: 3, name: "Wide Open Arrow (90°)", category: "Standard" },
+        VisioArrowheadInfo { code: 4, name: "Filled Triangle", category: "Standard" },
+        VisioArrowheadInfo { code: 5, name: "Filled Stealth", category: "Standard" },
+        VisioArrowheadInfo { code: 6, name: "Concave Base Arrow", category: "Standard" },
+        VisioArrowheadInfo { code: 7, name: "Convex Base Arrow", category: "Standard" },
+        VisioArrowheadInfo { code: 8, name: "Swallowtail Open", category: "Standard" },
+        VisioArrowheadInfo { code: 9, name: "Oblique Tick (45°)", category: "Dimension" },
+        VisioArrowheadInfo { code: 10, name: "Filled Dot", category: "Marker" },
+        VisioArrowheadInfo { code: 11, name: "Filled Diamond (Composition)", category: "UML / ERD" },
+        VisioArrowheadInfo { code: 12, name: "Bold Filled Triangle", category: "Standard" },
+        VisioArrowheadInfo { code: 13, name: "Acute Filled Dart (30°)", category: "Standard" },
+        VisioArrowheadInfo { code: 14, name: "Hollow Stealth", category: "UML / Standard" },
+        VisioArrowheadInfo { code: 15, name: "Hollow Acute Triangle", category: "UML / Standard" },
+        VisioArrowheadInfo { code: 16, name: "Hollow Concave Arrow", category: "UML / Standard" },
+        VisioArrowheadInfo { code: 17, name: "Hollow Dart", category: "UML / Standard" },
+        VisioArrowheadInfo { code: 18, name: "Hollow Wide Triangle", category: "UML / Standard" },
+        VisioArrowheadInfo { code: 19, name: "Acute Open Arrow (30°)", category: "Standard" },
+        VisioArrowheadInfo { code: 20, name: "Centered Filled Circle", category: "Marker" },
+        VisioArrowheadInfo { code: 21, name: "Filled Square", category: "Marker" },
+        VisioArrowheadInfo { code: 22, name: "Hollow Diamond (Aggregation)", category: "UML / ERD" },
+        VisioArrowheadInfo { code: 23, name: "Perpendicular Stop Bar (|)", category: "Dimension / ERD" },
+        VisioArrowheadInfo { code: 24, name: "Dimension Arrow + Bar (>|)", category: "Dimension" },
+        VisioArrowheadInfo { code: 25, name: "Double Stop Bar (|| — One Only)", category: "ERD" },
+        VisioArrowheadInfo { code: 26, name: "Trident Fork", category: "Engineering" },
+        VisioArrowheadInfo { code: 27, name: "Crow's Foot — Many (<)", category: "ERD" },
+        VisioArrowheadInfo { code: 28, name: "Crow's Foot — One & Many (|<)", category: "ERD" },
+        VisioArrowheadInfo { code: 29, name: "Crow's Foot — Zero or Many (o<)", category: "ERD" },
+        VisioArrowheadInfo { code: 30, name: "ERD Zero or One (o|)", category: "ERD" },
+        VisioArrowheadInfo { code: 31, name: "Hollow Circle (Message Start)", category: "BPMN / Marker" },
+        VisioArrowheadInfo { code: 32, name: "Hollow Circle + Tangent Bar", category: "ERD / BPMN" },
+        VisioArrowheadInfo { code: 33, name: "Half Harpoon (Upper Barb)", category: "Engineering" },
+        VisioArrowheadInfo { code: 34, name: "Half Harpoon (Lower Barb)", category: "Engineering" },
+        VisioArrowheadInfo { code: 35, name: "Double Open Chevron (>>)", category: "Standard" },
+        VisioArrowheadInfo { code: 36, name: "Double Filled Triangle", category: "Standard" },
+        VisioArrowheadInfo { code: 37, name: "Double Hollow Triangle", category: "UML / Standard" },
+        VisioArrowheadInfo { code: 38, name: "Hollow Square", category: "Marker" },
+        VisioArrowheadInfo { code: 39, name: "Filled Triangle + Bar", category: "Dimension" },
+        VisioArrowheadInfo { code: 40, name: "Hollow Triangle + Bar", category: "Dimension" },
+        VisioArrowheadInfo { code: 41, name: "Circle with Cross", category: "BPMN / Engineering" },
+        VisioArrowheadInfo { code: 42, name: "Diamond with Cross", category: "BPMN / Engineering" },
+        VisioArrowheadInfo { code: 43, name: "Reverse Inward Filled Triangle", category: "Engineering" },
+        VisioArrowheadInfo { code: 44, name: "Reverse Inward Open Chevron", category: "Engineering" },
+        VisioArrowheadInfo { code: 45, name: "Fletched Triple Feather", category: "Engineering" },
+    ]
+}
+
 /// Scale multiplier for Visio `BeginArrowSize` / `EndArrowSize` (`0=VerySmall .. 6=Colossal`).
 #[inline]
 pub fn visio_arrow_size_scale(size_code: u8) -> f64 {
@@ -1880,25 +1954,77 @@ fn tessellate_arrowhead(
         );
     };
 
+    let emit_circle = |center: [f64; 2],
+                       r: f64,
+                       hollow: bool,
+                       ft: &mut FillTessellator,
+                       st: &mut StrokeTessellator,
+                       buf: &mut VertexBuffers<GpuVertex, u32>| {
+        let mut b = Path::builder();
+        emit_rotated_ellipse(&mut b, center, r, r, 0.0);
+        let p = b.build();
+        let fc = if hollow { white } else { color };
+        let _ = ft.tessellate_path(
+            &p,
+            &FillOptions::tolerance(tol),
+            &mut BuffersBuilder::new(buf, |v: FillVertex| {
+                let pt = v.position();
+                GpuVertex::new([pt.x, pt.y], fc, [PRIM_FLAG_SHAPE, 0.0])
+            }),
+        );
+        if hollow {
+            let _ = st.tessellate_path(
+                &p,
+                &StrokeOptions::tolerance(tol).with_line_width(stroke_w),
+                &mut BuffersBuilder::new(buf, |v: StrokeVertex| {
+                    let pt = v.position();
+                    GpuVertex::new([pt.x, pt.y], color, [PRIM_FLAG_SHAPE, 0.0])
+                }),
+            );
+        }
+    };
+
+    let emit_perp_bar = |dist_back: f64,
+                         half_span: f64,
+                         st: &mut StrokeTessellator,
+                         buf: &mut VertexBuffers<GpuVertex, u32>| {
+        let c = [tip_pt[0] - ux * dist_back, tip_pt[1] - uy * dist_back];
+        let p0 = [c[0] + nx * half_span, c[1] + ny * half_span];
+        let p1 = [c[0] - nx * half_span, c[1] - ny * half_span];
+        stroke_poly(&[p0, p1], false, color, st, buf);
+    };
+
     match arrow_code {
-        1 => {
-            // Visio Code 1: Open V-chevron arrowhead.
+        0 => {}
+        1 | 3 | 19 => {
+            // Open V-chevron arrowheads (`1`=60°, `3`=90° wide, `19`=30° acute).
+            let hw = match arrow_code {
+                3 => arrow_len * 0.85,
+                19 => arrow_len * 0.34,
+                _ => arrow_half_w,
+            };
             let bx = tip_pt[0] - ux * arrow_len;
             let by = tip_pt[1] - uy * arrow_len;
-            let left = [bx + nx * arrow_half_w, by + ny * arrow_half_w];
-            let right = [bx - nx * arrow_half_w, by - ny * arrow_half_w];
+            let left = [bx + nx * hw, by + ny * hw];
+            let right = [bx - nx * hw, by - ny * hw];
             stroke_poly(&[left, tip_pt, right], false, color, stroke_tess, lyon_buf);
         }
-        2 | 14 => {
-            // Visio Code 2 / 14: Hollow triangle / hollow stealth (UML Generalization / Realization).
+        2 | 14 | 15 | 16 | 17 | 18 => {
+            // Hollow triangle / stealth / concave / acute / wide family (`2`, `14..=18`).
+            let hw = match arrow_code {
+                15 | 17 => arrow_len * 0.38,
+                18 => arrow_len * 0.78,
+                _ => arrow_half_w,
+            };
             let bx = tip_pt[0] - ux * arrow_len;
             let by = tip_pt[1] - uy * arrow_len;
-            let left = [bx + nx * arrow_half_w, by + ny * arrow_half_w];
-            let right = [bx - nx * arrow_half_w, by - ny * arrow_half_w];
-            if arrow_code == 14 {
+            let left = [bx + nx * hw, by + ny * hw];
+            let right = [bx - nx * hw, by - ny * hw];
+            if arrow_code == 14 || arrow_code == 16 {
+                let depth_mul = if arrow_code == 16 { 0.70 } else { 0.78 };
                 let notch = [
-                    tip_pt[0] - ux * (arrow_len * 0.78),
-                    tip_pt[1] - uy * (arrow_len * 0.78),
+                    tip_pt[0] - ux * (arrow_len * depth_mul),
+                    tip_pt[1] - uy * (arrow_len * depth_mul),
                 ];
                 let poly = [tip_pt, left, notch, right];
                 fill_poly(&poly, white, fill_tess, lyon_buf);
@@ -1909,80 +2035,111 @@ fn tessellate_arrowhead(
                 stroke_poly(&poly, true, color, stroke_tess, lyon_buf);
             }
         }
-        10 | 20 => {
-            // Filled circular dot marker at endpoint.
-            let r = arrow_len * 0.42;
-            let mut b = Path::builder();
-            emit_rotated_ellipse(&mut b, tip_pt, r, r, 0.0);
-            let p = b.build();
-            let _ = fill_tess.tessellate_path(
-                &p,
-                &FillOptions::tolerance(tol),
-                &mut BuffersBuilder::new(lyon_buf, |v: FillVertex| {
-                    let pt = v.position();
-                    GpuVertex::new([pt.x, pt.y], color, [PRIM_FLAG_SHAPE, 0.0])
-                }),
-            );
-        }
-        22 => {
-            // Hollow circular marker (UML / BPMN message start).
-            let r = arrow_len * 0.42;
-            let mut b = Path::builder();
-            emit_rotated_ellipse(&mut b, tip_pt, r, r, 0.0);
-            let p = b.build();
-            let _ = fill_tess.tessellate_path(
-                &p,
-                &FillOptions::tolerance(tol),
-                &mut BuffersBuilder::new(lyon_buf, |v: FillVertex| {
-                    let pt = v.position();
-                    GpuVertex::new([pt.x, pt.y], white, [PRIM_FLAG_SHAPE, 0.0])
-                }),
-            );
-            let _ = stroke_tess.tessellate_path(
-                &p,
-                &StrokeOptions::tolerance(tol).with_line_width(stroke_w),
-                &mut BuffersBuilder::new(lyon_buf, |v: StrokeVertex| {
-                    let pt = v.position();
-                    GpuVertex::new([pt.x, pt.y], color, [PRIM_FLAG_SHAPE, 0.0])
-                }),
-            );
-        }
-        5 | 11 | 12 => {
-            // Diamond arrowhead: `5`/`12` filled (UML Composition), `11` hollow (UML Aggregation).
+        4 | 5 | 6 | 7 | 12 | 13 => {
+            // Filled triangle / stealth / concave / convex / bold / acute dart (`4..=7`, `12`, `13`).
+            let hw = match arrow_code {
+                12 => arrow_len * 0.72,
+                13 => arrow_len * 0.35,
+                _ => arrow_half_w,
+            };
+            let bx = tip_pt[0] - ux * arrow_len;
+            let by = tip_pt[1] - uy * arrow_len;
+            let left = [bx + nx * hw, by + ny * hw];
+            let right = [bx - nx * hw, by - ny * hw];
+            let mid_depth = match arrow_code {
+                5 => 0.76,  // Stealth inward notch
+                6 => 0.68,  // Deep concave inward notch
+                7 => 1.18,  // Convex outward tail
+                _ => 1.00,  // Flat base triangle
+            };
             let mid = [
-                tip_pt[0] - ux * (arrow_len * 0.6),
-                tip_pt[1] - uy * (arrow_len * 0.6),
+                tip_pt[0] - ux * (arrow_len * mid_depth),
+                tip_pt[1] - uy * (arrow_len * mid_depth),
             ];
-            let tail = [
-                tip_pt[0] - ux * (arrow_len * 1.2),
-                tip_pt[1] - uy * (arrow_len * 1.2),
-            ];
+            fill_poly(&[tip_pt, left, mid, right], color, fill_tess, lyon_buf);
+        }
+        8 => {
+            // Swallowtail / quill open arrowhead.
+            let bx = tip_pt[0] - ux * arrow_len;
+            let by = tip_pt[1] - uy * arrow_len;
+            let notch = [tip_pt[0] - ux * (arrow_len * 0.62), tip_pt[1] - uy * (arrow_len * 0.62)];
+            let left = [bx + nx * arrow_half_w, by + ny * arrow_half_w];
+            let right = [bx - nx * arrow_half_w, by - ny * arrow_half_w];
+            stroke_poly(&[left, tip_pt, right, notch, left], false, color, stroke_tess, lyon_buf);
+        }
+        9 => {
+            // Architectural 45° oblique slash tick.
+            let d = arrow_half_w * 1.05;
+            let p0 = [tip_pt[0] - (ux - nx) * d, tip_pt[1] - (uy - ny) * d];
+            let p1 = [tip_pt[0] + (ux - nx) * d, tip_pt[1] + (uy - ny) * d];
+            stroke_poly(&[p0, p1], false, color, stroke_tess, lyon_buf);
+        }
+        10 | 20 => {
+            // Filled circular dot marker.
+            let c = if arrow_code == 10 {
+                [tip_pt[0] - ux * (arrow_len * 0.35), tip_pt[1] - uy * (arrow_len * 0.35)]
+            } else {
+                tip_pt
+            };
+            emit_circle(c, arrow_len * 0.40, false, fill_tess, stroke_tess, lyon_buf);
+        }
+        11 | 22 => {
+            // Diamond (`11` = Filled Composition, `22` = Hollow Aggregation).
+            let mid = [tip_pt[0] - ux * (arrow_len * 0.62), tip_pt[1] - uy * (arrow_len * 0.62)];
+            let tail = [tip_pt[0] - ux * (arrow_len * 1.24), tip_pt[1] - uy * (arrow_len * 1.24)];
             let left = [mid[0] + nx * arrow_half_w, mid[1] + ny * arrow_half_w];
             let right = [mid[0] - nx * arrow_half_w, mid[1] - ny * arrow_half_w];
             let poly = [tip_pt, left, tail, right];
-            if arrow_code == 11 {
+            if arrow_code == 22 {
                 fill_poly(&poly, white, fill_tess, lyon_buf);
                 stroke_poly(&poly, true, color, stroke_tess, lyon_buf);
             } else {
                 fill_poly(&poly, color, fill_tess, lyon_buf);
             }
         }
-        15 | 16 => {
-            // Double filled triangle arrowhead.
-            for k in [0.0, 0.72] {
-                let t = [tip_pt[0] - ux * (arrow_len * k), tip_pt[1] - uy * (arrow_len * k)];
-                let b_pt = [t[0] - ux * (arrow_len * 0.78), t[1] - uy * (arrow_len * 0.78)];
-                let left = [b_pt[0] + nx * (arrow_half_w * 0.85), b_pt[1] + ny * (arrow_half_w * 0.85)];
-                let right = [b_pt[0] - nx * (arrow_half_w * 0.85), b_pt[1] - ny * (arrow_half_w * 0.85)];
-                fill_poly(&[t, left, right], color, fill_tess, lyon_buf);
+        21 | 38 => {
+            // Square marker (`21` = Filled, `38` = Hollow).
+            let r = arrow_len * 0.42;
+            let c = [tip_pt[0] - ux * r, tip_pt[1] - uy * r];
+            let poly = [
+                [c[0] + ux * r + nx * r, c[1] + uy * r + ny * r],
+                [c[0] - ux * r + nx * r, c[1] - uy * r + ny * r],
+                [c[0] - ux * r - nx * r, c[1] - uy * r - ny * r],
+                [c[0] + ux * r - nx * r, c[1] + uy * r - ny * r],
+            ];
+            if arrow_code == 38 {
+                fill_poly(&poly, white, fill_tess, lyon_buf);
+                stroke_poly(&poly, true, color, stroke_tess, lyon_buf);
+            } else {
+                fill_poly(&poly, color, fill_tess, lyon_buf);
             }
         }
+        23 => {
+            // Perpendicular stop bar (`|`).
+            emit_perp_bar(0.0, arrow_half_w * 1.05, stroke_tess, lyon_buf);
+        }
         24 => {
-            // Architectural dimension tick (45° oblique slash across endpoint).
-            let d = arrow_half_w * 1.05;
-            let p0 = [tip_pt[0] - (ux - nx) * d, tip_pt[1] - (uy - ny) * d];
-            let p1 = [tip_pt[0] + (ux - nx) * d, tip_pt[1] + (uy - ny) * d];
-            stroke_poly(&[p0, p1], false, color, stroke_tess, lyon_buf);
+            // Open dimension arrow + perpendicular stop bar (`>|`).
+            emit_perp_bar(0.0, arrow_half_w * 1.05, stroke_tess, lyon_buf);
+            let bx = tip_pt[0] - ux * arrow_len;
+            let by = tip_pt[1] - uy * arrow_len;
+            let left = [bx + nx * arrow_half_w, by + ny * arrow_half_w];
+            let right = [bx - nx * arrow_half_w, by - ny * arrow_half_w];
+            stroke_poly(&[left, tip_pt, right], false, color, stroke_tess, lyon_buf);
+        }
+        25 => {
+            // ERD One-and-Only-One double perpendicular bar (`||`).
+            emit_perp_bar(arrow_len * 0.30, arrow_half_w * 0.90, stroke_tess, lyon_buf);
+            emit_perp_bar(arrow_len * 0.72, arrow_half_w * 0.90, stroke_tess, lyon_buf);
+        }
+        26 => {
+            // Three-pronged trident fork.
+            let neck = [tip_pt[0] - ux * arrow_len, tip_pt[1] - uy * arrow_len];
+            let top_l = [tip_pt[0] + nx * arrow_half_w, tip_pt[1] + ny * arrow_half_w];
+            let top_r = [tip_pt[0] - nx * arrow_half_w, tip_pt[1] - ny * arrow_half_w];
+            let mid_l = [neck[0] + nx * arrow_half_w, neck[1] + ny * arrow_half_w];
+            let mid_r = [neck[0] - nx * arrow_half_w, neck[1] - ny * arrow_half_w];
+            stroke_poly(&[top_l, mid_l, mid_r, top_r], false, color, stroke_tess, lyon_buf);
         }
         27 | 28 | 29 => {
             // Crow's Foot ERD arrowheads (`27`=Many, `28`=One-and-Many, `29`=Zero-or-Many).
@@ -1991,52 +2148,142 @@ fn tessellate_arrowhead(
             let splay_r = [tip_pt[0] - nx * arrow_half_w, tip_pt[1] - ny * arrow_half_w];
             stroke_poly(&[splay_l, neck, splay_r], false, color, stroke_tess, lyon_buf);
             if arrow_code == 28 {
-                let bar_c = [
-                    tip_pt[0] - ux * (arrow_len * 1.15),
-                    tip_pt[1] - uy * (arrow_len * 1.15),
-                ];
-                let bl = [bar_c[0] + nx * (arrow_half_w * 0.75), bar_c[1] + ny * (arrow_half_w * 0.75)];
-                let br = [bar_c[0] - nx * (arrow_half_w * 0.75), bar_c[1] - ny * (arrow_half_w * 0.75)];
-                stroke_poly(&[bl, br], false, color, stroke_tess, lyon_buf);
+                emit_perp_bar(arrow_len * 1.15, arrow_half_w * 0.80, stroke_tess, lyon_buf);
             } else if arrow_code == 29 {
-                let r = arrow_len * 0.28;
                 let ring_c = [
-                    tip_pt[0] - ux * (arrow_len * 1.32),
-                    tip_pt[1] - uy * (arrow_len * 1.32),
+                    tip_pt[0] - ux * (arrow_len * 1.34),
+                    tip_pt[1] - uy * (arrow_len * 1.34),
                 ];
-                let mut b = Path::builder();
-                emit_rotated_ellipse(&mut b, ring_c, r, r, 0.0);
-                let p = b.build();
-                let _ = fill_tess.tessellate_path(
-                    &p,
-                    &FillOptions::tolerance(tol),
-                    &mut BuffersBuilder::new(lyon_buf, |v: FillVertex| {
-                        let pt = v.position();
-                        GpuVertex::new([pt.x, pt.y], white, [PRIM_FLAG_SHAPE, 0.0])
-                    }),
-                );
-                let _ = stroke_tess.tessellate_path(
-                    &p,
-                    &StrokeOptions::tolerance(tol).with_line_width(stroke_w),
-                    &mut BuffersBuilder::new(lyon_buf, |v: StrokeVertex| {
-                        let pt = v.position();
-                        GpuVertex::new([pt.x, pt.y], color, [PRIM_FLAG_SHAPE, 0.0])
-                    }),
-                );
+                emit_circle(ring_c, arrow_len * 0.28, true, fill_tess, stroke_tess, lyon_buf);
+            }
+        }
+        30 => {
+            // ERD Zero-or-One (`o|`).
+            emit_perp_bar(arrow_len * 0.35, arrow_half_w * 0.88, stroke_tess, lyon_buf);
+            let ring_c = [tip_pt[0] - ux * (arrow_len * 0.95), tip_pt[1] - uy * (arrow_len * 0.95)];
+            emit_circle(ring_c, arrow_len * 0.30, true, fill_tess, stroke_tess, lyon_buf);
+        }
+        31 => {
+            // Hollow circular marker (BPMN Message Start).
+            let c = [tip_pt[0] - ux * (arrow_len * 0.40), tip_pt[1] - uy * (arrow_len * 0.40)];
+            emit_circle(c, arrow_len * 0.40, true, fill_tess, stroke_tess, lyon_buf);
+        }
+        32 => {
+            // Hollow circle + outer tangent bar.
+            emit_perp_bar(0.0, arrow_half_w * 0.95, stroke_tess, lyon_buf);
+            let c = [tip_pt[0] - ux * (arrow_len * 0.44), tip_pt[1] - uy * (arrow_len * 0.44)];
+            emit_circle(c, arrow_len * 0.38, true, fill_tess, stroke_tess, lyon_buf);
+        }
+        33 | 34 => {
+            // Half harpoon (`33` = upper barb, `34` = lower barb).
+            let bx = tip_pt[0] - ux * arrow_len;
+            let by = tip_pt[1] - uy * arrow_len;
+            let sign = if arrow_code == 33 { 1.0 } else { -1.0 };
+            let barb = [bx + nx * arrow_half_w * sign, by + ny * arrow_half_w * sign];
+            fill_poly(&[tip_pt, barb, [bx, by]], color, fill_tess, lyon_buf);
+        }
+        35 => {
+            // Double open chevron (`>>`).
+            for k in [0.0, 0.58] {
+                let t = [tip_pt[0] - ux * (arrow_len * k), tip_pt[1] - uy * (arrow_len * k)];
+                let b_pt = [t[0] - ux * (arrow_len * 0.75), t[1] - uy * (arrow_len * 0.75)];
+                let left = [b_pt[0] + nx * (arrow_half_w * 0.85), b_pt[1] + ny * (arrow_half_w * 0.85)];
+                let right = [b_pt[0] - nx * (arrow_half_w * 0.85), b_pt[1] - ny * (arrow_half_w * 0.85)];
+                stroke_poly(&[left, t, right], false, color, stroke_tess, lyon_buf);
+            }
+        }
+        36 | 37 => {
+            // Double triangle (`36` = filled, `37` = hollow).
+            for k in [0.0, 0.72] {
+                let t = [tip_pt[0] - ux * (arrow_len * k), tip_pt[1] - uy * (arrow_len * k)];
+                let b_pt = [t[0] - ux * (arrow_len * 0.74), t[1] - uy * (arrow_len * 0.74)];
+                let left = [b_pt[0] + nx * (arrow_half_w * 0.85), b_pt[1] + ny * (arrow_half_w * 0.85)];
+                let right = [b_pt[0] - nx * (arrow_half_w * 0.85), b_pt[1] - ny * (arrow_half_w * 0.85)];
+                let poly = [t, left, right];
+                if arrow_code == 37 {
+                    fill_poly(&poly, white, fill_tess, lyon_buf);
+                    stroke_poly(&poly, true, color, stroke_tess, lyon_buf);
+                } else {
+                    fill_poly(&poly, color, fill_tess, lyon_buf);
+                }
+            }
+        }
+        39 | 40 => {
+            // Triangle + perpendicular stop bar (`39` = filled, `40` = hollow).
+            emit_perp_bar(0.0, arrow_half_w * 1.05, stroke_tess, lyon_buf);
+            let bx = tip_pt[0] - ux * arrow_len;
+            let by = tip_pt[1] - uy * arrow_len;
+            let poly = [
+                tip_pt,
+                [bx + nx * arrow_half_w, by + ny * arrow_half_w],
+                [bx - nx * arrow_half_w, by - ny * arrow_half_w],
+            ];
+            if arrow_code == 40 {
+                fill_poly(&poly, white, fill_tess, lyon_buf);
+                stroke_poly(&poly, true, color, stroke_tess, lyon_buf);
+            } else {
+                fill_poly(&poly, color, fill_tess, lyon_buf);
+            }
+        }
+        41 => {
+            // Hollow circle with internal cross (`⊕`).
+            let r = arrow_len * 0.44;
+            let c = [tip_pt[0] - ux * r, tip_pt[1] - uy * r];
+            emit_circle(c, r, true, fill_tess, stroke_tess, lyon_buf);
+            let d = r * 0.68;
+            stroke_poly(
+                &[[c[0] - (ux + nx) * d, c[1] - (uy + ny) * d], [c[0] + (ux + nx) * d, c[1] + (uy + ny) * d]],
+                false,
+                color,
+                stroke_tess,
+                lyon_buf,
+            );
+            stroke_poly(
+                &[[c[0] - (ux - nx) * d, c[1] - (uy - ny) * d], [c[0] + (ux - nx) * d, c[1] + (uy - ny) * d]],
+                false,
+                color,
+                stroke_tess,
+                lyon_buf,
+            );
+        }
+        42 => {
+            // Hollow diamond with internal cross.
+            let mid = [tip_pt[0] - ux * (arrow_len * 0.62), tip_pt[1] - uy * (arrow_len * 0.62)];
+            let tail = [tip_pt[0] - ux * (arrow_len * 1.24), tip_pt[1] - uy * (arrow_len * 1.24)];
+            let left = [mid[0] + nx * arrow_half_w, mid[1] + ny * arrow_half_w];
+            let right = [mid[0] - nx * arrow_half_w, mid[1] - ny * arrow_half_w];
+            let poly = [tip_pt, left, tail, right];
+            fill_poly(&poly, white, fill_tess, lyon_buf);
+            stroke_poly(&poly, true, color, stroke_tess, lyon_buf);
+            stroke_poly(&[left, right], false, color, stroke_tess, lyon_buf);
+            stroke_poly(&[tip_pt, tail], false, color, stroke_tess, lyon_buf);
+        }
+        43 | 44 => {
+            // Reverse inward triangle / chevron (`43` = filled, `44` = open).
+            let apex = [tip_pt[0] - ux * arrow_len, tip_pt[1] - uy * arrow_len];
+            let left = [tip_pt[0] + nx * arrow_half_w, tip_pt[1] + ny * arrow_half_w];
+            let right = [tip_pt[0] - nx * arrow_half_w, tip_pt[1] - ny * arrow_half_w];
+            if arrow_code == 44 {
+                stroke_poly(&[left, apex, right], false, color, stroke_tess, lyon_buf);
+            } else {
+                fill_poly(&[apex, left, right], color, fill_tess, lyon_buf);
+            }
+        }
+        45 => {
+            // Fletched triple feather tail.
+            for k in [0.18, 0.52, 0.86] {
+                let c = [tip_pt[0] - ux * (arrow_len * k), tip_pt[1] - uy * (arrow_len * k)];
+                let back = [c[0] - ux * (arrow_len * 0.36), c[1] - uy * (arrow_len * 0.36)];
+                let fl = [back[0] + nx * (arrow_half_w * 0.78), back[1] + ny * (arrow_half_w * 0.78)];
+                let fr = [back[0] - nx * (arrow_half_w * 0.78), back[1] - ny * (arrow_half_w * 0.78)];
+                stroke_poly(&[fl, c, fr], false, color, stroke_tess, lyon_buf);
             }
         }
         _ => {
-            // Classic filled Visio stealth/triangle arrowhead (Codes 3, 4, 13, etc.).
+            // Fallback filled stealth arrowhead for out-of-range custom codes.
             let bx = tip_pt[0] - ux * arrow_len;
             let by = tip_pt[1] - uy * arrow_len;
-            let notch = if arrow_code == 4 || arrow_code == 13 {
-                [
-                    tip_pt[0] - ux * (arrow_len * 0.78),
-                    tip_pt[1] - uy * (arrow_len * 0.78),
-                ]
-            } else {
-                [bx, by]
-            };
+            let notch = [tip_pt[0] - ux * (arrow_len * 0.78), tip_pt[1] - uy * (arrow_len * 0.78)];
             let left = [bx + nx * arrow_half_w, by + ny * arrow_half_w];
             let right = [bx - nx * arrow_half_w, by - ny * arrow_half_w];
             fill_poly(&[tip_pt, left, notch, right], color, fill_tess, lyon_buf);
@@ -2830,6 +3077,26 @@ pub struct SmartGuideLine {
     pub is_equal_spacing: bool,
 }
 
+/// Draggable horizontal or vertical Visio ruler guide (`ShapeKind::Guide`).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct RulerGuideOverlay {
+    pub shape_id: u64,
+    pub is_vertical: bool,
+    pub coord_in: f64,
+    pub span_min_in: f64,
+    pub span_max_in: f64,
+    pub selected: bool,
+}
+
+/// Interactive `Shift+Ctrl+4` Text Block manipulation frame (`TxtPinX/Y`, `TxtWidth/Height`, `TxtAngle`).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct EditableTextBlockOverlay {
+    /// Four corners `[BL, BR, TR, TL]` in page inches.
+    pub corners_page_in: [[f64; 2]; 4],
+    pub top_mid_page_in: [f64; 2],
+    pub rot_knob_page_in: [f64; 2],
+}
+
 /// Transient interactive canvas overlays rendered above shapes in `PRIM_FLAG_OVERLAY_UI`.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct InteractiveCanvasOverlay {
@@ -2861,6 +3128,12 @@ pub struct InteractiveCanvasOverlay {
     /// Editable connection point ports `(x_in, y_in)` in `ConnectionPoint` (`Shift+Ctrl+1`) mode.
     #[serde(default)]
     pub editable_connection_points: Vec<[f64; 2]>,
+    /// Persistent/draggable Ruler Guides (`ShapeKind::Guide`).
+    #[serde(default)]
+    pub ruler_guides: Vec<RulerGuideOverlay>,
+    /// Independent Text Block manipulation frame (`Shift+Ctrl+4` TextBlock tool).
+    #[serde(default)]
+    pub editable_text_block: Option<EditableTextBlockOverlay>,
 }
 
 /// Tessellate transient interactive overlays (rubber-band marquee, smart alignment & equal-spacing
@@ -3106,6 +3379,99 @@ pub fn tessellate_interactive_overlay(
         }
     }
 
+    // 8. Draggable Horizontal & Vertical Ruler Guides (`ShapeKind::Guide`)
+    for rg in &overlay.ruler_guides {
+        let g_col = if rg.selected {
+            [0.976, 0.451, 0.086, 0.96] // #F97316 orange-amber when selected/dragging
+        } else {
+            [0.008, 0.518, 0.780, 0.90] // #0284C7 Visio cyan-blue ruler guide
+        };
+        let half_gw = ((if rg.selected { 1.35 } else { 0.85 }) * inv_ppi) as f32;
+        let s0 = rg.span_min_in.min(rg.span_max_in) as f32;
+        let s1 = rg.span_min_in.max(rg.span_max_in) as f32;
+        let c = rg.coord_in as f32;
+        if rg.is_vertical {
+            mesh.push_quad(
+                [c - half_gw, s0],
+                [c + half_gw, s1],
+                g_col,
+                [PRIM_FLAG_OVERLAY_UI, 0.0],
+            );
+        } else {
+            mesh.push_quad(
+                [s0, c - half_gw],
+                [s1, c + half_gw],
+                g_col,
+                [PRIM_FLAG_OVERLAY_UI, 0.0],
+            );
+        }
+    }
+
+    // 9. Independent `Shift+Ctrl+4` Text Block Frame (`TxtPinX/Y`, `TxtWidth/Height`, `TxtAngle`)
+    if let Some(tb) = &overlay.editable_text_block {
+        let emerald = [0.020, 0.588, 0.412, 0.98]; // #059669 crisp Visio Text Block emerald
+        let white = [1.0, 1.0, 1.0, 1.0];
+        let mut fb = Path::builder();
+        fb.begin(point(tb.corners_page_in[0][0] as f32, tb.corners_page_in[0][1] as f32));
+        for pt in &tb.corners_page_in[1..] {
+            fb.line_to(point(pt[0] as f32, pt[1] as f32));
+        }
+        fb.end(true);
+        fb.begin(point(tb.top_mid_page_in[0] as f32, tb.top_mid_page_in[1] as f32));
+        fb.line_to(point(tb.rot_knob_page_in[0] as f32, tb.rot_knob_page_in[1] as f32));
+        fb.end(false);
+        let sw = (1.55 * inv_ppi) as f32;
+        let dashed = dash_lyon_path(&fb.build(), 2, sw, tol);
+        let _ = stroke_tess.tessellate_path(
+            &dashed,
+            &StrokeOptions::tolerance(tol).with_line_width(sw),
+            &mut BuffersBuilder::new(&mut lyon_buf, |v: StrokeVertex| {
+                let pos = v.position();
+                GpuVertex::new([pos.x, pos.y], emerald, [PRIM_FLAG_OVERLAY_UI, 0.0])
+            }),
+        );
+        // 4 corner resize handles
+        let r_out = (4.6 * inv_ppi) as f32;
+        let r_in = (2.9 * inv_ppi) as f32;
+        for c in &tb.corners_page_in {
+            let cx = c[0] as f32;
+            let cy = c[1] as f32;
+            mesh.push_quad(
+                [cx - r_out, cy - r_out],
+                [cx + r_out, cy + r_out],
+                emerald,
+                [PRIM_FLAG_OVERLAY_UI, 0.0],
+            );
+            mesh.push_quad(
+                [cx - r_in, cy - r_in],
+                [cx + r_in, cy + r_in],
+                white,
+                [PRIM_FLAG_OVERLAY_UI, 0.0],
+            );
+        }
+        // Top rotation knob circle
+        let kr = 5.2 * inv_ppi;
+        let mut kb = Path::builder();
+        emit_rotated_ellipse(&mut kb, tb.rot_knob_page_in, kr, kr, 0.0);
+        let kp = kb.build();
+        let _ = fill_tess.tessellate_path(
+            &kp,
+            &FillOptions::tolerance(tol),
+            &mut BuffersBuilder::new(&mut lyon_buf, |v: FillVertex| {
+                let pos = v.position();
+                GpuVertex::new([pos.x, pos.y], white, [PRIM_FLAG_OVERLAY_UI, 0.0])
+            }),
+        );
+        let _ = stroke_tess.tessellate_path(
+            &kp,
+            &StrokeOptions::tolerance(tol).with_line_width((1.8 * inv_ppi) as f32),
+            &mut BuffersBuilder::new(&mut lyon_buf, |v: StrokeVertex| {
+                let pos = v.position();
+                GpuVertex::new([pos.x, pos.y], emerald, [PRIM_FLAG_OVERLAY_UI, 0.0])
+            }),
+        );
+    }
+
     mesh.append(&TessellatedMesh {
         vertices: lyon_buf.vertices,
         indices: lyon_buf.indices,
@@ -3249,6 +3615,7 @@ pub fn compute_visual_content_hash(v: &EvaluatedShapeVisual) -> u64 {
     hash_f64(&mut h, v.txt_pos[1]);
     hash_f64(&mut h, v.txt_width.unwrap_or(-1.0));
     hash_f64(&mut h, v.txt_height.unwrap_or(-1.0));
+    hash_f64(&mut h, v.txt_angle_rad);
     hash_rgba(&mut h, Some(v.text_color));
     hash_rgba(&mut h, v.text_bg_color);
     hash_u64(
@@ -3267,6 +3634,30 @@ pub fn compute_visual_content_hash(v: &EvaluatedShapeVisual) -> u64 {
     for b in v.text.as_bytes() {
         h ^= *b as u64;
         h = h.wrapping_mul(0x0100_0000_01b3);
+    }
+    hash_u64(&mut h, v.evaluated_text_runs.len() as u64);
+    for er in &v.evaluated_text_runs {
+        hash_f64(&mut h, er.font_size_pt);
+        hash_rgba(&mut h, Some(er.color));
+        hash_u64(
+            &mut h,
+            (er.bold as u64)
+                | ((er.italic as u64) << 1)
+                | ((er.underline as u64) << 2)
+                | ((er.strikethrough as u64) << 3)
+                | ((er.superscript as u64) << 4)
+                | ((er.subscript as u64) << 5)
+                | ((er.horiz_align as u64) << 8)
+                | ((er.bullet_style as u64) << 16),
+        );
+        for b in er.font_family.as_bytes() {
+            h ^= *b as u64;
+            h = h.wrapping_mul(0x0100_0000_01b3);
+        }
+        for b in er.text.as_bytes() {
+            h ^= *b as u64;
+            h = h.wrapping_mul(0x0100_0000_01b3);
+        }
     }
     if let Some(fm) = &v.foreign_media {
         for b in fm.media_type.as_bytes() {

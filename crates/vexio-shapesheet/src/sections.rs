@@ -345,6 +345,81 @@ pub struct TextFieldRow {
     pub format: String,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct CharacterRow {
+    pub ix: u32,
+    #[serde(default)]
+    pub font: String,
+    #[serde(default)]
+    pub size: String,
+    #[serde(default)]
+    pub color: String,
+    /// Visio `Char.Style` bitmask (`1=Bold, 2=Italic, 4=Underline, 8=SmallCaps`).
+    #[serde(default)]
+    pub style: String,
+    #[serde(default)]
+    pub strikethru: String,
+    /// `0=Normal, 1=Superscript, 2=Subscript`.
+    #[serde(default)]
+    pub pos: String,
+    /// `0=Normal, 1=AllCaps, 2=InitialCaps`.
+    #[serde(default)]
+    pub case_mode: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct ParagraphRow {
+    pub ix: u32,
+    /// `0=Left, 1=Center, 2=Right, 3=Justify`.
+    #[serde(default)]
+    pub horz_align: String,
+    /// `0=None, 1=Bullet, 2=Numbered`.
+    #[serde(default)]
+    pub bullet: String,
+    #[serde(default)]
+    pub indent_first: String,
+    #[serde(default)]
+    pub indent_left: String,
+    #[serde(default)]
+    pub sp_line: String,
+    #[serde(default)]
+    pub sp_before: String,
+    #[serde(default)]
+    pub sp_after: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum VisioTextRun {
+    Text {
+        text: String,
+        #[serde(default)]
+        cp_ix: u32,
+        #[serde(default)]
+        pp_ix: u32,
+    },
+    Field {
+        field_ix: u32,
+        #[serde(default)]
+        cp_ix: u32,
+        #[serde(default)]
+        pp_ix: u32,
+        #[serde(default)]
+        cached: String,
+    },
+}
+
+pub fn runs_plain_text(runs: &[VisioTextRun]) -> String {
+    let mut out = String::new();
+    for r in runs {
+        match r {
+            VisioTextRun::Text { text, .. } => out.push_str(text),
+            VisioTextRun::Field { cached, .. } => out.push_str(cached),
+        }
+    }
+    out
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GradientStopRow {
     pub ix: u32,
@@ -378,6 +453,12 @@ pub struct ShapeSheet {
     pub hyperlinks: Vec<HyperlinkRow>,
     #[serde(default)]
     pub fill_gradient_stops: Vec<GradientStopRow>,
+    #[serde(default)]
+    pub character_rows: Vec<CharacterRow>,
+    #[serde(default)]
+    pub paragraph_rows: Vec<ParagraphRow>,
+    #[serde(default)]
+    pub text_runs: Vec<VisioTextRun>,
 }
 
 impl ShapeSheet {
@@ -586,6 +667,52 @@ impl ShapeSheet {
                     }
                 }
             }
+        } else if let Some(field_rest) = key.strip_prefix("fields.row_") {
+            if let Some((ix_str, sub)) = field_rest.split_once('.') {
+                if let Ok(ix) = ix_str.parse::<u32>() {
+                    if let Some(tf) = self.text_fields.iter_mut().find(|f| f.ix == ix) {
+                        match sub {
+                            "value" => tf.value = formula_str.to_string(),
+                            "format" => tf.format = formula_str.trim_matches('"').to_string(),
+                            _ => {}
+                        }
+                    }
+                }
+            }
+        } else if let Some(char_rest) = key.strip_prefix("char.row_") {
+            if let Some((ix_str, sub)) = char_rest.split_once('.') {
+                if let Ok(ix) = ix_str.parse::<u32>() {
+                    if let Some(cr) = self.character_rows.iter_mut().find(|r| r.ix == ix) {
+                        match sub {
+                            "font" => cr.font = formula_str.trim_matches('"').to_string(),
+                            "size" => cr.size = formula_str.to_string(),
+                            "color" => cr.color = formula_str.to_string(),
+                            "style" => cr.style = formula_str.to_string(),
+                            "strikethru" => cr.strikethru = formula_str.to_string(),
+                            "pos" => cr.pos = formula_str.to_string(),
+                            "case" => cr.case_mode = formula_str.to_string(),
+                            _ => {}
+                        }
+                    }
+                }
+            }
+        } else if let Some(para_rest) = key.strip_prefix("para.row_") {
+            if let Some((ix_str, sub)) = para_rest.split_once('.') {
+                if let Ok(ix) = ix_str.parse::<u32>() {
+                    if let Some(pr) = self.paragraph_rows.iter_mut().find(|r| r.ix == ix) {
+                        match sub {
+                            "horzalign" => pr.horz_align = formula_str.to_string(),
+                            "bullet" => pr.bullet = formula_str.to_string(),
+                            "indfirst" => pr.indent_first = formula_str.to_string(),
+                            "indleft" => pr.indent_left = formula_str.to_string(),
+                            "spline" => pr.sp_line = formula_str.to_string(),
+                            "spbefore" => pr.sp_before = formula_str.to_string(),
+                            "spafter" => pr.sp_after = formula_str.to_string(),
+                            _ => {}
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -696,6 +823,179 @@ impl ShapeSheet {
         let gstops = self.fill_gradient_stops.clone();
         for gs in &gstops {
             self.sync_gradient_stop_to_cells(gs);
+        }
+        let tfields = self.text_fields.clone();
+        for tf in &tfields {
+            self.sync_text_field_to_cells(tf);
+        }
+        let crows = self.character_rows.clone();
+        for cr in &crows {
+            self.sync_character_row_to_cells(cr);
+        }
+        let prows = self.paragraph_rows.clone();
+        for pr in &prows {
+            self.sync_paragraph_row_to_cells(pr);
+        }
+    }
+
+    pub fn upsert_text_field(&mut self, row: TextFieldRow) {
+        self.sync_text_field_to_cells(&row);
+        if let Some(ex) = self.text_fields.iter_mut().find(|f| f.ix == row.ix) {
+            *ex = row;
+        } else {
+            self.text_fields.push(row);
+            self.text_fields.sort_by_key(|f| f.ix);
+        }
+    }
+
+    fn sync_text_field_to_cells(&mut self, row: &TextFieldRow) {
+        let ix = row.ix;
+        if !row.value.trim().is_empty() && !row.value.eq_ignore_ascii_case("Inh") {
+            self.set_formula(format!("Fields.Row_{ix}.Value"), row.value.clone(), None);
+        }
+        if !row.format.trim().is_empty() && !row.format.eq_ignore_ascii_case("Inh") {
+            let fmt_f = if row.format.trim().starts_with('=') {
+                row.format.clone()
+            } else {
+                format!("\"{}\"", row.format.trim_matches('"').replace('"', "\"\""))
+            };
+            self.set_formula(
+                format!("Fields.Row_{ix}.Format"),
+                fmt_f,
+                Some(Unit::String),
+            );
+        }
+    }
+
+    pub fn upsert_character_row(&mut self, row: CharacterRow) {
+        self.sync_character_row_to_cells(&row);
+        if let Some(ex) = self.character_rows.iter_mut().find(|r| r.ix == row.ix) {
+            *ex = row;
+        } else {
+            self.character_rows.push(row);
+            self.character_rows.sort_by_key(|r| r.ix);
+        }
+    }
+
+    fn sync_character_row_to_cells(&mut self, row: &CharacterRow) {
+        let ix = row.ix;
+        if !row.font.trim().is_empty() && !row.font.eq_ignore_ascii_case("Inh") {
+            let quoted = if row.font.trim().starts_with('=') || row.font.trim().starts_with('"') {
+                row.font.clone()
+            } else {
+                format!("\"{}\"", row.font.trim_matches('"').replace('"', "\"\""))
+            };
+            self.set_formula(format!("Char.Row_{ix}.Font"), quoted.clone(), Some(Unit::String));
+            if ix == 0 && !self.cells.contains_key("char.font") {
+                self.set_formula("Char.Font", quoted, Some(Unit::String));
+            }
+        }
+        if !row.size.trim().is_empty() && !row.size.eq_ignore_ascii_case("Inh") {
+            self.set_formula(format!("Char.Row_{ix}.Size"), row.size.clone(), Some(Unit::Point));
+            if ix == 0 {
+                self.set_formula("Char.Size", row.size.clone(), Some(Unit::Point));
+            }
+        }
+        if !row.color.trim().is_empty() && !row.color.eq_ignore_ascii_case("Inh") {
+            self.set_formula(format!("Char.Row_{ix}.Color"), row.color.clone(), Some(Unit::Color));
+            if ix == 0 {
+                self.set_formula("Char.Color", row.color.clone(), Some(Unit::Color));
+            }
+        }
+        if !row.style.trim().is_empty() && !row.style.eq_ignore_ascii_case("Inh") {
+            self.set_formula(format!("Char.Row_{ix}.Style"), row.style.clone(), Some(Unit::Number));
+            if ix == 0 {
+                self.set_formula("Char.Style", row.style.clone(), Some(Unit::Number));
+            }
+        }
+        if !row.strikethru.trim().is_empty() && !row.strikethru.eq_ignore_ascii_case("Inh") {
+            self.set_formula(
+                format!("Char.Row_{ix}.Strikethru"),
+                row.strikethru.clone(),
+                Some(Unit::Boolean),
+            );
+            if ix == 0 {
+                self.set_formula("Char.Strikethru", row.strikethru.clone(), Some(Unit::Boolean));
+            }
+        }
+        if !row.pos.trim().is_empty() && !row.pos.eq_ignore_ascii_case("Inh") {
+            self.set_formula(format!("Char.Row_{ix}.Pos"), row.pos.clone(), Some(Unit::Number));
+        }
+        if !row.case_mode.trim().is_empty() && !row.case_mode.eq_ignore_ascii_case("Inh") {
+            self.set_formula(
+                format!("Char.Row_{ix}.Case"),
+                row.case_mode.clone(),
+                Some(Unit::Number),
+            );
+        }
+    }
+
+    pub fn upsert_paragraph_row(&mut self, row: ParagraphRow) {
+        self.sync_paragraph_row_to_cells(&row);
+        if let Some(ex) = self.paragraph_rows.iter_mut().find(|r| r.ix == row.ix) {
+            *ex = row;
+        } else {
+            self.paragraph_rows.push(row);
+            self.paragraph_rows.sort_by_key(|r| r.ix);
+        }
+    }
+
+    fn sync_paragraph_row_to_cells(&mut self, row: &ParagraphRow) {
+        let ix = row.ix;
+        if !row.horz_align.trim().is_empty() && !row.horz_align.eq_ignore_ascii_case("Inh") {
+            self.set_formula(
+                format!("Para.Row_{ix}.HorzAlign"),
+                row.horz_align.clone(),
+                Some(Unit::Number),
+            );
+            if ix == 0 {
+                self.set_formula("Para.HorzAlign", row.horz_align.clone(), Some(Unit::Number));
+            }
+        }
+        if !row.bullet.trim().is_empty() && !row.bullet.eq_ignore_ascii_case("Inh") {
+            self.set_formula(
+                format!("Para.Row_{ix}.Bullet"),
+                row.bullet.clone(),
+                Some(Unit::Number),
+            );
+            if ix == 0 {
+                self.set_formula("Para.Bullet", row.bullet.clone(), Some(Unit::Number));
+            }
+        }
+        if !row.indent_first.trim().is_empty() && !row.indent_first.eq_ignore_ascii_case("Inh") {
+            self.set_formula(
+                format!("Para.Row_{ix}.IndFirst"),
+                row.indent_first.clone(),
+                Some(Unit::Inch),
+            );
+        }
+        if !row.indent_left.trim().is_empty() && !row.indent_left.eq_ignore_ascii_case("Inh") {
+            self.set_formula(
+                format!("Para.Row_{ix}.IndLeft"),
+                row.indent_left.clone(),
+                Some(Unit::Inch),
+            );
+        }
+        if !row.sp_line.trim().is_empty() && !row.sp_line.eq_ignore_ascii_case("Inh") {
+            self.set_formula(
+                format!("Para.Row_{ix}.SpLine"),
+                row.sp_line.clone(),
+                Some(Unit::Percent),
+            );
+        }
+        if !row.sp_before.trim().is_empty() && !row.sp_before.eq_ignore_ascii_case("Inh") {
+            self.set_formula(
+                format!("Para.Row_{ix}.SpBefore"),
+                row.sp_before.clone(),
+                Some(Unit::Point),
+            );
+        }
+        if !row.sp_after.trim().is_empty() && !row.sp_after.eq_ignore_ascii_case("Inh") {
+            self.set_formula(
+                format!("Para.Row_{ix}.SpAfter"),
+                row.sp_after.clone(),
+                Some(Unit::Point),
+            );
         }
     }
 
@@ -1011,6 +1311,31 @@ pub fn default_unit_for_cell(canonical_key: &str) -> Option<Unit> {
         k if k.starts_with("actions.") && (k.ends_with(".menu") || k.ends_with(".tagname")) => {
             Some(Unit::String)
         }
+        k if k.starts_with("char.row_") && k.ends_with(".size") => Some(Unit::Point),
+        k if k.starts_with("char.row_") && k.ends_with(".color") => Some(Unit::Color),
+        k if k.starts_with("char.row_") && k.ends_with(".font") => Some(Unit::String),
+        k if k.starts_with("char.row_") && k.ends_with(".strikethru") => Some(Unit::Boolean),
+        k if k.starts_with("char.row_")
+            && (k.ends_with(".style") || k.ends_with(".pos") || k.ends_with(".case")) =>
+        {
+            Some(Unit::Number)
+        }
+        k if k.starts_with("para.row_")
+            && (k.ends_with(".horzalign") || k.ends_with(".bullet")) =>
+        {
+            Some(Unit::Number)
+        }
+        k if k.starts_with("para.row_")
+            && (k.ends_with(".indfirst") || k.ends_with(".indleft")) =>
+        {
+            Some(Unit::Inch)
+        }
+        k if k.starts_with("para.row_")
+            && (k.ends_with(".spbefore") || k.ends_with(".spafter")) =>
+        {
+            Some(Unit::Point)
+        }
+        k if k.starts_with("fields.row_") && k.ends_with(".format") => Some(Unit::String),
         _ => None,
     }
 }

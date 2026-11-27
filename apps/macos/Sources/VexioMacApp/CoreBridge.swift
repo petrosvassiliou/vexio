@@ -206,10 +206,12 @@ public enum VexioCanvasTool: String, CaseIterable, Identifiable, Sendable {
     case editVertices = "Edit Vertices"
     case inkEraser = "Ink Eraser"
     case connectionPoint = "Connection Points"
+    case textBlock = "Text Block"
+    case formatPainter = "Format Painter"
 
     public var id: String { rawValue }
 
-    /// Matches `NativeCanvasTool` C-ABI discriminant (`0..18`) in `vexio_viewport_set_tool`.
+    /// Matches `NativeCanvasTool` C-ABI discriminant (`0..20`) in `vexio_viewport_set_tool`.
     public var engineToolCode: UInt32 {
         switch self {
         case .pointer: return 0
@@ -231,6 +233,8 @@ public enum VexioCanvasTool: String, CaseIterable, Identifiable, Sendable {
         case .editVertices: return 16
         case .inkEraser: return 17
         case .connectionPoint: return 18
+        case .textBlock: return 19
+        case .formatPainter: return 20
         }
     }
 
@@ -255,6 +259,8 @@ public enum VexioCanvasTool: String, CaseIterable, Identifiable, Sendable {
         case .editVertices: return "point.3.connected.trianglepath.dotted"
         case .inkEraser: return "eraser"
         case .connectionPoint: return "plus.circle.dashed"
+        case .textBlock: return "textbox"
+        case .formatPainter: return "paintbrush.pointed"
         }
     }
 
@@ -279,6 +285,8 @@ public enum VexioCanvasTool: String, CaseIterable, Identifiable, Sendable {
         case .editVertices: return "⌥⌘E"
         case .inkEraser: return "⌥⌘7"
         case .connectionPoint: return "⌃⇧1"
+        case .textBlock: return "⌃⇧4"
+        case .formatPainter: return "⌃⇧P"
         }
     }
 
@@ -2888,6 +2896,154 @@ private final class NativeDocumentCore: @unchecked Sendable {
         return outCount
     }
 
+    // MARK: - v0.8.0-beta C-ABI Wrappers (Dynamic Fields, Arrowheads, Line Jumps, Ruler Guides, Snap & Glue, Find/Replace, Format Painter & Number Shapes)
+
+    func setConnectorArrowheads(pageId: UInt32, shapeIds: [UInt64], beginArrow: UInt8, endArrow: UInt8, arrowSize: UInt8) throws -> UInt32 {
+        lock.lock()
+        defer { lock.unlock() }
+        var outCount: UInt32 = 0
+        let status = shapeIds.withUnsafeBufferPointer { buf in
+            vexio_doc_set_connector_arrowheads(doc, pageId, buf.baseAddress, buf.count, beginArrow, endArrow, arrowSize, &outCount)
+        }
+        if let err = VexioBridgeError.from(status: status, context: "set_connector_arrowheads") {
+            throw err
+        }
+        return outCount
+    }
+
+    func setPageLineJumps(pageId: UInt32, jumpCode: UInt8, jumpStyle: UInt8, factorX: Double = 0.666, factorY: Double = 0.666) throws {
+        lock.lock()
+        defer { lock.unlock() }
+        let status = vexio_doc_set_page_line_jumps(doc, pageId, jumpCode, jumpStyle, factorX, factorY)
+        if let err = VexioBridgeError.from(status: status, context: "set_page_line_jumps") {
+            throw err
+        }
+    }
+
+    func insertTextField(pageId: UInt32, shapeId: UInt64, presetOrFormula: String, formatSpec: String, prefixLabel: String) throws -> UInt32 {
+        lock.lock()
+        defer { lock.unlock() }
+        var outIx: UInt32 = 0
+        let status = presetOrFormula.withCString { pCStr in
+            formatSpec.withCString { fCStr in
+                prefixLabel.withCString { lCStr in
+                    vexio_doc_insert_text_field(doc, pageId, shapeId, pCStr, fCStr, lCStr, &outIx)
+                }
+            }
+        }
+        if let err = VexioBridgeError.from(status: status, context: "insert_text_field") {
+            throw err
+        }
+        return outIx
+    }
+
+    func addRulerGuide(pageId: UInt32, isVertical: Bool, coordIn: Double) throws -> UInt64 {
+        lock.lock()
+        defer { lock.unlock() }
+        var outId: UInt64 = 0
+        let status = vexio_doc_add_ruler_guide(doc, pageId, isVertical, coordIn, &outId)
+        if let err = VexioBridgeError.from(status: status, context: "add_ruler_guide") {
+            throw err
+        }
+        return outId
+    }
+
+    func getSnapGlueJSON(pageId: UInt32) throws -> String {
+        lock.lock()
+        defer { lock.unlock() }
+        var outBuf = VexioOwnedBuffer(ptr: nil, len: 0, cap: 0)
+        let status = vexio_doc_get_snap_glue_json(doc, pageId, &outBuf)
+        if let err = VexioBridgeError.from(status: status, context: "get_snap_glue_json") {
+            vexio_buffer_free(outBuf)
+            throw err
+        }
+        return Self.consumeOwnedBufferAsUTF8(outBuf)
+    }
+
+    func setSnapGlue(pageId: UInt32, snapEnabled: Bool, glueEnabled: Bool, snapTargetsMask: UInt32, glueTypesMask: UInt32) throws {
+        lock.lock()
+        defer { lock.unlock() }
+        let status = vexio_doc_set_snap_glue(doc, pageId, snapEnabled, glueEnabled, snapTargetsMask, glueTypesMask)
+        if let err = VexioBridgeError.from(status: status, context: "set_snap_glue") {
+            throw err
+        }
+    }
+
+    func findJSON(activePageId: UInt32, query: String, matchCase: Bool, wholeWord: Bool, allPages: Bool) throws -> String {
+        lock.lock()
+        defer { lock.unlock() }
+        var outBuf = VexioOwnedBuffer(ptr: nil, len: 0, cap: 0)
+        let status = query.withCString { qCStr in
+            vexio_doc_find_json(doc, activePageId, qCStr, matchCase, wholeWord, allPages, &outBuf)
+        }
+        if let err = VexioBridgeError.from(status: status, context: "find_json") {
+            vexio_buffer_free(outBuf)
+            throw err
+        }
+        return Self.consumeOwnedBufferAsUTF8(outBuf)
+    }
+
+    func replaceInDocument(activePageId: UInt32, findStr: String, replaceStr: String, matchCase: Bool, wholeWord: Bool, allPages: Bool) throws -> UInt32 {
+        lock.lock()
+        defer { lock.unlock() }
+        var outCount: UInt32 = 0
+        let status = findStr.withCString { fCStr in
+            replaceStr.withCString { rCStr in
+                vexio_doc_replace(doc, activePageId, fCStr, rCStr, matchCase, wholeWord, allPages, &outCount)
+            }
+        }
+        if let err = VexioBridgeError.from(status: status, context: "replace_in_document") {
+            throw err
+        }
+        return outCount
+    }
+
+    func copyShapeFormatJSON(pageId: UInt32, shapeId: UInt64) throws -> String {
+        lock.lock()
+        defer { lock.unlock() }
+        var outBuf = VexioOwnedBuffer(ptr: nil, len: 0, cap: 0)
+        let status = vexio_doc_copy_shape_format_json(doc, pageId, shapeId, &outBuf)
+        if let err = VexioBridgeError.from(status: status, context: "copy_shape_format") {
+            vexio_buffer_free(outBuf)
+            throw err
+        }
+        return Self.consumeOwnedBufferAsUTF8(outBuf)
+    }
+
+    func applyFormatPainter(pageId: UInt32, targetIds: [UInt64], formatJSON: String) throws -> UInt32 {
+        lock.lock()
+        defer { lock.unlock() }
+        var outCount: UInt32 = 0
+        let status = targetIds.withUnsafeBufferPointer { idBuf in
+            formatJSON.withCString { fCStr in
+                vexio_doc_apply_format_painter(doc, pageId, idBuf.baseAddress, idBuf.count, fCStr, &outCount)
+            }
+        }
+        if let err = VexioBridgeError.from(status: status, context: "apply_format_painter") {
+            throw err
+        }
+        return outCount
+    }
+
+    func numberShapes(pageId: UInt32, shapeIds: [UInt64], orderMode: String, startNum: Int32, interval: Int32, prefix: String, targetMode: String) throws -> UInt32 {
+        lock.lock()
+        defer { lock.unlock() }
+        var outCount: UInt32 = 0
+        let status = shapeIds.withUnsafeBufferPointer { idBuf in
+            orderMode.withCString { oCStr in
+                prefix.withCString { pCStr in
+                    targetMode.withCString { tCStr in
+                        vexio_doc_number_shapes(doc, pageId, idBuf.baseAddress, idBuf.count, oCStr, startNum, interval, pCStr, tCStr, &outCount)
+                    }
+                }
+            }
+        }
+        if let err = VexioBridgeError.from(status: status, context: "number_shapes") {
+            throw err
+        }
+        return outCount
+    }
+
     func exportCustomStencilVssx(stencilTitle: String) throws -> Data {
         lock.lock()
         defer { lock.unlock() }
@@ -3491,7 +3647,7 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
         switch activeTool {
         case .pan:
             return engineCursorCode == 3 ? .closedHand : .openHand
-        case .connector, .line, .arc, .freeform, .rectangle, .roundedRect, .ellipse, .diamond, .triangle, .hexagon, .star, .ink, .highlighter, .editVertices, .inkEraser, .connectionPoint:
+        case .connector, .line, .arc, .freeform, .rectangle, .roundedRect, .ellipse, .diamond, .triangle, .hexagon, .star, .ink, .highlighter, .editVertices, .inkEraser, .connectionPoint, .textBlock, .formatPainter:
             if engineCursorCode == 0 || engineCursorCode == 2 {
                 return .crosshair
             }
@@ -4964,6 +5120,16 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
         fitViewportToActivePage()
         let title = pages.first(where: { $0.id == pageId })?.title ?? "Page-\(pageId)"
         statusMessage = "Active page: \(title)"
+    }
+
+    public func selectSingleShape(_ shapeId: UInt64) {
+        guard shapeId > 0 else { return }
+        selectedShapeId = shapeId
+        selectedShapeIds = [shapeId]
+        core.setSelectionIds([shapeId])
+        reloadSelectedShapeSheetCells()
+        syncSelectedShapeMetadataFromCore()
+        core.renderViewportFrame()
     }
 
     public func renamePage(pageId: UInt32, to rawNewName: String, undoManager: UndoManager?) {
@@ -6756,6 +6922,125 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
 
     public func exportCustomStencilVssxData(stencilTitle: String = "My Shapes") throws -> Data {
         try core.exportCustomStencilVssx(stencilTitle: stencilTitle)
+    }
+
+    // MARK: - v0.8.0-beta Public Session Actions
+
+    public func setSelectionArrowheads(beginArrow: UInt8, endArrow: UInt8, arrowSize: UInt8 = 2, undoManager: UndoManager? = nil) {
+        let ids = selectedShapeIds.isEmpty ? (selectedShapeId != 0 ? [selectedShapeId] : []) : selectedShapeIds
+        guard !ids.isEmpty else { return }
+        do {
+            let n = try core.setConnectorArrowheads(pageId: activePageId, shapeIds: ids, beginArrow: beginArrow, endArrow: endArrow, arrowSize: arrowSize)
+            registerJournalUndoStep(actionName: "Set Arrowheads", undoManager: undoManager)
+            reloadSelectedShapeSheetCells()
+            syncSelectedShapeMetadataFromCore()
+            core.renderViewportFrame()
+            statusMessage = "Updated arrowheads on \(n) shape(s)"
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    public func configurePageLineJumps(jumpCode: UInt8, jumpStyle: UInt8, undoManager: UndoManager? = nil) {
+        do {
+            try core.setPageLineJumps(pageId: activePageId, jumpCode: jumpCode, jumpStyle: jumpStyle)
+            registerJournalUndoStep(actionName: "Configure Line Jumps", undoManager: undoManager)
+            core.renderViewportFrame()
+            statusMessage = "Updated Page Line Jumps (code \(jumpCode), style \(jumpStyle))"
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    public func insertDynamicTextField(presetOrFormula: String, formatSpec: String = "", prefixLabel: String = "", undoManager: UndoManager? = nil) {
+        guard selectedShapeId > 0 else { return }
+        do {
+            let ix = try core.insertTextField(pageId: activePageId, shapeId: selectedShapeId, presetOrFormula: presetOrFormula, formatSpec: formatSpec, prefixLabel: prefixLabel)
+            registerJournalUndoStep(actionName: "Insert Dynamic Field", undoManager: undoManager)
+            reloadSelectedShapeSheetCells()
+            syncSelectedShapeMetadataFromCore()
+            core.renderViewportFrame()
+            statusMessage = "Inserted dynamic field #\(ix)"
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    public func addPageRulerGuide(isVertical: Bool, coordIn: Double? = nil, undoManager: UndoManager? = nil) {
+        let resolvedCoord = coordIn ?? (isVertical ? pageWidthIn * 0.5 : pageHeightIn * 0.5)
+        do {
+            let gid = try core.addRulerGuide(pageId: activePageId, isVertical: isVertical, coordIn: resolvedCoord)
+            registerJournalUndoStep(actionName: "Add Ruler Guide", undoManager: undoManager)
+            core.renderViewportFrame()
+            statusMessage = String(format: "Added %@ Guide (#%llu) at %.2f in", isVertical ? "Vertical" : "Horizontal", gid, resolvedCoord)
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    public func readSnapGlueTuple() -> (Bool, Bool, UInt32, UInt32) {
+        guard let raw = try? core.getSnapGlueJSON(pageId: activePageId),
+              let data = raw.data(using: .utf8),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else {
+            return (true, true, 0x7F, 0x0F)
+        }
+        let se = (obj["snapEnabled"] as? Bool) ?? true
+        let ge = (obj["glueEnabled"] as? Bool) ?? true
+        let st = UInt32((obj["snapTargetsMask"] as? Int) ?? 0x7F)
+        let gt = UInt32((obj["glueTypesMask"] as? Int) ?? 0x0F)
+        return (se, ge, st, gt)
+    }
+
+    public func applySnapGlueSettings(snapEnabled: Bool, glueEnabled: Bool, snapTargetsMask: UInt32, glueTypesMask: UInt32, undoManager: UndoManager? = nil) {
+        do {
+            try core.setSnapGlue(pageId: activePageId, snapEnabled: snapEnabled, glueEnabled: glueEnabled, snapTargetsMask: snapTargetsMask, glueTypesMask: glueTypesMask)
+            registerJournalUndoStep(actionName: "Configure Snap & Glue", undoManager: undoManager)
+            core.renderViewportFrame()
+            statusMessage = "Updated Snap & Glue matrix"
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    public func searchDocumentMatches(query: String, matchCase: Bool, wholeWord: Bool, allPages: Bool) -> [[String: Any]] {
+        guard let raw = try? core.findJSON(activePageId: activePageId, query: query, matchCase: matchCase, wholeWord: wholeWord, allPages: allPages),
+              let data = raw.data(using: .utf8),
+              let arr = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]]
+        else {
+            return []
+        }
+        return arr
+    }
+
+    public func replaceDocumentMatches(findStr: String, replaceStr: String, matchCase: Bool, wholeWord: Bool, allPages: Bool, undoManager: UndoManager? = nil) -> UInt32 {
+        do {
+            let count = try core.replaceInDocument(activePageId: activePageId, findStr: findStr, replaceStr: replaceStr, matchCase: matchCase, wholeWord: wholeWord, allPages: allPages)
+            if count > 0 {
+                registerJournalUndoStep(actionName: "Find & Replace", undoManager: undoManager)
+                reloadSelectedShapeSheetCells()
+                syncSelectedShapeMetadataFromCore()
+                core.renderViewportFrame()
+            }
+            statusMessage = "Replaced \(count) occurrence(s)"
+            return count
+        } catch {
+            statusMessage = error.localizedDescription
+            return 0
+        }
+    }
+
+    public func numberShapesOnActivePage(orderMode: String, startNum: Int32, interval: Int32, prefix: String, targetMode: String, undoManager: UndoManager? = nil) {
+        do {
+            let count = try core.numberShapes(pageId: activePageId, shapeIds: selectedShapeIds, orderMode: orderMode, startNum: startNum, interval: interval, prefix: prefix, targetMode: targetMode)
+            registerJournalUndoStep(actionName: "Number Shapes", undoManager: undoManager)
+            reloadSelectedShapeSheetCells()
+            syncSelectedShapeMetadataFromCore()
+            core.renderViewportFrame()
+            statusMessage = "Numbered \(count) shape(s)"
+        } catch {
+            statusMessage = error.localizedDescription
+        }
     }
 }
 
