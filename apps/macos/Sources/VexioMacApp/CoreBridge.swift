@@ -3331,7 +3331,7 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
         switch activeTool {
         case .pan:
             return engineCursorCode == 3 ? .closedHand : .openHand
-        case .connector, .line, .arc, .freeform, .rectangle, .roundedRect, .ellipse, .diamond, .triangle, .hexagon, .star, .ink, .highlighter:
+        case .connector, .line, .arc, .freeform, .rectangle, .roundedRect, .ellipse, .diamond, .triangle, .hexagon, .star, .ink, .highlighter, .editVertices, .inkEraser:
             if engineCursorCode == 0 || engineCursorCode == 2 {
                 return .crosshair
             }
@@ -6325,7 +6325,12 @@ public final class VexioDocumentSession: ReferenceFileDocument, ObservableObject
         do {
             if createNewPage {
                 let pTitle = newPageTitle.isEmpty ? wizardSlug.uppercased() : newPageTitle
-                insertNewPage(named: pTitle, undoManager: undoManager)
+                if let createdPageId = try? core.addPage(name: pTitle), createdPageId != 0 {
+                    pages.append(VexioPageSummary(id: createdPageId, title: pTitle))
+                    activePageId = createdPageId
+                } else {
+                    addNewPage()
+                }
             }
             let resJson = try core.runDomainWizard(pageId: activePageId, wizardSlug: wizardSlug, spec: specText)
             registerJournalUndoStep(actionName: "Domain Wizard (\(wizardSlug))", undoManager: undoManager)

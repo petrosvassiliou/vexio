@@ -249,6 +249,24 @@ public struct VexioWorkspaceView: View {
                     isSlideSnippetsSheetPresented = false
                 }
             }
+            .sheet(
+                isPresented: Binding(
+                    get: { pageSetupSheetPageId != nil },
+                    set: { if !$0 { pageSetupSheetPageId = nil } }
+                )
+            ) {
+                if let pid = pageSetupSheetPageId {
+                    VexioPageSetupSheet(
+                        session: session,
+                        pageId: pid,
+                        onClose: { pageSetupSheetPageId = nil }
+                    )
+                }
+            }
+    }
+
+    private var workspaceWithMilestone1Sheets: some View {
+        workspaceGeometryContent
             .sheet(isPresented: $isVbaStudioSheetPresented) {
                 VexioVbaMacroStudioSheet(session: session) {
                     isVbaStudioSheetPresented = false
@@ -277,24 +295,10 @@ public struct VexioWorkspaceView: View {
                     isCadToolsSheetPresented = false
                 }
             }
-            .sheet(
-                isPresented: Binding(
-                    get: { pageSetupSheetPageId != nil },
-                    set: { if !$0 { pageSetupSheetPageId = nil } }
-                )
-            ) {
-                if let pid = pageSetupSheetPageId {
-                    VexioPageSetupSheet(
-                        session: session,
-                        pageId: pid,
-                        onClose: { pageSetupSheetPageId = nil }
-                    )
-                }
-            }
     }
 
-    private var workspaceWithNotifications: some View {
-        workspaceGeometryContent
+    private var workspaceWithLifecycleNotifications: some View {
+        workspaceWithMilestone1Sheets
             .onAppear {
                 if let fileURL {
                     session.openLocalFile(from: fileURL)
@@ -350,6 +354,10 @@ public struct VexioWorkspaceView: View {
             .onReceive(NotificationCenter.default.publisher(for: .vexioOpenBordersAndTitlesSheet)) { _ in
                 isBordersAndTitlesSheetPresented = true
             }
+    }
+
+    private var workspaceWithNotifications: some View {
+        workspaceWithLifecycleNotifications
             .onReceive(NotificationCenter.default.publisher(for: .vexioOpenMarkupStudioSheet)) { _ in
                 isMarkupStudioSheetPresented = true
             }

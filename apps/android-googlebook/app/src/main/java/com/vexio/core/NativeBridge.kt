@@ -5507,7 +5507,7 @@ class VexioSessionViewModel(
                     "Executed $stmts statements ($gas gas) in deterministic sandbox"
                 }
             }.getOrDefault(summary)
-            syncStateFromNative()
+            refreshSelectedShapeFormulas()
             presentViewportOrFallback()
         } else {
             val cellRegex = Regex("""Cells\("([^"]+)"\)\.(?:FormulaU|Formula)\s*=\s*"((?:""|[^"])*)"""")
@@ -5725,7 +5725,7 @@ class VexioSessionViewModel(
         val pid = resolveNativePageId(_uiState.value.activePageId)
         val rawResult = if (NativeBridge.isNativeAvailable && docPtr != 0L) {
             val out = NativeBridge.nativeRunDomainWizard(docPtr, pid, slug, spec).orEmpty()
-            syncStateFromNative()
+            refreshSelectedShapeFormulas()
             presentViewportOrFallback()
             out
         } else if (slug == "sql_forward") {
